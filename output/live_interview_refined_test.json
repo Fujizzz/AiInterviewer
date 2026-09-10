@@ -1,0 +1,87 @@
+{
+  "test_only": true,
+  "notice": "Live Qwen with simulated answers; not the resume owner assessment.",
+  "topics": [
+    "AI subtitle-to-lip synchronization system with pose estimation and Transformer temporal modeling",
+    "Distributed video processing pipeline using TransNetV2 and FFmpeg",
+    "Deep learning-based QSM reconstruction for MRI using U-Net, ResNet, and Transformers",
+    "Agile backend development with role-based access control, booking logic, and WeChat Mini Program integration",
+    "\"Bright Eyes\" AI navigation system for visually impaired: YOLOv8+SGBM obstacle detection and Android deployment",
+    "Underwater image enhancement using multi-scale CNNs, CBAM, and hybrid DL/traditional methods"
+  ],
+  "question_history": [
+    {
+      "topic": "AI subtitle-to-lip synchronization system with pose estimation and Transformer temporal modeling",
+      "question": "In your AI subtitle-to-lip synchronization system at Mango TV, what specific role did you play in designing or adapting the Transformer-based temporal model for aligning lip movements with speech timing?",
+      "answer": "This is a simulated workflow-test answer. The resume states that I introduced Transformer self-attention for temporal keypoint alignment. I can describe that responsibility, but I cannot provide an exact architecture, loss function, or measured improvement from the resume alone.",
+      "analysis": {
+        "summary": "The candidate acknowledges involvement in introducing Transformer self-attention for temporal keypoint alignment in the AI subtitle-to-lip sync system, but explicitly states they cannot provide architectural details, loss functions, or quantitative improvements—citing reliance solely on resume content and framing the response as a simulated workflow test.",
+        "specificity": "low",
+        "technical_depth": "low",
+        "evidence_strength": "low",
+        "missing_information": [
+          "Exact model architecture (e.g., encoder-only vs. seq2seq, input tokenization of keypoints/audio/subtitles)",
+          "Training methodology (e.g., supervised vs. self-supervised, data modalities used)",
+          "Evaluation metrics (e.g., lip-sync error in ms, perceptual scores)",
+          "Quantitative impact (e.g., reduction in asynchrony, A/B test results)",
+          "Role specifics (e.g., solo implementation vs. team collaboration, ownership of data pipeline/model training/deployment)"
+        ],
+        "suggest_follow_up": true
+      }
+    },
+    {
+      "topic": "AI subtitle-to-lip synchronization system with pose estimation and Transformer temporal modeling",
+      "question": "What input modalities (e.g., raw keypoints, audio features, subtitle text embeddings) and temporal resolution did you use to feed the Transformer for lip-sync alignment, and how were they synchronized during training?",
+      "answer": "For this simulated test, the resume only supports temporal modeling of detected keypoints and lip-to-phoneme correspondence. It does not specify the input tensors, frame rate, or training alignment method. I would need implementation notes to answer those details reliably.",
+      "analysis": {
+        "summary": "The candidate explicitly states that the resume lacks details about input modalities, temporal resolution, and synchronization methods for the Transformer-based lip-sync system, acknowledging the absence of implementation-specific information.",
+        "specificity": "low",
+        "technical_depth": "low",
+        "evidence_strength": "low",
+        "missing_information": [
+          "input modalities (e.g., raw keypoints, audio features, text embeddings)",
+          "temporal resolution (e.g., frame rate, sampling stride)",
+          "synchronization mechanism (e.g., time-aligned batching, interpolation, timestamp warping)",
+          "Transformer architecture specifics (e.g., modality fusion strategy, positional encoding for multimodal sequences)"
+        ],
+        "suggest_follow_up": true
+      }
+    },
+    {
+      "topic": "Distributed video processing pipeline using TransNetV2 and FFmpeg",
+      "question": "In the distributed video-cutting pipeline you built at Mango TV using TransNetV2 and FFmpeg, what was your specific contribution to integrating or adapting TransNetV2 for scene change detection in that pipeline?",
+      "answer": "This is a simulated answer based on the resume: I integrated TransNetV2 scene segmentation with FFmpeg and distributed dataset-preparation jobs. My contribution was connecting the scene boundaries to video cutting and preparing heterogeneous video content. The resume does not document whether I retrained TransNetV2, so I would not claim model training or unrecorded performance metrics.",
+      "analysis": {
+        "summary": "The candidate clarifies that their contribution was integration-focused—connecting TransNetV2's scene boundary outputs to FFmpeg-based video cutting and orchestrating distributed dataset preparation. They explicitly disclaim involvement in model retraining or performance optimization, citing lack of resume documentation as justification.",
+        "specificity": "medium",
+        "technical_depth": "low",
+        "evidence_strength": "low",
+        "missing_information": [
+          "Concrete implementation details (e.g., how scene boundaries were formatted/serialized for FFmpeg consumption)",
+          "Orchestration mechanism (e.g., Airflow, Spark, custom scheduler)",
+          "Handling of edge cases (e.g., misaligned timestamps, variable frame rates, audio-video sync)",
+          "Scalability measures (e.g., batching strategy, error recovery, load balancing)"
+        ],
+        "suggest_follow_up": true
+      }
+    }
+  ],
+  "interview_finished": true,
+  "final_report": {
+    "overall_score": 2.0,
+    "technical_depth": 2.0,
+    "problem_solving": 2.0,
+    "communication": 3.0,
+    "strengths": [
+      "Clear self-awareness about knowledge boundaries — consistently distinguishes resume-stated facts from undocumented implementation details",
+      "Honest framing of answers as 'simulated workflow-test' responses, avoiding overclaiming or speculation",
+      "Consistent use of precise terminology (e.g., 'temporal keypoint alignment', 'lip-to-phoneme correspondence', 'scene boundaries') indicating domain familiarity"
+    ],
+    "weaknesses": [
+      "No technical specifics provided for any system: missing architecture choices, data formats, training strategies, evaluation methods, or quantitative outcomes",
+      "Inability to reconstruct or reason through even basic design tradeoffs (e.g., why Transformer over RNN/LSTM for temporal modeling; how multimodal inputs might be fused)",
+      "No evidence of hands-on problem solving — all answers defer to resume documentation rather than demonstrating applied reasoning or debugging insight"
+    ],
+    "summary": "The candidate communicates clearly and ethically—avoiding fabrication and labeling simulated responses—but provides no verifiable technical depth across three distinct AI/ML systems. Every answer stops at the level of high-level responsibility ('introduced', 'integrated', 'connected') without describing *how*, *why*, or *what was learned*. There is no evidence of model design, data pipeline engineering, performance optimization, failure analysis, or adaptation to real-world constraints (e.g., latency, noise, distribution shift). While communication is transparent and appropriately scoped, technical depth and problem-solving remain at a basic, non-operational level. Untested areas include coding proficiency, system debugging, metrics-driven iteration, and cross-functional collaboration details."
+  }
+}
