@@ -5,7 +5,7 @@
  * 方法：Blob 异步转换、不同尺寸载荷、逐字节校验；进度必须先于连接关闭出现。
  */
 import assert from "node:assert/strict";
-import { StreamClient } from "../diagnostics/web/stream-client.js";
+import { StreamClient } from "../frontend/stream-client.js";
 
 const base = process.env.TEST_BASE_URL;
 assert.ok(base, "TEST_BASE_URL is required");

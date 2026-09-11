@@ -15,9 +15,9 @@
 | 7 | `interviews/streaming/protocol.py` | `EchoState` 校验模式、序号、容量、校验计数；生成响应 |
 | 8 | `interviews/streaming/websocket.py` | 接收循环、消息调度、ACK/二进制发送和异常关闭 |
 | 9 | `interviews/demo.py` | 测试页资源白名单和禁止缓存响应 |
-| 10 | `diagnostics/web/stream-client.js` | 请求关联、超时、SHA-256 校验、完成确认和取消 |
-| 11 | `diagnostics/web/media.js` | 媒体来源、录制、串行分片队列及资源释放 |
-| 12 | `diagnostics/web/view.js`、`app.js` | DOM 与 Blob URL 管理；按钮、测试流程和页面生命周期 |
+| 10 | `frontend/stream-client.js` | 请求关联、超时、SHA-256 校验、完成确认和取消 |
+| 11 | `frontend/media.js` | 媒体来源、录制、串行分片队列及资源释放 |
+| 12 | `frontend/view.js`、`app.js` | DOM 与 Blob URL 管理；按钮、测试流程和页面生命周期 |
 | 13 | `interviews/tests/`、`tests/` | 业务与协议边界、客户端失败语义、真实服务联调 |
 
 ## 两条数据路径

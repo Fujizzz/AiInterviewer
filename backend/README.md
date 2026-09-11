@@ -66,7 +66,7 @@ backend/
     streaming/            协议状态校验与 ASGI 连接管理
     migrations/           Schema 与初始题目
     tests/                Django / ASGI 测试
-  diagnostics/web/        后端流式诊断页，不是产品前端
+  frontend/               app 调度、view 展示、media 采集、stream-client 协议
   docs/                   Schema、协议与测试说明
   tests/                  Node 客户端测试、真实服务器联调
   tools/check_docs.py     文件目录与函数注释覆盖检查
@@ -95,7 +95,6 @@ python -s tests/run_e2e.py
 - 浏览器仅保留当前回放的临时 Blob URL，点击“清空结果与媒体缓存”、开始下一次测试或离开页面时释放。没有 localStorage、IndexedDB、下载或文件写入逻辑。
 - verified_chunks 是客户端报告的校验数量，属于诊断指标，不是对恶意客户端的可信证明。
 - 本目录尚未调用根目录的 Agent MVP，也未提供语音识别、视频存储、WebRTC 或 MySQL 适配；既有 Agent 评分与策略仍由根目录模块负责。
-- 后续接口对接只调用 Agent 公共 Service 并复用 `shared/contracts/`；不要导入 Agent 内部策略或领域对象。
 
 ## 协议参考
 

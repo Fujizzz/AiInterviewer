@@ -50,7 +50,7 @@
 - `interviews/api/`：REST 序列化、视图与路由；
 - `interviews/streaming/`：内存中的 WebSocket 分片回传协议；
 - `interviews/tests/`：Django/ASGI 测试；
-- `diagnostics/web/`：后端团队自有的流式诊断页，不是产品前端；
+- `frontend/`：后端团队自有的流式诊断页，与根目录的产品前端分开；
 - `docs/`、`tests/`、`tools/`：后端文档、联调测试和检查工具。
 
 当前后端仍未调用 Agent 决策流程，后续对接应通过公共 Service 和

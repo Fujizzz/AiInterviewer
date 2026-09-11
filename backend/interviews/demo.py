@@ -28,7 +28,7 @@ def demo_asset(request, name):
         ".css": "text/css",
     }[Path(name).suffix]
     response = HttpResponse(
-        (settings.BASE_DIR / "diagnostics" / "web" / name).read_bytes(),
+        (settings.BASE_DIR / "frontend" / name).read_bytes(),
         content_type=content_type,
     )
     response["Cache-Control"] = "no-store"

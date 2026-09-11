@@ -6,7 +6,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { StreamClient, sha256 } from "../diagnostics/web/stream-client.js";
+import { StreamClient, sha256 } from "../frontend/stream-client.js";
 
 /** 构造仅支持关闭和缓冲状态的连接替身，用于隔离测试客户端状态逻辑。 */
 function connectedClient() {
