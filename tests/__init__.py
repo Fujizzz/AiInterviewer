@@ -1,1 +1,1 @@
-"""Make the test helpers and smoke-test runners importable as a package."""
+"""Test suite for the independently runnable Agent core."""

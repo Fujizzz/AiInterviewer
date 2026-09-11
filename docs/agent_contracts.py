@@ -1,0 +1,66 @@
+"""Compatibility import for the original contract draft location.
+
+The executable source of truth now lives in ``shared.contracts`` and the four
+Protocols live in ``agents.ports``. Existing draft imports remain valid here.
+"""
+
+from agents.ports import EvaluationPort, InterviewRepositoryPort, LLMPort, RAGPort
+from shared.contracts import (
+    CONTRACT_VERSION,
+    CandidateAnswer,
+    CandidateClaim,
+    CandidateProfile,
+    CandidateProject,
+    Competency,
+    CompetencyState,
+    DecisionTrace,
+    EvaluationFeedback,
+    EvaluationRequest,
+    InitializeInterviewRequest,
+    InitializeInterviewResponse,
+    InterviewAction,
+    InterviewActionType,
+    InterviewPlan,
+    InterviewStage,
+    InterviewState,
+    JobProfile,
+    PlannedQuestion,
+    QuestionType,
+    RetrievalRequest,
+    RetrievalResponse,
+    RetrievalSource,
+    RetrievedChunk,
+    StagePlan,
+)
+
+__all__ = [
+    "CONTRACT_VERSION",
+    "CandidateAnswer",
+    "CandidateClaim",
+    "CandidateProfile",
+    "CandidateProject",
+    "Competency",
+    "CompetencyState",
+    "DecisionTrace",
+    "EvaluationFeedback",
+    "EvaluationPort",
+    "EvaluationRequest",
+    "InitializeInterviewRequest",
+    "InitializeInterviewResponse",
+    "InterviewAction",
+    "InterviewActionType",
+    "InterviewPlan",
+    "InterviewRepositoryPort",
+    "InterviewStage",
+    "InterviewState",
+    "JobProfile",
+    "LLMPort",
+    "PlannedQuestion",
+    "QuestionType",
+    "RAGPort",
+    "RetrievalRequest",
+    "RetrievalResponse",
+    "RetrievalSource",
+    "RetrievedChunk",
+    "StagePlan",
+]

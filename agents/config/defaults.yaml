@@ -1,0 +1,70 @@
+agent:
+  policy_config_version: agent-policy-v1
+  max_consecutive_probes: 3
+  min_question_difficulty: 1
+  max_question_difficulty: 5
+  initial_question_difficulty: 2
+  minimum_interview_seconds: 600
+  default_stage_fit: 1.0
+
+  competency_selector:
+    importance_weight: 0.35
+    coverage_weight: 0.30
+    confidence_weight: 0.25
+    stage_fit_weight: 0.10
+    recency_penalty_weight: 0.15
+    anchor_bonus: 0.30
+
+  target:
+    default_coverage: 0.75
+    default_confidence: 0.70
+
+  difficulty:
+    strong_evidence_threshold: 0.80
+    strong_confidence_threshold: 0.75
+    strong_relevance_threshold: 0.80
+    weak_evidence_threshold: 0.35
+    minimum_relevance_to_decrease: 0.70
+
+  probe:
+    minimum_remaining_seconds: 60
+
+  redundancy:
+    maximum_key_occurrences: 1
+
+  project_selector:
+    competency_relevance_weight: 0.50
+    job_relevance_weight: 0.30
+    unverified_claim_weight: 0.20
+    visit_penalty_weight: 0.25
+    visits_until_full_penalty: 3
+
+  retrieval:
+    candidate_top_k: 4
+    technical_top_k: 5
+    question_top_k: 3
+    job_top_k: 3
+
+  context:
+    candidate_chunks: 4
+    technical_chunks: 5
+    question_chunks: 3
+    job_chunks: 3
+    recent_questions: 3
+    recent_feedback: 3
+
+  question_validation:
+    minimum_words: 4
+    maximum_words: 70
+    maximum_question_marks: 1
+
+  timeouts:
+    rag_seconds: 2.0
+    evaluation_seconds: 5.0
+    llm_planning_seconds: 5.0
+    llm_generation_seconds: 5.0
+    repository_seconds: 1.0
+
+  retries:
+    llm_generation_retries: 1
+    state_conflict_recomputations: 1
