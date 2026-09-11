@@ -1,22 +1,56 @@
-# AI Interviewer MVP
+# AI Interviewer
 
-## 功能
+远端可运行 MVP 已与本地确定性 Agent 核心合并。当前应用保留简历读取、OpenAI/千问接入和终端交互，同时以 `InterviewAgentService` 作为唯一面试决策中心。
 
-- 读取 TXT、文本型 PDF 简历，提取候选人信息和面试主题。
-- 终端问答，支持暂停恢复、追问、换主题和题数限制。
-- 分析回答，生成 1–5 分评价及 JSON 报告。
-- 支持千问、OpenAI；提供离线测试。会话仅保存在内存中。
+## 当前能力
 
-## 运行
+- 读取 UTF-8 TXT 和文本型 PDF 简历；
+- 将简历转换为版本化 `CandidateProfile`、结构化项目和可核验 claims；
+- 根据标准能力空间选择 competency、project、topic、difficulty 和 probe depth；
+- Planner、Generator、Validator、Fallback 分层生成问题；
+- 对每轮回答提取 relevance、evidence strength、confidence 和 rubric level；
+- 原子提交状态、问题、反馈和决策日志，重复反馈保持幂等；
+- 按岗位能力权重在代码中计算最终分数，LLM 仅负责报告文字；
+- 支持 OpenAI 和千问 DashScope；
+- 输出问题历史、能力状态、决策日志和 JSON 报告。
 
-在项目目录执行（已有 `.venv` 可跳过创建）：
+## 架构
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```text
+TXT / PDF resume
+       ↓
+MVP application shell (app/)
+       ↓
+canonical contracts (shared/contracts/)
+       ↓
+InterviewAgentService (agents/)
+       ├── deterministic policies
+       ├── LLMPort → OpenAI / Qwen adapter
+       ├── EvaluationPort → evidence adapter
+       ├── RAGPort → optional adapter
+       └── RepositoryPort → in-memory MVP adapter
 ```
 
-在 `.env` 中配置千问；密钥已设为系统环境变量时可省略密钥行：
+旧版 LangGraph 流程、旧 `TypedDict` 状态和独立问题路由已移除，避免出现两个决策中心。
+
+## 安装
+
+推荐使用 `uv`：
+
+```bash
+uv sync --extra dev
+```
+
+也可使用 pip：
+
+```bash
+python -m venv .venv
+python -m pip install -r requirements.txt
+```
+
+## 模型配置
+
+千问：
 
 ```dotenv
 LLM_PROVIDER=dashscope
@@ -24,13 +58,51 @@ DASHSCOPE_MODEL=qwen-plus
 DASHSCOPE_API_KEY=你的密钥
 ```
 
-启动后按提示回答，按 `Ctrl+C` 退出：
+OpenAI：
 
-```powershell
-.\.venv\Scripts\python.exe -X utf8 main.py Wang_Shunyao_CV.pdf
+```dotenv
+LLM_PROVIDER=openai
+OPENAI_MODEL=你的模型
+OPENAI_API_KEY=你的密钥
 ```
 
-可换成自己的 TXT/PDF 路径；默认最多 5 题，每个主题最多追问 2 次。
-使用 OpenAI 时设置 `LLM_PROVIDER=openai`、`OPENAI_API_KEY`、`OPENAI_MODEL`。
+## 运行
 
+```bash
+uv run python main.py resume.pdf \
+  --max-questions 5 \
+  --max-follow-up-per-topic 2 \
+  --job-title "AI Engineer"
+```
 
+不提供 `--job-title` 时使用通用 AI / 软件工程岗位和均衡能力权重。
+
+## 测试
+
+```bash
+uv run pytest -q
+uv run ruff check .
+python -m tests.smoke_interview
+```
+
+离线测试不会调用真实模型。`tests/live_interview.py` 是需要主动运行的真实 API 测试入口。
+
+## 已知边界
+
+- PDF 只支持可提取文本，不包含 OCR；
+- MVP Repository 仍是内存实现，关闭进程后状态不会保留；
+- RAG 端口和数据库端口已定义，生产适配器仍需由对应模块接入；
+- 最终报告是辅助评估结果，不应直接作为自动化录用决定。
+
+## 回滚点
+
+合并前的本地 Agent 原始版本保存在：
+
+- 分支：`codex/local-pre-mvp-merge-20260911`
+- 标签：`local-pre-mvp-merge-20260911`
+
+查看原始版本：
+
+```bash
+git switch codex/local-pre-mvp-merge-20260911
+```

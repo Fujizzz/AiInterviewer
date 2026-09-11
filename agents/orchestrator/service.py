@@ -149,8 +149,7 @@ class InterviewAgentService:
             plan=plan,
             state=state,
             current_difficulty={
-                competency: self._settings.initial_question_difficulty
-                for competency in Competency
+                competency: self._settings.initial_question_difficulty for competency in Competency
             },
             anchor_state={
                 competency: AnchorState()
@@ -178,13 +177,21 @@ class InterviewAgentService:
         self,
         interview_id: str,
         feedback: EvaluationFeedback,
+        *,
+        elapsed_seconds: int = 0,
     ) -> InterviewAction:
+        if elapsed_seconds < 0:
+            raise InvalidAgentState("elapsed_seconds must be nonnegative")
         self._validate_contract_version(feedback.contract_version)
         self._validate_contract_version(feedback.updated_competency_state.contract_version)
         processed = await self._get_processed_action(interview_id, feedback.request_id)
         if processed is not None:
             return processed
-        return await self._run_turn(interview_id, feedback=feedback)
+        return await self._run_turn(
+            interview_id,
+            feedback=feedback,
+            elapsed_seconds=elapsed_seconds,
+        )
 
     def replay_decision(self, context: InterviewContext) -> PolicyReplayResult:
         """Recompute deterministic policy fields for debugging and comparison."""
@@ -196,6 +203,7 @@ class InterviewAgentService:
         interview_id: str,
         *,
         feedback: EvaluationFeedback | None = None,
+        elapsed_seconds: int = 0,
     ) -> InterviewAction:
         maximum_recomputations = self._settings.retries.state_conflict_recomputations
         for attempt in range(maximum_recomputations + 1):
@@ -206,7 +214,11 @@ class InterviewAgentService:
                     return processed
             context = await self._get_context(interview_id)
             if feedback is not None:
-                context = await self._context_after_feedback(context, feedback)
+                context = await self._context_after_feedback(
+                    context,
+                    feedback,
+                    elapsed_seconds=elapsed_seconds,
+                )
             try:
                 return await self._decide_and_commit(
                     context,
@@ -229,6 +241,8 @@ class InterviewAgentService:
         self,
         context: InterviewContext,
         feedback: EvaluationFeedback,
+        *,
+        elapsed_seconds: int,
     ) -> InterviewContext:
         state = context.state
         if feedback.question_id not in state.asked_question_ids:
@@ -244,8 +258,13 @@ class InterviewAgentService:
             operation="load feedback question",
         )
         updated = context.model_copy(deep=True)
-        updated.current_difficulty[feedback.target_competency] = (
-            self._difficulty_controller.adjust(current_question.difficulty, feedback)
+        updated.state.elapsed_seconds += elapsed_seconds
+        updated.state.remaining_seconds = max(
+            0,
+            updated.state.remaining_seconds - elapsed_seconds,
+        )
+        updated.current_difficulty[feedback.target_competency] = self._difficulty_controller.adjust(
+            current_question.difficulty, feedback
         )
         competency_state = feedback.updated_competency_state.model_copy(deep=True)
         if competency_state.last_asked_at_question_index is None:
@@ -261,9 +280,7 @@ class InterviewAgentService:
             *updated.recent_feedback,
             feedback.model_copy(deep=True),
         ]
-        updated.recent_feedback = (
-            feedback_history[-feedback_limit:] if feedback_limit else []
-        )
+        updated.recent_feedback = feedback_history[-feedback_limit:] if feedback_limit else []
         anchor = updated.anchor_state.get(feedback.target_competency)
         if anchor is not None and anchor.asked and anchor.question_id == feedback.question_id:
             anchor.completed = True
@@ -585,9 +602,7 @@ class InterviewAgentService:
             type=InterviewActionType.FINISH,
             from_stage=state.stage,
             to_stage=InterviewStage.FINISHED,
-            decision_trace=DecisionTrace(
-                reason_code=self._termination_policy.reason_code(state)
-            ),
+            decision_trace=DecisionTrace(reason_code=self._termination_policy.reason_code(state)),
         )
         log = self._decision_log(
             action,
@@ -660,9 +675,7 @@ class InterviewAgentService:
             competency_priorities={
                 competency.value: priority for competency, priority in (priorities or {}).items()
             },
-            selected_project=(
-                action.question.project_id if action.question is not None else None
-            ),
+            selected_project=(action.question.project_id if action.question is not None else None),
             selected_project_id=(
                 action.question.project_id if action.question is not None else None
             ),
@@ -856,8 +869,7 @@ class InterviewAgentService:
             raise
         except Exception as error:
             raise RepositoryUnavailable(
-                f"Repository failed while attempting to {operation}: "
-                f"{type(error).__name__}"
+                f"Repository failed while attempting to {operation}: {type(error).__name__}"
             ) from error
 
     def _build_plan(
@@ -875,12 +887,10 @@ class InterviewAgentService:
             stages=self._allocate_stage_budgets(request.duration_seconds, enabled_stages),
             competency_importance=importance,
             target_coverage={
-                competency: self._settings.target.default_coverage
-                for competency in Competency
+                competency: self._settings.target.default_coverage for competency in Competency
             },
             target_confidence={
-                competency: self._settings.target.default_confidence
-                for competency in Competency
+                competency: self._settings.target.default_confidence for competency in Competency
             },
             max_consecutive_probes=self._settings.max_consecutive_probes,
         )

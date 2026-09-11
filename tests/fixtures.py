@@ -1,51 +1,72 @@
-"""Provide canned, schema-validated model outputs for offline workflow tests."""
-from app.agents.answer_analyzer import AnswerAnalysis
-from app.agents.evaluator import FinalReport
-from app.agents.question_agent import QuestionOutput
-from app.agents.resume_parser import ResumeOutput
+"""Schema-validated provider fixture for the integrated MVP tests."""
+
+from app.adapters.evaluation import AnswerEvidence
+from app.adapters.llm import GeneratedText
+from app.agents.evaluator import ReportNarrative
+from app.agents.resume_parser import ResumeExtraction
 
 
 class FixtureLLM:
-    def __init__(self, follow_up=True):
-        """Configure follow-up behavior and initialize the model-call log."""
-        self.follow_up = follow_up
+    def __init__(self) -> None:
         self.calls = []
 
     def __call__(self, prompt, data, schema):
-        """Return a canned response for the requested schema and record the call."""
         self.calls.append((schema, data))
-        if schema is ResumeOutput:
+        if schema is ResumeExtraction:
             topics = ["Book Recommendation System", "Log Analysis Pipeline"]
             assert all(topic in data["resume_text"] for topic in topics)
-            output = {"candidate_profile": {
-                "name": "Alex Chen", "skills": ["Python", "SQL", "pandas", "scikit-learn", "pytest"],
-                "experiences": [], "projects": topics,
-            }, "topics": topics}
-        elif schema is QuestionOutput:
-            topic = data["current_topic"]
-            count = data["follow_up_count"]
-            questions = [
-                f"What was your specific contribution to {topic}?",
-                f"Why did you choose that approach for {topic}?",
-                f"How did you validate the implementation of {topic}?",
-            ]
-            output = {"current_question": questions[count] if count < 3 else
-                      f"What would you improve in {topic} in iteration {count}?"}
-        elif schema is AnswerAnalysis:
             output = {
-                "summary": "Fixture evidence: " + data["answer"],
-                "specificity": "medium", "technical_depth": "medium",
-                "evidence_strength": "medium", "missing_information": ["Design tradeoffs"],
-                "suggest_follow_up": self.follow_up,
+                "candidate_name": "Alex Chen",
+                "skills": ["Python", "SQL", "pandas", "scikit-learn", "pytest"],
+                "projects": [
+                    {
+                        "name": topics[0],
+                        "domain": "recommendation systems",
+                        "description": "Built an item-based book recommender.",
+                        "technologies": ["Python", "pandas", "scikit-learn"],
+                        "claims": [
+                            "Implemented item-based collaborative filtering.",
+                            "Evaluated recommendations against a popularity baseline.",
+                        ],
+                        "metrics": ["precision on held-out interactions"],
+                    },
+                    {
+                        "name": topics[1],
+                        "domain": "data engineering",
+                        "description": "Built a streaming log-analysis pipeline.",
+                        "technologies": ["Python", "SQL", "pytest"],
+                        "claims": [
+                            "Parsed logs with bounded memory.",
+                            "Handled malformed records separately.",
+                        ],
+                        "metrics": [],
+                    },
+                ],
             }
-        elif schema is FinalReport:
-            assert set(data) == {"question_history"}
+        elif schema is GeneratedText:
+            plan = data["question_plan"]
+            topic = str(plan["topic"]).rstrip(".,;:")
             output = {
-                "overall_score": 3.0, "technical_depth": 3.0, "problem_solving": 3.0,
-                "communication": 3.0,
-                "strengths": ["Fixture only: the answers describe implementation and validation."],
-                "weaknesses": ["Fixture only: scaling tradeoffs were not explored."],
-                "summary": f"Offline fixture report for {len(data['question_history'])} answers; not an LLM evaluation.",
+                "text": (
+                    f"What did you personally implement for {topic}, "
+                    f"and why did you choose that approach?"
+                )
+            }
+        elif schema is AnswerEvidence:
+            output = {
+                "answer_relevance": 0.9,
+                "evidence_strength": 0.8,
+                "evaluation_confidence": 0.85,
+                "rubric_level": 3,
+                "contradiction_detected": False,
+                "needs_clarification": False,
+                "evidence_summary": "The answer describes implementation and rationale.",
+            }
+        elif schema is ReportNarrative:
+            output = {
+                "strengths": ["Answers described implementation choices."],
+                "weaknesses": ["Some standardized competencies remain untested."],
+                "summary": "Offline evidence-based fixture report.",
             }
         else:
             raise AssertionError(f"Unexpected schema: {schema}")

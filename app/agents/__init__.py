@@ -1,1 +1,1 @@
-"""Group the four LLM modules used by the interview graph."""
+"""LLM-assisted resume and reporting modules outside the deterministic Agent core."""

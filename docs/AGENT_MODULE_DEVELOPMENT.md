@@ -831,9 +831,14 @@ class InterviewAgentService:
         self,
         interview_id: str,
         feedback: EvaluationFeedback,
+        *,
+        elapsed_seconds: int = 0,
     ) -> InterviewAction:
         ...
 ```
+
+`elapsed_seconds` 由应用层根据本轮实际耗时提供，并与反馈、状态和下一动作在同一个
+Repository turn 中原子提交；重复的 feedback request 不得重复推进计时。
 
 其他模块不能直接调用：
 

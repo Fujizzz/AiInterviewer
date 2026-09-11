@@ -1,36 +1,54 @@
 """Verify Qwen JSON validation and text/PDF resume loading without API calls."""
+
 import json
+import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
-import unittest
 from unittest.mock import patch
 
 from pypdf import PdfWriter
-from app.agents.question_agent import QuestionOutput
+
+from app.adapters.llm import GeneratedText
 from app.llm import LLMError, OpenAILLM
 from app.resume import read_resume
 
 
 def response(content, reason="stop"):
     """Build a minimal fake Chat Completions response with content and a finish reason."""
-    return SimpleNamespace(choices=[SimpleNamespace(finish_reason=reason,
-        message=SimpleNamespace(content=content, refusal=None))])
+    return SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                finish_reason=reason, message=SimpleNamespace(content=content, refusal=None)
+            )
+        ]
+    )
 
 
 @patch("app.llm.load_dotenv")
-@patch.dict("os.environ", {"LLM_PROVIDER": "dashscope", "DASHSCOPE_API_KEY": "test-key",
-                           "DASHSCOPE_MODEL": "qwen-plus", "OPENAI_TEMPERATURE": "0"}, clear=True)
+@patch.dict(
+    "os.environ",
+    {
+        "LLM_PROVIDER": "dashscope",
+        "DASHSCOPE_API_KEY": "test-key",
+        "DASHSCOPE_MODEL": "qwen-plus",
+        "OPENAI_TEMPERATURE": "0",
+    },
+    clear=True,
+)
 @patch("app.llm.OpenAI")
 class QwenTests(unittest.TestCase):
     def test_json_validation_and_retry(self, client, dotenv):
         """Check Qwen configuration and recovery from one schema-invalid JSON response."""
         create = client.return_value.chat.completions.create
-        create.side_effect = [response('{"wrong_key": 1}'),
-                              response(json.dumps({"current_question": "What did you build?"}))]
+        create.side_effect = [
+            response('{"wrong_key": 1}'),
+            response(json.dumps({"text": "What did you build?"})),
+        ]
         model = OpenAILLM()
-        self.assertEqual(model("Generate a question", {}, QuestionOutput).current_question,
-                         "What did you build?")
+        self.assertEqual(
+            model("Generate a question", {}, GeneratedText).text, "What did you build?"
+        )
         self.assertEqual(create.call_count, 2)
         self.assertEqual(create.call_args.kwargs["model"], "qwen-plus")
         self.assertEqual(create.call_args.kwargs["response_format"], {"type": "json_object"})
@@ -42,14 +60,14 @@ class QwenTests(unittest.TestCase):
         """Ensure invalid Qwen JSON stops after two attempts."""
         client.return_value.chat.completions.create.return_value = response("not JSON")
         with self.assertRaisesRegex(LLMError, "twice"):
-            OpenAILLM()("Question", {}, QuestionOutput)
+            OpenAILLM()("Question", {}, GeneratedText)
         self.assertEqual(client.return_value.chat.completions.create.call_count, 2)
 
     def test_truncated_output_is_rejected(self, client, dotenv):
         """Verify incomplete Qwen output is rejected before schema parsing."""
         client.return_value.chat.completions.create.return_value = response("{}", "length")
         with self.assertRaisesRegex(LLMError, "incomplete"):
-            OpenAILLM()("Question", {}, QuestionOutput)
+            OpenAILLM()("Question", {}, GeneratedText)
 
 
 class ResumeTests(unittest.TestCase):
@@ -74,8 +92,10 @@ class ResumeTests(unittest.TestCase):
         """Verify extracted text preserves PDF page order."""
         with patch("app.resume.PdfReader") as reader:
             reader.return_value.is_encrypted = False
-            reader.return_value.pages = [SimpleNamespace(extract_text=lambda: "Project A"),
-                                        SimpleNamespace(extract_text=lambda: "Project B")]
+            reader.return_value.pages = [
+                SimpleNamespace(extract_text=lambda: "Project A"),
+                SimpleNamespace(extract_text=lambda: "Project B"),
+            ]
             self.assertEqual(read_resume(Path("resume.pdf")), "Project A\n\nProject B")
 
 

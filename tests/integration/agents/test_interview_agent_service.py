@@ -58,14 +58,24 @@ async def test_duplicate_feedback_does_not_advance_state_or_create_action_twice(
         evidence_ids=["evidence-1"],
     )
 
-    first_action = await service.apply_evaluation_feedback("interview-1", feedback)
+    first_action = await service.apply_evaluation_feedback(
+        "interview-1",
+        feedback,
+        elapsed_seconds=120,
+    )
     state_after_first = await repository.get_state("interview-1")
     question_count_after_first = len(repository.questions)
     log_count_after_first = len(repository.decision_logs)
-    second_action = await service.apply_evaluation_feedback("interview-1", feedback)
+    second_action = await service.apply_evaluation_feedback(
+        "interview-1",
+        feedback,
+        elapsed_seconds=120,
+    )
     state_after_second = await repository.get_state("interview-1")
 
     assert second_action == first_action
     assert state_after_second == state_after_first
+    assert state_after_first.elapsed_seconds == 120
+    assert state_after_first.remaining_seconds == 780
     assert len(repository.questions) == question_count_after_first
     assert len(repository.decision_logs) == log_count_after_first
