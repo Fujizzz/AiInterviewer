@@ -77,6 +77,12 @@ uv run python main.py resume.pdf \
 
 不提供 `--job-title` 时使用通用 AI / 软件工程岗位和均衡能力权重。
 
+## 独立后端与流式诊断
+
+`backend/` 提供 Django/DRF 练习接口、SQLite 业务存储和只在内存中处理的 WebSocket 音视频回传测试。
+它尚未接入上面的 Agent 决策流程；不会修改现有面试策略或模型参数。
+安装与启动见 [后端说明](backend/README.md)，模块职责和函数注释规范见 [代码阅读指南](backend/docs/code-guide.md)。
+
 ## 测试
 
 ```bash

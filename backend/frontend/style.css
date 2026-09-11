@@ -1,0 +1,36 @@
+/*
+ * 文件职责：测试页展示样式，不参与传输逻辑。
+ * 目录：基础字体与配色；连接与指标卡；操作控件；媒体网格；日志；窄屏布局。
+ * 约束：样式只影响视觉和布局，不改变采集参数或实验时长。
+ */
+:root { color-scheme: light; font-family: Inter, "Segoe UI", "Microsoft YaHei", sans-serif; color: #192b35; background: #f1f5f5; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+main { max-width: 1040px; margin: 0 auto; padding: 48px 28px 24px; }
+.eyebrow { color: #34786c; font-size: 12px; letter-spacing: 2px; font-weight: 700; }
+h1 { margin: 12px 0; font-size: 36px; letter-spacing: -1px; }
+header p { max-width: 720px; line-height: 1.8; color: #516670; }
+.connection { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; border-top: 1px solid #d7e1e1; padding: 20px 0; font-size: 13px; }
+#status { font-weight: 700; color: #276e60; }
+#status.error { color: #b3261e; }
+#endpoint { color: #657980; overflow-wrap: anywhere; }
+.metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 22px; }
+.metrics div { background: #e1ede9; border-radius: 10px; padding: 20px; }
+.metrics span { display: block; font-size: 13px; color: #506b62; }
+.metrics strong { display: inline-block; font-size: 30px; margin-top: 9px; margin-right: 8px; font-variant-numeric: tabular-nums; }
+.metrics small { color: #607c71; }
+.panel { background: white; border: 1px solid #dfe7e7; border-radius: 12px; padding: 24px; margin-bottom: 20px; }
+h2 { font-size: 17px; margin: 0 0 20px; } h3 { font-size: 13px; color: #5a6d74; font-weight: 500; }
+.actions { display: flex; flex-wrap: wrap; gap: 10px; }
+button { border: 1px solid #236b5d; background: #236b5d; color: white; border-radius: 6px; padding: 11px 16px; font: inherit; font-size: 13px; cursor: pointer; }
+button.secondary { background: white; color: #236b5d; border-color: #afc6c0; }
+button:hover:not(:disabled) { background: #164c41; color: white; }
+button:focus-visible { outline: 3px solid #efb44a; outline-offset: 3px; }
+button:disabled { opacity: .45; cursor: default; }
+.hint { color: #6a7a81; font-size: 12px; line-height: 1.8; margin: 13px 0 20px; }
+.media-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+video { width: 100%; aspect-ratio: 16 / 9; background: #142d34; border-radius: 8px; }
+#summary { font-size: 13px; overflow-wrap: anywhere; line-height: 1.8; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; margin-bottom: 0; background: #f3f6f6; padding: 16px; border-radius: 6px; max-height: 160px; overflow-y: auto; font: 12px/1.8 Consolas, monospace; }
+footer { text-align: center; font-size: 12px; color: #6a7d84; padding: 10px; }
+@media (max-width: 650px) { main { padding: 28px 16px; } h1 { font-size: 28px; } .metrics { gap: 8px; } .metrics div { padding: 12px; } .metrics strong { font-size: 21px; } .metrics small { display: block; } .media-grid { grid-template-columns: 1fr; } .panel { padding: 18px; } }

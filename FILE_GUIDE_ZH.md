@@ -47,6 +47,20 @@
 - `smoke_interview.py`：完整离线终端演示；
 - `live_interview.py`：需要真实 API Key 的手动测试。
 
+## `backend/`
+
+独立的 Django/DRF 练习 API 与 WebSocket 流式诊断服务，尚未调用 Agent MVP：
+
+- `interviews/api/`：输入校验、响应结构和 REST 路由；
+- `interviews/services.py`：创建场次、版本竞争及状态转换事务；
+- `interviews/models.py`：题目、场次与单题记录的业务存储；
+- `interviews/streaming/`：只在内存中处理的回传协议及 ASGI 连接管理；
+- `frontend/`：浏览器采集、分片校验、页面展示；
+- `docs/code-guide.md`：阅读顺序、模块目录和注释规范；
+- `tools/check_docs.py`：文件目录与函数注释覆盖检查。
+
+后端安装、启动和测试见 `backend/README.md`。其测试媒体不进入数据库或本地文件。
+
 ## 运行时边界
 
 `app/` 负责输入输出与具体供应商适配，`agents/` 负责所有面试决策，`shared/contracts/` 负责跨模块数据结构。后续接入 Web、数据库或真实 RAG 时，应新增 adapter，不应把供应商代码写入 Agent 策略。

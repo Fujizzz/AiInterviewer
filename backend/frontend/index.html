@@ -1,0 +1,47 @@
+<!doctype html>
+<!--
+文件职责：流式诊断页面的语义结构；由 app.js 挂载交互。
+目录：连接状态；实时指标；测试操作；本地预览与回放；结果清理。
+数据边界：页面不包含密钥，不提交媒体文件；所有测试结果仅保留于内存。
+-->
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>面试练习 · 流式传输测试</title>
+  <link rel="stylesheet" href="/stream-demo/style.css">
+  <script type="module" src="/stream-demo/app.js"></script>
+</head>
+<body>
+  <main>
+    <header><span class="eyebrow">MOCK INTERVIEW / BACKEND LAB</span><h1>流式传输测试</h1>
+      <p>发送一个分片，收到原样回传，验证每个字节。先运行无需设备的测试，再测试麦克风和摄像头。</p></header>
+    <section aria-label="连接状态" class="connection"><span id="status" role="status">就绪</span><span id="endpoint"></span></section>
+    <section class="metrics" aria-label="实时统计">
+      <div><span>往返延迟</span><strong id="latency">—</strong><small>ms</small></div>
+      <div><span>已校验分片</span><strong id="chunks">0</strong><small>SHA-256</small></div>
+      <div><span>已回传数据</span><strong id="bytes">0</strong><small>bytes</small></div>
+    </section>
+    <section class="panel">
+      <h2>01 · 连通与媒体测试</h2>
+      <div class="actions">
+        <button id="ping" data-test>Ping / Pong</button>
+        <button id="binary" data-test>二进制分片测试</button>
+        <button id="synthetic" data-test>合成音视频测试 · 3 秒</button>
+      </div>
+      <p class="hint">合成测试用画布和音调生成真实 WebM 音视频，经 MediaRecorder 分片、WebSocket 回传后重组，不访问摄像头或麦克风。</p>
+      <div class="actions">
+        <button id="audio" data-test class="secondary">测试麦克风</button>
+        <button id="video" data-test class="secondary">测试摄像头 + 麦克风</button>
+        <button id="stop" class="secondary" disabled>停止采集并完成校验</button>
+      </div>
+      <p class="hint">真实设备测试需浏览器授权，最长采集 30 秒。媒体和统计只在内存中处理，不写数据库或本地文件。回放缓存可手动清空，离开页面时释放。</p>
+      <div class="media-grid"><div><h3>本地预览</h3><video id="preview" autoplay muted playsinline></video></div>
+        <div><h3>回传结果 · 完成后播放</h3><video id="playback" controls playsinline></video></div></div>
+      <canvas id="source" width="640" height="360" hidden></canvas>
+    </section>
+    <section class="panel"><h2>02 · 本次测试结果</h2><button id="clear" class="secondary">清空结果与媒体缓存</button><p id="summary">尚未开始。每次测试使用独立连接。</p><pre id="log" aria-label="测试日志"></pre></section>
+    <footer>本地开发工具 · Django + SQLite + WebSocket</footer>
+  </main>
+</body>
+</html>
