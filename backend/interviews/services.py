@@ -1,10 +1,18 @@
 """事务性业务用例。将题目选择、版本竞争、单题转换和结束场次作为明确事务边界。
 
 目录：
-- create_session
-- claim_session
-- update_item
-- finish_session
+- create_session：
+  功能：按启用题库或指定 ID 顺序创建场次及文字快照。
+- claim_session：
+  功能：为指定版本的 active 场次取得本次事务的写入资格。
+- update_item：
+  功能：执行单题 start、complete 或 skip 状态转换。
+- finish_session：
+  功能：将场次置为 completed，并将尚未完成的题目标记 skipped。
+
+关键变量：
+- logger：
+  当前模块的控制台日志入口；上下文标识及异常处理方式见相应函数。
 """
 
 import logging

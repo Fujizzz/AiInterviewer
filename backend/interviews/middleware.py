@@ -1,9 +1,15 @@
 """HTTP 本机访问中间件。复用 access 策略并在业务处理前拒绝非本机或跨源请求。
 
 目录：
-- LocalOnlyMiddleware
-- LocalOnlyMiddleware.__init__
-- LocalOnlyMiddleware.__call__
+- LocalOnlyMiddleware：
+  可调用中间件：本机检查通过后才交给下一处理器，保持原响应不变。
+- LocalOnlyMiddleware.__init__：
+  保存 Django 下游处理器；构造阶段不执行网络或数据库操作。
+- LocalOnlyMiddleware.__call__：
+  功能：请求进入业务层前执行地址及 Origin 检查。
+
+关键变量：
+（无模块级变量。）
 """
 
 from django.http import JsonResponse

@@ -1,9 +1,16 @@
 """ASGI WebSocket 生命周期与协议调度。
 
-目录：send_json（编码响应）；dispatch_control（控制消息分派）；
-echo_socket（握手、接收循环、异常关闭）。
-职责：网络 I/O 与连接日志；状态不变量由 protocol.EchoState 维护。
-存储边界：不导入 ORM，不打开文件；连接结束后释放临时状态。
+目录：
+- send_json：
+  将响应字典编码为紧凑 JSON，并交给 ASGI send；不缓存响应正文。
+- dispatch_control：
+  将控制消息映射为协议响应。
+- echo_socket：
+  执行单连接回传循环，按 ACK → 原始二进制消息顺序输出。
+
+关键变量：
+- logger：
+  当前模块的控制台日志入口；上下文标识及异常处理方式见相应函数。
 """
 
 import asyncio

@@ -1,6 +1,7 @@
-# 用途：独立 Django 后端的直接运行依赖；不替代仓库根目录的 Agent 依赖。
+# 用途：后端运行依赖，以及复用 MVP Agent 所需的根目录依赖。
 # 目录：Django/DRF（HTTP 与 ORM）；Uvicorn/websockets（ASGI 与双向传输）。
 Django==5.2.17
 djangorestframework==3.18.1
 uvicorn==0.52.4
 websockets==16.1.1
+-r ../requirements.txt

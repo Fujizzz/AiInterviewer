@@ -1,14 +1,30 @@
 """业务数据模型与数据库约束。题目快照和状态时间关系在存储层得到保护。
 
 目录：
-- Question
-- Question.Meta
-- PracticeSession
-- PracticeSession.Status
-- PracticeSession.Meta
-- SessionQuestion
-- SessionQuestion.Status
-- SessionQuestion.Meta
+- Question：
+  题库实体。排序字段决定新场次取题顺序；停用不影响已创建的题目快照。
+- Question.Meta：
+  按 position、创建时间和主键稳定排序，避免同序号下的随机顺序。
+- PracticeSession：
+  场次实体。保存固定准备/回答时长、状态、时间和乐观并发版本。
+- PracticeSession.Status：
+  场次状态域：active 可修改，completed 为不可重新开启的终态。
+- PracticeSession.Meta：
+  按创建时间倒序检索，并约束状态与 finished_at 的空值关系。
+- SessionQuestion：
+  单题快照与作答实体。关联源题目可置空，历史文字和作答仍保留。
+- SessionQuestion.Status：
+  单题状态域：pending、answering、completed、skipped。
+- SessionQuestion.Meta：
+  约束同场次题目顺序唯一、最多一题 answering，以及合法状态时间组合。
+
+关键变量：
+（无模块级变量。）
+
+关键状态说明：
+PracticeSession.version 用于乐观并发控制；prep_seconds/answer_seconds 保留练习计时。
+SessionQuestion.question_text 保存题目快照。
+各 Meta.constraints 约束状态/时间组合、同场次顺序唯一和最多一题作答中。
 """
 
 import uuid

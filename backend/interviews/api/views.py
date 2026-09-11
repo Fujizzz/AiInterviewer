@@ -1,12 +1,21 @@
 """REST 视图适配层。序列化输入、调用业务服务并返回 JSON，不内联事务逻辑。
 
 目录：
-- health
-- QuestionViewSet
-- SessionViewSet
-- SessionViewSet.create
-- SessionViewSet.finish
-- SessionViewSet.item
+- health：
+  功能：执行 SELECT 1 检查当前数据库连接可用性。
+- QuestionViewSet：
+  提供题库查询、新增与局部修改；不开放删除接口，停用由 enabled 控制。
+- SessionViewSet：
+  场次 REST 适配器，列表预取单题，写动作委派事务服务。
+- SessionViewSet.create：
+  校验创建参数，调用 create_session，返回 HTTP 201 和完整场次快照。
+- SessionViewSet.finish：
+  校验请求版本，调用 finish_session，并返回更新后的状态与版本。
+- SessionViewSet.item：
+  校验单题动作，按 URL 中场次/单题 ID 调用事务服务，返回完整场次。
+
+关键变量：
+（无模块级变量。）
 """
 
 from django.db import connection

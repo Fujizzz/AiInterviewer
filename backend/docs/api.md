@@ -182,3 +182,9 @@ try {
 ```
 
 sendChunk 支持 Blob / ArrayBuffer，Promise 在对应回传通过校验后完成。close 明确取消未完成操作。
+
+## MVP Agent：`/ws/agent/`
+
+已提供独立文字面试接口及 `/agent/` 浏览器测试页，支持 `start`、`answer`、`cancel`。
+每个连接一场内存面试，复用 MVP 出题、评价和报告；不写入上述练习场次数据库。
+模型配置、完整消息结构、重复请求规则和取消限制见 [Agent 接入说明](agent-integration.md)。

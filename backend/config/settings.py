@@ -1,17 +1,52 @@
 """后端配置。集中声明应用、SQLite、JSON 接口和控制台日志；密钥必须由环境提供。
 
 目录：
-- BASE_DIR、SECRET_KEY、ALLOWED_HOSTS：路径、显式密钥与允许的主机。
-- INSTALLED_APPS、MIDDLEWARE、ROOT_URLCONF、ASGI_APPLICATION：应用装配。
-- DATABASES、DEFAULT_AUTO_FIELD、USE_TZ、TIME_ZONE：存储和时间语义。
-- REST_FRAMEWORK：JSON 输入输出、分页和异常适配。
-- LOGGING：带上下文的控制台日志，不配置文件处理器。
+（无本地函数或类定义。）
+
+关键变量：
+- ALLOWED_HOSTS：
+  本机 HTTP Host 白名单，与访问中间件共同限制服务入口。
+- ASGI_APPLICATION：
+  ASGI 协议入口的导入路径。
+- BASE_DIR：
+  backend 目录绝对路径，用于定位 .env、SQLite 默认路径和诊断页资源。
+- DATABASES：
+  SQLite 连接配置；环境可显式指定路径，锁等待超时保留既定值。
+- DEBUG：
+  Django 调试模式开关，当前固定关闭。
+- DEFAULT_AUTO_FIELD：
+  未显式声明主键类型时使用的 Django 默认字段。
+- INSTALLED_APPS：
+  ORM 内容类型、DRF 与 interviews 应用的装配清单。
+- LOGGING：
+  控制台日志格式、级别和处理器；不配置文件日志。
+- MIDDLEWARE：
+  按顺序执行安全设置、本机来源检查与通用 HTTP 处理。
+- REST_FRAMEWORK：
+  JSON 渲染/解析、分页、无账号鉴权及统一错误处理配置。
+- ROOT_URLCONF：
+  Django 根路由模块名称。
+- SECRET_KEY：
+  从进程环境或 backend/.env 取得的 Django 应用密钥，不是模型 API key。
+- TIME_ZONE：
+  服务器时间基准，保持 UTC。
+- USE_TZ：
+  是否启用带时区的时间处理。
+
+设计说明：
+装配说明：先加入仓库模块搜索路径，再读取 backend/.env，已存在的进程环境变量优先。
 """
 
 import os
+import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 BASE_DIR = Path(__file__).resolve().parent.parent
+# 后端可从自己的目录启动，同时复用仓库内的 Agent/App/Shared 模块。
+sys.path.insert(0, str(BASE_DIR.parent))
+load_dotenv(BASE_DIR / ".env", override=False)
 # 环境缺少密钥时立即停止启动，避免以隐式默认密钥运行。
 SECRET_KEY = os.environ["DJANGO_SECRET_KEY"]
 DEBUG = False

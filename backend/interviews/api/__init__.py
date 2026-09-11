@@ -1,5 +1,11 @@
 """REST 接口层。
 
-目录：serializers（数据契约）；views（HTTP 动作）；urls（路由注册）。
-本层负责协议适配，状态迁移和数据库事务由 interviews.services 实现。
+目录：
+（无本地函数或类定义。）
+
+关键变量：
+（无模块级变量。）
+
+设计说明：
+模块关系：serializers 定义输入输出；views 调用 services；urls 注册资源，事务决策不写在路由层。
 """

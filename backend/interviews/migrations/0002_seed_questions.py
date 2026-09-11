@@ -1,8 +1,18 @@
 """题库种子迁移。使用稳定 UUID 初始化原有两道通用题，保留已有编辑。
 
 目录：
-- seed
-- Migration
+- seed：
+  功能：向 schema_editor 指定数据库写入两道稳定 ID 的通用题。
+- Migration：
+  依赖初始 schema 后执行种子写入；逆向不删除可能被用户修改的题目。
+
+关键变量：
+- QUESTIONS：
+  既有两道种子题的稳定 UUID、文字与顺序；迁移不覆盖已有记录。
+
+关键状态说明：
+Migration.dependencies 指向初始建表迁移；operations 调用 seed。
+逆向操作采用既有 noop，保留已有题目。
 """
 
 from django.db import migrations

@@ -1,10 +1,46 @@
 /**
  * @module view
- * 功能：封装测试页的 DOM 更新及回放 Blob 生命周期，不执行网络或媒体采集。
- * 目录：DemoView；方法包括 element、log、status、busy、progress、reset、
- * preview、releasePlayback、playback、success、failure、clear。
- * 约束：日志仅保留最近 30 行；回放最多持有当前测试的一个 Blob URL。
+ * 功能：封装诊断页 DOM 与回放资源管理，不执行网络请求或设备采集。
+ *
+ * 目录：
+ * - DemoView：
+ *   管理诊断页面的 DOM 展示、忙碌状态与回放 URL 生命周期。
+ * - DemoView.constructor：
+ *   初始化页面状态及可释放资源；仅保存文档引用，不访问持久存储。
+ * - DemoView.element：
+ *   按 ID 取得本页唯一元素，集中 DOM 查找入口以避免散落的全局依赖。
+ * - DemoView.log：
+ *   在页面追加带时间的诊断信息，裁剪旧行；不写 console 或文件。
+ * - DemoView.status：
+ *   设置可访问状态文字及错误样式；error 只控制展示，不改变业务状态。
+ * - DemoView.busy：
+ *   在测试期间禁用重复启动和清空操作；停止采集按钮由媒体控制器独立启用。
+ * - DemoView.busy.callback1：
+ *   按测试忙碌状态启用或禁用一个测试按钮，避免重复启动。
+ * - DemoView.progress：
+ *   显示已校验分片的累计计数与 RTT；不将已发送数据误计为已验证数据。
+ * - DemoView.reset：
+ *   重置单次测试指标并释放上一段回放，保留有限的页面历史日志。
+ * - DemoView.preview：
+ *   将 MediaStream 交给本地预览；传入 null 可解除元素对采集流的引用。
+ * - DemoView.releasePlayback：
+ *   停止解码、清除 src 并撤销 Blob URL，保证播放器不继续保留旧媒体。
+ * - DemoView.playback：
+ *   接收已通过回传校验的完整媒体 Blob，为其创建单个临时回放 URL。
+ * - DemoView.success：
+ *   展示服务端完成确认；ping 与媒体校验使用不同文字以避免零分片误导。
+ * - DemoView.failure：
+ *   展示失败并撤销可能尚未获最终确认的回放；不触发重连或重试。
+ * - DemoView.clear：
+ *   清空当前指标、页面日志和合成画布，主动释放可见测试结果。
+ *
+ * 关键变量：
+ * （无模块级变量。）
+ *
+ * 关键状态说明：
+ * document 为调用者提供的 DOM；playbackUrl 至多指向当前回放，替换或离开页面时释放。日志只在页面内保留，不写 console、文件或浏览器持久存储。
  */
+/** 管理诊断页面的 DOM 展示、忙碌状态与回放 URL 生命周期。 */
 export class DemoView {
   /** 初始化页面状态及可释放资源；仅保存文档引用，不访问持久存储。 */
   constructor(document) {
@@ -32,6 +68,7 @@ export class DemoView {
 
   /** 在测试期间禁用重复启动和清空操作；停止采集按钮由媒体控制器独立启用。 */
   busy(value) {
+    /** 按测试忙碌状态启用或禁用一个测试按钮，避免重复启动。 */
     this.document.querySelectorAll("[data-test]").forEach((button) => {
       button.disabled = value;
     });

@@ -1,8 +1,30 @@
 /**
  * @module stream-client-test
- * 功能：脱离真实网络检查前端协议校验与失败收尾。
- * 目录：connectedClient；损坏载荷；错误 ACK；终态计数；超时；主动取消。
- * 方法：构造最小连接替身，断言故障明确传播且等待项不泄漏。
+ * 功能：脱离实际网络验证 StreamClient 的载荷校验、超时和主动取消语义。
+ *
+ * 目录：
+ * - connectedClient：
+ *   创建最小连接替身，让用例只验证客户端状态逻辑。
+ * - connectedClient.client.socket.close：
+ *   提供不访问网络的关闭替身，使测试仅观察客户端状态。
+ * - callback1：
+ *   更改载荷最后一个字节，验证哈希校验拒绝且完成计数不增加。
+ * - callback2：
+ *   验证不存在的序号和缺少 ACK 的二进制消息不能满足等待项。
+ * - callback3：
+ *   伪造最终累计量，确认客户端不提前标记 finished。
+ * - callback4：
+ *   将测试用超时设为 10 ms，验证异常只通知一次且清理所有等待项。
+ * - callback4.client.onError：
+ *   累计错误通知次数，以验证超时只通知一次。
+ * - callback5：
+ *   主动关闭连接时，验证未完成 Promise 被拒绝，且无重连路径。
+ *
+ * 关键变量：
+ * （无模块级变量。）
+ *
+ * 关键状态说明：
+ * 各 test 回调创建独立 client；用例覆盖损坏载荷、错误 ACK、最终计数、超时和主动取消。只改变局部测试参数，不修改生产默认值。
  */
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -11,7 +33,7 @@ import { StreamClient, sha256 } from "../frontend/stream-client.js";
 /** 构造仅支持关闭和缓冲状态的连接替身，用于隔离测试客户端状态逻辑。 */
 function connectedClient() {
   const client = new StreamClient("ws://localhost/ws/echo/");
-  client.socket = { close() {}, readyState: 1, bufferedAmount: 0 };
+  client.socket = { /** 提供不访问网络的关闭替身，使测试仅观察客户端状态。 */ close() {}, readyState: 1, bufferedAmount: 0 };
   return client;
 }
 
@@ -44,6 +66,7 @@ test("timeouts reject pending operations and report failure", async () => {
   const client = connectedClient();
   client.timeoutMs = 10;
   let errors = 0;
+  /** 累计错误通知次数，以验证超时只通知一次。 */
   client.onError = () => { errors += 1; };
   await assert.rejects(client.waitFor("pong:missing"), /Timed out/);
   assert.equal(errors, 1);

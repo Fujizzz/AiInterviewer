@@ -1,7 +1,12 @@
 """开发测试页的资源交付模块。
 
-目录：ASSETS（资源白名单）；demo_asset（响应构造）。
-职责：提供少量固定资源；与业务 REST 接口分离，不开放任意目录文件访问。
+目录：
+- demo_asset：
+  返回白名单资源，并显式禁止 HTTP 缓存。
+
+关键变量：
+- ASSETS：
+  允许通过静态资源接口读取的文件名白名单，排除 .env 等秘密文件。
 """
 
 from pathlib import Path
@@ -9,7 +14,10 @@ from pathlib import Path
 from django.conf import settings
 from django.http import Http404, HttpResponse
 
-ASSETS = {"index.html", "app.js", "view.js", "media.js", "stream-client.js", "style.css"}
+ASSETS = {
+    "index.html", "app.js", "view.js", "media.js", "stream-client.js", "style.css",
+    "agent.html", "agent.js", "agent.css",
+}
 
 
 def demo_asset(request, name):

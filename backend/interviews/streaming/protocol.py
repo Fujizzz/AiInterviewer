@@ -1,9 +1,38 @@
 """WebSocket 回传协议的确定性状态与校验。
 
-目录：协议常量；ProtocolError；parse_control；EchoState。
-EchoState 方法：hello、start、accept_chunk、finish、summary。
-设计：消息校验与网络调度解耦；单连接只保留计数和元数据，不保存分片。
-不变量：序号连续递增、计数仅在校验成功后更新、既定容量限制保持不变。
+目录：
+- ProtocolError：
+  携带稳定错误码、可展示说明和 WebSocket 关闭码的协议异常。
+- ProtocolError.__init__：
+  保存响应所需字段；默认关闭码 1008 表示违反应用协议。
+- parse_control：
+  将有界 UTF-8 JSON 控制消息转换为字典。
+- EchoState：
+  单连接状态容器；只保存常数规模元数据，不持有原始媒体。
+- EchoState.hello：
+  构造握手公告，将连接 ID、容量和空闲超时显式提供给客户端。
+- EchoState.start：
+  验证测试模式与 MIME 元数据，并将连接标记为已声明模式。
+- EchoState.accept_chunk：
+  校验一个二进制消息、更新计数并生成 ACK。
+- EchoState.finish：
+  确认客户端校验计数与服务端计数一致，构造完成响应。
+- EchoState.summary：
+  生成协议公开统计，显式列字段以避免内部状态意外进入响应。
+
+关键变量：
+- IDLE_TIMEOUT_SECONDS：
+  流式诊断接收等待上限，单位秒，不适用于 Agent 答题等待。
+- MAX_CHUNK_BYTES：
+  单个二进制净载荷上限，单位 bytes，不包括四字节序号头。
+- MAX_CONTROL_BYTES：
+  流式控制 JSON 按 UTF-8 编码计算的大小上限。
+- MAX_TOTAL_BYTES：
+  单连接累计净载荷上限，单位 bytes。
+
+关键状态说明：
+EchoState.connection_id 标识当前连接，status/mode/mime_type 描述诊断状态；chunk_count/byte_count
+只在合法分片后更新；verified_chunks 来自客户端完成报告，不能视为恶意客户端的可信证明。
 """
 
 import hashlib

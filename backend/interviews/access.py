@@ -1,8 +1,15 @@
 """HTTP 和 WebSocket 共用的本机访问策略。
 
-目录：is_loopback（客户端地址）；same_origin（来源匹配）；
-websocket_allowed（WebSocket 握手检查）。
-本模块为无状态判定函数，不读取数据库、不修改请求，也不建立网络连接。
+目录：
+- is_loopback：
+  判断字符串地址是否属于回环网络。
+- same_origin：
+  比较浏览器 Origin 与请求的 scheme、host、端口。
+- websocket_allowed：
+  根据 ASGI scope 验证 WebSocket 的主机、连接地址及 Origin。
+
+关键变量：
+（无模块级变量。）
 """
 
 from ipaddress import ip_address

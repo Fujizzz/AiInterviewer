@@ -1,9 +1,43 @@
 /**
  * @module media
- * 功能：生成或采集音视频，经 MediaRecorder 分片后交给 StreamClient 校验回传。
- * 目录：createSyntheticSource；createDeviceSource；captureAndEcho。
- * 约束：保留 250 ms 分片目标、3/30 s 录制期限、4 MiB 等待队列上限；不写文件。
- * 资源所有权：每个 source 返回 cleanup；captureAndEcho 在 finally 中统一调用。
+ * 功能：音视频测试来源与采集流程：生成或获取 MediaStream，经 MediaRecorder 分片并由 StreamClient 校验回传。
+ *
+ * 目录：
+ * - createSyntheticSource：
+ *   创建画布与合成音调来源，返回流及清理回调。
+ * - createSyntheticSource.draw：
+ *   绘制一帧可观察测试画面；帧号仅用于视觉识别，不作为录制时钟。
+ * - createSyntheticSource.cleanup：
+ *   释放该来源创建的全部资源；幂等标志避免 pagehide 与 finally 重复关闭音频。
+ * - createSyntheticSource.cleanup.callback1：
+ *   停止合成来源的一条媒体轨道，释放其采集资源。
+ * - createDeviceSource：
+ *   请求明确指定的麦克风或摄像头，不更换输入来源。
+ * - createDeviceSource.cleanup：
+ *   停止所有设备轨道；不创建录制文件或向磁盘导出。
+ * - createDeviceSource.cleanup.callback1：
+ *   停止设备来源的一条媒体轨道，结束设备采集。
+ * - captureAndEcho：
+ *   串行处理末尾分片，完成校验后返回可回放 Blob。
+ * - captureAndEcho.stop：
+ *   停止产生新分片，保留 onstop 前的末尾 dataavailable，供验证队列收尾。
+ * - captureAndEcho.callback1：
+ *   登记录制结束与错误回调，用 Promise 等待录制器停止。
+ * - captureAndEcho.callback1.recorder.onerror：
+ *   保存录制错误并请求停止，同时解除结束等待以进入错误处理。
+ * - captureAndEcho.recorder.ondataavailable：
+ *   记录待处理字节并串行提交 Blob；出错时停止采集，不丢帧维持表面成功。
+ * - captureAndEcho.recorder.ondataavailable.callback1：
+ *   串行发送当前 Blob，并在完成或失败时扣减等待字节数。
+ * - captureAndEcho.recorder.ondataavailable.callback2：
+ *   记录分片处理失败并停止录制，将错误交由外层流程传播。
+ *
+ * 关键变量：
+ * （无模块级变量。）
+ *
+ * 关键状态说明：
+ * 来源对象拥有 stream/cleanup；recorder 管理编码，queuedBytes 统计未处理分片，processing 串行化校验。
+ * recordingError 保存首次采集或回传错误；echoed 收集已验证载荷。保留 250 ms 分片目标、3/30 秒录制期限及 4 MiB 等待上限。
  */
 
 /**
@@ -41,6 +75,7 @@ export async function createSyntheticSource(canvas) {
     if (cleaned) return;
     cleaned = true;
     clearInterval(timer);
+    /** 停止合成来源的一条媒体轨道，释放其采集资源。 */
     stream.getTracks().forEach((track) => track.stop());
     await audio.close();
   }
@@ -66,6 +101,7 @@ export async function createDeviceSource(mode) {
   const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: mode === "video" });
   /** 停止所有设备轨道；不创建录制文件或向磁盘导出。 */
   async function cleanup() {
+    /** 停止设备来源的一条媒体轨道，结束设备采集。 */
     stream.getTracks().forEach((track) => track.stop());
   }
   return { stream, cleanup };
@@ -101,8 +137,9 @@ export async function captureAndEcho(connection, mode, view, registerControls) {
     let queuedBytes = 0;
     let processing = Promise.resolve();
     let recordingError = null;
-    const stopped = new Promise((resolve) => {
+    const stopped = new Promise(/** 登记录制结束与错误回调，用 Promise 等待录制器停止。 */ (resolve) => {
       recorder.onstop = resolve;
+      /** 保存录制错误并请求停止，同时解除结束等待以进入错误处理。 */
       recorder.onerror = (event) => {
         recordingError = event.error || new Error("MediaRecorder failed.");
         stop();
@@ -118,14 +155,14 @@ export async function captureAndEcho(connection, mode, view, registerControls) {
         stop();
         return;
       }
-      processing = processing.then(async () => {
+      processing = processing.then(/** 串行发送当前 Blob，并在完成或失败时扣减等待字节数。 */ async () => {
         if (recordingError) return;
         try {
           echoed.push(await connection.sendChunk(data));
         } finally {
           queuedBytes -= data.size;
         }
-      }).catch((error) => { recordingError = error; stop(); });
+      }).catch(/** 记录分片处理失败并停止录制，将错误交由外层流程传播。 */ (error) => { recordingError = error; stop(); });
     };
     recorder.start(250);
     view.element("stop").disabled = false;

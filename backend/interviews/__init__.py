@@ -1,7 +1,13 @@
 """面试后端应用包。模型、事务、REST 与流式传输各自分层，不承担 Agent 决策。
 
 目录：
-- models、services：业务模型与事务；api：REST 适配；errors：异常映射。
-- access、middleware：访问检查；streaming：回传协议；demo：静态资源。
-- migrations、tests：数据库演进与隔离验证；本包不定义运行时函数。
+（无本地函数或类定义。）
+
+关键变量：
+（无模块级变量。）
+
+设计说明：
+模块关系：models/services 管理练习数据，api 适配 REST。
+agent_provider/agent_session/agent_socket 接入 MVP；streaming 处理回传。
+access/middleware 限制来源；demo、migrations、tests 管理资源、迁移和验证。
 """

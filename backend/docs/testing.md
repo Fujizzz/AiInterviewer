@@ -1,23 +1,54 @@
 # 测试说明
 
-验证日期：2026-09-11。本机 django_env，Python 3.12.14；Node.js 24.19.0；Codex 内置 Chromium 浏览器。
+验证日期：2026-09-11。Python 3.12.14；Node.js 24.19.0；Codex 内置 Chromium 浏览器。这些版本记录用于说明已有测试环境，不要求使用特定环境管理工具。
 
 ## 可复现命令
 
-在 backend 目录、激活 django_env 后：
+在 backend 目录，使用已安装本目录 `requirements.txt` 依赖的 Python 环境执行：
 
 ```powershell
-$env:DJANGO_SECRET_KEY = python -s -c "import secrets; print(secrets.token_urlsafe(48))"
-python -s manage.py test interviews
-python -s manage.py makemigrations --check --dry-run
-python -s tools/check_docs.py
-python -s tests/run_e2e.py
+python -m pip install -r requirements-docs.txt
+$env:DJANGO_SECRET_KEY = python -c "import secrets; print(secrets.token_urlsafe(48))"
+python manage.py test interviews
+python manage.py makemigrations --check --dry-run
+python tools/check_docs.py
+python -m unittest discover -s tools -p "test_*.py"
+python tests/run_e2e.py
+python tests/run_agent_e2e.py
 ```
 
 Django 测试使用隔离数据库；`run_e2e.py` 创建临时 SQLite 文件和临时本机端口，迁移后启动实际 Uvicorn 服务，退出时停止该子进程并清理临时文件。
 不会改写开发数据库，不依赖真实摄像头、麦克风或云端服务。Node.js 22+ 必须可通过 PATH 找到。
 
-## 已验证结果
+## 语法树注释检查强化验证（2026-09-11）
+
+本次在 backend 范围内以 Tree-sitter 替换 JavaScript 正则识别，并将匿名回调纳入双位置目录检查。前端源码只调整注释，生产参数和失败语义保持不变。
+
+| 层次 | 结果与范围 |
+| --- | --- |
+| 注释检查 | 38 个 Python 模块、176 个类/函数定义；7 个 JavaScript 模块、101 个函数/类声明（含 39 个匿名函数），问题数 0 |
+| 检查器回归 | 22 项通过；覆盖两处注释四种组合、限定名、匿名函数、错误目录、模板插值、多行与对象方法、空 JSDoc、缺失解析器和进程退出码 |
+| 后端与前端回归 | 30 项 Django / ASGI 测试、5 项 JavaScript 客户端测试通过；实际 HTTP、离线 Agent WebSocket、WAV 及双客户端联调通过，SQLite 字节不变 |
+| 静态与迁移 | backend Ruff 检查通过；无模型迁移变化 |
+
+匿名编号依赖同层函数的源码顺序，调整顺序后仍须人工确认条目语义；检查器不能证明代码和注释在 Git 提交中的原子性。开发依赖固定在 `requirements-docs.txt`，缺失时明确失败；没有添加正则回退或修改仓库共享 CI。下列章节保留前期实现的历史验证记录，旧计数与旧检查边界不代表当前实现。
+
+## 注释规范完善验证（2026-09-11，语法树强化前）
+
+本次修改范围仅为 `backend/`。以下是本次复验结果；后续章节保留各阶段的历史记录，其数量和环境不代表本次重新验证的范围。
+
+| 层次 | 结果与范围 |
+| --- | --- |
+| 注释结构检查 | 36 个 Python 模块、152 个类/函数定义；7 个 JavaScript 模块、50 个可识别具名声明，缺失 0。核对文件目录、模块变量索引与实际声明，并检查函数文档 |
+| 检查器回归 | 8 项通过，覆盖嵌套定义、变量作用域、失效目录、重复/空说明、JavaScript 声明识别、依赖目录排除及语法错误 |
+| Django / ASGI | 30 项测试通过；无模型迁移变化 |
+| 客户端与端到端 | 5 项 JavaScript 测试通过；真实 HTTP、离线 Agent WebSocket、WAV 回传及两个并发 StreamClient 连接通过；SQLite 文件逐字节不变 |
+| 静态检查 | backend 范围 Ruff 通过；5 个前端 JavaScript 文件语法检查通过 |
+| 行为保持核对 | 去除文档字符串后的 Python AST，以及去除注释后的 JavaScript、HTML 和 CSS 对比显示，45 个既有实现文件未发生业务代码变化；实现变更仅涉及 `tools/check_docs.py`，另新增 `tools/test_check_docs.py` |
+
+检查器无需导入业务模块或读取密钥。JavaScript 检查是有限的静态识别，匿名回调、模板插值内定义、行内对象方法和多行方法签名仍需人工核对；注释语义及代码与注释的原子更新也需在评审中确认，详见 `code-guide.md`。本次未调用真实付费模型，未重新执行 backend 以外模块的独立测试。
+
+## 原练习与流式诊断验证记录
 
 | 层次 | 结果与范围 |
 | --- | --- |
@@ -36,6 +67,18 @@ Django 测试使用隔离数据库；`run_e2e.py` 创建临时 SQLite 文件和�
 | 既有 Agent MVP | 根目录独立环境：79 项测试、5 个子测试通过；未修改 Agent 实现、策略和依赖 |
 
 根目录检查使用 `uv sync --extra dev --locked` 后的环境，运行 `uv run pytest -q` 与 `uv run ruff check .`。
+
+## MVP Agent 接入验证（2026-09-11）
+
+- Django / ASGI 共 30 项测试通过，包括新增 10 项 Agent/供应商测试。
+- 离线模型替身配合真实 Agent 核心，验证网络与终端 MVP 的问题文本、能力状态、预算和最终报告一致。
+- 验证输入校验、重复请求、旧问题、忙碌状态、会话隔离、取消、断线、脱敏错误、缺失模型配置及在途客户端释放。
+- `run_agent_e2e.py` 启动显式离线测试入口，在真实 WebSocket 上完成两题面试，并回归 HTTP、WAV 和前端客户端；Agent 与流式测试前后 SQLite 字节一致。
+- 浏览器离线测试完成简历提交、两题作答和 3.00/5 报告展示；清空操作移除简历、答案及报告。模型输出明确标识为离线测试数据。
+- 根目录 MVP 回归：79 项测试、5 个子测试通过；后端依赖检查、迁移一致性和文档覆盖检查通过。
+- 真实千问调用已于 2026-09-11 验证：使用 `backend/.env` 与生产 ASGI 入口，经实际 WebSocket 提交虚构简历并完成一题面试，全程约 20.1 秒。日志确认简历解析、问题生成、回答评价及报告文字四个阶段均成功；预算仍按 MVP 扣除 120 秒。此结果仅覆盖本次配置与单题流程，不代表多轮、负载或所有模型均已验证。
+
+测试专用 `interviews.tests.agent_fixture_app` 只在显式指定时加载，生产入口没有模拟模型开关或隐式回退。
 
 以上时延和分片数是一次本机验证的观测值，不是性能保证。MediaRecorder 调度不精确，不使用分片数量推算录制时长。
 

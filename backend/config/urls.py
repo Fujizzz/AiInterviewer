@@ -1,7 +1,15 @@
 """根路由表。组合测试资源、健康检查与 REST 路由，不直接实现业务动作。
 
 目录：
-- urlpatterns：首页、stream-demo 资源、api/health 健康检查及 api 资源路由。
+（无本地函数或类定义。）
+
+关键变量：
+- urlpatterns：
+  由 Django 使用的路由列表；具体路径及模块职责见下方装配语句。
+
+设计说明：
+路由说明：首页和 /stream-demo/ 提供诊断资源；/agent/ 提供文字面试页。
+/api/health/ 检查数据库连接，/api/ 注册业务接口。
 """
 
 from django.urls import include, path
@@ -10,6 +18,7 @@ from interviews.demo import demo_asset
 
 urlpatterns = [
     path("", demo_asset, {"name": "index.html"}),
+    path("agent/", demo_asset, {"name": "agent.html"}),
     path("stream-demo/<str:name>", demo_asset),
     path("api/health/", health),
     path("api/", include("interviews.api.urls")),

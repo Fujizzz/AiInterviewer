@@ -1,21 +1,39 @@
 """REST 与数据库回归测试。以隔离数据库覆盖快照、状态、并发版本和错误边界。
 
 目录：
-- ApiTests
-- ApiTests.setUp
-- ApiTests.create
-- ApiTests.update
-- ApiTests.test_health_and_question_crud
-- ApiTests.test_snapshot_and_defaults_survive_question_edit
-- ApiTests.test_question_selection_order_validation
-- ApiTests.test_empty_bank_and_configuration_override_rejected
-- ApiTests.test_question_limit_and_explicit_subset
-- ApiTests.test_full_lifecycle_and_stale_version
-- ApiTests.test_invalid_transition_rolls_back_version
-- ApiTests.test_payload_validation_and_cross_session_item
-- ApiTests.test_local_origin_restriction
-- ApiTests.test_database_rejects_duplicate_position
-- ApiTests.test_demo_assets_and_missing_resource
+- ApiTests：
+  隔离数据库下的 API 回归集合；每例独立准备两道题以保持可复现。
+- ApiTests.setUp：
+  创建 APIClient 与确定性题库；清除测试库种子，不操作开发库。
+- ApiTests.create：
+  通过公开创建接口构造测试场次，并要求 HTTP 201，返回响应数据。
+- ApiTests.update：
+  根据场次快照构造单题 PATCH 地址，供各状态测试复用。
+- ApiTests.test_health_and_question_crud：
+  验证健康检查、分页数量、空白拒绝和题目新增/停用，覆盖基本写契约。
+- ApiTests.test_snapshot_and_defaults_survive_question_edit：
+  编辑或删除源题后查询场次，验证历史快照及固定 10/90 秒时长未改变。
+- ApiTests.test_question_selection_order_validation：
+  验证显式 ID 顺序被保留，并拒绝空、重复、缺失和停用题目。
+- ApiTests.test_empty_bank_and_configuration_override_rejected：
+  验证只读时长不可覆盖，空题库创建失败且未留下场次。
+- ApiTests.test_full_lifecycle_and_stale_version：
+  走通开始、提交、结束，检查旧版本被拒绝以及剩余题目被跳过。
+- ApiTests.test_question_limit_and_explicit_subset：
+  验证默认 100 题可创建、101 题整体拒绝，而大题库中的显式子集仍可使用。
+- ApiTests.test_invalid_transition_rolls_back_version：
+  验证非法转换和并行 answering 被拒绝，失败请求不消耗版本。
+- ApiTests.test_payload_validation_and_cross_session_item：
+  覆盖缺失版本、负时长、动作字段冲突及跨场次单题，检查事务回滚。
+- ApiTests.test_local_origin_restriction：
+  构造非本机和跨源请求，验证访问策略在业务处理前返回 403。
+- ApiTests.test_database_rejects_duplicate_position：
+  直接构造重复场次顺序，验证数据库唯一约束独立于 API 仍然有效。
+- ApiTests.test_demo_assets_and_missing_resource：
+  检查资源白名单与缺失场次响应，防止测试页暴露任意文件。
+
+关键变量：
+（无模块级变量。）
 """
 
 import uuid

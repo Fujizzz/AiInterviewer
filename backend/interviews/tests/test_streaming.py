@@ -1,19 +1,35 @@
 """ASGI 回传协议回归测试。SimpleTestCase 禁止数据库访问，模拟接收与发送事件。
 
 目录：
-- StreamingTests
-- StreamingTests.connect
-- StreamingTests.accepted
-- StreamingTests.message
-- StreamingTests.test_ping_stream_and_in_memory_summary
-- StreamingTests.test_foreign_origin_and_remote_peer_denied
-- StreamingTests.test_protocol_errors_are_explicit
-- StreamingTests.test_binary_before_start_rejected
-- StreamingTests.test_out_of_order_frame_rejected
-- StreamingTests.test_oversize_frame_rejected
-- StreamingTests.test_incorrect_finish_counts_rejected
-- StreamingTests.test_disconnect_is_not_success
-- StreamingTests.test_stream_works_with_files_and_database_access_forbidden
+- StreamingTests：
+  禁止数据库访问的 ASGI 测试集合，用事件队列验证协议及无存储边界。
+- StreamingTests.connect：
+  构造带来源和客户端地址的 ASGI scope，发送连接事件并返回通信器。
+- StreamingTests.accepted：
+  要求握手成功及 hello 公告，返回通信器和临时连接 ID。
+- StreamingTests.message：
+  编码一条 JSON 控制消息并读取下一条 JSON 响应，复用协议测试步骤。
+- StreamingTests.test_ping_stream_and_in_memory_summary：
+  验证 ping、多个二进制哈希及原样回传，最后检查内存统计和正常关闭。
+- StreamingTests.test_foreign_origin_and_remote_peer_denied：
+  构造跨源或非本机握手，验证连接在接受前被拒绝。
+- StreamingTests.test_protocol_errors_are_explicit：
+  逐一传入损坏 JSON、数组和未知类型，验证稳定错误码及 1008 关闭。
+- StreamingTests.test_binary_before_start_rejected：
+  未声明模式即发送分片，要求 not_started 错误而非隐式选择模式。
+- StreamingTests.test_out_of_order_frame_rejected：
+  首帧使用序号 2，验证严格顺序约束且不自动重排。
+- StreamingTests.test_oversize_frame_rejected：
+  构造刚超过既定上限的载荷，要求 size_limit 及 1009 关闭。
+- StreamingTests.test_incorrect_finish_counts_rejected：
+  提交不匹配计数，验证连接不会报告虚假完成。
+- StreamingTests.test_disconnect_is_not_success：
+  模拟异常断线，验证任务退出且不额外发送成功消息。
+- StreamingTests.test_stream_works_with_files_and_database_access_forbidden：
+  禁止文件打开和 SQLite 连接后完成分片回传，证明数据路径不依赖存储。
+
+关键变量：
+（无模块级变量。）
 """
 
 import hashlib

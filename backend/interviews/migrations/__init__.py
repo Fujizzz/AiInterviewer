@@ -1,6 +1,12 @@
 """Django 迁移包。按依赖顺序应用 schema 与种子数据；历史迁移用于兼容已有本地库。
 
 目录：
-- 0001_initial：初始表；0002_seed_questions：题库种子。
-- 0003_delete_streamprobe：移除历史诊断表；本包不定义运行时函数。
+（无本地函数或类定义。）
+
+关键变量：
+（无模块级变量。）
+
+设计说明：
+模块关系：0001_initial 建表，0002_seed_questions 写入初始题目。
+0003_delete_streamprobe 删除历史诊断表；保留既有迁移顺序。
 """

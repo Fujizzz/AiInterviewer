@@ -1,11 +1,22 @@
 """真实服务器联调入口。临时 SQLite 验证业务持久化，流式部分验证原样回传及数据库不变。
 
 目录：
-- request
-- check_rest
-- check_rest.start_once
-- check_wav
-- main
+- request：
+  发送一次有超时限制的 JSON HTTP 请求，返回解码数据；网络错误不重试。
+- check_rest：
+  通过实际 HTTP 完成场次生命周期，并发相同版本更新必须分别得到 200/409。
+- check_rest.start_once：
+  提交一次固定版本的开始动作，将成功或 HTTP 错误统一转换为状态码供断言。
+- check_wav：
+  在内存生成 WAV、分片回传并重组解码，验证媒体字节和计数一致。
+- main：
+  功能：创建临时业务数据库、启动 Uvicorn，执行 HTTP、WAV 与 Node 联调。
+
+关键变量：
+- HTTP：
+  禁用代理的本机 HTTP opener，避免测试请求经过系统代理。
+- ROOT：
+  后端根目录，作为联调子进程工作目录。
 """
 
 import concurrent.futures
@@ -33,7 +44,11 @@ HTTP = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
 def request(base, path, data=None, method=None):
-    """发送一次有超时限制的 JSON HTTP 请求，返回解码数据；网络错误不重试。"""
+    """发送一次有超时限制的 JSON HTTP 请求，返回解码数据；网络错误不重试。
+
+    输入：本机 base、资源 path、可选 JSON 请求体和 HTTP 方法；不使用系统代理。
+    返回：反序列化后的 JSON；HTTP 错误、超时和非 JSON 响应直接传播给联调用例。
+    """
     req = urllib.request.Request(
         base + path,
         data=None if data is None else json.dumps(data).encode(),
@@ -45,7 +60,12 @@ def request(base, path, data=None, method=None):
 
 
 def check_rest(base):
-    """通过实际 HTTP 完成场次生命周期，并发相同版本更新必须分别得到 200/409。"""
+    """通过实际 HTTP 完成场次生命周期，并发相同版本更新必须分别得到 200/409。
+
+    前置条件：base 指向已迁移两道种子题的隔离测试数据库。
+    方法：创建场次→并发竞争同一版本→提交答案→结束场次，并核对状态与持久化字段。
+    返回 None；失败以断言或请求异常终止，不自动重试。写入只发生在启动器创建的临时库。
+    """
     session = request(base, "/api/sessions/", {})
     assert len(session["items"]) == 2
     assert (session["prep_seconds"], session["answer_seconds"]) == (10, 90)
@@ -78,7 +98,12 @@ def check_rest(base):
 
 
 def check_wav(base):
-    """在内存生成 WAV、分片回传并重组解码，验证媒体字节和计数一致。"""
+    """在内存生成 WAV、分片回传并重组解码，验证媒体字节和计数一致。
+
+    输入：已就绪的本机服务 base；构造 16 kHz 单声道静音测试数据，不读取真实录音。
+    方法：编码四字节序号→核对 ACK 摘要及回传→提交累计数→重新解码 WAV 帧数。
+    返回 None；不写媒体文件，协议错误以断言或网络异常传播给启动器。
+    """
     buffer = io.BytesIO()
     with wave.open(buffer, "wb") as output:
         output.setnchannels(1)
@@ -115,9 +140,10 @@ def check_wav(base):
     print(f"PASS WAV: {len(chunks)} chunks, {len(original)} bytes, in-memory round-trip decode")
 
 
-def main():
+def main(asgi_app="config.asgi:application", agent_check=None):
     """功能：创建临时业务数据库、启动 Uvicorn，执行 HTTP、WAV 与 Node 联调。
     方法：仅启动就绪探测允许重复检查；测试调用不重试。流式前后比较数据库字节。
+    输入：可显式指定离线 Agent 测试入口与检查函数；默认仍测试生产入口。
     副作用：临时业务库和服务日志在临时目录，finally 停止子进程后自动清理。"""
     node = shutil.which("node")
     if node is None:
@@ -149,7 +175,7 @@ def main():
                     "-s",
                     "-m",
                     "uvicorn",
-                    "config.asgi:application",
+                    asgi_app,
                     "--host",
                     "127.0.0.1",
                     "--port",
@@ -180,6 +206,8 @@ def main():
                         time.sleep(0.1)
                 check_rest(base)
                 database_before_streaming = (task_dir / "test.sqlite3").read_bytes()
+                if agent_check is not None:
+                    agent_check(base)
                 check_wav(base)
                 subprocess.run(
                     [node, "--test", "tests/stream-client.test.mjs"], cwd=ROOT, check=True

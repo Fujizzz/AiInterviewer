@@ -1,19 +1,40 @@
 """REST 数据契约。严格验证可写字段、题目顺序和动作参数；响应包含不可变题目快照。
 
 目录：
-- StrictInputMixin
-- StrictInputMixin.to_internal_value
-- QuestionSerializer
-- QuestionSerializer.Meta
-- SessionQuestionSerializer
-- SessionQuestionSerializer.Meta
-- SessionSerializer
-- SessionSerializer.Meta
-- CreateSessionSerializer
-- CreateSessionSerializer.validate_question_ids
-- VersionSerializer
-- ItemCommandSerializer
-- ItemCommandSerializer.validate
+- StrictInputMixin：
+  严格输入策略：未知字段与只读字段一律拒绝，避免默默忽略调用错误。
+- StrictInputMixin.to_internal_value：
+  功能：在 DRF 类型转换前验证字段白名单。
+- QuestionSerializer：
+  题库读写契约，主键与创建/更新时间由服务端管理。
+- QuestionSerializer.Meta：
+  声明外部字段及只读字段，保持题库写入范围可审计。
+- SessionQuestionSerializer：
+  单题只用于响应展示，包含题目快照、作答与服务端时间。
+- SessionQuestionSerializer.Meta：
+  显式列出单题响应字段，避免新增模型内部字段被自动暴露。
+- SessionSerializer：
+  场次响应契约，按模型顺序嵌套只读单题列表。
+- SessionSerializer.Meta：
+  显式公开状态、版本、固定时长及单题快照。
+- CreateSessionSerializer：
+  创建请求契约：可选非空 UUID 序列，最多 100 项。
+- CreateSessionSerializer.validate_question_ids：
+  用集合长度检查重复 ID；成功时原样返回列表，保留用户指定顺序。
+- VersionSerializer：
+  需要变更场次的请求基类，要求 version 为大于等于 1 的整数。
+- ItemCommandSerializer：
+  单题动作契约，约束动作枚举、答案长度与可选时长范围。
+- ItemCommandSerializer.validate：
+  交叉验证动作与答案字段：只有 complete 接受答案与时长，其余组合明确拒绝。
+
+关键变量：
+（无模块级变量。）
+
+关键状态说明：
+各 Meta.fields 明确公开字段；read_only_fields 限制写入。
+VersionSerializer.version 控制并发；ItemCommandSerializer.action 约束状态动作。
+answer_text/duration_ms 只允许随 complete 提交。
 """
 
 from rest_framework import serializers

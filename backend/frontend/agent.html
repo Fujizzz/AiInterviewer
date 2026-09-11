@@ -1,0 +1,61 @@
+<!doctype html>
+<!--
+文件职责：MVP 文字面试测试页的表单与展示结构，由 agent.js 处理事件，agent.css 补充样式。
+目录：start-form（简历和预算）；agent-status（连接状态）；answer-form（回答和取消）；
+evaluation-panel（上一题评价）；report-panel（最终报告及完整结果）。本文件无函数定义。
+关键元素：resume/job/limit/probes 提供初始化参数；question/answer 绑定当前轮；report 保存当前结果文本。
+约束：密钥只由后端读取；表单内容通过同源连接发送，不使用浏览器持久存储。
+-->
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>MVP Agent · 文字面试</title>
+  <link rel="stylesheet" href="/stream-demo/style.css">
+  <link rel="stylesheet" href="/stream-demo/agent.css">
+  <script type="module" src="/stream-demo/agent.js"></script>
+</head>
+<body><main>
+  <header><span class="eyebrow">MOCK INTERVIEW / AGENT LAB</span>
+    <h1>MVP Agent 文字面试</h1>
+    <p>粘贴简历后开始面试，逐题回答并查看评价报告。密钥由后端读取，简历和回答将发送给你配置的模型服务。</p>
+    <a href="/">返回音视频传输测试</a>
+  </header>
+  <section class="connection"><span id="agent-status" role="status">就绪</span></section>
+  <!-- 参数表单的初始值与 MVP 默认值一致；运行期间由脚本禁用，避免同连接重复初始化。 -->
+  <form id="start-form" class="panel">
+    <h2>01 · 简历与面试设置</h2>
+    <label for="resume">简历文本</label>
+    <textarea id="resume" rows="9" required placeholder="粘贴简历中的项目、技术栈、个人职责和成果。"></textarea>
+    <label for="job">目标岗位</label>
+    <input id="job" value="General AI / Software Engineer" required>
+    <div class="settings-grid">
+      <div><label for="limit">题目预算</label><input id="limit" type="number" min="1" step="1" value="5" required></div>
+      <div><label for="probes">同主题连续追问上限</label><input id="probes" type="number" min="0" step="1" value="2" required></div>
+    </div>
+    <p class="hint">沿用 MVP 每题 120 秒的逻辑预算，不是实际答题倒计时。问题完整生成后显示。</p>
+    <button id="start-agent" type="submit">开始面试</button>
+  </form>
+  <section class="panel">
+    <h2>02 · 当前问题</h2>
+    <p id="question-meta" class="hint"></p>
+    <p id="question">开始面试后，问题会显示在这里。</p>
+    <form id="answer-form">
+      <label for="answer">你的回答</label>
+      <textarea id="answer" rows="6" required disabled></textarea>
+      <div class="actions">
+        <button id="submit-answer" type="submit" disabled>提交回答</button>
+        <button id="cancel-agent" type="button" class="secondary" disabled>取消面试</button>
+        <button id="clear-agent" type="button" class="secondary">清空内容</button>
+      </div>
+    </form>
+    <details id="evaluation-panel" hidden><summary>上一题评价</summary><pre id="evaluation"></pre></details>
+  </section>
+  <!-- 仅在收到完整 finished 响应后展示；评分直接呈现后端结果，不在模板中重新计算。 -->
+  <section id="report-panel" class="panel" hidden>
+    <h2>03 · 面试报告</h2>
+    <p id="score"></p><p id="report-summary"></p>
+    <details><summary>完整结果与决策记录</summary><pre id="report"></pre></details>
+  </section>
+</main></body>
+</html>
