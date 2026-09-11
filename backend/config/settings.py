@@ -1,14 +1,18 @@
 """后端配置。集中声明应用、SQLite、JSON 接口和控制台日志；密钥必须由环境提供。
 
 目录：
-- 配置常量、路由声明或子模块说明（无运行时函数）。
+- BASE_DIR、SECRET_KEY、ALLOWED_HOSTS：路径、显式密钥与允许的主机。
+- INSTALLED_APPS、MIDDLEWARE、ROOT_URLCONF、ASGI_APPLICATION：应用装配。
+- DATABASES、DEFAULT_AUTO_FIELD、USE_TZ、TIME_ZONE：存储和时间语义。
+- REST_FRAMEWORK：JSON 输入输出、分页和异常适配。
+- LOGGING：带上下文的控制台日志，不配置文件处理器。
 """
 
 import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-# Required explicitly; no checked-in application secret or implicit environment fallback.
+# 环境缺少密钥时立即停止启动，避免以隐式默认密钥运行。
 SECRET_KEY = os.environ["DJANGO_SECRET_KEY"]
 DEBUG = False
 ALLOWED_HOSTS = ["127.0.0.1", "localhost", "[::1]"]

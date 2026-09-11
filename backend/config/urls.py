@@ -1,7 +1,7 @@
 """根路由表。组合测试资源、健康检查与 REST 路由，不直接实现业务动作。
 
 目录：
-- 配置常量、路由声明或子模块说明（无运行时函数）。
+- urlpatterns：首页、stream-demo 资源、api/health 健康检查及 api 资源路由。
 """
 
 from django.urls import include, path
