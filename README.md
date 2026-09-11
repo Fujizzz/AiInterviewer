@@ -39,10 +39,11 @@ InterviewAgentService (agents/)
 agents/      Agent 决策核心
 app/         当前终端 MVP 与临时适配器
 shared/      跨模块版本化契约
-backend/     后端团队预留目录
-frontend/    前端团队预留目录
+backend/     Django/DRF API 与流式诊断后端
+frontend/    产品前端团队预留目录
 evaluation/  生产 Evaluation 模块预留目录
 rag/         生产 RAG 模块预留目录
+ai_security/ AI 安全模块预留目录
 tests/       按 Agent 和 App 分类的 Python 测试
 docs/        架构、模块规范、指南与示例
 ```
@@ -93,6 +94,13 @@ uv run python main.py resume.pdf \
 ```
 
 不提供 `--job-title` 时使用通用 AI / 软件工程岗位和均衡能力权重。
+
+## 独立后端与流式诊断
+
+`backend/` 提供 Django/DRF 练习接口、SQLite 业务存储和只在内存中处理的 WebSocket 音视频回传测试。
+它尚未接入上面的 Agent 决策流程；不会修改现有面试策略或模型参数。
+其浏览器诊断页位于 `backend/diagnostics/web/`，与未来 `frontend/` 产品代码分开。
+安装与启动见 [后端说明](backend/README.md)，模块职责和函数注释规范见 [代码阅读指南](backend/docs/code-guide.md)。
 
 ## 测试
 

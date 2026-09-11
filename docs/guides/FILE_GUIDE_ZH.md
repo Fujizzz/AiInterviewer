@@ -9,10 +9,11 @@
 | `agents/` | Agent 团队：面试规划与确定性决策核心 | 已实现 |
 | `app/` | 当前终端 MVP：输入输出、组合根和临时适配器 | 已实现 |
 | `shared/` | 全团队共享的版本化数据契约 | 已实现 |
-| `backend/` | 后端团队：API、鉴权、持久化与会话生命周期 | 待上传 |
+| `backend/` | 后端团队：Django/DRF API、持久化与流式诊断 | 已上传，尚未对接 Agent |
 | `frontend/` | 前端团队：上传、面试交互和报告界面 | 待上传 |
 | `evaluation/` | Evaluation 团队：证据与标准量表评分 | 待上传 |
 | `rag/` | RAG 团队：知识摄取与检索实现 | 待上传 |
+| `ai_security/` | AI 安全团队：输入输出、访问控制及滥用防护 | 目录已预留 |
 | `tests/` | Python 契约、单元、集成和应用测试 | 已整理 |
 | `docs/` | 总体架构、模块规范、指南和示例 | 已整理 |
 
@@ -43,6 +44,18 @@
 
 未来后端代码不放进 `app/`，而应完全位于 `backend/`。
 
+## `backend/`
+
+- `config/`：Django 设置、HTTP 路由和 ASGI 入口；
+- `interviews/api/`：REST 序列化、视图与路由；
+- `interviews/streaming/`：内存中的 WebSocket 分片回传协议；
+- `interviews/tests/`：Django/ASGI 测试；
+- `diagnostics/web/`：后端团队自有的流式诊断页，不是产品前端；
+- `docs/`、`tests/`、`tools/`：后端文档、联调测试和检查工具。
+
+当前后端仍未调用 Agent 决策流程，后续对接应通过公共 Service 和
+`shared/contracts/`完成，不直接导入 `agents/` 内部实现。
+
 ## `shared/`
 
 `shared/contracts/` 是跨模块数据结构的唯一来源。接口对接前，前端和后端可保留各自
@@ -65,8 +78,9 @@
 
 ## 新代码上传约定
 
-1. 前端代码只进入 `frontend/`，后端代码只进入 `backend/`；
-2. 各模块可以暂时保留自己的依赖清单和测试工具；
-3. 本轮不做跨模块 import 或接口转换；
-4. 后续接口对接应作为独立提交完成；
-5. 不提交密钥、`.env`、虚拟环境、IDE 设置和构建产物。
+1. 产品前端代码只进入 `frontend/`，后端代码只进入 `backend/`；
+2. 后端自有的诊断页统一放在 `backend/diagnostics/`，不与产品前端混放；
+3. 各模块可以暂时保留自己的依赖清单和测试工具；
+4. 本轮不做跨模块 import 或接口转换；
+5. 后续接口对接应作为独立提交完成；
+6. 不提交密钥、`.env`、虚拟环境、IDE 设置和构建产物。
