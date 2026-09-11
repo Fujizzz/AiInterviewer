@@ -8,7 +8,7 @@ from typing import Any, TypeVar
 
 from pydantic import BaseModel, Field
 
-from app.llm import OutputModel, StructuredLLM
+from app.providers.llm import OutputModel, StructuredLLM
 
 StructuredModel = TypeVar("StructuredModel", bound=BaseModel)
 

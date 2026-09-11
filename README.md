@@ -33,6 +33,23 @@ InterviewAgentService (agents/)
 
 旧版 LangGraph 流程、旧 `TypedDict` 状态和独立问题路由已移除，避免出现两个决策中心。
 
+## 仓库模块
+
+```text
+agents/      Agent 决策核心
+app/         当前终端 MVP 与临时适配器
+shared/      跨模块版本化契约
+backend/     后端团队预留目录
+frontend/    前端团队预留目录
+evaluation/  生产 Evaluation 模块预留目录
+rag/         生产 RAG 模块预留目录
+tests/       按 Agent 和 App 分类的 Python 测试
+docs/        架构、模块规范、指南与示例
+```
+
+依赖方向和团队上传规则见 [`docs/REPOSITORY_LAYOUT.md`](docs/REPOSITORY_LAYOUT.md)，
+中文文件索引见 [`docs/guides/FILE_GUIDE_ZH.md`](docs/guides/FILE_GUIDE_ZH.md)。
+
 ## 安装
 
 推荐使用 `uv`：
@@ -82,10 +99,10 @@ uv run python main.py resume.pdf \
 ```bash
 uv run pytest -q
 uv run ruff check .
-python -m tests.smoke_interview
+python -m tests.app.smoke_interview
 ```
 
-离线测试不会调用真实模型。`tests/live_interview.py` 是需要主动运行的真实 API 测试入口。
+离线测试不会调用真实模型。`tests/app/live_interview.py` 是需要主动运行的真实 API 测试入口。
 
 ## 已知边界
 

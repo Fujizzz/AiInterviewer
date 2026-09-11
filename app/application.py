@@ -9,9 +9,9 @@ from uuid import uuid4
 from agents.config import load_agent_settings
 from agents.orchestrator import InterviewAgentService
 from app.adapters import InMemoryInterviewRepository, LLMEvaluationAdapter, ProviderLLMAdapter
-from app.agents.evaluator import build_final_report
-from app.agents.resume_parser import parse_resume_profile
-from app.llm import OpenAILLM, StructuredLLM
+from app.parsing.resume import parse_resume_profile
+from app.providers.llm import OpenAILLM, StructuredLLM
+from app.reporting.final_report import build_final_report
 from shared.contracts import (
     CandidateAnswer,
     Competency,

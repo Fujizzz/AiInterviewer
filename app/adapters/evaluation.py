@@ -6,7 +6,7 @@ import asyncio
 
 from pydantic import Field
 
-from app.llm import OutputModel, StructuredLLM
+from app.providers.llm import OutputModel, StructuredLLM
 from shared.contracts import CompetencyState, EvaluationFeedback, EvaluationRequest
 
 

@@ -1,6 +1,6 @@
 """Stable Pydantic contracts shared by Agent, RAG, Evaluation, and Backend.
 
-The field names intentionally follow ``docs/AGENT_MODULE_DEVELOPMENT.md``.
+The field names intentionally follow ``docs/modules/AGENT_MODULE_DEVELOPMENT.md``.
 Concrete adapter implementations do not belong in this module.
 """
 
