@@ -1,5 +1,9 @@
 """真实服务器联调入口。临时 SQLite 验证业务持久化，流式部分验证原样回传及数据库不变。
 
+实现与关联：由 run_agent_e2e 复用启动器；隔离模型/数据库后执行既有断言。
+Windows 虚拟环境解释器可能派生实际运行进程，清理必须结束本测试启动的整棵进程树。
+taskkill 返回不代表每个子进程已释放句柄，删除临时目录前须等待已捕获的进程句柄退出。
+
 目录：
 - request：
   发送一次有超时限制的 JSON HTTP 请求，返回解码数据；网络错误不重试。
@@ -9,6 +13,8 @@
   提交一次固定版本的开始动作，将成功或 HTTP 错误统一转换为状态码供断言。
 - check_wav：
   在内存生成 WAV、分片回传并重组解码，验证媒体字节和计数一致。
+- stop_windows_tree：
+  捕获测试启动进程及后代的句柄，结束后等待全部退出再清理临时日志。
 - main：
   功能：创建临时业务数据库、启动 Uvicorn，执行 HTTP、WAV 与 Node 联调。
 
@@ -140,11 +146,67 @@ def check_wav(base):
     print(f"PASS WAV: {len(chunks)} chunks, {len(original)} bytes, in-memory round-trip decode")
 
 
+def stop_windows_tree(server):
+    """输入本测试 Popen，结束其 Windows 进程树并等待原生进程真正退出。
+
+    先按父 PID 快照收集后代并打开句柄，再 taskkill；句柄等待不受 PID 复用影响。
+    每个进程最多等待 10 秒，异常直接传播；不忽略临时文件占用，不重跑业务测试。
+    PowerShell 隐藏运行，只操作该 Popen 的进程树，不删除任何文件。
+    """
+    script = r"""
+$ErrorActionPreference = 'Stop'
+$taskRoot = TASK_ROOT
+$snapshot = @(Get-CimInstance Win32_Process)
+$ids = [System.Collections.Generic.HashSet[int]]::new()
+$null = $ids.Add($taskRoot)
+do {
+    $changed = $false
+    foreach ($item in $snapshot) {
+        if ($ids.Contains([int]$item.ParentProcessId)) {
+            if ($ids.Add([int]$item.ProcessId)) { $changed = $true }
+        }
+    }
+} while ($changed)
+$handles = @()
+try {
+    foreach ($taskId in $ids) {
+        try {
+            $process = [System.Diagnostics.Process]::GetProcessById($taskId)
+            $null = $process.Handle
+            $handles += $process
+        } catch [System.ArgumentException] {
+            # Snapshot member already exited: no process remains to wait for.
+        }
+    }
+    & taskkill.exe /PID $taskRoot /T /F | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Test server process-tree termination failed.' }
+    foreach ($process in $handles) {
+        if (-not $process.WaitForExit(10000)) { throw 'Test server descendant did not exit.' }
+    }
+} finally {
+    foreach ($process in $handles) { $process.Dispose() }
+}
+"""
+    subprocess.run(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            script.replace("TASK_ROOT", str(server.pid)),
+        ],
+        check=True,
+        capture_output=True,
+        creationflags=subprocess.CREATE_NO_WINDOW,
+    )
+
+
 def main(asgi_app="config.asgi:application", agent_check=None):
     """功能：创建临时业务数据库、启动 Uvicorn，执行 HTTP、WAV 与 Node 联调。
     方法：仅启动就绪探测允许重复检查；测试调用不重试。流式前后比较数据库字节。
     输入：可显式指定离线 Agent 测试入口与检查函数；默认仍测试生产入口。
-    副作用：临时业务库和服务日志在临时目录，finally 停止子进程后自动清理。"""
+    副作用：临时业务库和服务日志在临时目录；finally 在 Windows 结束本次启动的
+    进程树，其他平台结束直接子进程；清理失败显式报错，不忽略文件占用或削弱测试断言。"""
     node = shutil.which("node")
     if node is None:
         raise RuntimeError("Node.js 22+ is required to test the actual frontend StreamClient.")
@@ -229,7 +291,12 @@ def main(asgi_app="config.asgi:application", agent_check=None):
                 print(log_path.read_text(encoding="utf-8"), file=sys.stderr)
                 raise
             finally:
-                server.terminate()
+                # Windows venv 的 python.exe 是启动器；只 terminate 启动器可能让真正的
+                # Uvicorn 子进程继续持有 server.log，导致 TemporaryDirectory 清理失败。
+                if os.name == "nt" and server.poll() is None:
+                    stop_windows_tree(server)
+                elif server.poll() is None:
+                    server.terminate()
                 try:
                     server.wait(timeout=10)
                 except subprocess.TimeoutExpired:

@@ -1,7 +1,9 @@
 /*
  * 文件职责：为 agent.html 的文字面试表单提供布局与可读性样式，叠加在 style.css 之后。
  * 目录：label/input/textarea（表单）；.settings-grid（预算参数）；#question/#report-summary（长文本）；
- * details/pre（展开结果）；[hidden]（显示状态）；@media（窄屏排列）。本文件无函数或 CSS 自定义变量。
+ * details/pre（展开结果）；#stage-log/#wait-time（真实阶段与计时）；预解析按钮；
+ * fieldset/legend（PDF 导入区分组）；#pdf-preview（保留布局的规则/视觉文本预览）；
+ * [hidden]（显示状态）；@media（窄屏排列）。本文件无函数或 CSS 自定义变量。
  * 关键选择器：#start-agent 与 #answer-form .actions 控制操作区间距；不改变 disabled 或网络状态。
  * 约束：仅调整外观和布局；预算、评分及协议状态由脚本与后端决定。
  */
@@ -15,4 +17,11 @@ textarea { resize: vertical; }
 #start-agent, #answer-form .actions, details { margin-top: 16px; }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 480px; overflow: auto; }
 [hidden] { display: none !important; }
+#stage-log { flex-basis: 100%; margin: 0; }
+#wait-time { font-variant-numeric: tabular-nums; color: #516670; }
+#prepare-resume { margin-top: 12px; }
+#prepared-status { color: #276e60; font-size: 13px; }
+fieldset { min-width: 0; margin: 16px 0; padding: 16px; border: 1px solid #afc6c0; border-radius: 10px; }
+legend { padding: 0 8px; font-weight: 600; }
+#pdf-preview { font-family: ui-monospace, monospace; white-space: pre; overflow: auto; }
 @media (max-width: 520px) { .settings-grid { grid-template-columns: 1fr; } }

@@ -114,7 +114,7 @@ python -m tests.app.smoke_interview
 
 ## 已知边界
 
-- PDF 只支持可提取文本，不包含 OCR；
+- 终端 CLI 的 PDF 只支持可提取文本；后端页面另提供规则提取与多模态转写，见 [PDF 简历解析](backend/docs/resume-pdf.md)；
 - MVP Repository 仍是内存实现，关闭进程后状态不会保留；
 - RAG 端口和数据库端口已定义，生产适配器仍需由对应模块接入；
 - 最终报告是辅助评估结果，不应直接作为自动化录用决定。

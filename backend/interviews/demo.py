@@ -1,4 +1,6 @@
-"""开发测试页的资源交付模块。
+"""统一主页与开发测试页的资源交付模块，供 config.urls 的页面和资源路由复用。
+
+实现：按 ASSETS 白名单读取 frontend 内文件，并返回明确的内容类型与禁用缓存响应。
 
 目录：
 - demo_asset：
@@ -16,7 +18,7 @@ from django.http import Http404, HttpResponse
 
 ASSETS = {
     "index.html", "app.js", "view.js", "media.js", "stream-client.js", "style.css",
-    "agent.html", "agent.js", "agent.css",
+    "agent.html", "agent.js", "agent.css", "home.html", "home.css", "resume-pdf.js",
 }
 
 

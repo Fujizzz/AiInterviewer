@@ -1,7 +1,10 @@
 # 用途：后端运行依赖，以及复用 MVP Agent 所需的根目录依赖。
 # 目录：Django/DRF（HTTP 与 ORM）；Uvicorn/websockets（ASGI 与双向传输）。
+# PDFium/Pillow：仅后端 PDF 页面渲染，规则文字提取复用根依赖 pypdf。
 Django==5.2.17
 djangorestframework==3.18.1
 uvicorn==0.52.4
 websockets==16.1.1
+pypdfium2==5.13.0
+Pillow==12.3.0
 -r ../requirements.txt

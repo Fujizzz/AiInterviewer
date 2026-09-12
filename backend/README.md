@@ -4,6 +4,11 @@ Django + DRF 提供题库、练习场次、单题记录接口，SQLite 仅保存
 同一 ASGI 服务提供 WebSocket 回传接口与浏览器测试页面，用于验证 ping/pong、二进制和音视频分片传输。
 本目录已接入根目录的 Agent MVP，通过 `/ws/agent/` 提供简历文本解析、逐题面试、评价与最终报告，测试页面位于 `/agent/`。
 Agent 沿用 MVP 的默认参数、策略和每题 120 秒逻辑预算；后端练习接口继续保留原有 10 秒准备和 90 秒回答配置，两条流程独立运行。
+文字面试页支持提前解析简历、真实阶段进度、实际等待计时，以及评分先展示、报告文字随后补齐。
+预解析只在当前连接内复用完全相同的简历，不改变 Agent 决策或增加推测性出题。
+优化边界与需要 Agent 团队配合的事项见 [性能优化说明](docs/performance.md)。
+文字面试页现支持 PDF 上传：传统库提取后由独立视觉 Agent 校对；用户核对后采用文本。
+配置、数据流和限制见 [PDF 简历解析](docs/resume-pdf.md)。
 
 ## Coding Agent 必须遵循的开发原则
 
@@ -44,7 +49,8 @@ python manage.py migrate
 python -m uvicorn config.asgi:application --host 127.0.0.1 --port 8765 --ws websockets-sansio
 ```
 
-打开 [流式测试页面](http://127.0.0.1:8765/) 或 [健康检查](http://127.0.0.1:8765/api/health/)。
+打开 [统一主页](http://127.0.0.1:8765/)，选择文字面试或开发诊断。
+也可直接进入 [流式测试页面](http://127.0.0.1:8765/stream-demo/) 或 [健康检查](http://127.0.0.1:8765/api/health/)。
 测试 AI 面试请打开 [MVP Agent 测试页](http://127.0.0.1:8765/agent/)，并先按下节配置模型密钥。
 必须使用 ASGI 启动命令；`manage.py runserver` 不能提供这里的 WebSocket 路由。
 `DJANGO_SECRET_KEY` 必须在环境变量或 `backend/.env` 中显式设置，上面的命令仅为当前开发 shell 生成随机值，源码不包含应用密钥。
@@ -80,6 +86,9 @@ backend/
     agent_provider.py     后端模型配置、脱敏日志与客户端释放
     agent_session.py      MVP 用例的逐轮网络适配，独立内存仓库
     agent_socket.py       文字面试命令、并发限制与连接生命周期
+    resume_pdf.py         PDF 规则提取与有界页面渲染
+    resume_api.py         multipart 上传与 NDJSON 阶段流
+    resume_vision.py      独立异步视觉模型适配器
     access.py             HTTP/WebSocket 共用访问策略
     middleware.py         HTTP 请求拦截
     demo.py               测试页资源白名单
@@ -123,7 +132,7 @@ python tests/run_agent_e2e.py  # 真实 ASGI + 离线模型替身，不调用收
 - 每次连接使用临时 connection_id，断开后服务端不保留结果。页面日志仅保留最近 30 行；服务端日志输出到控制台，启动时不要重定向到文件。
 - 浏览器仅保留当前回放的临时 Blob URL，点击“清空结果与媒体缓存”、开始下一次测试或离开页面时释放。没有 localStorage、IndexedDB、下载或文件写入逻辑。
 - verified_chunks 是客户端报告的校验数量，属于诊断指标，不是对恶意客户端的可信证明。
-- Agent 文字面试已接入；简历、答案和报告只保存在当前连接内存中。尚未提供文件上传、语音识别、视频存储、WebRTC 或 MySQL 适配；评分与策略仍由根目录模块负责。
+- Agent 文字面试已接入；简历、答案和报告只保存在当前连接内存中。PDF 上传由独立 HTTP 入口处理，业务不保存文件，Django 可能使用自动清理的临时上传文件。尚未提供语音识别、视频存储、WebRTC 或 MySQL 适配；评分与策略仍由根目录模块负责。
 - Agent 当前返回完整问题和报告，没有逐 token 输出。沿用 MVP 的既有模型重试与问题/报告备用逻辑；断开连接不能保证已发送的同步模型请求在供应商处停止。
 
 ## 协议参考

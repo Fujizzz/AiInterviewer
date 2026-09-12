@@ -1,0 +1,65 @@
+/*
+ * 职责：统一主页的布局、层级、导航反馈与响应式样式。
+ * 实现：桌面采用双栏介绍和三栏步骤；窄屏按阅读顺序堆叠，链接保留键盘焦点反馈。
+ * 关联：home.html 在 style.css 之后加载本文件；规则限定于 .home-page，不改变既有测试页。
+ * 目录：页面容器与导航；主介绍与能力卡；使用步骤；诊断与页脚；焦点与窄屏布局。
+ * 函数和类声明：无。变量索引：无 CSS 自定义变量、脚本变量或配置项。
+ * 关键选择器：.hero 为双栏区域，.overview 为能力说明，.steps 为有序步骤，.diagnostics 为开发入口。
+ * 约束：仅控制展示，无请求、模型调用、动画计时或面试状态副作用。
+ */
+.home-page { background: #f6f8f5; color: #203b33; }
+.home-page .home-shell { max-width: 1180px; margin: 0 auto; padding: 0 40px; }
+.home-page a { color: inherit; text-decoration: none; }
+.home-page a:focus-visible { outline: 3px solid #c88c25; outline-offset: 5px; border-radius: 4px; }
+.home-page .home-nav { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 26px 0; border-bottom: 1px solid #dbe3dc; }
+.home-page .brand { display: inline-flex; align-items: center; gap: 10px; font-size: 19px; font-weight: 700; }
+.home-page .brand-mark { display: grid; place-items: center; width: 35px; height: 35px; background: #245e4c; border-radius: 10px; color: #fff; font-size: 14px; }
+.home-page .nav-link { font-size: 13px; color: #4d675c; padding: 8px 0; }
+.home-page main { max-width: none; padding: 0; }
+.home-page .hero { display: grid; grid-template-columns: 1.2fr 1fr; align-items: center; gap: 60px; padding: 64px 0 52px; }
+.home-page h1 { font-size: clamp(30px, 3.3vw, 44px); line-height: 1.4; letter-spacing: -1px; margin: 18px 0; }
+.home-page .hero-description { max-width: 480px; font-size: 15px; line-height: 1.95; color: #586e63; margin: 0 0 28px; }
+.home-page .primary-link, .home-page .secondary-link { display: inline-flex; align-items: center; justify-content: space-between; gap: 24px; padding: 14px 20px; border-radius: 8px; font-size: 14px; font-weight: 600; }
+.home-page .primary-link { background: #245e4c; color: white; }
+.home-page .primary-link:hover { background: #194535; }
+.home-page .hero-note { font-size: 12px; color: #627368; margin-top: 14px; }
+.home-page .overview { background: #e8efe6; border: 1px solid #d8e2d5; border-radius: 18px; padding: 30px; }
+.home-page .overview h2 { font-size: 21px; margin: 15px 0 10px; }
+.home-page .overview > p { color: #536c5e; font-size: 13px; line-height: 1.8; }
+.home-page .feature-list { list-style: none; padding: 0; margin: 22px 0 0; }
+.home-page .feature-list li { display: flex; gap: 16px; padding: 17px 0; border-top: 1px solid #d0ddcc; }
+.home-page .feature-list li:last-child { padding-bottom: 0; }
+.home-page .feature-list li > span { font: 12px/1.8 Consolas, monospace; color: #567a60; }
+.home-page .feature-list strong { font-size: 14px; }
+.home-page .feature-list p { font-size: 12px; line-height: 1.8; margin: 5px 0 0; color: #586e60; }
+.home-page .steps-section { padding: 8px 0 32px; }
+.home-page .steps-section > h2 { font-size: 19px; margin-bottom: 23px; }
+.home-page .steps { list-style: none; display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; padding: 0; margin: 0; }
+.home-page .steps li { border-top: 2px solid #c7d7c8; padding-top: 19px; }
+.home-page .step-number { font-size: 11px; letter-spacing: 1px; color: #55765e; }
+.home-page .steps h3 { color: #203b33; font-size: 16px; font-weight: 600; margin: 12px 0 8px; }
+.home-page .steps p { font-size: 13px; line-height: 1.8; color: #586e63; margin: 0; }
+.home-page .session-note { margin: 24px 0 0; font-size: 12px; line-height: 1.9; color: #637268; }
+.home-page .diagnostics { display: flex; justify-content: space-between; align-items: center; gap: 28px; background: #fff; border: 1px solid #dce4dc; border-radius: 12px; padding: 26px 30px; }
+.home-page .diagnostics h2 { font-size: 18px; margin: 10px 0 8px; }
+.home-page .diagnostics p { font-size: 13px; color: #607267; line-height: 1.8; margin: 0; }
+.home-page .diagnostic-links { display: flex; flex-direction: column; align-items: stretch; gap: 12px; flex-shrink: 0; }
+.home-page .secondary-link { border: 1px solid #b8cdbc; color: #245e4c; }
+.home-page .secondary-link:hover { background: #eef4ee; }
+.home-page .health-link { text-align: center; font-size: 12px; color: #526d5c; text-decoration: underline; text-underline-offset: 3px; }
+.home-page .home-footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; padding: 25px 0; color: #627368; }
+.home-page .skip-link { position: absolute; top: -100px; left: 20px; padding: 12px; background: #fff; z-index: 1; }
+.home-page .skip-link:focus { top: 12px; }
+@media (max-width: 800px) {
+  .home-page .home-shell { padding: 0 24px; }
+  .home-page .hero { gap: 28px; padding: 40px 0; }
+  .home-page .overview { padding: 22px; }
+}
+@media (max-width: 620px) {
+  .home-page .home-shell { padding: 0 20px; }
+  .home-page .home-nav { padding: 20px 0; }
+  .home-page .hero { grid-template-columns: 1fr; padding: 34px 0; }
+  .home-page .steps { grid-template-columns: 1fr; gap: 22px; }
+  .home-page .diagnostics { flex-direction: column; align-items: stretch; padding: 24px; }
+  .home-page .home-footer { font-size: 11px; }
+}

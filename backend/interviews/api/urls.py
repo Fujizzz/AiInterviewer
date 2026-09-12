@@ -1,4 +1,4 @@
-"""REST 路由注册。DefaultRouter 生成题库与场次资源路径，动作由视图声明。
+"""REST 路由注册。资源由 DefaultRouter 生成，PDF 阶段流由独立异步视图处理。
 
 目录：
 （无本地函数或类定义。）
@@ -10,11 +10,13 @@
   由 Django 使用的路由列表；具体路径及模块职责见下方装配语句。
 """
 
+from django.urls import path
 from rest_framework.routers import DefaultRouter
 
+from ..resume_api import parse_resume_pdf
 from .views import QuestionViewSet, SessionViewSet
 
 router = DefaultRouter()
 router.register("questions", QuestionViewSet)
 router.register("sessions", SessionViewSet)
-urlpatterns = router.urls
+urlpatterns = [path("resume/parse/", parse_resume_pdf)] + router.urls

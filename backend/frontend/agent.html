@@ -1,10 +1,13 @@
 <!doctype html>
 <!--
 文件职责：MVP 文字面试测试页的表单与展示结构，由 agent.js 处理事件，agent.css 补充样式。
-目录：start-form（简历和预算）；agent-status（连接状态）；answer-form（回答和取消）；
+目录：主页与诊断导航；start-form（简历和预算）；prepare-resume/profile-preview（预解析）；
+pdf-file/pdf-parse/pdf-preview/pdf-use（PDF 提取后视觉校对及人工采用）；
+agent-status/wait-time/stage-log（状态、实际等待时长与阶段耗时）；answer-form（回答和取消）；
 evaluation-panel（上一题评价）；report-panel（最终报告及完整结果）。本文件无函数定义。
 关键元素：resume/job/limit/probes 提供初始化参数；question/answer 绑定当前轮；report 保存当前结果文本。
 约束：密钥只由后端读取；表单内容通过同源连接发送，不使用浏览器持久存储。
+关联：/agent/ 路由交付本页；普通链接离开本页时不保留当前内存面试会话。
 -->
 <html lang="zh-CN">
 <head>
@@ -14,19 +17,46 @@ evaluation-panel（上一题评价）；report-panel（最终报告及完整结�
   <link rel="stylesheet" href="/stream-demo/style.css">
   <link rel="stylesheet" href="/stream-demo/agent.css">
   <script type="module" src="/stream-demo/agent.js"></script>
+  <script type="module" src="/stream-demo/resume-pdf.js"></script>
 </head>
 <body><main>
   <header><span class="eyebrow">MOCK INTERVIEW / AGENT LAB</span>
     <h1>MVP Agent 文字面试</h1>
     <p>粘贴简历后开始面试，逐题回答并查看评价报告。密钥由后端读取，简历和回答将发送给你配置的模型服务。</p>
-    <a href="/">返回音视频传输测试</a>
+    <nav aria-label="页面导航"><a href="/">返回主页</a> · <a href="/stream-demo/">音视频传输测试</a></nav>
   </header>
-  <section class="connection"><span id="agent-status" role="status">就绪</span></section>
+  <section class="connection" aria-label="处理进度">
+    <span id="agent-status" role="status">就绪</span><span id="wait-time"></span>
+    <p id="stage-log" class="hint" aria-label="已完成阶段耗时"></p>
+  </section>
   <!-- 参数表单的初始值与 MVP 默认值一致；运行期间由脚本禁用，避免同连接重复初始化。 -->
   <form id="start-form" class="panel">
     <h2>01 · 简历与面试设置</h2>
+    <fieldset>
+      <legend>导入 PDF 简历</legend>
+      <label for="pdf-file">选择 PDF（最多 10 MiB、10 页）</label>
+      <input id="pdf-file" type="file" accept="application/pdf,.pdf">
+      <div class="actions">
+        <button id="pdf-parse" type="button" class="secondary" disabled>解析并校对 PDF</button>
+        <button id="pdf-cancel" type="button" class="secondary" disabled>取消解析</button>
+      </div>
+      <p class="hint">先由传统库提取文本，再由视觉模型对照原 PDF 校对；正确内容保持原样，仅调整确认的问题。页面图片与提取文本会发送给配置的模型服务，可能产生费用。</p>
+      <p id="pdf-status" role="status">选择 PDF 后解析并校对；也可以直接在下方粘贴文本。</p>
+      <span id="pdf-time" class="hint"></span>
+      <details id="pdf-panel" hidden open>
+        <summary>校对结果</summary>
+        <label for="pdf-preview">校对结果（完成后可编辑）</label>
+        <textarea id="pdf-preview" rows="9"></textarea>
+        <pre id="pdf-notes"></pre>
+        <button id="pdf-use" type="button" class="secondary" disabled>使用已核对的文本</button>
+      </details>
+    </fieldset>
     <label for="resume">简历文本</label>
     <textarea id="resume" rows="9" required placeholder="粘贴简历中的项目、技术栈、个人职责和成果。"></textarea>
+    <button id="prepare-resume" type="button" class="secondary">提前解析简历</button>
+    <p class="hint">可先解析简历，再填写岗位与题目设置。此操作会调用模型；简历未修改且连接保持时，开始面试将复用结果。</p>
+    <p id="prepared-status" role="status"></p>
+    <details id="profile-panel" hidden><summary>查看提取的技能与项目</summary><pre id="profile-preview"></pre></details>
     <label for="job">目标岗位</label>
     <input id="job" value="General AI / Software Engineer" required>
     <div class="settings-grid">
@@ -55,6 +85,7 @@ evaluation-panel（上一题评价）；report-panel（最终报告及完整结�
   <section id="report-panel" class="panel" hidden>
     <h2>03 · 面试报告</h2>
     <p id="score"></p><p id="report-summary"></p>
+    <details id="assessment-panel" hidden><summary>查看能力评分与覆盖程度</summary><pre id="assessment"></pre></details>
     <details><summary>完整结果与决策记录</summary><pre id="report"></pre></details>
   </section>
 </main></body>

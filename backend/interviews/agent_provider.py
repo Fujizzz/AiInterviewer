@@ -23,6 +23,7 @@ provider/model/options 控制原 MVP 推理参数；interview_id 只用于日志
 import logging
 import os
 import threading
+from time import perf_counter
 
 from openai import OpenAI
 
@@ -71,33 +72,56 @@ class BackendLLM(OpenAILLM):
         返回：父类验证后的 schema 实例；原始异常记录类型与状态码后重新抛出。
         并发不变量：_active 统计已进入但未退出的调用；_closing 后拒绝新的调用入口。
         锁仅保护计数和关闭状态，不覆盖网络等待，避免取消线程被整个请求阻塞。
-        日志只记录面试标识、供应商、schema 名称与异常类别，不序列化 prompt、data 或密钥。
+        日志记录面试 ID、模型、schema、耗时、文本长度和空格分词数，不记录正文或密钥。
+        repair_errors 仅接受已知错误码；此处不重新校验或改变 Agent 的生成规则。
         """
         with self._lock:
             if self._closing:
                 raise LLMError("Interview connection has closed.")
             self._active += 1
+        started = perf_counter()
+        repair_codes = []
+        for code in data.get("repair_errors") or ():
+            if code in {
+                "EMPTY_TEXT",
+                "TOO_SHORT",
+                "TOO_LONG",
+                "MULTIPLE_PRIMARY_QUESTIONS",
+                "RUBRIC_OR_EXPECTED_ANSWER_LEAK",
+                "INVALID_DIFFICULTY",
+            }:
+                repair_codes.append(code)
+            elif isinstance(code, str) and code.startswith("GENERATION_ERROR:"):
+                repair_codes.append("GENERATION_ERROR")
         logger.info(
-            "Agent model call interview=%s provider=%s schema=%s",
+            "Agent model call interview=%s provider=%s schema=%s model=%s repair_codes=%s",
             self.interview_id,
             self.provider,
             schema.__name__,
+            self.model,
+            repair_codes,
         )
         try:
             result = super().__call__(prompt, data, schema)
             logger.info(
-                "Agent model completed interview=%s schema=%s", self.interview_id, schema.__name__
+                "Agent model completed interview=%s schema=%s duration_ms=%d chars=%d words=%d",
+                self.interview_id,
+                schema.__name__,
+                (perf_counter() - started) * 1000,
+                len(getattr(result, "text", "")),
+                len(getattr(result, "text", "").split()),
             )
             return result
         except Exception as exc:
             cause = exc.__cause__ or exc
             logger.error(
-                "Agent model failed interview=%s schema=%s exception=%s status=%s; "
+                "Agent model failed interview=%s schema=%s exception=%s status=%s duration_ms=%d; "
                 "check backend/.env, network, quota and structured-output support",
                 self.interview_id,
                 schema.__name__,
                 type(cause).__name__,
                 getattr(cause, "status_code", None),
+                (perf_counter() - started) * 1000,
             )
             raise
         finally:

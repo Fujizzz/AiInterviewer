@@ -2,7 +2,9 @@
 
 目录：
 - Command：
-  拒绝未知字段、隐式类型转换及非 UUID 请求标识。
+  校验 UUID 和可选阶段事件订阅，拒绝其他未知字段与隐式转换。
+- Prepare：
+  预解析简历，不启动题目预算；已开始的连接不可重新准备。
 - Start：
   MVP 原有参数默认值；文本必须非空，题数及追问范围保持原有语义。
 - Answer：
@@ -17,6 +19,8 @@
   将响应字典编码为单条 JSON 并发送给本连接；编码或传输异常保持传播。
 - agent_socket.reject：
   发送稳定 error 结构并记录关联 ID；未知或无效请求用 null 标识。
+- agent_socket.progress：
+  为请求内阶段与先行评分事件绑定 request_id，再交给单连接 emit。
 
 关键变量：
 - MAX_MESSAGE_BYTES：
@@ -26,6 +30,7 @@
 
 关键状态说明：
 agent_socket 内 session 属于当前连接；operation 为唯一业务任务，receiver 为接收任务。
+interview_started 区分资料已准备和已开始面试；progress_events 只控制事件交付，不影响策略。
 request_id 关联当前响应；seen 记录已接受执行的请求。Command.request_id 为 UUID。
 Start 保留 MVP 默认题数、追问和岗位参数；Answer 绑定当前问题。
 """
@@ -46,10 +51,18 @@ MAX_MESSAGE_BYTES = 262144
 
 
 class Command(BaseModel):
-    """拒绝未知字段、隐式类型转换及非 UUID 请求标识。"""
+    """输入 UUID 和 progress_events（默认 False）；后者只订阅额外事件，旧客户端响应序列不变。"""
 
     model_config = ConfigDict(extra="forbid", strict=True, str_strip_whitespace=True)
     request_id: UUID
+    progress_events: bool = False
+
+
+class Prepare(Command):
+    """输入非空 resume_text；输出由 Session.prepare 提供，不创建面试计划或持久化数据。"""
+
+    type: Literal["prepare"]
+    resume_text: str = Field(min_length=1)
 
 
 class Start(Command):
@@ -77,7 +90,7 @@ class Cancel(Command):
 
 
 def parse_command(raw):
-    """将单条 JSON 文本转换为 Start、Answer 或 Cancel 命令，不产生 I/O。
+    """将单条 JSON 文本转换为 Prepare、Start、Answer 或 Cancel 命令，不产生 I/O。
 
     前置条件：调用方已检查消息为文本且未超过字节上限。
     逻辑：解析对象并选择类型，再用严格模型校验 UUID、必填字段、额外字段及参数范围。
@@ -87,7 +100,9 @@ def parse_command(raw):
     data = json.loads(raw)
     if not isinstance(data, dict):
         raise ValueError("Expected a JSON object.")
-    schema = {"start": Start, "answer": Answer, "cancel": Cancel}.get(data.get("type"))
+    schema = {"prepare": Prepare, "start": Start, "answer": Answer, "cancel": Cancel}.get(
+        data.get("type")
+    )
     if schema is None:
         raise ValueError("Unknown message type.")
     return schema.model_validate_json(raw)
@@ -98,6 +113,7 @@ async def agent_socket(scope, receive, send):
 
     输入：scope 提供连接地址和来源；receive/send 为 ASGI 异步事件回调。
     逻辑：握手校验→公告限制→并行等待接收与当前业务任务→校验命令→返回完整结果。
+    先发送 started，再调度业务协程，保证真实阶段事件不会早于请求接收确认。
     状态不变量：operation 至多一个；receiver 持续监听；seen 只收录已接受执行的请求 ID。
     普通协议错误保留连接，配置/业务错误关闭 1011，大小超限关闭 1009，结束/取消关闭 1000。
     若接收与业务任务同时完成，先处理断线；其他命令在业务结果发布后按最新状态判断。
@@ -116,6 +132,7 @@ async def agent_socket(scope, receive, send):
     receiver = None
     request_id = None
     seen = set()
+    interview_started = False
 
     async def emit(data):
         """将响应字典编码为单条 JSON 并发送给本连接；编码或传输异常保持传播。"""
@@ -132,6 +149,14 @@ async def agent_socket(scope, receive, send):
         )
         await emit({"type": "error", "request_id": rejected_id, "code": code, "detail": detail})
 
+    async def progress(data):
+        """输入服务端进度/评分事件，绑定当前 request_id；单业务任务确保请求不会交叉。
+
+        由 Session 的事件循环协程调用，不从 SDK 工作线程发送；关闭时先取消任务，
+        因此迟到的同步模型返回不能继续发送事件。发送失败原样传播。
+        """
+        await emit({**data, "request_id": request_id})
+
     await send({"type": "websocket.accept"})
     await emit(
         {
@@ -139,6 +164,7 @@ async def agent_socket(scope, receive, send):
             "connection_id": connection_id,
             "max_message_bytes": MAX_MESSAGE_BYTES,
             "seconds_per_question": 120,
+            "capabilities": ["prepare", "progress", "assessment"],
         }
     )
     logger.info("Agent connected connection=%s", connection_id)
@@ -210,12 +236,13 @@ async def agent_socket(scope, receive, send):
             if operation is not None:
                 await reject("busy", "上一请求仍在处理中。", incoming_id)
                 continue
-            if isinstance(command, Start):
-                if session is not None:
+            if isinstance(command, (Prepare, Start)):
+                if interview_started:
                     await reject("already_started", "每个连接只能初始化一次面试。", incoming_id)
                     continue
                 try:
-                    session = AgentSession()
+                    if session is None:
+                        session = AgentSession()
                 except Exception as exc:
                     logger.error(
                         "Agent setup failed connection=%s exception=%s; "
@@ -235,7 +262,11 @@ async def agent_socket(scope, receive, send):
                     connection_id,
                     session.interview_id,
                 )
-                work = session.start(command)
+                if isinstance(command, Prepare):
+                    work = session.prepare(command)
+                else:
+                    interview_started = True
+                    work = session.start(command)
             else:
                 if session is None or session.action is None:
                     await reject("not_started", "请先发送 start 并等待问题。", incoming_id)
@@ -249,8 +280,14 @@ async def agent_socket(scope, receive, send):
                 work = session.answer(command)
             seen.add(incoming_id)
             request_id = incoming_id
+            session.emit_event = progress if command.progress_events else None
+            try:
+                await emit({"type": "started", "request_id": request_id, "operation": command.type})
+            except (Exception, asyncio.CancelledError):
+                # 尚未调度的协程没有机会进入 finally，必须显式关闭，防止发送失败时遗留。
+                work.close()
+                raise
             operation = asyncio.create_task(work)
-            await emit({"type": "started", "request_id": request_id, "operation": command.type})
     finally:
         # 先等待异步取消生效，再关闭模型入口，避免后续步骤继续使用将要释放的客户端。
         tasks = [task for task in (operation, receiver) if task is not None]
