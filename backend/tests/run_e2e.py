@@ -1,6 +1,6 @@
 """真实服务器联调入口。临时 SQLite 验证业务持久化，流式部分验证原样回传及数据库不变。
 
-实现与关联：由 run_agent_e2e 复用启动器；隔离模型/数据库后执行既有断言。
+实现与关联：由 run_agent_e2e 复用启动器；隔离模型、数据库与服务容量目录后执行既有断言。
 Windows 虚拟环境解释器可能派生实际运行进程，清理必须结束本测试启动的整棵进程树。
 taskkill 返回不代表每个子进程已释放句柄，删除临时目录前须等待已捕获的进程句柄退出。
 
@@ -205,7 +205,7 @@ def main(asgi_app="config.asgi:application", agent_check=None):
     """功能：创建临时业务数据库、启动 Uvicorn，执行 HTTP、WAV 与 Node 联调。
     方法：仅启动就绪探测允许重复检查；测试调用不重试。流式前后比较数据库字节。
     输入：可显式指定离线 Agent 测试入口与检查函数；默认仍测试生产入口。
-    副作用：临时业务库和服务日志在临时目录；finally 在 Windows 结束本次启动的
+    副作用：临时业务库、容量锁和服务日志在临时目录；finally 在 Windows 结束本次启动的
     进程树，其他平台结束直接子进程；清理失败显式报错，不忽略文件占用或削弱测试断言。"""
     node = shutil.which("node")
     if node is None:
@@ -216,6 +216,7 @@ def main(asgi_app="config.asgi:application", agent_check=None):
             **os.environ,
             "DJANGO_SECRET_KEY": secrets.token_urlsafe(48),
             "INTERVIEW_DB_PATH": str(task_dir / "test.sqlite3"),
+            "SERVICE_CAPACITY_DIR": str(task_dir / "capacity"),
             "PYTHONNOUSERSITE": "1",
         }
         subprocess.run(

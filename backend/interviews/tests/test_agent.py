@@ -38,7 +38,7 @@
 - ProviderTests.test_provider_options_and_no_root_dotenv：
   只使用已装载的后端环境，并保持 MVP 温度、60 秒超时和两次 SDK 重试。
 - ProviderTests.test_inflight_client_closed_only_after_call_returns：
-  取消不破坏在途同步 SDK；禁止新调用并在后台返回后释放连接。
+  取消不破坏在途同步 SDK；后台返回后才释放客户端和服务名额。
 - ProviderTests.test_inflight_client_closed_only_after_call_returns.blocked：
   在可控屏障等待，让测试在调用仍执行时请求关闭。
 
@@ -49,6 +49,7 @@
 import asyncio
 import json
 import threading
+from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 from uuid import uuid4
 
@@ -60,6 +61,7 @@ from app.providers.llm import LLMError, OpenAILLM
 from interviews.agent_provider import BackendLLM
 from interviews.agent_session import AgentSession
 from interviews.agent_socket import MAX_MESSAGE_BYTES, agent_socket
+from interviews.capacity import CapacityExceeded, take_slot
 
 from .agent_fixtures import ANSWER, RESUME, FixtureLLM
 
@@ -368,7 +370,7 @@ class ProviderTests(SimpleTestCase):
         clear=True,
     )
     def test_inflight_client_closed_only_after_call_returns(self):
-        """取消不破坏在途同步 SDK；禁止新调用并在后台返回后释放连接。"""
+        """取消不破坏在途同步 SDK；后台返回后才释放客户端和服务名额，模型用屏障模拟。"""
         entered, release = threading.Event(), threading.Event()
 
         def blocked(*args):
@@ -379,15 +381,20 @@ class ProviderTests(SimpleTestCase):
             return "ok"
 
         with (
+            TemporaryDirectory() as directory,
             patch("interviews.agent_provider.OpenAI") as sdk,
             patch.object(OpenAILLM, "__call__", blocked),
         ):
             provider = BackendLLM()
+            provider.capacity_lease = take_slot("agent", 1, directory)
             worker = threading.Thread(target=provider, args=("", {}, FixtureLLM))
             worker.start()
             try:
                 self.assertTrue(entered.wait(3))
                 provider.close()
+                provider.capacity_lease.release()
+                with self.assertRaises(CapacityExceeded):
+                    take_slot("agent", 1, directory)
                 sdk.return_value.close.assert_not_called()
                 with self.assertRaises(LLMError):
                     provider("", {}, FixtureLLM)
@@ -395,3 +402,4 @@ class ProviderTests(SimpleTestCase):
                 release.set()
                 worker.join(3)
             sdk.return_value.close.assert_called_once()
+            take_slot("agent", 1, directory).release()

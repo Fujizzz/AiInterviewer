@@ -18,6 +18,7 @@
 BackendLLM._lock 保护 _active 与 _closing；_active 是在途调用数。
 _closing 阻止新调用，由最后一个在途调用释放 client。
 provider/model/options 控制原 MVP 推理参数；interview_id 只用于日志关联。
+capacity_lease 由 ASGI 准入传入；同步调用借用它，确保断线后实际调用未返回时不释放名额。
 """
 
 import logging
@@ -64,6 +65,7 @@ class BackendLLM(OpenAILLM):
         self._lock = threading.Lock()
         self._active = 0
         self._closing = False
+        self.capacity_lease = None
 
     def __call__(self, prompt, data, schema):
         """以计数保护客户端生命周期，并委派 MVP 执行一次结构化模型调用。
@@ -74,34 +76,36 @@ class BackendLLM(OpenAILLM):
         锁仅保护计数和关闭状态，不覆盖网络等待，避免取消线程被整个请求阻塞。
         日志记录面试 ID、模型、schema、耗时、文本长度和空格分词数，不记录正文或密钥。
         repair_errors 仅接受已知错误码；此处不重新校验或改变 Agent 的生成规则。
+        日志准备、父类调用或结果处理异常均经 finally 归还在途计数和借用的服务名额。
         """
         with self._lock:
             if self._closing:
                 raise LLMError("Interview connection has closed.")
+            lease = self.capacity_lease.retain() if self.capacity_lease is not None else None
             self._active += 1
         started = perf_counter()
-        repair_codes = []
-        for code in data.get("repair_errors") or ():
-            if code in {
-                "EMPTY_TEXT",
-                "TOO_SHORT",
-                "TOO_LONG",
-                "MULTIPLE_PRIMARY_QUESTIONS",
-                "RUBRIC_OR_EXPECTED_ANSWER_LEAK",
-                "INVALID_DIFFICULTY",
-            }:
-                repair_codes.append(code)
-            elif isinstance(code, str) and code.startswith("GENERATION_ERROR:"):
-                repair_codes.append("GENERATION_ERROR")
-        logger.info(
-            "Agent model call interview=%s provider=%s schema=%s model=%s repair_codes=%s",
-            self.interview_id,
-            self.provider,
-            schema.__name__,
-            self.model,
-            repair_codes,
-        )
         try:
+            repair_codes = []
+            for code in data.get("repair_errors") or ():
+                if code in {
+                    "EMPTY_TEXT",
+                    "TOO_SHORT",
+                    "TOO_LONG",
+                    "MULTIPLE_PRIMARY_QUESTIONS",
+                    "RUBRIC_OR_EXPECTED_ANSWER_LEAK",
+                    "INVALID_DIFFICULTY",
+                }:
+                    repair_codes.append(code)
+                elif isinstance(code, str) and code.startswith("GENERATION_ERROR:"):
+                    repair_codes.append("GENERATION_ERROR")
+            logger.info(
+                "Agent model call interview=%s provider=%s schema=%s model=%s repair_codes=%s",
+                self.interview_id,
+                self.provider,
+                schema.__name__,
+                self.model,
+                repair_codes,
+            )
             result = super().__call__(prompt, data, schema)
             logger.info(
                 "Agent model completed interview=%s schema=%s duration_ms=%d chars=%d words=%d",
@@ -126,10 +130,14 @@ class BackendLLM(OpenAILLM):
             raise
         finally:
             # 即使父类失败也归还计数；最后一个在途调用负责完成先前提出的关闭请求。
-            with self._lock:
-                self._active -= 1
-                if self._closing and not self._active:
-                    self.client.close()
+            try:
+                with self._lock:
+                    self._active -= 1
+                    if self._closing and not self._active:
+                        self.client.close()
+            finally:
+                if lease is not None:
+                    lease.release()
 
     def close(self):
         """标记不再接受新调用，并在无在途调用时释放同步客户端。

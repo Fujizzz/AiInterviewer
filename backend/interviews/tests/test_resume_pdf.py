@@ -11,6 +11,8 @@
 - ResumePdfTests.test_invalid_inputs：损坏、加密、过多页和超限全部明确拒绝。
 - ResumePdfTests.test_conservative_normalization：不误合并列、不猜测断词或日期。
 - ResumeFlowTests：异步 HTTP、视觉契约和生命周期测试。
+- ResumeFlowTests.setUp：显式模拟沙箱边界，原解析算法在独立单元测试与沙箱联调中验证。
+- ResumeFlowTests.setUp.local_parse：仅供流程测试返回既有算法的页面，不属于生产备用路径。
 - ResumeFlowTests.test_no_changes_preserves_baseline：无修改建议时逐字保留提取基线。
 - ResumeFlowTests.test_precise_corrections：只改变明确的片段并拒绝错误定位或重叠。
 - ResumeFlowTests.test_vision_order_and_close：规则先返回，视觉按页序合并并关闭。
@@ -144,6 +146,17 @@ class ResumePdfTests(SimpleTestCase):
 
 class ResumeFlowTests(SimpleTestCase):
     """功能：检查异步业务流与取消；逻辑：视觉端口替身，不验证真实模型准确率。"""
+
+    def setUp(self):
+        """显式模拟沙箱边界，原解析算法在独立单元测试与沙箱联调中验证。"""
+
+        async def local_parse(data):
+            """仅供流程测试返回既有算法的页面，不属于生产备用路径；不调用外部服务。"""
+            return render_pages(data, extract_pdf(data))
+
+        stub = patch("interviews.resume_api.parse_pdf", side_effect=local_parse)
+        stub.start()
+        self.addCleanup(stub.stop)
 
     async def test_no_changes_preserves_baseline(self):
         """含缩进、换行和疑点的基线在模型未提出修改时逐字不变。"""

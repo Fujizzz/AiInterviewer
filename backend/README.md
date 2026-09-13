@@ -9,6 +9,8 @@ Agent 沿用 MVP 的默认参数、策略和每题 120 秒逻辑预算；后端�
 优化边界与需要 Agent 团队配合的事项见 [性能优化说明](docs/performance.md)。
 文字面试页现支持 PDF 上传：传统库提取后由独立视觉 Agent 校对；用户核对后采用文本。
 配置、数据流和限制见 [PDF 简历解析](docs/resume-pdf.md)。
+PDF 提取/渲染现运行于 Linux/WSL 沙箱；新增同机面试连接和 PDF 上传容量控制。
+首次使用 PDF 前请按 [隔离环境与资源限制](sandbox/README.md) 配置运行目录。
 
 ## Coding Agent 必须遵循的开发原则
 

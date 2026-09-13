@@ -12,7 +12,8 @@
 | 后端规则 | `interviews/resume_pdf.py` | pypdf 布局提取，保留原文，修复明确排版连字、换行和行尾空白；PDFium 渲染 |
 | Agent | 根目录 `agents/resume_cleanup.py` | 独立 `VisionPort.review`、单页校对补丁契约，验证来源定位、非重叠性及非空页遗漏 |
 | 模型适配 | `interviews/resume_vision.py` | 异步 Chat Completions 图文调用和 JSON 校验，复用所选供应商凭据 |
-| HTTP | `interviews/resume_api.py` | 有界上传读取、线程中规则/渲染、异步视觉调用及阶段流 |
+| 隔离运行 | `interviews/pdf_sandbox.py`、`pdf_supervisor.py`、`pdf_worker.py` | Linux/WSL 沙箱内规则提取和渲染，限制资源并监督取消 |
+| HTTP | `interviews/resume_api.py` | 有界上传读取、调用沙箱、异步视觉调用及阶段流 |
 | 界面 | `frontend/resume-pdf.js` | 等待计时、最终文本/疑点展示、取消和人工采用 |
 
 视觉 Agent 只校对字符与页面内阅读顺序，不抽取候选人能力、不评分、不润色简历，
@@ -23,6 +24,7 @@ CLI 的既有 `read_resume` 文本 PDF 路径未替换；此新增流程由后�
 ## 配置
 
 安装 `backend/requirements.txt`（新增 PDFium/Pillow；根目录 CLI 环境无需这两项）。
+还须按 [隔离运行说明](../sandbox/README.md) 配置 PDF 沙箱；缺少环境会明确失败。
 整个流程需要视觉模型，在 `backend/.env` 显式设置独立供应商和模型，例如：
 
 ```dotenv
@@ -37,7 +39,7 @@ RESUME_VISION_ENABLE_THINKING=false
 此时需要自行选择支持图片和 JSON 模式的模型，并清空 DashScope 专用 thinking 配置。
 修改 `.env` 后重启服务。缺配置、模型不支持、超时、拒绝、截断和 JSON 校验失败均明确报错。
 `max_retries=0`，每页一次请求，每份 PDF 最多 3 页同时调用（`VISION_CONCURRENCY=3`）。
-按实际完成数量更新进度，最终结果按原页序合并。该上限是每份上传的窗口，不是全服务限流；
+按实际完成数量更新进度，最终结果按原页序合并。该上限是每份上传的窗口；ASGI 另限制同机最多 2 份 PDF 同时处理。
 单页 PDF 不产生页间并发。超时为每页请求的 SDK 超时，非整份文档截止时间。
 
 ## 上传与事件协议
@@ -69,8 +71,9 @@ HTTP 200 不代表模型成功；客户端必须等到 `result`。断流和取�
 - 单页规则文本最多 30000 字符；PNG 最长边最多 1800 像素，最高缩放 2.5 倍。
   小字、复杂图表和低清扫描可能仍然不可读，需要用户核对原 PDF。
 - 规则层保留行列空格，不推测分栏顺序、不删除重复条目、不自动连接断词。无文本页保留并提示扫描/空白可能性。
-- PDFium 非线程安全，整个原生对象生命周期使用同一互斥锁。CPU 提取和渲染在工作线程执行，
-  取消不能抢占已经执行的线程；线程结束时释放资源。尚未实现进程隔离或对恶意压缩流的硬内存/CPU 限额。
+- PDFium 生命周期的既有互斥锁保留；生产提取与渲染在独立 Linux 沙箱中执行。
+  新增 768 MiB 地址空间、20 CPU 秒和 30 秒墙钟限制；超时或取消由监督器终止工作进程。
+  配置、上传前容量控制及局限见 [隔离运行说明](../sandbox/README.md)。
 - PDF 页面图片和文字在用户点击“解析并校对 PDF”后发给配置的供应商。业务不落库、不保存 PDF/PNG；
   Django 可能将上传数据暂存系统临时目录，响应关闭时由框架清理。不使用供应商文件上传或远端图片 URL。
 - 日志只记录阶段、请求 ID、字节数、页码、模型、时长及异常类型，不记录文件名、文本、图片或密钥。

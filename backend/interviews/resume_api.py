@@ -1,5 +1,5 @@
 """职责：提供本地 PDF 上传及可取消的阶段流，不写业务数据库或保存简历。
-实现：multipart 有界读取；规则工作在线程执行，视觉最多三页并发并按实际完成数发进度。
+实现：multipart 有界读取；PDF 库只在隔离进程解析，视觉最多三页并发并按实际完成数发进度。
 关联：api.urls 注册 /api/resume/parse/；resume-pdf.js 消费 NDJSON；Agent 校验转写。
 
 目录：
@@ -17,7 +17,7 @@
 流开始后失败通过 error 事件表示，不能依靠 HTTP 200 判定完成。
 Django 上传处理器可能临时落盘，响应关闭时框架删除临时文件；业务不保留文件。
 单份 PDF 使用有界并发；失败或断连取消在途任务并停止调度，随后关闭客户端。
-多份上传各自拥有窗口；已被供应商接收的请求不保证停止计费。
+ASGI 入口限制多份上传总数；已被供应商接收的请求不保证停止计费。
 """
 
 import asyncio
@@ -31,7 +31,8 @@ from django.http import JsonResponse, StreamingHttpResponse
 
 from agents.resume_cleanup import ResumeCleanupAgent
 
-from .resume_pdf import MAX_BYTES, PdfInputError, extract_pdf, render_pages
+from .pdf_sandbox import parse_pdf
+from .resume_pdf import MAX_BYTES, PdfInputError
 from .resume_vision import ResumeVision
 
 logger = logging.getLogger(__name__)
@@ -119,14 +120,11 @@ async def resume_events(data: bytes):
     stage = "rules"
     logger.info("resume_pdf start request=%s bytes=%d", request_id, len(data))
     try:
-        yield event_line("progress", stage=stage, detail="正在本地提取 PDF 文本与布局")
-        pages = await asyncio.to_thread(extract_pdf, data)
+        yield event_line("progress", stage=stage, detail="正在隔离环境中提取 PDF 文本并渲染页面")
+        pages = await parse_pdf(data)
         stage = "configuration"
         vision = ResumeVision()
         agent = ResumeCleanupAgent(vision)
-        stage = "rendering"
-        yield event_line("progress", stage=stage, detail="正在渲染简历页面")
-        pages = await asyncio.to_thread(render_pages, data, pages)
         results_by_page = {}
         stage = "vision"
         logger.info(

@@ -36,6 +36,7 @@ interview_started 区分资料已准备和已开始面试；progress_events 只�
 request_id 关联当前响应；seen 记录已接受执行的请求。Command.request_id 为 UUID。
 数据库请求主键提供跨连接去重；输入正文不写日志；历史仍受本机同源访问策略保护。
 Start 保留 MVP 默认题数、追问和岗位参数；Answer 绑定当前问题。
+ASGI 准入租约通过模型引用延长到实际同步调用结束；不把资源拒绝传入 Agent 触发备用出题。
 """
 
 import asyncio
@@ -269,6 +270,8 @@ async def agent_socket(scope, receive, send):
                 try:
                     if session is None:
                         session = AgentSession()
+                        if hasattr(getattr(session, "llm", None), "capacity_lease"):
+                            session.llm.capacity_lease = scope.get("interview.capacity_lease")
                 except Exception as exc:
                     logger.error(
                         "Agent setup failed connection=%s exception=%s; "

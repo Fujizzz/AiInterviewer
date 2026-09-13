@@ -1,6 +1,6 @@
 """职责：本地 PDF 规则提取和有界页面渲染，不调用模型、不保存上传文件。
 实现：pypdf 保留布局抽取，保守字符清理；PDFium 在互斥锁内生成 PNG。
-关联：resume_api 将本模块移到工作线程，agents.resume_cleanup 接收单页证据。
+关联：生产仅由 pdf_worker 在隔离进程内调用；本机单元测试可直接调用，Agent 接收单页证据。
 
 目录：
 - PdfInputError：可安全展示的输入校验错误。
@@ -99,7 +99,7 @@ def render_pages(data: bytes, pages: list[ResumePage]) -> list[ResumePage]:
 
     在同一互斥区创建、使用和关闭 PDFium 对象，防止并发线程破坏原生状态。
     最长边最多 IMAGE_EDGE 像素；任一页失败则整体抛错，不跳过页面。
-    取消异步调用无法抢占已运行线程，但 finally 仍释放位图、页面和文档。
+    正常路径 finally 释放位图、页面和文档；生产取消由监督器终止整个隔离进程。
     """
     with PDFIUM_LOCK, pdfium.PdfDocument(data) as document:
         if len(document) != len(pages):

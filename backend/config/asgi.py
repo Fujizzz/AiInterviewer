@@ -4,7 +4,8 @@
 - handle_lifespan：
   响应 ASGI 启停握手；当前无常驻资源，确认 startup/shutdown 后正常返回。
 - application：
-  功能：按 ASGI scope 类型选择处理器。
+  功能：通过服务级准入包装路由。
+- route_application：按 ASGI scope 类型选择处理器，保留原业务路由。
 
 关键变量：
 - django_application：
@@ -32,6 +33,14 @@ async def handle_lifespan(receive, send):
 
 
 async def application(scope, receive, send):
+    """通过服务级准入包装路由；输入输出遵循 ASGI，容量与上传限制在业务处理前生效。"""
+    # settings 完成仓库路径及环境装配后才导入资源层，支持从 backend 独立启动。
+    from interviews.resource_gate import limited_application
+
+    await limited_application(route_application, scope, receive, send)
+
+
+async def route_application(scope, receive, send):
     """功能：按 ASGI scope 类型选择处理器。
     方法：/ws/echo/ 传输诊断、/ws/agent/ 文字面试；未知路径明确关闭。
     返回：异步任务结束；HTTP/流式错误由所属处理层保持既定语义。"""
