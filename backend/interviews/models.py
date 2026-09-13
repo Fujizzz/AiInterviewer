@@ -1,5 +1,7 @@
 """业务数据模型与数据库约束。题目快照和状态时间关系在存储层得到保护。
 
+关联：导入 agent_models 注册独立的 Agent 面试表；下列练习模型及其计时规则保持不变。
+
 目录：
 - Question：
   题库实体。排序字段决定新场次取题顺序；停用不影响已创建的题目快照。
@@ -31,6 +33,14 @@ import uuid
 
 from django.db import models
 from django.db.models import Q
+
+from .agent_models import (  # noqa: F401
+    AgentAnswer,
+    AgentInterview,
+    AgentQuestion,
+    AgentRequest,
+    AgentTurn,
+)
 
 
 class Question(models.Model):

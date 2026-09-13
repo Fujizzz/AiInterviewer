@@ -7,7 +7,7 @@ agent-status/wait-time/stage-log（状态、实际等待时长与阶段耗时）
 evaluation-panel（上一题评价）；report-panel（最终报告及完整结果）。本文件无函数定义。
 关键元素：resume/job/limit/probes 提供初始化参数；question/answer 绑定当前轮；report 保存当前结果文本。
 约束：密钥只由后端读取；表单内容通过同源连接发送，不使用浏览器持久存储。
-关联：/agent/ 路由交付本页；普通链接离开本页时不保留当前内存面试会话。
+关联：/agent/ 路由交付本页；后端保存资料、回答及报告历史，离开页面仍会中断当前面试。
 -->
 <html lang="zh-CN">
 <head>
@@ -23,6 +23,7 @@ evaluation-panel（上一题评价）；report-panel（最终报告及完整结�
   <header><span class="eyebrow">MOCK INTERVIEW / AGENT LAB</span>
     <h1>MVP Agent 文字面试</h1>
     <p>粘贴简历后开始面试，逐题回答并查看评价报告。密钥由后端读取，简历和回答将发送给你配置的模型服务。</p>
+    <p class="hint">解析后的资料、题目、回答和报告会保存在本机数据库。清空页面不会删除历史；离开页面会中断面试，目前不支持续接。</p>
     <nav aria-label="页面导航"><a href="/">返回主页</a> · <a href="/stream-demo/">音视频传输测试</a></nav>
   </header>
   <section class="connection" aria-label="处理进度">

@@ -1,7 +1,8 @@
 # MVP Agent 接入与测试
 
 已实现 `ws://127.0.0.1:8765/ws/agent/`。浏览器测试页为 `http://127.0.0.1:8765/agent/`。
-后端复用根目录 `InterviewAgentService`、MVP 模型/评价适配器、内存仓库及报告生成器。
+后端复用根目录 `InterviewAgentService`、MVP 模型/评价适配器和报告生成器，
+通过 `DjangoInterviewRepository` 实现 Agent v1.1 单轮提交；终端 MVP 仍使用其原有内存仓库。
 面试适配位于 `backend/`；新增独立的 `agents/resume_cleanup.py` 支持 PDF 视觉转写。
 PDF 经 HTTP 上传、规则提取后视觉校对，用户采用后仍作为简历文本进入现有面试协议。
 详见 [PDF 简历解析](resume-pdf.md)。`/api/sessions/` 练习流程与 `/ws/echo/` 诊断接口继续独立运行。
@@ -56,12 +57,15 @@ python -m uvicorn config.asgi:application --host 127.0.0.1 --port 8765 --ws webs
 
 ## 会话与参数
 
-- 每个 WebSocket 独占一个内存 Agent 会话，断开、取消或完成后释放，不支持恢复或历史查询。
-- 简历、回答与报告不写业务数据库、文件或浏览器持久存储；模型调用会将相应内容发送给配置的供应商。
+- 每个 WebSocket 独占一个运行中的 Agent 会话。资料、问题、回答、上下文、决策和成功响应保存到数据库；断开或取消后可查询历史，但尚不能恢复继续面试。
+- 原始简历文本及 PDF 文件不新增持久化；解析后的资料、回答和报告会保存。浏览器不使用持久存储，清空页面不会删除数据库历史；模型调用会将相应内容发送给配置的供应商。
 - 默认 `max_questions=5`、`max_follow_up_per_topic=2`、岗位 `General AI / Software Engineer`，沿用 MVP 能力权重与 `project_deep_dive` 阶段。
 - 沿用 MVP 逻辑预算：题数 × 120 秒，每次回答扣除 120 秒。这不是实际计时；不改动练习接口的准备 10 秒和回答 90 秒。
 - 消息最大 256 KiB，未知字段、空文本、非整数参数等明确报错。
-- 同时只执行一个命令。处理中返回 `busy`；重复 UUID 返回 `duplicate_request`；旧问题返回 `stale_question`。不排队或自动重发。
+- 同时只执行一个命令。处理中返回 `busy`；重复 UUID 返回 `duplicate_request`；旧问题返回 `stale_question`。请求 UUID 全库唯一，每场最多一个 running 请求，重连后也不会重复执行。不排队或自动重发。
+- 请求记录在 `started` 前写入，成功响应在网络发送前保存。存储不可用时返回明确错误，不回退内存或启动收费请求。正常退出标记未完成请求为 interrupted；进程骤停可能留下 running，必须人工确认，不自动重放。
+- 回答在评价前保存为未评分；评价、Agent 状态、下一动作和决策日志在同一事务提交。若事务失败，原回答保留但评价为空，不作为已评分证据。
+- 历史 API 为 `/api/agent-interviews/`，支持列表、详情及请求状态/结果查询，见 [API 文档](api.md)。仍仅允许本机访问，没有用户账户隔离，不应直接放宽来源限制用于共享服务。
 
 ## 实际协议
 
@@ -168,7 +172,7 @@ python tests/run_agent_e2e.py
 ```
 
 离线测试通过显式测试入口注入固定模型输出，真实 Agent 核心仍参与决策，并与终端 MVP 结果比较。
-实际 ASGI 联调完成两题面试及报告，并检查业务数据库保持不变；测试进程使用临时数据库，结束后清理。
+实际 ASGI 联调完成两题面试、持久化报告及历史查询；只有独立的 WAV/echo 流式诊断阶段检查数据库字节不变。测试进程使用临时数据库，结束后清理。
 这些测试不代表真实模型通过。填好 key 后，使用生产入口 `config.asgi:application` 和 `/agent/` 页面测试实际供应商；不要用测试专用入口测试 key。
 
 2026-09-11 已使用本地配置的千问服务完成一次真实单题 WebSocket 面试，简历解析、出题、评价及报告生成均成功，全程约 20.1 秒。使用虚构测试内容；原始输入、输出和密钥未写入测试记录。详细范围见 `testing.md`。

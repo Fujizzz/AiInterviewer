@@ -267,9 +267,10 @@ def main(asgi_app="config.asgi:application", agent_check=None):
                             ) from exc
                         time.sleep(0.1)
                 check_rest(base)
-                database_before_streaming = (task_dir / "test.sqlite3").read_bytes()
                 if agent_check is not None:
                     agent_check(base)
+                # Agent 持久化是预期写入；仅 WAV/echo 诊断阶段应保持数据库字节不变。
+                database_before_streaming = (task_dir / "test.sqlite3").read_bytes()
                 check_wav(base)
                 subprocess.run(
                     [node, "--test", "tests/stream-client.test.mjs"], cwd=ROOT, check=True

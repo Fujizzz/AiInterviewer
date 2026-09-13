@@ -2,7 +2,7 @@
 
 目录：
 - check_agent：
-  通过实际 WebSocket 完成两题面试，验证报告、关联 ID 与连接正常结束。
+  通过实际 WebSocket 完成两题面试，验证历史、报告及跨连接重复请求拒绝。
 - check_progress：
   实际网络验证预解析复用、真实阶段和评分先行，不调用供应商。
 - check_all：
@@ -16,15 +16,15 @@ import json
 import math
 from uuid import uuid4
 
-from run_e2e import main
+from run_e2e import main, request
 from websockets.sync.client import connect
 
 
 def check_agent(base):
-    """通过实际 WebSocket 完成两题面试，验证报告、关联 ID 与连接正常结束。
+    """通过实际 WebSocket 完成两题面试，验证历史、报告及跨连接重复请求拒绝。
 
     前置条件：base 必须指向显式注入 FixtureLLM 的测试入口，不能用于真实模型评分验证。
-    方法：等待 hello→提交虚构简历→逐题回答→核对 finished、固定预算和离线评分。
+    方法：完成面试后通过实际 HTTP 核对持久化回答和报告，重连重发 UUID 必须拒绝。
     返回 None；异常或断言失败直接退出，上层启动器负责停止服务和清理临时数据库。
     """
     with connect(base.replace("http://", "ws://") + "/ws/agent/", origin=base, proxy=None) as ws:
@@ -67,7 +67,30 @@ def check_agent(base):
                     }
                 )
             )
-    print("PASS offline Agent over real WebSocket: two answers, MVP budget, evaluation and report")
+    interview_id = message["result"]["interview_id"]
+    detail = request(base, f"/api/agent-interviews/{interview_id}/")
+    assert detail["status"] == "completed" and detail["can_resume"] is False
+    assert len(detail["questions"]) == 2
+    assert all(item["answer"]["committed_state_version"] for item in detail["questions"])
+    assert detail["final_report"] == message["result"]["final_report"]
+    saved = request(base, f"/api/agent-interviews/{interview_id}/requests/{request_id}/")
+    assert saved["status"] == "succeeded"
+    assert saved["response"]["result"] == message["result"]
+    with connect(base.replace("http://", "ws://") + "/ws/agent/", origin=base, proxy=None) as ws:
+        assert json.loads(ws.recv(timeout=5))["type"] == "hello"
+        ws.send(
+            json.dumps(
+                {
+                    "type": "start",
+                    "request_id": request_id,
+                    "resume_text": "Duplicate request must not call the model.",
+                }
+            )
+        )
+        assert json.loads(ws.recv(timeout=5))["code"] == "duplicate_request"
+    print(
+        "PASS Agent persistence over real HTTP/WebSocket: report, answers and durable deduplication"
+    )
 
 
 def check_progress(base):

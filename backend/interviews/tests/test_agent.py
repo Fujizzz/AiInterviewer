@@ -1,8 +1,8 @@
-"""Agent 接入回归：真实 Agent 核心配合离线供应商，不访问业务数据库或真实模型。
+"""Agent 接入回归：真实 Agent 核心配合离线供应商和隔离测试数据库，不访问真实模型。
 
 目录：
 - AgentTests：
-  使用 ASGI 消息驱动完整面试，SimpleTestCase 禁止数据库访问。
+  使用 ASGI 消息驱动完整面试，TransactionTestCase 隔离持久化数据。
 - AgentTests.connect：
   建立受相同访问策略约束的测试连接；调用方须等待终态或显式调用 disconnect。
 - AgentTests.accepted：
@@ -53,7 +53,7 @@ from unittest.mock import Mock, patch
 from uuid import uuid4
 
 from asgiref.testing import ApplicationCommunicator
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TransactionTestCase
 
 from app.application import MVPInterviewApplication
 from app.providers.llm import LLMError, OpenAILLM
@@ -64,8 +64,8 @@ from interviews.agent_socket import MAX_MESSAGE_BYTES, agent_socket
 from .agent_fixtures import ANSWER, RESUME, FixtureLLM
 
 
-class AgentTests(SimpleTestCase):
-    """使用 ASGI 消息驱动完整面试，SimpleTestCase 禁止数据库访问。"""
+class AgentTests(TransactionTestCase):
+    """使用 ASGI 消息驱动完整面试，TransactionTestCase 隔离持久化数据。"""
 
     async def connect(self, origin="http://localhost", client="127.0.0.1"):
         """建立受相同访问策略约束的测试连接；调用方须等待终态或显式调用 disconnect。"""
@@ -244,7 +244,7 @@ class AgentTests(SimpleTestCase):
                     stopped.set()
 
             fake = Mock(spec=AgentSession)
-            fake.interview_id = "offline-test"
+            fake.interview_id = str(uuid4())
             fake.start = slow_start
             with patch("interviews.agent_socket.AgentSession", return_value=fake):
                 comm = await self.accepted()
@@ -264,7 +264,7 @@ class AgentTests(SimpleTestCase):
         """初始化失败或上游失败不能暴露异常正文，也不产生虚假成功。"""
         for setup in (True, False):
             fake = Mock(spec=AgentSession)
-            fake.interview_id = "offline-test"
+            fake.interview_id = str(uuid4())
 
             async def fail(command):
                 """制造含敏感标记的异常，验证日志与响应均不回显。"""

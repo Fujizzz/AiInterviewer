@@ -1,7 +1,7 @@
 """阶段事件、预解析缓存与先行评分的离线回归；真实 Agent 配合显式 FixtureLLM。
 
 实现：通过 ASGI 通道验证顺序、关联、失效和取消；用事件屏障证明报告未完成时评分已送达。
-关联：复用 agent_socket、AgentSession 与固定测试数据；SimpleTestCase 禁止业务数据库访问。
+关联：复用 agent_socket、AgentSession 与固定测试数据；TransactionTestCase 隔离持久化数据库。
 目录：
 - connect：建立本机同源测试连接并验证能力公告。
 - read：读取一条 JSON 事件，超时或非文本响应直接失败。
@@ -34,10 +34,11 @@ from unittest.mock import patch
 from uuid import uuid4
 
 from asgiref.testing import ApplicationCommunicator
-from django.test import SimpleTestCase
+from django.test import TransactionTestCase
 
 from app.parsing.resume import ResumeExtraction
 from app.reporting.final_report import ReportNarrative, build_final_report
+from interviews.agent_records import complete_request, reserve_request
 from interviews.agent_session import AgentSession
 from interviews.agent_socket import Answer, Start, agent_socket
 
@@ -94,7 +95,7 @@ async def disconnect(comm):
     await comm.wait()
 
 
-class ProgressTests(SimpleTestCase):
+class ProgressTests(TransactionTestCase):
     """固定模型与真实状态机组成协议测试；不允许数据库访问，不等价于真实 API 验证。"""
 
     async def test_prepare_reuse_and_original_result(self):
@@ -266,18 +267,19 @@ class ProgressTests(SimpleTestCase):
             return fixture(prompt, data, schema)
 
         session = AgentSession(llm=fail_report)
-        first = await session.start(
-            Start(request_id=uuid4(), type="start", resume_text=RESUME, max_questions=1)
-        )
+        command = Start(request_id=uuid4(), type="start", resume_text=RESUME, max_questions=1)
+        await reserve_request(session.interview_id, command)
+        first = await session.start(command)
+        await complete_request(session.interview_id, command.request_id, first)
         with self.assertLogs("interviews.agent_session", level="INFO") as captured:
-            result = await session.answer(
-                Answer(
-                    request_id=uuid4(),
-                    type="answer",
-                    question_id=first["question"]["question_id"],
-                    answer_text=ANSWER,
-                )
+            command = Answer(
+                request_id=uuid4(),
+                type="answer",
+                question_id=first["question"]["question_id"],
+                answer_text=ANSWER,
             )
+            await reserve_request(session.interview_id, command)
+            result = await session.answer(command)
         self.assertEqual(result["result"]["report_narrative_status"], "fallback")
         self.assertAlmostEqual(result["result"]["final_report"]["overall_score"], 3.0)
         self.assertNotIn("private-report-marker", " ".join(captured.output))

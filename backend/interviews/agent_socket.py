@@ -10,7 +10,7 @@
 - Answer：
   回答必须关联当前问题，旧问题或重复请求不能再次触发模型调用。
 - Cancel：
-  取消当前连接的整场面试，不保留可恢复的部分状态。
+  取消当前连接的整场面试，保留历史但不自动恢复。
 - parse_command：
   将单条 JSON 文本转换为 Start、Answer 或 Cancel 命令，不产生 I/O。
 - agent_socket：
@@ -21,6 +21,8 @@
   发送稳定 error 结构并记录关联 ID；未知或无效请求用 null 标识。
 - agent_socket.progress：
   为请求内阶段与先行评分事件绑定 request_id，再交给单连接 emit。
+- agent_socket.run：
+  调度已接收命令并在发送响应前保存结果；失败只保存固定错误状态。
 
 关键变量：
 - MAX_MESSAGE_BYTES：
@@ -32,6 +34,7 @@
 agent_socket 内 session 属于当前连接；operation 为唯一业务任务，receiver 为接收任务。
 interview_started 区分资料已准备和已开始面试；progress_events 只控制事件交付，不影响策略。
 request_id 关联当前响应；seen 记录已接受执行的请求。Command.request_id 为 UUID。
+数据库请求主键提供跨连接去重；输入正文不写日志；历史仍受本机同源访问策略保护。
 Start 保留 MVP 默认题数、追问和岗位参数；Answer 绑定当前问题。
 """
 
@@ -44,6 +47,14 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .access import websocket_allowed
+from .agent_records import (
+    DuplicateRequest,
+    PendingRequest,
+    complete_request,
+    fail_request,
+    interrupt_interview,
+    reserve_request,
+)
 from .agent_session import AgentSession
 
 logger = logging.getLogger(__name__)
@@ -59,7 +70,7 @@ class Command(BaseModel):
 
 
 class Prepare(Command):
-    """输入非空 resume_text；输出由 Session.prepare 提供，不创建面试计划或持久化数据。"""
+    """输入非空 resume_text；保存请求及成功资料响应，不创建计划、不保存原始简历。"""
 
     type: Literal["prepare"]
     resume_text: str = Field(min_length=1)
@@ -84,7 +95,7 @@ class Answer(Command):
 
 
 class Cancel(Command):
-    """取消当前连接的整场面试，不保留可恢复的部分状态。"""
+    """取消当前连接的整场面试，保留历史但不自动恢复或重放模型调用。"""
 
     type: Literal["cancel"]
 
@@ -115,7 +126,7 @@ async def agent_socket(scope, receive, send):
     逻辑：握手校验→公告限制→并行等待接收与当前业务任务→校验命令→返回完整结果。
     先发送 started，再调度业务协程，保证真实阶段事件不会早于请求接收确认。
     状态不变量：operation 至多一个；receiver 持续监听；seen 只收录已接受执行的请求 ID。
-    普通协议错误保留连接，配置/业务错误关闭 1011，大小超限关闭 1009，结束/取消关闭 1000。
+    普通协议错误保留连接，配置/业务/存储错误关闭 1011，大小超限关闭 1009，结束/取消关闭 1000。
     若接收与业务任务同时完成，先处理断线；其他命令在业务结果发布后按最新状态判断。
     退出时取消并等待本地任务，再提出客户端关闭请求；在途同步模型调用可能继续执行。
     返回 None；传输层或清理异常向 ASGI 服务器传播，本层不重连、不排队或重发计费请求。
@@ -156,6 +167,21 @@ async def agent_socket(scope, receive, send):
         因此迟到的同步模型返回不能继续发送事件。发送失败原样传播。
         """
         await emit({**data, "request_id": request_id})
+
+    async def run(command):
+        """调度已接收命令并在发送响应前保存结果；失败只保存固定错误状态。
+
+        输入为已预留数据库请求的命令；读取本连接 session，返回业务结果。
+        不在数据库事务内等待模型。取消由最终清理标为 interrupted；存储失败不会返回成功。
+        """
+        try:
+            handler = {"prepare": session.prepare, "start": session.start, "answer": session.answer}
+            result = await handler[command.type](command)
+            await complete_request(session.interview_id, command.request_id, result)
+            return result
+        except Exception:
+            await fail_request(session.interview_id, command.request_id)
+            raise
 
     await send({"type": "websocket.accept"})
     await emit(
@@ -262,11 +288,6 @@ async def agent_socket(scope, receive, send):
                     connection_id,
                     session.interview_id,
                 )
-                if isinstance(command, Prepare):
-                    work = session.prepare(command)
-                else:
-                    interview_started = True
-                    work = session.start(command)
             else:
                 if session is None or session.action is None:
                     await reject("not_started", "请先发送 start 并等待问题。", incoming_id)
@@ -277,7 +298,27 @@ async def agent_socket(scope, receive, send):
                 ):
                     await reject("stale_question", "请回答服务端返回的当前问题。", incoming_id)
                     continue
-                work = session.answer(command)
+            try:
+                await reserve_request(session.interview_id, command)
+            except DuplicateRequest:
+                await reject("duplicate_request", "此 request_id 已接收，请勿重发。", incoming_id)
+                continue
+            except PendingRequest:
+                await reject("busy", "面试仍有未完成请求，不能开始下一请求。", incoming_id)
+                continue
+            except Exception as exc:
+                logger.error(
+                    "Agent storage unavailable connection=%s exception=%s; "
+                    "check migrations and database",
+                    connection_id,
+                    type(exc).__name__,
+                )
+                await reject("storage_unavailable", "请求未执行，请检查数据库与迁移。", incoming_id)
+                await send({"type": "websocket.close", "code": 1011})
+                return
+            if isinstance(command, Start):
+                interview_started = True
+            work = run(command)
             seen.add(incoming_id)
             request_id = incoming_id
             session.emit_event = progress if command.progress_events else None
@@ -295,5 +336,16 @@ async def agent_socket(scope, receive, send):
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
         if session is not None:
-            session.close()
+            try:
+                await interrupt_interview(session.interview_id)
+            except Exception as exc:
+                logger.error(
+                    "Agent cleanup storage failed interview=%s exception=%s; "
+                    "pending requests require review",
+                    session.interview_id,
+                    type(exc).__name__,
+                )
+                raise
+            finally:
+                session.close()
         logger.info("Agent disconnected connection=%s", connection_id)

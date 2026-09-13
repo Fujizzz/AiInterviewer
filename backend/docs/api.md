@@ -186,5 +186,21 @@ sendChunk 支持 Blob / ArrayBuffer，Promise 在对应回传通过校验后完�
 ## MVP Agent：`/ws/agent/`
 
 已提供独立文字面试接口及 `/agent/` 浏览器测试页，支持 `start`、`answer`、`cancel`。
-每个连接一场内存面试，复用 MVP 出题、评价和报告；不写入上述练习场次数据库。
+每个连接一场面试，复用 MVP 出题、评价和报告；写入独立 Agent 表，不与固定题库练习场次混用。
 模型配置、完整消息结构、重复请求规则和取消限制见 [Agent 接入说明](agent-integration.md)。
+
+## Agent 历史（只读、本机访问）
+
+| 方法与路径 | 返回内容 |
+| --- | --- |
+| `GET /api/agent-interviews/` | 按创建时间倒序分页列出 ID、岗位、生命周期、版本和时间；不含资料及回答正文 |
+| `GET /api/agent-interviews/{id}/` | 候选人/岗位资料、当前状态、题目及已接受回答、已完成报告；`can_resume` 当前为 false |
+| `GET /api/agent-interviews/{id}/requests/` | 分页请求元数据：UUID、类型、状态、固定错误码与时间 |
+| `GET /api/agent-interviews/{id}/requests/{request_id}/` | 所属面试中单条请求的状态及保存响应；不触发调用或重试 |
+
+分页沿用每页 50 条；状态/时间使用服务器数据。所有历史响应设置 `Cache-Control: no-store, private`。
+不存在或不属于该场面试的请求返回 404；不开放新增、修改、删除或恢复操作。
+详情回答的 `evaluation`、`committed_state_version` 同时为空表示回答已经接收、尚未提交评分。
+Agent 已结束但报告生成失败时，`final_report` 仍为空，不把部分状态伪装成完整报告。
+成功响应只表示服务器保存完成，不保证浏览器收到；查询已保存结果不会再次计费。
+数据库记录包含敏感面试内容；当前依靠本机访问边界，UUID 不代替用户权限。

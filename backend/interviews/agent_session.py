@@ -5,7 +5,7 @@
 
 目录：
 - AgentSession：
-  保存一次连接的应用组合和已完成回答；不使用 Django 业务数据库。
+  保存一次连接的应用组合，使用数据库仓库持久化 Agent 状态与回答。
 - AgentSession.__init__：
   构造一次连接独占的 MVP 应用组合，不启动面试或调用模型。
 - AgentSession.start：
@@ -31,10 +31,11 @@
 
 关键状态说明：
 AgentSession.interview_id 为会话标识；app 持有本会话仓库与适配器。
-history 为展示历史；action 为最近提交的 Agent 动作。
+history 为已提交回答的展示缓存；action 为最近提交的 Agent 动作。
 profile、candidate_name 在 prepare 中建立；prepared_text 仅用于本连接精确匹配。
 job、service 在 start 中建立；emit_event 是当前请求的异步回调或 None。
-所有缓存随连接关闭释放，解析失败不会被当作成功资料复用。
+缓存随连接关闭释放；数据库历史保留，但本模块尚不提供恢复连接或重新执行请求。
+解析失败不会被当作成功资料复用；原始简历不保存，成功资料响应与 Agent 上下文会保存。
 """
 
 import asyncio
@@ -58,23 +59,26 @@ from shared.contracts import (
 )
 
 from .agent_provider import BackendLLM
+from .agent_repository import DjangoInterviewRepository
 
 logger = logging.getLogger(__name__)
 
 
 class AgentSession:
-    """保存一次连接的应用组合和已完成回答；不使用 Django 业务数据库。"""
+    """保存一次连接的应用组合，使用数据库仓库持久化 Agent 状态与回答。"""
 
     def __init__(self, llm=None):
         """构造一次连接独占的 MVP 应用组合，不启动面试或调用模型。
 
         输入：可选 StructuredLLM；测试显式注入替身，省略时读取真实供应商配置。
-        状态：生成 interview_id，创建内存仓库，将 history 置空、action 置为 None。
+        状态：生成 interview_id，创建绑定该 ID 的数据库适配器，将 history 置空、action 置为 None。
         异常：模型配置或 SDK 初始化失败直接传播，由协议层返回配置错误。
         """
         self.interview_id = str(uuid4())
         self.llm = llm if llm is not None else BackendLLM(interview_id=self.interview_id)
-        self.app = MVPInterviewApplication(self.llm)
+        self.app = MVPInterviewApplication(
+            self.llm, repository=DjangoInterviewRepository(self.interview_id)
+        )
         self.history = []
         self.action = None
         self.prepared_text = None
@@ -122,7 +126,7 @@ class AgentSession:
         """输入命令的 resume_text，解析为共享资料并返回 prepared 预览；不初始化 Agent。
 
         同一连接内文本完全相同才复用；更换文本先使旧缓存失效，再调用既有解析器。
-        模型异常保持传播；不自动解析输入中的每次编辑，也不存文件或数据库。
+        模型异常保持传播；不自动解析输入中的每次编辑。协议层保存成功响应，不保存原始简历。
         """
         if self.prepared_text != command.resume_text:
             self.prepared_text = None
@@ -142,7 +146,7 @@ class AgentSession:
         逻辑：精确复用或解析简历→构造岗位→装配端口→初始化计划→规范化阶段转换。
         预算：沿用 MVP 的题数乘以每题 120 秒，追问上限来自命令，能力权重不变。
         返回：question 响应字典，或 Agent 直接结束时的 finished 响应字典。
-        副作用：调用模型并写入本会话内存；异常向协议层传播，失败会话不恢复。
+        副作用：调用模型并原子写入数据库上下文；面试壳由协议层先建立，异常向上传播。
         """
         await self.prepare(command)
         self.job = JobProfile(
@@ -177,9 +181,9 @@ class AgentSession:
         """将当前答案转成标准反馈，驱动一次 Agent 决策并返回下一题或最终报告。
 
         输入：已验证的 Answer 命令；协议层保证会话就绪、问题 ID 当前有效且请求唯一。
-        逻辑：构造答案与评价请求→提取证据→追加展示历史→提交反馈→生成响应。
-        原子边界：Agent 仓库负责其单轮提交；history 的追加与该提交不是同一事务。
-        若追加历史后的 Agent 提交失败，协议层关闭并丢弃整场内存会话，不对外提供部分结果。
+        逻辑：先保存待评价回答→提取证据→原子提交反馈与状态→追加展示缓存→生成响应。
+        原子边界：数据库仓库将回答评价、状态、下一动作和日志一起提交。
+        提交失败时保留未评分回答，但不追加展示缓存；协议层显式结束连接，不自动重试。
         时间语义：按 MVP 固定扣除 seconds_per_question，不使用实际输入耗时。
         异常：评价、仓库或响应生成错误向上传播；本方法不重发答案或重试整轮。
         """
@@ -190,6 +194,7 @@ class AgentSession:
             answer_id=str(uuid4()),
             text=command.answer_text,
         )
+        await self.app.repository.accept_answer(command.request_id, answer)
         async with self._stage("answer_evaluation"):
             feedback = await self.app.evaluation.evaluate(
                 EvaluationRequest(
@@ -199,35 +204,35 @@ class AgentSession:
                     answer=answer,
                 )
             )
-        self.history.append(
-            {
-                "question_id": question.question_id,
-                "competency": question.target_competency.value,
-                "project_id": question.project_id,
-                "topic": question.topic,
-                "difficulty": question.difficulty,
-                "question": question.text,
-                "answer": answer.text,
-                "evaluation": feedback.model_dump(
-                    mode="json",
-                    include={
-                        "answer_relevance",
-                        "evidence_strength",
-                        "evaluation_confidence",
-                        "rubric_level",
-                        "needs_clarification",
-                        "contradiction_detected",
-                        "evidence_ids",
-                    },
-                ),
-            }
-        )
+        history_entry = {
+            "question_id": question.question_id,
+            "competency": question.target_competency.value,
+            "project_id": question.project_id,
+            "topic": question.topic,
+            "difficulty": question.difficulty,
+            "question": question.text,
+            "answer": answer.text,
+            "evaluation": feedback.model_dump(
+                mode="json",
+                include={
+                    "answer_relevance",
+                    "evidence_strength",
+                    "evaluation_confidence",
+                    "rubric_level",
+                    "needs_clarification",
+                    "contradiction_detected",
+                    "evidence_ids",
+                },
+            ),
+        }
+        self.app.repository.pending_feedback = feedback
         async with self._stage("next_action"):
             self.action = await self.service.apply_evaluation_feedback(
                 self.interview_id,
                 feedback,
                 elapsed_seconds=self.app.seconds_per_question,
             )
+        self.history.append(history_entry)
         return await self._response()
 
     async def _response(self):
@@ -314,7 +319,7 @@ class AgentSession:
                 "interview_state": context.state.model_dump(mode="json"),
                 "decision_logs": [
                     log.model_dump(mode="json")
-                    for log in self.app.repository.decision_logs_for(self.interview_id)
+                    for log in await self.app.repository.decision_logs_for(self.interview_id)
                 ],
                 "interview_finished": context.state.status == "finished",
                 "final_report": report.model_dump(mode="json"),

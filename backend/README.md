@@ -84,7 +84,10 @@ backend/
     models.py             三张业务表
     services.py           场次事务和状态转换
     agent_provider.py     后端模型配置、脱敏日志与客户端释放
-    agent_session.py      MVP 用例的逐轮网络适配，独立内存仓库
+    agent_session.py      MVP 用例的逐轮网络适配，注入数据库仓库
+    agent_models.py       Agent 面试、请求、题目、回答和提交日志 schema
+    agent_repository.py   单轮状态/评价/动作的原子提交与版本冲突检查
+    agent_records.py      请求持久化去重、结果提交和中断记录
     agent_socket.py       文字面试命令、并发限制与连接生命周期
     resume_pdf.py         PDF 规则提取与有界页面渲染
     resume_api.py         multipart 上传与 NDJSON 阶段流
@@ -132,7 +135,7 @@ python tests/run_agent_e2e.py  # 真实 ASGI + 离线模型替身，不调用收
 - 每次连接使用临时 connection_id，断开后服务端不保留结果。页面日志仅保留最近 30 行；服务端日志输出到控制台，启动时不要重定向到文件。
 - 浏览器仅保留当前回放的临时 Blob URL，点击“清空结果与媒体缓存”、开始下一次测试或离开页面时释放。没有 localStorage、IndexedDB、下载或文件写入逻辑。
 - verified_chunks 是客户端报告的校验数量，属于诊断指标，不是对恶意客户端的可信证明。
-- Agent 文字面试已接入；简历、答案和报告只保存在当前连接内存中。PDF 上传由独立 HTTP 入口处理，业务不保存文件，Django 可能使用自动清理的临时上传文件。尚未提供语音识别、视频存储、WebRTC 或 MySQL 适配；评分与策略仍由根目录模块负责。
+- Agent 文字面试已接入数据库，保存解析后资料、题目、回答、状态、决策及成功响应；`/api/agent-interviews/` 提供本机只读历史。原始简历文本和 PDF 不新增持久化，Django 可能使用自动清理的临时上传文件。清空页面不删除历史，断线续接尚未提供。尚未提供语音识别、视频存储、WebRTC 或 MySQL 适配；评分与策略仍由根目录模块负责。
 - Agent 当前返回完整问题和报告，没有逐 token 输出。沿用 MVP 的既有模型重试与问题/报告备用逻辑；断开连接不能保证已发送的同步模型请求在供应商处停止。
 
 ## 协议参考
