@@ -4,6 +4,8 @@ Django + DRF 提供题库、练习场次、单题记录接口，SQLite 仅保存
 同一 ASGI 服务提供 WebSocket 回传接口与浏览器测试页面，用于验证 ping/pong、二进制和音视频分片传输。
 本目录已接入根目录的 Agent MVP，通过 `/ws/agent/` 提供简历文本解析、逐题面试、评价与最终报告，测试页面位于 `/agent/`。
 Agent 沿用 MVP 的默认参数、策略和每题 120 秒逻辑预算；后端练习接口继续保留原有 10 秒准备和 90 秒回答配置，两条流程独立运行。
+`/agent/` 现采用面试工作台布局：题目在上方、面试官插画占位在中央、自己的摄像头预览在右上角，下方保留文字回答与可展开的简历设置。
+摄像头需显式点击开启，只申请视频权限，仅本地预览，不录制、不上传；关闭、设备中断或离开页面时释放轨道。尚未接入真实数字人或语音作答。
 文字面试页支持提前解析简历、真实阶段进度、实际等待计时，以及评分先展示、报告文字随后补齐。
 预解析只在当前连接内复用完全相同的简历，不改变 Agent 决策或增加推测性出题。
 优化边界与需要 Agent 团队配合的事项见 [性能优化说明](docs/performance.md)。
@@ -101,7 +103,7 @@ backend/
     streaming/            协议状态校验与 ASGI 连接管理
     migrations/           Schema 与初始题目
     tests/                Django / ASGI 测试
-  frontend/               app 调度、view 展示、media 采集、stream-client 协议
+  frontend/               app 调度、view 展示、media 采集、stream-client 协议、interview-camera 本地预览
   docs/                   Schema、协议与测试说明
   tests/                  Node 客户端测试、真实服务器联调
   tools/check_docs.py     声明注释、符号目录和模块变量索引检查
@@ -128,6 +130,7 @@ python -m unittest discover -s tools -p "test_*.py"
 # 需要 Node.js 22+；使用临时 SQLite 和临时端口，不写入开发数据库。
 python tests/run_e2e.py
 python tests/run_agent_e2e.py  # 真实 ASGI + 离线模型替身，不调用收费模型
+node --test tests/interview-camera.test.mjs  # 模拟权限、设备中断与媒体释放，不访问真实摄像头
 ```
 
 ## 当前边界

@@ -1,7 +1,9 @@
 <!doctype html>
 <!--
-文件职责：MVP 文字面试测试页的表单与展示结构，由 agent.js 处理事件，agent.css 补充样式。
-目录：主页与诊断导航；start-form（简历和预算）；prepare-resume/profile-preview（预解析）；
+文件职责：面试工作台的语义结构；agent.js 处理既有面试，interview-camera.js 管理本地摄像头，agent.css 提供布局。
+实现：上方显示题目，中央展示面试官占位形象，右上角显示本地摄像头，下方提供文字回答和可展开设置。
+目录：主页与诊断导航；question（题目）；interviewer-stage（面试官）；self-video/camera-toggle/camera-status（本地预览）；
+start-form（简历和预算）；prepare-resume/profile-preview（预解析）；
 pdf-file/pdf-parse/pdf-preview/pdf-use（PDF 提取后视觉校对及人工采用）；
 agent-status/wait-time/stage-log（状态、实际等待时长与阶段耗时）；answer-form（回答和取消）；
 evaluation-panel（上一题评价）；report-panel（最终报告及完整结果）。本文件无函数定义。
@@ -13,26 +15,70 @@ evaluation-panel（上一题评价）；report-panel（最终报告及完整结�
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>MVP Agent · 文字面试</title>
+  <title>AI Interviewer · 面试空间</title>
   <link rel="stylesheet" href="/stream-demo/style.css">
   <link rel="stylesheet" href="/stream-demo/agent.css">
   <script type="module" src="/stream-demo/agent.js"></script>
   <script type="module" src="/stream-demo/resume-pdf.js"></script>
+  <script type="module" src="/stream-demo/interview-camera.js"></script>
 </head>
-<body><main>
-  <header><span class="eyebrow">MOCK INTERVIEW / AGENT LAB</span>
-    <h1>MVP Agent 文字面试</h1>
-    <p>粘贴简历后开始面试，逐题回答并查看评价报告。密钥由后端读取，简历和回答将发送给你配置的模型服务。</p>
-    <p class="hint">解析后的资料、题目、回答和报告会保存在本机数据库。清空页面不会删除历史；离开页面会中断面试，目前不支持续接。</p>
-    <nav aria-label="页面导航"><a href="/">返回主页</a> · <a href="/stream-demo/">音视频传输测试</a></nav>
+<body class="interview-page"><main>
+  <header class="studio-header">
+    <a class="studio-brand" href="/" aria-label="AI Interviewer 主页"><span class="brand-icon" aria-hidden="true">ai</span> Interviewer</a>
+    <nav aria-label="页面导航"><a href="#interview-settings">面试设置</a><a href="/">返回主页 ↗</a></nav>
   </header>
+  <div class="studio-heading"><div><span class="eyebrow">YOUR INTERVIEW SPACE</span><h1>专注当下，从容表达。</h1></div><span class="session-type">面试练习 · 文字作答</span></div>
   <section class="connection" aria-label="处理进度">
     <span id="agent-status" role="status">就绪</span><span id="wait-time"></span>
     <p id="stage-log" class="hint" aria-label="已完成阶段耗时"></p>
   </section>
+  <section class="question-card" aria-labelledby="question-heading">
+    <div class="question-label"><h2 id="question-heading">当前题目</h2><span id="question-meta" class="hint"></span></div>
+    <p id="question" aria-live="polite">开始面试后，问题会显示在这里。</p>
+  </section>
+  <section id="interviewer-stage" class="interviewer-stage" aria-label="面试视频区域">
+    <div class="stage-caption"><span class="stage-dot" aria-hidden="true"></span> 面试官席位</div>
+    <div class="interviewer-placeholder">
+      <svg class="interviewer-portrait" viewBox="0 0 480 440" role="img" aria-label="面试官插画占位，数字人尚未接入">
+        <defs><linearGradient id="jacket" x2="0.9" y2="1"><stop stop-color="#536a66"/><stop offset="1" stop-color="#253b38"/></linearGradient></defs>
+        <circle cx="240" cy="200" r="168" fill="#e5eee7" opacity=".08"/>
+        <circle cx="240" cy="200" r="135" fill="none" stroke="#e5eee7" opacity=".12"/>
+        <path d="M70 440v-44c0-87 60-126 124-138h92c72 15 124 55 124 138v44" fill="url(#jacket)"/>
+        <path d="M199 258l41 30 41-30-10 182h-62z" fill="#e4e9dd"/>
+        <path d="M215 219v47q25 34 50 0v-47" fill="#c99779"/>
+        <ellipse cx="240" cy="169" rx="66" ry="84" fill="#dcb394"/>
+        <path d="M174 163c-20-74 20-99 66-99 55 0 83 40 64 100l-15-39c-36 8-62-12-69-24-5 25-31 41-46 42z" fill="#29332f"/>
+        <path d="M203 165h24m26 0h24" stroke="#4d4b3d" stroke-width="5" stroke-linecap="round"/>
+        <path d="M239 172l-4 24h9m-20 18q16 10 32-1" fill="none" stroke="#9a6b56" stroke-width="3" stroke-linecap="round"/>
+        <path d="M198 267l-35 45 42 21-19 25 26 82m70-173 35 45-42 21 19 25-26 82" fill="none" stroke="#6d8178" stroke-width="2"/>
+      </svg>
+      <div class="interviewer-name"><h2>AI 面试官</h2><p>数字人形象预留区 · 尚未接入</p></div>
+    </div>
+    <aside class="self-preview" aria-label="自己的视频">
+      <video id="self-video" autoplay muted playsinline hidden aria-label="本地摄像头预览"></video>
+      <div id="camera-placeholder" class="camera-placeholder"><span aria-hidden="true">◎</span><p>摄像头未开启</p></div>
+      <span class="self-label">你 <span>仅本地预览</span></span>
+    </aside>
+    <div class="stage-bottom"><span>留一点时间思考，再开始回答。</span><span class="preview-badge">形象预览</span></div>
+  </section>
+  <div class="camera-toolbar"><button id="camera-toggle" type="button" class="secondary" aria-pressed="false" aria-controls="self-video">开启摄像头</button><span id="camera-status" role="status">摄像头仅供自我预览，不录制、不上传。</span></div>
+  <section class="panel answer-panel" aria-label="回答当前题目">
+    <form id="answer-form">
+      <div class="answer-heading"><label for="answer">你的回答</label><span class="hint">理清思路，用具体经历展开</span></div>
+      <textarea id="answer" rows="4" required disabled placeholder="面试开始后，在这里输入你的回答…"></textarea>
+      <div class="actions">
+        <button id="submit-answer" type="submit" disabled>提交回答 ↗</button>
+        <button id="cancel-agent" type="button" class="secondary" disabled>取消面试</button>
+        <button id="clear-agent" type="button" class="secondary">清空内容</button>
+      </div>
+    </form>
+    <details id="evaluation-panel" hidden><summary>上一题评价</summary><pre id="evaluation"></pre></details>
+  </section>
+  <details id="interview-settings" class="setup-panel" open>
+    <summary><span>面试准备</span><span class="hint">导入简历 · 设置岗位与题目</span></summary>
   <!-- 参数表单的初始值与 MVP 默认值一致；运行期间由脚本禁用，避免同连接重复初始化。 -->
   <form id="start-form" class="panel">
-    <h2>01 · 简历与面试设置</h2>
+    <h2>简历与面试设置</h2>
     <fieldset>
       <legend>导入 PDF 简历</legend>
       <label for="pdf-file">选择 PDF（最多 10 MiB、10 页）</label>
@@ -67,27 +113,14 @@ evaluation-panel（上一题评价）；report-panel（最终报告及完整结�
     <p class="hint">沿用 MVP 每题 120 秒的逻辑预算，不是实际答题倒计时。问题完整生成后显示。</p>
     <button id="start-agent" type="submit">开始面试</button>
   </form>
-  <section class="panel">
-    <h2>02 · 当前问题</h2>
-    <p id="question-meta" class="hint"></p>
-    <p id="question">开始面试后，问题会显示在这里。</p>
-    <form id="answer-form">
-      <label for="answer">你的回答</label>
-      <textarea id="answer" rows="6" required disabled></textarea>
-      <div class="actions">
-        <button id="submit-answer" type="submit" disabled>提交回答</button>
-        <button id="cancel-agent" type="button" class="secondary" disabled>取消面试</button>
-        <button id="clear-agent" type="button" class="secondary">清空内容</button>
-      </div>
-    </form>
-    <details id="evaluation-panel" hidden><summary>上一题评价</summary><pre id="evaluation"></pre></details>
-  </section>
+  </details>
   <!-- 仅在收到完整 finished 响应后展示；评分直接呈现后端结果，不在模板中重新计算。 -->
   <section id="report-panel" class="panel" hidden>
-    <h2>03 · 面试报告</h2>
+    <h2>面试报告</h2>
     <p id="score"></p><p id="report-summary"></p>
     <details id="assessment-panel" hidden><summary>查看能力评分与覆盖程度</summary><pre id="assessment"></pre></details>
     <details><summary>完整结果与决策记录</summary><pre id="report"></pre></details>
   </section>
+  <p class="privacy-note">简历和回答会发送给配置的模型服务；解析后的资料、题目、回答和报告保存在本机数据库。清空页面不会删除历史，离开页面会中断面试，暂不支持续接。</p>
 </main></body>
 </html>

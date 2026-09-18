@@ -1,9 +1,13 @@
 /*
- * 文件职责：为 agent.html 的文字面试表单提供布局与可读性样式，叠加在 style.css 之后。
+ * 文件职责：为 agent.html 面试工作台提供布局与可读性样式，叠加在 style.css 之后。
+ * 实现：题目位于舞台上方，面试官居中，本地视频绝对定位于舞台右上角；窄屏缩小预览并保持回答区可用。
+ * 关联：agent.js 决定业务状态，interview-camera.js 决定本地预览状态；样式不创建或改变媒体流。
  * 目录：label/input/textarea（表单）；.settings-grid（预算参数）；#question/#report-summary（长文本）；
  * details/pre（展开结果）；#stage-log/#wait-time（真实阶段与计时）；预解析按钮；
  * fieldset/legend（PDF 导入区分组）；#pdf-preview（保留布局的规则/视觉文本预览）；
- * [hidden]（显示状态）；@media（窄屏排列）。本文件无函数或 CSS 自定义变量。
+ * [hidden]（显示状态）；.studio-header/.studio-heading（导航）；.question-card（题目）；
+ * .interviewer-stage/.interviewer-placeholder（中央形象）；.self-preview（右上角本地视频）；
+ * .camera-toolbar/.answer-panel/.setup-panel（操作和设置）；@media（窄屏排列）。本文件无函数或 CSS 自定义变量。
  * 关键选择器：#start-agent 与 #answer-form .actions 控制操作区间距；不改变 disabled 或网络状态。
  * 约束：仅调整外观和布局；预算、评分及协议状态由脚本与后端决定。
  */
@@ -25,3 +29,78 @@ fieldset { min-width: 0; margin: 16px 0; padding: 16px; border: 1px solid #afc6c
 legend { padding: 0 8px; font-weight: 600; }
 #pdf-preview { font-family: ui-monospace, monospace; white-space: pre; overflow: auto; }
 @media (max-width: 520px) { .settings-grid { grid-template-columns: 1fr; } }
+
+.interview-page { background: #f6f7f3; color: #263d36; }
+.interview-page main { max-width: 1180px; padding: 0 36px 32px; }
+.studio-header { display: flex; justify-content: space-between; align-items: center; min-height: 88px; border-bottom: 1px solid #dde3dc; gap: 20px; }
+.studio-brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 21px; letter-spacing: -.6px; color: #203e33; text-decoration: none; }
+.brand-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 11px; background: #254e40; color: #f2f7df; font-size: 21px; }
+.studio-header nav { display: flex; gap: 26px; font-size: 13px; }
+.studio-header nav a { color: #4c6358; text-decoration: none; }
+.studio-header nav a:hover { text-decoration: underline; }
+.studio-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-top: 30px; }
+.studio-heading .eyebrow { font-size: 10px; letter-spacing: 2.4px; }
+.studio-heading h1 { font-size: 27px; font-weight: 600; margin: 8px 0 0; letter-spacing: 0; }
+.session-type { font-size: 12px; color: #58705f; border: 1px solid #d5dfd0; padding: 8px 12px; border-radius: 20px; white-space: nowrap; }
+.connection { border: 0; padding: 18px 0 12px; gap: 5px 12px; }
+#agent-status { font-weight: 600; font-size: 12px; }
+#stage-log:empty { display: none; }
+.question-card { background: #fff; border: 1px solid #e0e5dc; border-radius: 14px; padding: 19px 25px; margin-bottom: 14px; }
+.question-label { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+.question-label h2 { font-size: 11px; letter-spacing: 2px; color: #52745d; margin: 0; }
+.question-label .hint { margin: 0; }
+#question { font-size: 18px; line-height: 1.7; margin: 10px 0 0; }
+.interviewer-stage { position: relative; height: clamp(350px, 43vw, 460px); overflow: hidden; border-radius: 16px; background: radial-gradient(ellipse at 48% 36%, #4b6259 0, #2c4239 45%, #1c3029 100%); color: #f0f3e9; }
+.stage-caption { position: absolute; top: 23px; left: 25px; font-size: 12px; display: flex; align-items: center; gap: 9px; z-index: 1; }
+.stage-dot { width: 6px; height: 6px; background: #bbcbaa; border-radius: 50%; }
+.interviewer-placeholder { height: 100%; display: flex; align-items: center; justify-content: center; flex-direction: column; padding-top: 20px; }
+.interviewer-portrait { width: 360px; max-width: 65%; height: 315px; }
+.interviewer-name { text-align: center; margin-top: -5px; }
+.interviewer-name h2 { font-size: 18px; font-weight: 500; margin: 0; letter-spacing: 2px; }
+.interviewer-name p { font-size: 11px; color: #c1cec0; margin: 8px 0; }
+.self-preview { position: absolute; top: 20px; right: 20px; width: 192px; height: 132px; background: #182821; border: 1px solid #748379; border-radius: 12px; overflow: hidden; box-shadow: 0 8px 24px #10261b33; }
+#self-video { width: 100%; height: 100%; aspect-ratio: auto; object-fit: cover; border-radius: 0; transform: scaleX(-1); background: #182821; }
+.camera-placeholder { display: grid; align-content: center; justify-items: center; height: 100%; padding-bottom: 19px; color: #becbbe; }
+.camera-placeholder > span { font-size: 28px; line-height: 1; }
+.camera-placeholder p { font-size: 10px; margin: 8px 0; }
+.self-label { position: absolute; bottom: 0; left: 0; right: 0; padding: 7px 10px; background: #11251ecc; font-size: 10px; display: flex; justify-content: space-between; }
+.self-label > span { color: #b1c1b5; }
+.stage-bottom { position: absolute; bottom: 18px; left: 25px; right: 25px; display: flex; justify-content: space-between; gap: 10px; align-items: center; color: #bdcbbb; font-size: 11px; }
+.preview-badge { border: 1px solid #718372; padding: 4px 9px; border-radius: 5px; white-space: nowrap; }
+.camera-toolbar { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; padding: 14px 0 20px; }
+.camera-toolbar button { border-radius: 8px; font-size: 12px; }
+#camera-status { font-size: 12px; color: #627365; flex: 1; min-width: 180px; line-height: 1.6; }
+.answer-panel { padding: 20px 24px; border-color: #e0e5dc; border-radius: 14px; }
+.answer-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.answer-heading label { margin: 0; font-size: 14px; }
+.answer-heading .hint { margin: 0; }
+#answer { background: #fafbf8; border-color: #dce4d9; font-size: 14px; line-height: 1.7; }
+#answer:disabled { color: #728074; }
+input:focus-visible, textarea:focus-visible, summary:focus-visible, a:focus-visible { outline: 3px solid #6c947d; outline-offset: 3px; }
+#answer-form .actions { justify-content: flex-end; }
+#submit-answer { order: 3; }
+.setup-panel { margin: 22px 0; border: 1px solid #dde4d9; border-radius: 12px; background: #fff; scroll-margin-top: 24px; }
+.setup-panel > summary { padding: 18px 22px; cursor: pointer; font-weight: 600; font-size: 14px; }
+.setup-panel > summary .hint { margin-left: 14px; font-weight: 400; }
+.setup-panel .panel { margin: 0; border: 0; border-top: 1px solid #e3e9df; border-radius: 0 0 12px 12px; }
+.privacy-note { color: #718073; font-size: 11px; line-height: 1.9; max-width: 900px; }
+@media (max-width: 650px) {
+  .interview-page main { padding: 0 16px 24px; }
+  .studio-header { min-height: 72px; gap: 12px; }
+  .studio-brand { font-size: 17px; }
+  .studio-header nav { gap: 12px; font-size: 12px; }
+  .studio-heading { margin-top: 24px; align-items: flex-start; flex-direction: column; gap: 12px; }
+  .studio-heading h1 { font-size: 23px; }
+  .question-card { padding: 17px; }
+  #question { font-size: 16px; }
+  .self-preview { width: 116px; height: 88px; top: 12px; right: 12px; }
+  .self-label { padding: 5px 7px; font-size: 9px; }
+  .self-label > span { font-size: 8px; }
+  .stage-caption { top: 18px; left: 16px; font-size: 11px; }
+  .interviewer-placeholder { padding: 48px 0 50px; }
+  .interviewer-portrait { height: 220px; max-width: 80%; }
+  .stage-bottom { left: 16px; right: 16px; bottom: 13px; font-size: 10px; }
+  .answer-panel { padding: 17px; }
+  .answer-heading .hint { font-size: 10px; }
+  .setup-panel > summary .hint { display: block; margin: 6px 0 0 16px; }
+}
