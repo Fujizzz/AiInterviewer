@@ -44,11 +44,11 @@ from contextlib import asynccontextmanager
 from time import perf_counter
 from uuid import uuid4
 
-from agents.config import load_agent_settings
 from agents.orchestrator import InterviewAgentService
 from app.application import DEFAULT_COMPETENCY_IMPORTANCE, MVPInterviewApplication
 from app.parsing.resume import parse_resume_profile
 from app.reporting.final_report import build_final_report
+from app.settings import interview_settings
 from shared.contracts import (
     CandidateAnswer,
     EvaluationRequest,
@@ -144,7 +144,7 @@ class AgentSession:
 
         前置条件：协议层保证本连接尚未开始；参数类型和范围已通过 Start 校验。
         逻辑：精确复用或解析简历→构造岗位→装配端口→初始化计划→规范化阶段转换。
-        预算：沿用 MVP 的题数乘以每题 120 秒，追问上限来自命令，能力权重不变。
+        预算：整场题数乘以每题 120 秒；项目/话题总题数由共享入口解析，能力权重不变。
         返回：question 响应字典，或 Agent 直接结束时的 finished 响应字典。
         副作用：调用模型并原子写入数据库上下文；面试壳由协议层先建立，异常向上传播。
         """
@@ -154,9 +154,11 @@ class AgentSession:
             title=command.job_title,
             competency_importance=DEFAULT_COMPETENCY_IMPORTANCE,
         )
-        # 仅应用用户命令中的追问上限，其他策略取自现有 MVP 配置，避免产生第二套决策参数。
-        settings = load_agent_settings().model_copy(
-            update={"max_consecutive_probes": command.max_follow_up_per_topic}
+        # CLI 和网页共用预算解析；旧追问参数只在此入口转换一次。
+        settings = interview_settings(
+            max_follow_up_per_topic=command.max_follow_up_per_topic,
+            max_questions_per_project=command.max_questions_per_project,
+            max_questions_per_topic=command.max_questions_per_topic,
         )
         self.service = InterviewAgentService(
             repository=self.app.repository,
@@ -206,7 +208,9 @@ class AgentSession:
             )
         history_entry = {
             "question_id": question.question_id,
-            "competency": question.target_competency.value,
+            "dialogue_action": question.dialogue_action,
+            "parent_question_id": question.parent_question_id,
+            "thread_id": question.thread_id,
             "project_id": question.project_id,
             "topic": question.topic,
             "difficulty": question.difficulty,
@@ -217,10 +221,8 @@ class AgentSession:
                 include={
                     "answer_relevance",
                     "evidence_strength",
-                    "evaluation_confidence",
-                    "rubric_level",
-                    "needs_clarification",
-                    "contradiction_detected",
+                    "analysis",
+                    "dimensions",
                     "evidence_ids",
                 },
             ),
@@ -231,6 +233,7 @@ class AgentSession:
                 self.interview_id,
                 feedback,
                 elapsed_seconds=self.app.seconds_per_question,
+                answer=answer,
             )
         self.history.append(history_entry)
         return await self._response()

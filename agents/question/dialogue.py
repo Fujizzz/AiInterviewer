@@ -1,0 +1,150 @@
+"""Read-only dialogue view and validation of model-selected conversation actions."""
+
+from typing import Literal
+from uuid import uuid4
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from agents.policies.dialogue_controller import DialogueController
+from shared.contracts import PlannedQuestion, QuestionType
+
+
+class DialogueSelection(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    dialogue_action: Literal["new_topic", "new_project", "clarify", "probe"]
+    project_id: str | None
+    topic_key: str = Field(min_length=1)
+    information_goal: str = Field(min_length=3, max_length=400)
+    decision_summary: str = Field(min_length=3, max_length=300)
+
+
+def followup_block(context, settings):
+    return DialogueController(context, settings).followup_block()
+
+
+def available_topics(context):
+    return DialogueController(context).available_topics()
+
+
+def dialogue_view(context, settings):
+    topics = available_topics(context)
+    active = context.active_thread
+    controller = DialogueController(context, settings)
+    budget = controller.budget_view(active.project_id, active.topic_key) if active else None
+    block = controller.followup_block()
+    allowed_actions = []
+    if block is None:
+        allowed_actions.extend(["clarify", "probe"])
+    if any(not active or p.project_id == active.project_id for p, _ in topics.values()):
+        allowed_actions.append("new_topic")
+    if active and any(p.project_id != active.project_id for p, _ in topics.values()):
+        allowed_actions.append("new_project")
+    if (
+        not context.candidate_profile.projects
+        and "general:experience" not in context.used_topic_keys
+    ):
+        allowed_actions.append("new_topic")
+    return {
+        "job_title": context.job_profile.title,
+        "projects": [
+            {
+                "project_id": project.project_id,
+                "name": project.name,
+                "domain": project.domain,
+                "questions_asked": controller.project_questions(project.project_id),
+                "question_limit": context.plan.max_questions_per_project,
+                "topics": [
+                    {"topic_key": key, "label": topic.topic[:100]}
+                    for key, (owner, topic) in topics.items()
+                    if owner.project_id == project.project_id
+                ],
+            }
+            for project in context.candidate_profile.projects
+        ],
+        "general_topic_key": (
+            "general:experience"
+            if not context.candidate_profile.projects
+            and "general:experience" not in context.used_topic_keys
+            else None
+        ),
+        "active_thread": context.active_thread.model_dump(mode="json")
+        if context.active_thread
+        else None,
+        "budget": budget,
+        "previous_topics": [
+            {
+                "project_id": t.project_id,
+                "topic_key": t.topic_key,
+                "topic": t.topic,
+                "information_goals": t.goals,
+                "questions_asked": 1 + t.follow_up_count,
+            }
+            for t in context.closed_threads
+        ],
+        "followup_block": block,
+        "allowed_dialogue_actions": allowed_actions,
+        "followups_remaining": max(
+            0,
+            min(
+                budget["topic_limit"] - budget["topic_questions"],
+                budget["project_limit"] - budget["project_questions"],
+            ),
+        )
+        if budget
+        else 0,
+        "retained_history_count": len(context.question_history),
+    }
+
+
+def resolve_selection(selection, context, settings, question_id=None):
+    """Derive server-owned IDs/depth/difficulty; reject invalid model choices."""
+    active = context.active_thread
+    continuing = selection.dialogue_action in {"clarify", "probe"}
+    if continuing:
+        block = followup_block(context, settings)
+        if block:
+            raise ValueError(block)
+        if selection.project_id != active.project_id or selection.topic_key != active.topic_key:
+            raise ValueError("FOLLOWUP_MUST_KEEP_CURRENT_THREAD")
+        topic, project_id = active.topic, active.project_id
+    else:
+        item = available_topics(context).get(selection.topic_key)
+        if item:
+            project, chosen = item
+            if project.project_id != selection.project_id:
+                raise ValueError("PROJECT_TOPIC_MISMATCH")
+            topic, project_id = chosen.topic, project.project_id
+        elif (
+            not context.candidate_profile.projects
+            and selection.project_id is None
+            and selection.topic_key == "general:experience"
+            and selection.topic_key not in context.used_topic_keys
+        ):
+            topic, project_id = "your project experience", None
+        else:
+            raise ValueError("UNKNOWN_OR_USED_TOPIC")
+        expected = "new_project" if active and project_id != active.project_id else "new_topic"
+        if selection.dialogue_action != expected:
+            raise ValueError("INCORRECT_DIALOGUE_ACTION")
+    if DialogueController(context, settings).goal_already_asked(
+        project_id, selection.information_goal
+    ):
+        raise ValueError("REPEATED_INFORMATION_GOAL")
+    question_id = question_id or str(uuid4())
+    return PlannedQuestion(
+        question_id=question_id,
+        project_id=project_id,
+        topic=topic,
+        topic_key=selection.topic_key,
+        dialogue_action=selection.dialogue_action,
+        information_goal=selection.information_goal,
+        intent=selection.information_goal,
+        difficulty=context.thread_difficulty
+        if continuing
+        else settings.initial_question_difficulty,
+        probe_depth=active.follow_up_count + 2 if continuing else 1,
+        question_type=QuestionType.IMPLEMENTATION if continuing else QuestionType.DESCRIPTION,
+        thread_id=active.thread_id if continuing else question_id,
+        parent_question_id=context.state.current_question_id if continuing else None,
+    )

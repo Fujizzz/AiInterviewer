@@ -12,10 +12,8 @@ from agents.domain.errors import (
 from agents.domain.models import (
     REPOSITORY_CONTRACT_VERSION,
     AgentDecisionLog,
-    AnchorState,
     CommitTurnRequest,
     CommitTurnResult,
-    CompetencySelection,
     InterviewContext,
     PolicyReplayResult,
     ProbeDecision,
@@ -28,10 +26,8 @@ from agents.domain.models import (
 __all__ = [
     "AgentDecisionLog",
     "AgentError",
-    "AnchorState",
     "CommitTurnRequest",
     "CommitTurnResult",
-    "CompetencySelection",
     "ContractVersionError",
     "InterviewContext",
     "InvalidAgentState",

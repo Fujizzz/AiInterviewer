@@ -86,6 +86,36 @@ from .test_agent_progress import connect, disconnect, read, send_command
 class PersistenceTests(TransactionTestCase):
     """用 TransactionTestCase 验证提交和清理后的可观测数据库状态。"""
 
+    async def test_custom_project_and_topic_budgets_are_persisted(self):
+        session = AgentSession(llm=FixtureLLM())
+        command = Start(
+            request_id=uuid4(),
+            type="start",
+            resume_text=RESUME,
+            max_questions=8,
+            max_questions_per_project=3,
+            max_questions_per_topic=2,
+        )
+        await reserve_request(session.interview_id, command)
+        result = await session.start(command)
+        await complete_request(session.interview_id, command.request_id, result)
+        context = await DjangoInterviewRepository(session.interview_id).get_interview_context(
+            session.interview_id
+        )
+        self.assertEqual(context.plan.max_questions_per_project, 3)
+        self.assertEqual(context.plan.max_questions_per_topic, 2)
+        self.assertNotIn("max_consecutive_probes", context.plan.model_dump())
+
+    def test_start_rejects_conflicting_topic_options(self):
+        with self.assertRaises(ValueError):
+            Start(
+                request_id=uuid4(),
+                type="start",
+                resume_text=RESUME,
+                max_questions_per_topic=2,
+                max_follow_up_per_topic=2,
+            )
+
     async def start_session(self, count=2):
         """预留 start 请求并运行真实 Agent 初始化，返回会话与首题；只使用离线模型。"""
         session = AgentSession(llm=FixtureLLM())
@@ -139,6 +169,14 @@ class PersistenceTests(TransactionTestCase):
         self.assertEqual(answer.evaluation["request_id"], str(command.request_id))
         self.assertEqual(result["result"]["interview_state"]["elapsed_seconds"], 120)
         self.assertAlmostEqual(result["result"]["final_report"]["overall_score"], 3.0)
+        fresh = DjangoInterviewRepository(session.interview_id)
+        context = await fresh.get_interview_context(session.interview_id)
+        self.assertEqual(len(context.question_history), 1)
+        entry = context.question_history[0]
+        self.assertEqual(entry.question.question_id, first["question"]["question_id"])
+        self.assertEqual(entry.answer.answer_id, str(answer.id))
+        self.assertEqual(entry.answer.text, ANSWER)
+        self.assertEqual(entry.feedback.request_id, str(command.request_id))
 
     async def test_failed_commit_rolls_back_state_question_log_and_evidence(self):
         """事务末端失败不能留下半轮状态；原回答保留，但评价和展示历史不能提前发布。"""

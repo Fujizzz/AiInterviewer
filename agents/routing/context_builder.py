@@ -61,7 +61,10 @@ class ContextBuilder:
         return ContextBuilder._delimited(
             "INTERVIEW_TARGET",
             [
-                f"competency={escape(question_plan.target_competency.value)}",
+                f"dialogue_action={question_plan.dialogue_action}",
+                f"parent_question_id={question_plan.parent_question_id or ''}",
+                f"information_goal={escape(question_plan.information_goal)}",
+                f"previous_answer_excerpt={escape(question_plan.answer_excerpt)}",
                 f"project_id={escape(question_plan.project_id or '')}",
                 f"topic={escape(question_plan.topic or '')}",
                 f"difficulty={question_plan.difficulty}",
@@ -126,10 +129,9 @@ class ContextBuilder:
         selected_answers = recent_answers[-feedback_limit:] if feedback_limit else ()
         lines = [
             (
-                f"feedback competency={feedback.target_competency.value} "
-                f"relevance={feedback.answer_relevance:.2f} "
-                f"evidence_strength={feedback.evidence_strength:.2f} "
-                f"confidence={feedback.evaluation_confidence:.2f}"
+                f"answer_status={feedback.analysis.status}; "
+                f"summary={escape(feedback.analysis.summary)}; "
+                f"missing={escape('; '.join(feedback.analysis.missing_information))}"
             )
             for feedback in selected_feedback
         ]
@@ -146,7 +148,7 @@ class ContextBuilder:
         selected_questions = previous_questions[-question_limit:] if question_limit else ()
         lines = [
             (
-                f"competency={question.target_competency.value}; "
+                f"dialogue_action={question.dialogue_action}; "
                 f"topic={escape(question.topic or '')}; "
                 f"type={question.question_type.value}; text={escape(question.text or '')}"
             )

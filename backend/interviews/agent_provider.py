@@ -28,6 +28,7 @@ from time import perf_counter
 
 from openai import OpenAI
 
+from agents.config import load_agent_settings
 from app.providers.llm import LLMError, OpenAILLM
 
 logger = logging.getLogger(__name__)
@@ -42,7 +43,7 @@ class BackendLLM(OpenAILLM):
         输入：可选 interview_id，仅用于连接模型日志与会话日志，不参与提示词或评分。
         逻辑：验证供应商、对应密钥与模型名→读取推理选项→建立 SDK→初始化并发计数。
         依赖：跳过父类构造器以避免读取根目录 .env；仍复用其 __call__ 和千问结构化实现。
-        参数：保留 MVP 的温度默认值、60 秒 SDK 超时和两次 SDK 重试，不覆盖 Agent 超时。
+        参数：复用 Agent 的请求超时预算；禁用 SDK 自动重试，结构化修复由对应调用层负责。
         异常：缺少配置抛 LLMError；温度转换或 SDK 参数错误直接传播，供协议层统一处理。
         """
         self.interview_id = interview_id
@@ -61,7 +62,10 @@ class BackendLLM(OpenAILLM):
             client_options["base_url"] = os.getenv(
                 "DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"
             ).strip()
-        self.client = OpenAI(api_key=key, timeout=60.0, max_retries=2, **client_options)
+        self.request_timeout = load_agent_settings().timeouts.llm_generation_seconds
+        self.client = OpenAI(
+            api_key=key, timeout=self.request_timeout, max_retries=0, **client_options
+        )
         self._lock = threading.Lock()
         self._active = 0
         self._closing = False

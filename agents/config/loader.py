@@ -1,47 +1,27 @@
-"""Validated YAML configuration for Agent policy constants."""
+"""Validated configuration for dialogue policies and bounded model execution."""
 
 from pathlib import Path
 
 import yaml
 from pydantic import BaseModel, Field
 
-
-class CompetencySelectorSettings(BaseModel):
-    importance_weight: float = Field(ge=0.0)
-    coverage_weight: float = Field(ge=0.0)
-    confidence_weight: float = Field(ge=0.0)
-    stage_fit_weight: float = Field(ge=0.0)
-    recency_penalty_weight: float = Field(ge=0.0)
-    anchor_bonus: float = Field(ge=0.0)
-
-
-class TargetSettings(BaseModel):
-    default_coverage: float = Field(ge=0.0, le=1.0)
-    default_confidence: float = Field(ge=0.0, le=1.0)
+from shared.contracts.budgets import QuestionBudgets
 
 
 class DifficultySettings(BaseModel):
-    strong_evidence_threshold: float = Field(ge=0.0, le=1.0)
-    strong_confidence_threshold: float = Field(ge=0.0, le=1.0)
-    strong_relevance_threshold: float = Field(ge=0.0, le=1.0)
-    weak_evidence_threshold: float = Field(ge=0.0, le=1.0)
-    minimum_relevance_to_decrease: float = Field(ge=0.0, le=1.0)
+    strong_evidence_threshold: float = Field(default=0.8, ge=0, le=1)
+    strong_relevance_threshold: float = Field(default=0.8, ge=0, le=1)
 
 
 class ProbeSettings(BaseModel):
-    minimum_remaining_seconds: int = Field(ge=0)
-
-
-class RedundancySettings(BaseModel):
-    maximum_key_occurrences: int = Field(ge=1)
+    minimum_remaining_seconds: int = Field(default=60, ge=0)
+    max_no_information_answers: int = Field(default=2, ge=1)
 
 
 class ProjectSelectorSettings(BaseModel):
-    competency_relevance_weight: float = Field(default=0.50, ge=0.0)
-    job_relevance_weight: float = Field(default=0.30, ge=0.0)
-    unverified_claim_weight: float = Field(default=0.20, ge=0.0)
-    visit_penalty_weight: float = Field(default=0.25, ge=0.0)
-    visits_until_full_penalty: int = Field(default=3, ge=1)
+    job_relevance_weight: float = Field(default=0.6, ge=0)
+    detail_weight: float = Field(default=0.4, ge=0)
+    visit_penalty_weight: float = Field(default=0.2, ge=0)
 
 
 class RetrievalSettings(BaseModel):
@@ -62,16 +42,15 @@ class ContextSettings(BaseModel):
 
 class QuestionValidationSettings(BaseModel):
     minimum_words: int = Field(default=4, ge=1)
-    maximum_words: int = Field(default=70, ge=1)
+    maximum_words: int = Field(default=110, ge=1)
     maximum_question_marks: int = Field(default=1, ge=1)
 
 
 class TimeoutSettings(BaseModel):
-    rag_seconds: float = Field(default=2.0, gt=0.0)
-    evaluation_seconds: float = Field(default=5.0, gt=0.0)
-    llm_planning_seconds: float = Field(default=5.0, gt=0.0)
-    llm_generation_seconds: float = Field(default=5.0, gt=0.0)
-    repository_seconds: float = Field(default=1.0, gt=0.0)
+    rag_seconds: float = Field(default=2.0, gt=0)
+    evaluation_seconds: float = Field(default=30.0, gt=0)
+    llm_generation_seconds: float = Field(default=30.0, gt=0)
+    repository_seconds: float = Field(default=1.0, gt=0)
 
 
 class RetrySettings(BaseModel):
@@ -79,19 +58,22 @@ class RetrySettings(BaseModel):
     state_conflict_recomputations: int = Field(default=1, ge=0, le=1)
 
 
-class AgentSettings(BaseModel):
-    policy_config_version: str
-    max_consecutive_probes: int = Field(ge=0)
-    min_question_difficulty: int = Field(ge=1, le=5)
-    max_question_difficulty: int = Field(ge=1, le=5)
-    initial_question_difficulty: int = Field(ge=1, le=5)
-    minimum_interview_seconds: int = Field(ge=0)
-    default_stage_fit: float = Field(ge=0.0, le=1.0)
-    competency_selector: CompetencySelectorSettings
-    target: TargetSettings
-    difficulty: DifficultySettings
-    probe: ProbeSettings
-    redundancy: RedundancySettings
+class QuestionAgentSettings(BaseModel):
+    enabled: bool = True
+    max_tool_calls: int = Field(default=2, ge=0, le=8)
+    total_timeout_seconds: float = Field(default=90.0, gt=0)
+    history_retention: int = Field(default=50, ge=1, le=200)
+    history_tool_limit: int = Field(default=10, ge=1, le=50)
+    text_char_limit: int = Field(default=4000, ge=100, le=20000)
+
+
+class AgentSettings(QuestionBudgets):
+    policy_config_version: str = "dialogue-policy-v2"
+    min_question_difficulty: int = Field(default=1, ge=1, le=5)
+    max_question_difficulty: int = Field(default=5, ge=1, le=5)
+    initial_question_difficulty: int = Field(default=2, ge=1, le=5)
+    difficulty: DifficultySettings = Field(default_factory=DifficultySettings)
+    probe: ProbeSettings = Field(default_factory=ProbeSettings)
     project_selector: ProjectSelectorSettings = Field(default_factory=ProjectSelectorSettings)
     retrieval: RetrievalSettings = Field(default_factory=RetrievalSettings)
     context: ContextSettings = Field(default_factory=ContextSettings)
@@ -100,6 +82,7 @@ class AgentSettings(BaseModel):
     )
     timeouts: TimeoutSettings = Field(default_factory=TimeoutSettings)
     retries: RetrySettings = Field(default_factory=RetrySettings)
+    question_agent: QuestionAgentSettings = Field(default_factory=QuestionAgentSettings)
 
 
 class ConfigDocument(BaseModel):
@@ -107,9 +90,5 @@ class ConfigDocument(BaseModel):
 
 
 def load_agent_settings(path: Path | None = None) -> AgentSettings:
-    """Load and validate Agent settings from YAML."""
-
-    config_path = path or Path(__file__).with_name("defaults.yaml")
-    with config_path.open(encoding="utf-8") as config_file:
-        document = yaml.safe_load(config_file)
-    return ConfigDocument.model_validate(document).agent
+    with (path or Path(__file__).with_name("defaults.yaml")).open(encoding="utf-8") as source:
+        return ConfigDocument.model_validate(yaml.safe_load(source)).agent

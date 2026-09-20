@@ -12,6 +12,7 @@ from agents.domain.errors import AgentError
 from app.application import MVPInterviewApplication, build_application
 from app.parsing.files import read_resume
 from app.providers.llm import LLMError
+from app.tracing import FileTrace
 
 
 def run_interview(
@@ -19,7 +20,9 @@ def run_interview(
     resume_text: str,
     *,
     max_questions: int = 5,
-    max_follow_up_per_topic: int = 2,
+    max_follow_up_per_topic: int | None = None,
+    max_questions_per_project: int | None = None,
+    max_questions_per_topic: int | None = None,
     job_title: str = "General AI / Software Engineer",
     read_answer=input,
     write=print,
@@ -31,6 +34,8 @@ def run_interview(
             resume_text,
             max_questions=max_questions,
             max_follow_up_per_topic=max_follow_up_per_topic,
+            max_questions_per_project=max_questions_per_project,
+            max_questions_per_topic=max_questions_per_topic,
             job_title=job_title,
             read_answer=read_answer,
             write=write,
@@ -57,19 +62,52 @@ def main() -> int:
     )
     parser.add_argument("resume", type=Path, help="UTF-8 text or text-based PDF resume")
     parser.add_argument("--max-questions", type=int, default=5)
-    parser.add_argument("--max-follow-up-per-topic", type=int, default=2)
+    parser.add_argument(
+        "--max-questions-per-project",
+        type=int,
+        help="Maximum questions per project, including follow-ups (default: config)",
+    )
+    topic_options = parser.add_mutually_exclusive_group()
+    topic_options.add_argument(
+        "--max-questions-per-topic",
+        type=int,
+        help="Maximum questions per topic, including its first question",
+    )
+    topic_options.add_argument(
+        "--max-follow-up-per-topic",
+        type=int,
+        help="Legacy alias: topic question limit = this value + 1",
+    )
     parser.add_argument("--job-title", default="General AI / Software Engineer")
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path(__file__).resolve().parents[1] / "output",
+        help="Directory for private execution traces (default: project output/)",
+    )
     args = parser.parse_args()
-    if args.max_questions < 1 or args.max_follow_up_per_topic < 0:
-        parser.error("max-questions must be positive; max-follow-up-per-topic must be nonnegative")
-    try:
-        run_interview(
-            build_application(),
-            read_resume(args.resume),
-            max_questions=args.max_questions,
-            max_follow_up_per_topic=args.max_follow_up_per_topic,
-            job_title=args.job_title,
+    if (
+        args.max_questions < 1
+        or any(
+            value is not None and value < 1
+            for value in (args.max_questions_per_project, args.max_questions_per_topic)
         )
+        or (args.max_follow_up_per_topic is not None and args.max_follow_up_per_topic < 0)
+    ):
+        parser.error("Question limits must be positive; legacy follow-up limit must be nonnegative")
+    trace = FileTrace(args.output_dir)
+    try:
+        with trace:
+            result = run_interview(
+                build_application(),
+                read_resume(args.resume),
+                max_questions=args.max_questions,
+                max_follow_up_per_topic=args.max_follow_up_per_topic,
+                max_questions_per_project=args.max_questions_per_project,
+                max_questions_per_topic=args.max_questions_per_topic,
+                job_title=args.job_title,
+            )
+            trace.save_result(result)
         return 0
     except (KeyboardInterrupt, EOFError):
         print("\nInterview cancelled. No final evaluation was produced.", file=sys.stderr)
@@ -77,6 +115,9 @@ def main() -> int:
     except (OSError, ValueError, RuntimeError, AgentError, LLMError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
+    finally:
+        if trace.path.is_file():
+            print(f"\nInterview record: {trace.path}", file=sys.stderr)
 
 
 if __name__ == "__main__":

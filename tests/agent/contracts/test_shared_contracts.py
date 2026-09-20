@@ -51,4 +51,4 @@ def test_every_cross_module_model_declares_contract_version(
 ) -> None:
     version_field = contract_model.model_fields["contract_version"]
 
-    assert version_field.default == "1.0"
+    assert version_field.default == "2.0"

@@ -21,10 +21,12 @@ FixtureLLM.calls 记录请求 schema；closed 标记清理是否发生。
 测试输出不代表真实模型能力，也不进入生产默认路径。
 """
 
+from agents.question.react import QuestionAgentDecision
 from app.adapters.evaluation import AnswerEvidence
 from app.adapters.llm import GeneratedText
 from app.parsing.resume import ResumeExtraction
 from app.reporting.final_report import ReportNarrative
+from tests.agent.mocks.dialogue_output import plan_for, selection_for
 
 RESUME = "Alex built a Python log analysis pipeline, tested malformed records with pytest."
 ANSWER = "I implemented a bounded-memory parser and tested malformed records separately."
@@ -56,27 +58,41 @@ class FixtureLLM:
                     }
                 ],
             }
-        elif schema is GeneratedText:
-            topic = str(data["question_plan"]["topic"]).rstrip(".,;:")
+        elif schema in (GeneratedText, QuestionAgentDecision):
+            selection = selection_for(data) if "dialogue_state" in data else None
+            plan = plan_for(data, selection) if selection else data["question_plan"]
+            topic = str(plan["topic"]).rstrip(".,;:")
             output = {"text": f"What did you personally implement for {topic}, and why?"}
         elif schema is AnswerEvidence:
             output = {
                 "answer_relevance": 0.9,
                 "evidence_strength": 0.8,
-                "evaluation_confidence": 0.85,
-                "rubric_level": 3,
-                "contradiction_detected": False,
-                "needs_clarification": False,
-                "evidence_summary": "The answer describes implementation and tests.",
+                "analysis": {
+                    "status": "substantive",
+                    "new_information": True,
+                    "thread_complete": True,
+                },
+                "dimensions": [
+                    {
+                        "competency": "ownership",
+                        "observation": "supported",
+                        "quote": data["answer"],
+                        "fact": data["answer"],
+                        "rationale": "Describes personal implementation",
+                        "rubric_level": 3,
+                        "strength": 0.8,
+                    }
+                ],
             }
         elif schema is ReportNarrative:
             output = {
                 "strengths": ["Explained implementation."],
                 "weaknesses": ["Some competencies remain untested."],
-                "summary": "Offline fixture report; no real model was called.",
             }
         else:
             raise AssertionError(f"Unexpected schema: {schema.__name__}")
+        if schema is QuestionAgentDecision:
+            output.update(action="final", topic=None, limit=None, selection=selection)
         return schema.model_validate(output)
 
     def close(self):

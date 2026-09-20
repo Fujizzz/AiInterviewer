@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+from agents.question.react import QuestionAgentDecision
 from app.adapters.llm import GeneratedText
 from app.application import build_application
 from app.cli import run_interview
@@ -42,8 +43,16 @@ class InterviewTests(unittest.TestCase):
             all(entry["evaluation"]["evidence_ids"] for entry in result["question_history"])
         )
         profile = result["candidate_profile"]
-        self.assertEqual(profile["contract_version"], "1.0")
+        self.assertEqual(profile["contract_version"], "2.0")
         self.assertEqual(len(profile["projects"]), 2)
+        question_calls = [data for schema, data in llm.calls if schema is QuestionAgentDecision]
+        self.assertEqual(
+            len({data["state_summary"]["question_index"] for data in question_calls}), 5
+        )
+        self.assertIsNone(question_calls[0]["latest_turn"])
+        latest = question_calls[1]["latest_turn"]
+        self.assertEqual(latest["answer"]["text"], result["question_history"][0]["answer"])
+        self.assertEqual(latest["question"]["question_id"], latest["answer"]["question_id"])
 
     def test_question_limit_controls_deterministic_time_budget(self):
         for limit in (1, 3):

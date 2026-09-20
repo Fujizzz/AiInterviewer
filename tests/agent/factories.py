@@ -34,9 +34,6 @@ def interview_plan(*, interview_id: str = "interview-1") -> InterviewPlan:
         interview_id=interview_id,
         duration_seconds=900,
         stages=[StagePlan(stage=InterviewStage.INTRO, budget_seconds=900)],
-        competency_importance={competency: 0.8 for competency in Competency},
-        target_coverage={competency: 0.75 for competency in Competency},
-        target_confidence={competency: 0.7 for competency in Competency},
     )
 
 

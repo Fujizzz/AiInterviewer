@@ -7,8 +7,8 @@
 - 读取 UTF-8 TXT 和文本型 PDF 简历；
 - 将简历转换为版本化 `CandidateProfile`、结构化项目和可核验 claims；
 - 根据标准能力空间选择 competency、project、topic、difficulty 和 probe depth；
-- Planner、Generator、Validator、Fallback 分层生成问题；
-- 对每轮回答提取 relevance、evidence strength、confidence 和 rubric level；
+- 固定出题计划后，通过有边界的 ReAct 工具循环生成问题，并进行校验与兜底；
+- 对每轮回答分析缺失信息与是否追问，并提取多个能力维度的原文证据；不再使用 confidence；
 - 原子提交状态、问题、反馈和决策日志，重复反馈保持幂等；
 - 按岗位能力权重在代码中计算最终分数，LLM 仅负责报告文字；
 - 支持 OpenAI 和千问 DashScope；
@@ -32,6 +32,9 @@ InterviewAgentService (agents/)
 ```
 
 旧版 LangGraph 流程、旧 `TypedDict` 状态和独立问题路由已移除，避免出现两个决策中心。
+
+ReAct 实现、Windows 启动命令和执行轨迹查看方法见
+[ReAct 架构实现与运行指南](docs/ReAct架构实现与运行指南.md)。
 
 ## 仓库模块
 
@@ -95,10 +98,16 @@ uv run python main.py resume.pdf \
 
 不提供 `--job-title` 时使用通用 AI / 软件工程岗位和均衡能力权重。
 
+终端运行默认将关键节点静默保存到 `output/interview_时间戳_唯一编号.md`，每次面试只有一个文件。
+记录选题依据、工具调用摘要、最终问题、回答评价、修复/兜底原因和最终结果；
+不保存完整 Prompt、State、工具返回正文或额外 JSON 文件。中断时保留已有记录。
+可用 `--output-dir` 更改目录；这些记录包含面试资料，已加入 Git 忽略规则。
+记录不包含模型未返回的内部推理文本，也不会在面试过程中打印。
+
 ## 独立后端与流式诊断
 
 `backend/` 提供 Django/DRF 练习接口、SQLite 业务存储和只在内存中处理的 WebSocket 音视频回传测试。
-它尚未接入上面的 Agent 决策流程；不会修改现有面试策略或模型参数。
+其中 `/ws/agent/` 已接入上面的 Agent 决策流程，并通过 Django/SQLite 保存面试数据；练习接口与音视频回传诊断仍独立运行。
 其浏览器诊断页位于 `backend/frontend/`，与未来根目录 `frontend/` 产品代码分开。
 安装与启动见 [后端说明](backend/README.md)，模块职责和函数注释规范见 [代码阅读指南](backend/docs/code-guide.md)。
 

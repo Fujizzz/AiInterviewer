@@ -7,11 +7,13 @@ Concrete adapter implementations do not belong in this module.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-CONTRACT_VERSION = "1.0"
+from shared.contracts.budgets import QuestionBudgets
+
+CONTRACT_VERSION = "2.0"
 
 
 class Competency(str, Enum):
@@ -94,7 +96,6 @@ class CompetencyState(BaseModel):
     competency: Competency
     score: float | None = None
     coverage: float = Field(default=0.0, ge=0.0, le=1.0)
-    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     max_verified_difficulty: int = Field(default=0, ge=0, le=5)
     evidence_count: int = Field(default=0, ge=0)
     independent_evidence_count: int = Field(default=0, ge=0)
@@ -118,7 +119,6 @@ class InterviewState(BaseModel):
     project_visit_count: dict[str, int] = Field(default_factory=dict)
     last_question_type: QuestionType | None = None
     last_topic: str | None = None
-    last_competency: Competency | None = None
     consecutive_probes: int = Field(default=0, ge=0)
 
 
@@ -128,29 +128,30 @@ class StagePlan(BaseModel):
     budget_seconds: int = Field(gt=0)
 
 
-class InterviewPlan(BaseModel):
+class InterviewPlan(QuestionBudgets):
     contract_version: str = CONTRACT_VERSION
     interview_id: str
     duration_seconds: int = Field(gt=0)
     stages: list[StagePlan]
-    competency_importance: dict[Competency, float]
-    target_coverage: dict[Competency, float]
-    target_confidence: dict[Competency, float]
-    max_consecutive_probes: int = Field(default=3, ge=0)
 
 
 class PlannedQuestion(BaseModel):
     contract_version: str = CONTRACT_VERSION
     question_id: str
-    target_competency: Competency
     project_id: str | None = None
     topic: str | None = None
     difficulty: int = Field(ge=1, le=5)
-    probe_depth: int = Field(ge=1, le=7)
+    probe_depth: int = Field(ge=1)
     question_type: QuestionType
     intent: str
     required_context_sources: list[RetrievalSource] = Field(default_factory=list)
     text: str | None = None
+    dialogue_action: Literal["new_topic", "new_project", "clarify", "probe"] = "new_topic"
+    parent_question_id: str | None = None
+    thread_id: str = ""
+    topic_key: str = ""
+    information_goal: str = ""
+    answer_excerpt: str = ""
 
 
 class CandidateAnswer(BaseModel):
@@ -167,7 +168,7 @@ class RetrievalRequest(BaseModel):
     interview_id: str
     source: RetrievalSource
     intent: str
-    competency: Competency
+    competency: Competency | None = None
     difficulty: int = Field(ge=1, le=5)
     candidate_id: str | None = None
     project_id: str | None = None
@@ -203,24 +204,52 @@ class EvaluationRequest(BaseModel):
     answer: CandidateAnswer
 
 
+class ContradictionEvidence(BaseModel):
+    earlier_answer_id: str
+    earlier_quote: str = Field(min_length=1)
+    current_quote: str = Field(min_length=1)
+    explanation: str = Field(min_length=1)
+
+
+class AnswerAnalysis(BaseModel):
+    """Conversation-only feedback, safe to expose to the question agent."""
+
+    status: Literal["substantive", "partial", "non_answer", "explicit_unknown", "refusal"] = (
+        "partial"
+    )
+    missing_information: list[str] = Field(default_factory=list)
+    contradictions: list[str] = Field(default_factory=list)
+    uncertainties: list[str] = Field(default_factory=list)
+    contradiction_evidence: list[ContradictionEvidence] = Field(default_factory=list)
+    new_information: bool = False
+    thread_complete: bool = False
+    answer_scope: Literal["unknown", "label_only", "concrete", "none"] = "unknown"
+    summary: str = ""
+
+
+class DimensionEvidence(BaseModel):
+    competency: Competency
+    observation: Literal["supported", "weak"]
+    quote: str = Field(min_length=1)
+    fact: str = Field(min_length=1)
+    rationale: str = Field(min_length=1)
+    rubric_level: int | None = Field(default=None, ge=1, le=5)
+    strength: float = Field(ge=0, le=1)
+
+
 class EvaluationFeedback(BaseModel):
     contract_version: str = CONTRACT_VERSION
     request_id: str
     question_id: str
-    target_competency: Competency
     answer_relevance: float = Field(ge=0.0, le=1.0)
     evidence_strength: float = Field(ge=0.0, le=1.0)
-    evaluation_confidence: float = Field(ge=0.0, le=1.0)
-    rubric_level: int | None = Field(default=None, ge=1, le=5)
-    contradiction_detected: bool = False
-    needs_clarification: bool = False
-    updated_competency_state: CompetencyState
+    analysis: AnswerAnalysis = Field(default_factory=AnswerAnalysis)
+    dimensions: list[DimensionEvidence] = Field(default_factory=list)
     evidence_ids: list[str] = Field(default_factory=list)
 
 
 class DecisionTrace(BaseModel):
     contract_version: str = CONTRACT_VERSION
-    selected_competency_priority: float | None = None
     reason_code: str
     details: dict[str, Any] = Field(default_factory=dict)
 

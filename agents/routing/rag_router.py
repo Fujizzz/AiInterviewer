@@ -12,46 +12,11 @@ from agents.domain.models import RetrievalBatch
 from agents.ports import RAGPort
 from agents.timeouts import call_with_timeout
 from shared.contracts import (
-    Competency,
     PlannedQuestion,
     RetrievalRequest,
     RetrievalResponse,
     RetrievalSource,
 )
-
-_DEFAULT_SOURCES: dict[Competency, tuple[RetrievalSource, ...]] = {
-    Competency.TECHNICAL_DEPTH: (
-        RetrievalSource.CANDIDATE,
-        RetrievalSource.TECHNICAL,
-        RetrievalSource.QUESTION,
-    ),
-    Competency.OWNERSHIP: (RetrievalSource.CANDIDATE,),
-    Competency.DECISION_MAKING: (
-        RetrievalSource.CANDIDATE,
-        RetrievalSource.TECHNICAL,
-        RetrievalSource.QUESTION,
-    ),
-    Competency.DEBUGGING: (
-        RetrievalSource.CANDIDATE,
-        RetrievalSource.TECHNICAL,
-        RetrievalSource.QUESTION,
-    ),
-    Competency.EVALUATION: (RetrievalSource.CANDIDATE, RetrievalSource.QUESTION),
-    Competency.ADAPTABILITY: (
-        RetrievalSource.CANDIDATE,
-        RetrievalSource.TECHNICAL,
-        RetrievalSource.QUESTION,
-    ),
-}
-
-_QUERY_SUFFIX: dict[Competency, str] = {
-    Competency.TECHNICAL_DEPTH: "mechanism design tradeoffs",
-    Competency.OWNERSHIP: "candidate claims personal implementation responsibility",
-    Competency.DECISION_MAKING: "design alternatives decision tradeoffs",
-    Competency.DEBUGGING: "failure modes root causes debugging signals",
-    Competency.EVALUATION: "validation metrics experiment evidence",
-    Competency.ADAPTABILITY: "scaling constraints trade-offs failure modes",
-}
 
 
 class RAGRouter:
@@ -70,7 +35,7 @@ class RAGRouter:
         domain: str | None = None,
     ) -> list[RetrievalRequest]:
         configured_sources = question_plan.required_context_sources
-        sources = tuple(configured_sources) or _DEFAULT_SOURCES[question_plan.target_competency]
+        sources = tuple(configured_sources) or (RetrievalSource.CANDIDATE,)
         sources = tuple(dict.fromkeys(sources))
         return [
             RetrievalRequest(
@@ -78,7 +43,6 @@ class RAGRouter:
                 interview_id=interview_id,
                 source=source,
                 intent=question_plan.intent,
-                competency=question_plan.target_competency,
                 difficulty=question_plan.difficulty,
                 candidate_id=candidate_id,
                 project_id=question_plan.project_id,
@@ -128,21 +92,18 @@ class RAGRouter:
         return await call_with_timeout(
             self._rag.retrieve(request),
             timeout_seconds=self._settings.timeouts.rag_seconds,
-            error_factory=lambda: RAGTimeout(
-                f"RAG source {request.source.value!r} timed out"
-            ),
+            error_factory=lambda: RAGTimeout(f"RAG source {request.source.value!r} timed out"),
         )
 
     def _query(self, question_plan: PlannedQuestion, source: RetrievalSource) -> str:
         topic = question_plan.topic or "candidate project"
-        suffix = _QUERY_SUFFIX[question_plan.target_competency]
         if source == RetrievalSource.CANDIDATE:
-            return f"{topic} candidate project claims {question_plan.target_competency.value}"
+            return f"{topic} candidate project claims"
         if source == RetrievalSource.QUESTION:
             return f"{topic} {question_plan.question_type.value} interview question examples"
         if source == RetrievalSource.JOB:
-            return f"{topic} role requirements {question_plan.target_competency.value}"
-        return f"{topic} {suffix}"
+            return f"{topic} role requirements"
+        return f"{topic} {question_plan.information_goal}"
 
     def _top_k(self, source: RetrievalSource) -> int:
         limits = self._settings.retrieval

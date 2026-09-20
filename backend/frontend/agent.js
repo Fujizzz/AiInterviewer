@@ -195,7 +195,7 @@ function onMessage(event) {
       questionId = message.question.question_id;
       pendingId = null;
       el("question").textContent = message.question.text;
-      el("question-meta").textContent = `第 ${message.question_index} 题 · ${message.question.target_competency} · 难度 ${message.question.difficulty}`;
+      el("question-meta").textContent = `第 ${message.question_index} 题 · ${message.question.dialogue_action} · 难度 ${message.question.difficulty}`;
       el("answer").value = "";
       el("evaluation-panel").hidden = !message.last_evaluation;
       el("evaluation").textContent = message.last_evaluation ? JSON.stringify(message.last_evaluation, null, 2) : "";

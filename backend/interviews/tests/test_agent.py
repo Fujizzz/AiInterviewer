@@ -354,7 +354,7 @@ class ProviderTests(SimpleTestCase):
             patch("app.providers.llm.load_dotenv") as dotenv,
         ):
             provider = BackendLLM()
-            sdk.assert_called_once_with(api_key="test-only", timeout=60.0, max_retries=2)
+            sdk.assert_called_once_with(api_key="test-only", timeout=30.0, max_retries=0)
             dotenv.assert_not_called()
             self.assertEqual(provider.options, {"temperature": 0.0})
             provider.close()

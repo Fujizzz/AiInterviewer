@@ -45,7 +45,7 @@ import logging
 from typing import Literal
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from .access import websocket_allowed
 from .agent_records import (
@@ -83,8 +83,16 @@ class Start(Command):
     type: Literal["start"]
     resume_text: str = Field(min_length=1)
     max_questions: int = Field(default=5, ge=1)
-    max_follow_up_per_topic: int = Field(default=2, ge=0)
+    max_follow_up_per_topic: int | None = Field(default=None, ge=0)
+    max_questions_per_project: int | None = Field(default=None, ge=1)
+    max_questions_per_topic: int | None = Field(default=None, ge=1)
     job_title: str = Field(default="General AI / Software Engineer", min_length=1)
+
+    @model_validator(mode="after")
+    def exclusive_topic_budget(self):
+        if self.max_follow_up_per_topic is not None and self.max_questions_per_topic is not None:
+            raise ValueError("Use max_questions_per_topic OR max_follow_up_per_topic, not both")
+        return self
 
 
 class Answer(Command):
