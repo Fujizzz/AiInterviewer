@@ -13,6 +13,9 @@ class FixtureLLM:
         self.calls = []
 
     def __call__(self, prompt, data, schema):
+        # Scripted semantic pass; this fixture does not evaluate question quality.
+        if schema.__name__ == "QuestionQualityReview":
+            return schema(issues=[])
         self.calls.append((schema, data))
         if schema is ResumeExtraction:
             topics = ["Book Recommendation System", "Log Analysis Pipeline"]

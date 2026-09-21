@@ -3,7 +3,7 @@
 from typing import Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from agents.policies.dialogue_controller import DialogueController
 from shared.contracts import PlannedQuestion, QuestionType
@@ -17,6 +17,11 @@ class DialogueSelection(BaseModel):
     topic_key: str = Field(min_length=1)
     information_goal: str = Field(min_length=3, max_length=400)
     decision_summary: str = Field(min_length=3, max_length=300)
+
+    @field_validator("decision_summary", mode="before")
+    @classmethod
+    def bound_display_summary(cls, value):
+        return value.strip()[:300] if isinstance(value, str) else value
 
 
 def followup_block(context, settings):

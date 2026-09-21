@@ -35,6 +35,9 @@ class ScriptedModel:
     """Scripts model choices; production validates and executes them."""
 
     def __call__(self, prompt, data, schema):
+        # Scripted semantic pass; this fixture does not evaluate question quality.
+        if schema.__name__ == "QuestionQualityReview":
+            return schema(issues=[])
         if schema is ResumeExtraction:
             return schema(
                 candidate_name="离线示例候选人",

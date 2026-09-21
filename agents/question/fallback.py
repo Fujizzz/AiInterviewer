@@ -4,6 +4,14 @@ import re
 
 from shared.contracts import CandidateProject, PlannedQuestion
 
+_FOCUSES = {
+    "Clarify personal responsibility": "What was your own responsibility in this work?",
+    "Identify one personally handled task": "What is one concrete task you handled in this work?",
+    "Describe one implementation step": (
+        "Could you describe one implementation step you completed in this work?"
+    ),
+}
+
 
 def _resume_label(value: str, *, words: int, chars: int) -> str:
     text = " ".join(value.split()).strip(' "“”')
@@ -27,6 +35,28 @@ def _resume_label(value: str, *, words: int, chars: int) -> str:
 
 
 class FallbackQuestionPolicy:
+    def prepare_plan(self, plan: PlannedQuestion, interview) -> PlannedQuestion:
+        """Choose a modest recovery target, never infer it from diagnostic keywords.
+
+        Record the target we really ask, rather than retaining an abandoned model goal.
+        Routing, IDs and budget fields remain the controller's responsibility.
+        """
+        entries = [
+            entry
+            for entry in interview.question_history
+            if plan.dialogue_action in {"clarify", "probe"}
+            and entry.question.thread_id == plan.thread_id
+            and entry.question.project_id == plan.project_id
+        ]
+        focus = "Clarify personal responsibility"
+        if entries:
+            last = entries[-1]
+            focus = "Identify one personally handled task"
+            if last.feedback.analysis.answer_scope == "concrete":
+                focus = "Describe one implementation step"
+        goal = f"{focus}: {plan.topic}"
+        return plan.model_copy(update={"information_goal": goal, "intent": goal})
+
     def apply(
         self,
         question_plan: PlannedQuestion,
@@ -34,7 +64,6 @@ class FallbackQuestionPolicy:
         project: CandidateProject | None = None,
         generic: bool = False,
     ) -> PlannedQuestion:
-        goal = question_plan.information_goal.casefold()
         name = _resume_label(project.name, words=30, chars=200) if project else ""
         context = f'Let\'s discuss your project "{name}". ' if name else ""
         # Only cite a topic that really belongs to the selected resume project.
@@ -51,42 +80,8 @@ class FallbackQuestionPolicy:
         if topic and topic.casefold() != name.casefold():
             context += f'Your resume mentions "{topic}". '
 
-        clarification = re.search(
-            r"\b(which|what) project\b|\bwhat do you mean\b|哪个项目|什么项目|什么意思",
-            question_plan.answer_excerpt,
-            re.IGNORECASE,
-        )
-        if clarification or "which specific project" in goal:
-            text = "For that work, which component did you personally implement?"
-        elif "clarify the differing accounts" in goal or "clarify how the approach" in goal:
-            text = (
-                "What role did the approach you mentioned play in this work, "
-                "specifically in the part you personally implemented?"
-            )
-        elif question_plan.dialogue_action in {"clarify", "probe"}:
-            if any(word in goal for word in ("architecture", "which model", "架构", "哪个模型")):
-                text = "Which model architecture did you use for this part of the work?"
-            elif any(word in goal for word in ("baseline", "metric", "measure", "基线", "指标")):
-                text = (
-                    "How did you measure whether your implementation achieved its intended result?"
-                )
-            elif any(word in goal for word in ("component", "which part", "模块", "哪一部分")):
-                text = "Which specific component did you personally implement, rather than reuse?"
-            elif question_plan.dialogue_action == "clarify":
-                text = (
-                    "Could you describe a specific change you personally made "
-                    "to this implementation?"
-                )
-            else:
-                text = (
-                    "Could you walk through one concrete implementation step "
-                    "you personally completed?"
-                )
-        else:
-            text = (
-                "Could you describe the part you personally implemented, "
-                "using one concrete example?"
-            )
+        focus = question_plan.information_goal.split(":", 1)[0]
+        text = _FOCUSES.get(focus, _FOCUSES["Clarify personal responsibility"])
         if not context:
             context = "Thinking about a project from your resume, "
             text = text[0].lower() + text[1:]

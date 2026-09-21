@@ -32,6 +32,9 @@ class MockLLMAdapter:
         payload: dict[str, Any],
         response_model: type[StructuredModel],
     ) -> StructuredModel:
+        # Scripted pass; semantic checks are exercised by dedicated quality tests.
+        if prompt_name == "question_quality_v1":
+            return response_model.model_validate({"issues": []})
         self.calls.append((prompt_name, payload.copy()))
         if prompt_name == "question_react_v1" and self._structured_payload is None:
             selection = selection_for(payload) if "dialogue_state" in payload else None

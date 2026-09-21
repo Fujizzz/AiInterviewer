@@ -86,6 +86,11 @@ class FileTrace:
     def _render(self, event, data):
         if event == "run.started":
             return "# 面试关键节点记录\n\n开始时间（UTC）：" + datetime.now(UTC).isoformat()
+        if event == "replay.started":
+            return (
+                "**真实模型完整回放测试**：简历解析、出题、质量审查、回答评价和报告均走正式程序，"
+                "调用当前配置的真实模型。候选人回答为预设测试输入，不代表新的真人面试。"
+            )
         if event == "simulation.started":
             return (
                 "**离线模拟**：模型回答与工具选择使用预设脚本；"
@@ -160,7 +165,28 @@ class FileTrace:
             return f"工具：{data['action']} → {outcome}"
         if event in {"react.validation", "react.invalid_decision"}:
             errors = data.get("errors", [])
-            return "校验未通过：" + ", ".join(errors) if errors else None
+            if not errors or data.get("quality_reported"):
+                return None
+            text = "校验未通过：" + ", ".join(errors)
+            if data.get("text"):
+                text += f"\n\n待修复草稿：{self._brief(data['text'], 800)}"
+            return text
+        if event == "question.quality":
+            labels = {"PASS": "通过", "REVISE": "需要修复", "UNAVAILABLE": "检查不可用"}
+            issues = ", ".join(data.get("issues", []))
+            text = f"提问质量：{labels[data['status']]}" + (f"；{issues}" if issues else "")
+            if data.get("overload_discarded"):
+                text += "；已忽略与单一回答要求不一致的多问判定"
+            if "OVERLOADED_QUESTION" in data.get("issues", []):
+                text += "\n\n独立回答要求：" + self._brief(
+                    "；".join(data.get("answer_requests", [])), 500
+                )
+            if data.get("draft"):
+                text += f"\n\n待修复草稿：{self._brief(data['draft'], 800)}"
+                text += f"\n\n修复建议：{self._brief(data.get('guidance'), 700)}"
+            if data.get("retrying"):
+                text += "；重试同一草稿的审查"
+            return text
         if event == "react.finished":
             steps = " → ".join(step["action"] for step in data["steps"]) or "无完成步骤"
             calls = sum(

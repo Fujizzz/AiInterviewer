@@ -76,6 +76,9 @@ class TopicHoppingModel:
     """Reproduce new_topic on every turn, which used to reset the only budget."""
 
     async def generate_structured(self, *, payload, response_model, **kwargs):
+        # Scripted semantic pass; quality rejection is tested separately.
+        if response_model.__name__ == "QuestionQualityReview":
+            return response_model(issues=[])
         view = payload["dialogue_state"]
         project = next(p for p in view["projects"] if p["topics"])
         topic = project["topics"][0]

@@ -755,6 +755,7 @@ class InterviewAgentService:
                 except Exception as error:  # external LLM failures degrade to a safe question
                     repair_errors = [f"GENERATION_ERROR:{type(error).__name__}"]
 
+        question_plan = self._fallback_policy.prepare_plan(question_plan, interview)
         candidate_fallback = self._fallback_policy.apply(question_plan, project=project)
         if self._question_validator.is_valid(candidate_fallback, question_plan):
             return candidate_fallback, "CANDIDATE_SPECIFIC_FALLBACK"

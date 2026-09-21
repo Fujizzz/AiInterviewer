@@ -6,6 +6,7 @@ import re
 
 from agents.config import AgentSettings, load_agent_settings
 from agents.domain.models import QuestionValidationResult
+from agents.question.quality import leaks_interview_rules
 from shared.contracts import PlannedQuestion
 
 _RUBRIC_LEAK_PATTERNS = (
@@ -60,6 +61,8 @@ class QuestionValidator:
                 errors.append("INTERNAL_IDENTIFIER_LEAK")
             if any(pattern.search(text) for pattern in _RUBRIC_LEAK_PATTERNS):
                 errors.append("RUBRIC_OR_EXPECTED_ANSWER_LEAK")
+            if leaks_interview_rules(text):
+                errors.append("INTERNAL_RULE_LEAK")
 
         if not 1 <= question.difficulty <= 5:
             errors.append("INVALID_DIFFICULTY")
