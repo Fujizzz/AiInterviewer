@@ -54,12 +54,13 @@ class TimeoutSettings(BaseModel):
 
 
 class RetrySettings(BaseModel):
-    llm_generation_retries: int = Field(default=1, ge=0, le=1)
+    llm_generation_retries: int = Field(default=3, ge=0, le=3)
     state_conflict_recomputations: int = Field(default=1, ge=0, le=1)
 
 
 class QuestionAgentSettings(BaseModel):
     enabled: bool = True
+    quality_timeout_seconds: float = Field(default=20.0, gt=0)
     max_tool_calls: int = Field(default=2, ge=0, le=8)
     total_timeout_seconds: float = Field(default=90.0, gt=0)
     history_retention: int = Field(default=50, ge=1, le=200)

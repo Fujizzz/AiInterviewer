@@ -16,11 +16,16 @@ from agents.domain.models import InterviewContext, InterviewHistoryEntry
 from agents.model_calls import run_model_call, validation_issues
 from agents.ports import LLMPort
 from agents.question.dialogue import DialogueSelection, dialogue_view, resolve_selection
+from agents.question.quality import QuestionQualityGate, followup_brief
 from agents.question.validator import QuestionValidator
 from agents.tracing import emit_trace
 from shared.contracts import PlannedQuestion
 
 _REPAIR_INSTRUCTIONS = {
+    "INTERNAL_RULE_LEAK": (
+        "Remove interview budgets, counters and limit explanations from the wording. "
+        "Transition naturally by naming the project and technical topic."
+    ),
     "PROJECT_QUESTION_LIMIT": (
         "This project's total question budget is exhausted across ALL its topics. "
         "Select new_project and an available topic from a different project."
@@ -124,6 +129,7 @@ class ReactQuestionAgent:
         self._llm = llm
         self._settings = settings
         self._validator = QuestionValidator(settings)
+        self._quality_gate = QuestionQualityGate(llm, settings)
 
     async def generate(
         self,
@@ -183,9 +189,13 @@ class ReactQuestionAgent:
         limits = self._settings.question_agent
         observations: list[dict[str, Any]] = []
         repair_errors: list[str] = []
+        quality_feedback: list[dict[str, str]] = []
+        rejected_question: str | None = None
         seen_calls: set[tuple[str, str | None, int | None]] = set()
         tool_calls = 0
         repairs = 0
+        rewrites = 0
+        review_calls = 0
         final_only = False
         previous_texts = {
             self._normalized(question.text)
@@ -217,6 +227,9 @@ class ReactQuestionAgent:
                 "history_tool_limit": limits.history_tool_limit,
                 "final_only": final_only or tool_calls >= limits.max_tool_calls,
                 "repair_errors": list(repair_errors),
+                "rejected_question": rejected_question,
+                "quality_feedback": quality_feedback,
+                "followup_brief": followup_brief(interview, text_limit=limits.text_char_limit),
                 "repair_instructions": [
                     _REPAIR_INSTRUCTIONS[error]
                     for error in repair_errors
@@ -286,11 +299,46 @@ class ReactQuestionAgent:
                     repair_errors.extend(validation.errors)
                     if self._normalized(candidate.text) in previous_texts:
                         repair_errors.append("REPEATED_QUESTION")
+                    quality_feedback = []
+                    rejected_question = candidate.text
+                    if not repair_errors:
+                        while True:
+                            review_calls += 1
+                            try:
+                                review = await self._quality_gate.review(
+                                    candidate,
+                                    interview,
+                                    previous_questions=previous_questions,
+                                    step=review_calls,
+                                    deadline=deadline,
+                                )
+                            except TimeoutError:
+                                raise
+                            except Exception:
+                                retrying = repairs < self._settings.retries.llm_generation_retries
+                                emit_trace(
+                                    "question.quality",
+                                    question_id=plan.question_id,
+                                    status="UNAVAILABLE",
+                                    issues=[],
+                                    retrying=retrying,
+                                )
+                                if not retrying:
+                                    result.stop_reason = "QUALITY_UNAVAILABLE"
+                                    result.steps.append({"action": "final", "status": "UNREVIEWED"})
+                                    return
+                                # Retry the SAME draft, sharing the total retry/deadline budget.
+                                repairs += 1
+                                continue
+                            quality_feedback = [issue.model_dump() for issue in review.issues]
+                            repair_errors.extend(issue.code for issue in review.issues)
+                            break
                     emit_trace(
                         "react.validation",
                         question_id=plan.question_id,
                         text=candidate.text,
                         errors=repair_errors,
+                        quality_reported=bool(quality_feedback),
                     )
                     result.steps.append(
                         {
@@ -303,7 +351,7 @@ class ReactQuestionAgent:
                         result.decision_summary = (
                             decision.selection.decision_summary if decision.selection else ""
                         )
-                        result.repaired = repairs > 0
+                        result.repaired = rewrites > 0
                         result.stop_reason = "FINAL"
                         return
                     final_only = True
@@ -357,6 +405,7 @@ class ReactQuestionAgent:
                 result.stop_reason = "INVALID_OUTPUT"
                 return
             repairs += 1
+            rewrites += 1
         result.stop_reason = "STEP_LIMIT"
 
     def _execute_tool(

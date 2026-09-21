@@ -37,6 +37,14 @@ def test_run_saves_only_one_concise_file(tmp_path):
     assert "get_history → final" in text
     assert "决策来源：model" in text
     assert "工具调用 1 次" in text
+    reviewed_questions = sum(
+        not log["fallback_used"]
+        for log in result["decision_logs"]
+        if log["question_type"] is not None
+    )
+    assert reviewed_questions > 0
+    assert text.count("提问质量：通过") == reviewed_questions
+    assert not any("提问质量" in line for line in printed)
     assert text.count("**最终问题**") == 2
     assert "I measured the cache hit rate." in text
     assert "评价：ownership=3" in text

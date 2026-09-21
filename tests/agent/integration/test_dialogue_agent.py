@@ -17,6 +17,9 @@ class ChoosingModel:
         self.calls = []
 
     async def generate_structured(self, *, prompt_name, payload, response_model):
+        # Scripted semantic pass; quality rejection is tested separately.
+        if response_model.__name__ == "QuestionQualityReview":
+            return response_model(issues=[])
         self.calls.append(deepcopy(payload))
         project = payload["dialogue_state"]["projects"][-1]
         if not payload["observations"]:
@@ -79,6 +82,9 @@ async def test_model_can_continue_after_narrow_answer_without_missing_informatio
 
     class ProbeModel:
         async def generate_structured(self, *, prompt_name, payload, response_model):
+            # Scripted semantic pass; quality rejection is tested separately.
+            if response_model.__name__ == "QuestionQualityReview":
+                return response_model(issues=[])
             thread = payload["dialogue_state"]["active_thread"]
             assert payload["latest_turn"]["analysis"]["missing_information"] == []
             return response_model(
@@ -171,6 +177,9 @@ async def test_model_selection_must_pass_server_guards(violation, expected):
 async def test_invalid_model_choice_is_repaired_and_only_valid_choice_is_committed():
     class RepairModel(ChoosingModel):
         async def generate_structured(self, *, prompt_name, payload, response_model):
+            # Scripted semantic pass; quality rejection is tested separately.
+            if response_model.__name__ == "QuestionQualityReview":
+                return response_model(issues=[])
             self.calls.append(deepcopy(payload))
             project = payload["dialogue_state"]["projects"][0]
             return response_model(

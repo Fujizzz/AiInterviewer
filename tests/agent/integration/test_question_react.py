@@ -33,6 +33,9 @@ class ScriptedLLM:
         self.delay = delay
 
     async def generate_structured(self, *, prompt_name, payload, response_model):
+        # Scripted semantic pass; quality rejection is tested separately.
+        if response_model.__name__ == "QuestionQualityReview":
+            return response_model(issues=[])
         self.calls.append(deepcopy(payload))
         await asyncio.sleep(self.delay)
         response = self.responses.pop(0)
@@ -105,6 +108,9 @@ async def test_shared_agent_keeps_concurrent_interview_observations_isolated():
 
     class PlanReader:
         async def generate_structured(self, *, prompt_name, payload, response_model):
+            # Scripted semantic pass; quality rejection is tested separately.
+            if response_model.__name__ == "QuestionQualityReview":
+                return response_model(issues=[])
             await asyncio.sleep(0)
             if not payload["observations"]:
                 return response_model.model_validate(decision("get_plan"))

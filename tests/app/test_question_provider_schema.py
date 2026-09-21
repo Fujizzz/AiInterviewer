@@ -53,7 +53,8 @@ async def test_provider_final_compatibility_and_actionable_repair(conflict):
         patch("app.providers.llm.OpenAI") as client,
     ):
         create = client.return_value.chat.completions.create
-        create.side_effect = [response(json.dumps(output)), response(json.dumps(final_output()))]
+        outputs = [output, final_output()] if conflict else [output]
+        create.side_effect = [response(json.dumps(item)) for item in [*outputs, {"issues": []}]]
         repository = InMemoryRepository()
         result = await InterviewAgentService(
             repository=repository, llm=ProviderLLMAdapter(OpenAILLM())
@@ -64,9 +65,9 @@ async def test_provider_final_compatibility_and_actionable_repair(conflict):
         )
         assert action.question.project_id == "llm-serving"
         assert len(repository.questions) == 1
-        assert create.call_count == (2 if conflict else 1)
+        assert create.call_count == (3 if conflict else 2)
         if conflict:
-            payload = json.loads(create.call_args.kwargs["messages"][1]["content"])
+            payload = json.loads(create.call_args_list[1].kwargs["messages"][1]["content"])
             assert "$:conflicting_project_ids" in payload["repair_errors"]
             assert "a-different-project" not in str(payload["repair_errors"])
 

@@ -24,6 +24,9 @@ from shared.contracts import (
 
 class DemoModel:
     async def generate_structured(self, *, payload, response_model, **kwargs):
+        # Scripted semantic pass; quality rejection is tested separately.
+        if response_model.__name__ == "QuestionQualityReview":
+            return response_model(issues=[])
         view = payload["dialogue_state"]
         active = view["active_thread"]
         continuing = active and view["followup_block"] is None

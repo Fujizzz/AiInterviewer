@@ -37,10 +37,11 @@ agent:
     llm_generation_seconds: 30.0
     repository_seconds: 1.0
   retries:
-    llm_generation_retries: 1
+    llm_generation_retries: 3
     state_conflict_recomputations: 1
   question_agent:
     enabled: true
+    quality_timeout_seconds: 20.0
     max_tool_calls: 2
     total_timeout_seconds: 90.0
     history_retention: 50

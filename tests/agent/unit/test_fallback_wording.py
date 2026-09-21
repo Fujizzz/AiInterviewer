@@ -76,3 +76,44 @@ def test_generic_retry_still_names_the_selected_project():
     project = CandidateProject(project_id="qsm", name="QSM reconstruction")
     question = FallbackQuestionPolicy().apply(plan, project=project, generic=True)
     assert "QSM reconstruction" in question.text
+
+
+@pytest.mark.asyncio
+async def test_fallback_replaces_abandoned_goal_without_reopening_old_technical_target():
+    from agents.domain.models import InterviewHistoryEntry
+    from tests.agent.integration.test_question_react import seed
+
+    repository, _, root, feedback, answer = await seed()
+    context = await repository.get_interview_context("pipeline-interview")
+    context.question_history = [
+        InterviewHistoryEntry(question=root, feedback=feedback, answer=answer)
+    ]
+    feedback.analysis.answer_scope = "none"
+    topic = "Optimized GPU-CPU pipelines with Ray"
+    project = CandidateProject(
+        project_id=root.project_id,
+        name="Lip synchronization",
+        claims=[CandidateClaim(claim_id="ray", text=topic)],
+    )
+    plan = root.model_copy(
+        update={
+            "topic": topic,
+            "dialogue_action": "clarify",
+            "information_goal": "Specific component of the Transformer architecture implemented",
+        }
+    )
+    fallback = FallbackQuestionPolicy()
+    prepared = fallback.prepare_plan(plan, context)
+    assert prepared.model_dump(exclude={"information_goal", "intent"}) == plan.model_dump(
+        exclude={"information_goal", "intent"}
+    )
+    question = fallback.apply(prepared, project=project)
+    assert "Ray" in question.text
+    assert "architecture" not in question.text and "Transformer" not in question.information_goal
+    assert "concrete task" in question.text
+    assert QuestionValidator().is_valid(question, prepared)
+    # A concrete answer permits asking for one implementation step in this thread.
+    context.question_history[0].question = question
+    context.question_history[0].feedback.analysis.answer_scope = "concrete"
+    narrowed = fallback.prepare_plan(plan, context)
+    assert "implementation step" in narrowed.information_goal
