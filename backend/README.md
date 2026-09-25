@@ -14,6 +14,11 @@ Agent 沿用 MVP 的默认参数、策略和每题 120 秒逻辑预算；后端�
 PDF 提取/渲染现运行于 Linux/WSL 沙箱；新增同机面试连接和 PDF 上传容量控制。
 首次使用 PDF 前请按 [隔离环境与资源限制](sandbox/README.md) 配置运行目录。
 
+已接入支持缺失资料的v4-B双向排序模型，提供`/api/recommendations/jobs/`与
+`/api/recommendations/candidates/`两个本地接口，权重随仓库发布，无需Kaggle或LLM密钥。
+这是未通过整体效果门槛的实验能力，不输出录用概率；输入契约、调用示例、
+安装依赖及实验限制见[缺失资料推荐说明](docs/recommendation.md)。
+
 ## Coding Agent 必须遵循的开发原则
 
 所有 Coding Agent 在新增、修改、重构或删除 `backend/` 内代码时，必须遵循以下要求：

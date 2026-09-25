@@ -14,6 +14,11 @@
 | GET | `/api/sessions/{id}/` | 场次与单题快照详情 |
 | PATCH | `/api/sessions/{id}/items/{item_id}/` | 单题 start / complete / skip |
 | POST | `/api/sessions/{id}/finish/` | 结束场次，未完成题目记 skipped |
+| POST | `/api/recommendations/jobs/` | 实验性岗位排序，允许资料缺失 |
+| POST | `/api/recommendations/candidates/` | 实验性候选人排序，允许资料缺失 |
+
+推荐接口使用独立的严格JSON契约，返回未校准排序分数和缺失特征信息；
+完整调用示例与模型限制见[缺失资料推荐说明](recommendation.md)。
 
 列表格式为 `{"count":2,"next":null,"previous":null,"results":[...]}`，每页 50 条，用 `?page=2` 翻页。
 
