@@ -1,11 +1,12 @@
-"""Canonical question budgets; legacy follow-up limits are input compatibility only."""
+"""Emergency question ceilings, independent of the time-based agenda."""
 
 from pydantic import BaseModel, Field, model_validator
 
 
 class QuestionBudgets(BaseModel):
-    max_questions_per_project: int = Field(default=4, ge=1)
-    max_questions_per_topic: int = Field(default=3, ge=1)
+    max_questions: int = Field(default=40, ge=1)
+    max_questions_per_project: int = Field(default=20, ge=1)
+    max_questions_per_topic: int = Field(default=8, ge=1)
 
     @model_validator(mode="before")
     @classmethod

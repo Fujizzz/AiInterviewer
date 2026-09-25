@@ -41,10 +41,10 @@ class FixtureLLM:
         self.closed = False
 
     def __call__(self, prompt, data, schema):
+        """按实际 MVP 所需 schema 构造确定性输出，未知调用立即失败。"""
         # Scripted semantic pass; this fixture does not evaluate question quality.
         if schema.__name__ == "QuestionQualityReview":
             return schema(issues=[])
-        """按实际 MVP 所需 schema 构造确定性输出，未知调用立即失败。"""
         self.calls.append(schema)
         if schema is ResumeExtraction:
             output = {

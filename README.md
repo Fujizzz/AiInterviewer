@@ -6,8 +6,9 @@
 
 - 读取 UTF-8 TXT 和文本型 PDF 简历；
 - 将简历转换为版本化 `CandidateProfile`、结构化项目和可核验 claims；
-- 根据标准能力空间选择 competency、project、topic、difficulty 和 probe depth；
-- 固定出题计划后，通过有边界的 ReAct 工具循环生成问题，并进行校验与兜底；
+- 按面试时长规划项目、话题、考察目标、时间分配和预计题数；
+- Planner 只规划目标，Question Agent 通过有边界的 ReAct 循环生成具体问题；
+- 根据实际耗时和回答进度动态调整剩余计划，题数参数仅作为 safety guardrail；
 - 对每轮回答分析缺失信息与是否追问，并提取多个能力维度的原文证据；不再使用 confidence；
 - 原子提交状态、问题、反馈和决策日志，重复反馈保持幂等；
 - 按岗位能力权重在代码中计算最终分数，LLM 仅负责报告文字；
@@ -95,12 +96,17 @@ OPENAI_API_KEY=你的密钥
 
 ```bash
 uv run python main.py resume.pdf \
-  --max-questions 5 \
-  --max-follow-up-per-topic 2 \
+  --duration-minutes 30 \
   --job-title "AI Engineer"
 ```
 
 不提供 `--job-title` 时使用通用 AI / 软件工程岗位和均衡能力权重。
+
+`--duration-minutes` 默认 30。可选安全上限为 `--max-questions`（默认 40）、
+`--max-questions-per-project`（默认 20）、`--max-questions-per-topic`（默认 8），
+均包含主问题和追问。上限过低可能在时间用完前结束面试，并不会自动增加时长。
+旧的 `--max-follow-up-per-topic N` 等价于话题安全上限 `N + 1`。
+规划、计时、降级行为与输出字段见 [Plan and Execute](docs/PLAN_AND_EXECUTE.md)。
 
 终端运行默认将关键节点静默保存到 `output/interview_时间戳_唯一编号.md`，每次面试只有一个文件。
 记录选题依据、工具调用摘要、最终问题、回答评价、修复/兜底原因和最终结果；

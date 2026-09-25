@@ -23,7 +23,8 @@ The Agent module does not own HTTP routes, databases, resume parsing or UI. The 
 
 `policies/dialogue_controller.py` owns both budget checks and durable thread transitions.
 Every committed question (initial or follow-up) consumes a project and topic slot.
-Defaults: `max_questions_per_project: 4`, `max_questions_per_topic: 3` under `agent`.
+Safety defaults under `agent`: `max_questions: 40`, `max_questions_per_project: 20`,
+`max_questions_per_topic: 8`. These are emergency ceilings, never planning targets.
 A topic reaching its cap permits another unused topic in the same project; a project
 reaching its cap excludes all of that project's topics. With no eligible topics the
 interview finishes early. Counts derive from active/closed threads, survive history
@@ -32,6 +33,17 @@ information goals remain blocked across topics within a project; semantic equiva
 is not guaranteed. The legacy CLI follow-up limit N maps to a topic limit of N+1.
 
 ## Question generation
+
+CLI and web sessions enable `planning_enabled` with a real duration (default 30 minutes).
+`planning/` generates declarative objectives and time allocations, never question text.
+The existing QuestionAgent selects wording within the agenda; it can finish a topic early.
+The planner revises remaining work at allocation/completion boundaries, contradictions,
+or time drift (normally at most once every two answered questions). Initial failure uses
+a deterministic agenda; failed revisions retain the previous plan. Validated revisions,
+progress and question actions share the repository's atomic context commit.
+See [planning semantics](../docs/PLAN_AND_EXECUTE.md). Direct service integrations keep
+`planning_enabled=False` by default for compatibility; opt-in currently supports only
+`project_deep_dive`, for at least 60 seconds.
 
 The default question agent chooses dialogue action, project, topic and information goal.
 The orchestrator prepares a fallback plan but never supplies it to the autonomous model.
@@ -126,6 +138,25 @@ Add `--answers recent` to replay the 05:59 interview's answers. Run
 alternative-example and genuine multi-request regressions. Its record is
 `output/审查边界真实模型回归.md`.
 
+Unresolved goals may be reused within the active thread for a narrower clarification.
+The server still enforces completed answers, closed topics, refusal and question budgets;
+the semantic reviewer distinguishes useful narrowing from repeating the same request.
+Goal equality alone no longer rejects a valid clarification. `ANSWER_HINT` rejects
+suggested technical answers (for example, offering caching or parallel inference when
+asking what the candidate changed). Established context and broad work areas remain
+valid. The boundary regression includes both same-goal and answer-hint cases.
+
 Decision logs and action traces expose `question_agent_steps` (action, status, result
 count) and `question_agent_stop_reason`. They omit raw observations and model reasoning.
 Scratch state is local to each generation call, not stored on the service instance.
+
+First drafts use a scope summary (`writing_brief`) and a scope-first writing prompt:
+select the project/topic, choose one unresolved detail from the broader agenda objective,
+then write one request. A blocked thread receives no follow-up brief. The summary's next
+topic follows the executable agenda and includes the full topic label; it is a suggestion,
+not another routing authority. Rejected drafts and their scopes/reasons remain visible
+within the current bounded repair loop. This adds no model call, no review relaxation,
+and no extra retry. For a controlled real-provider first-draft comparison, run
+`python -m docs.examples.verify_first_draft --baseline-prompt path/to/old_prompt.md`.
+It uses fixed synthetic contexts, disables repairs, and reviews both variants with the
+same production reviewer. Read the questions as well as the small-sample pass counts.

@@ -98,7 +98,10 @@ async def test_nested_followups_share_budget_and_rotate_project_after_two(tmp_pa
 @pytest.mark.asyncio
 async def test_single_project_can_move_to_an_unused_topic_after_cap():
     repository = InMemoryRepository()
-    service = InterviewAgentService(repository=repository)
+    service = InterviewAgentService(
+        repository=repository,
+        settings=load_agent_settings().model_copy(update={"max_questions_per_topic": 3}),
+    )
     request = pipeline_request()
     first = (await service.initialize_interview(request)).first_action.question
     repository.contexts[request.interview_id].active_thread.follow_up_count = 2

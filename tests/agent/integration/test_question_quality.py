@@ -53,6 +53,7 @@ class ReviewedModel:
         "INTERNAL_RULE_LEAK",
         "UNSUPPORTED_PREMISE",
         "TOPIC_MISMATCH",
+        "ANSWER_HINT",
     ],
 )
 async def test_review_revision_is_delivered_and_only_one_question_is_committed(code):
@@ -84,6 +85,8 @@ async def test_review_revision_is_delivered_and_only_one_question_is_committed(c
         repair["quality_feedback"][0]["instruction"] == "Ask only for the personally handled part."
     )
     assert repair["rejected_question"] == model.calls[1][1]["candidate_question"]
+    assert repair["rejected_attempts"][0]["text"] == repair["rejected_question"]
+    assert repair["rejected_attempts"][0]["errors"] == [code]
     assert repair["final_only"]
     assert len(repository.questions) == 1
     context = await repository.get_interview_context("pipeline-interview")
@@ -100,6 +103,8 @@ async def test_three_repairs_exhausted_then_fallback_without_a_fifth_generation_
         pipeline_request()
     )
     assert len(model.calls) == 8
+    generations = [payload for name, payload in model.calls if name == "question_react_v1"]
+    assert [len(payload["rejected_attempts"]) for payload in generations] == [0, 1, 2, 3]
     assert (
         result.first_action.decision_trace.details["question_agent_stop_reason"] == "INVALID_OUTPUT"
     )

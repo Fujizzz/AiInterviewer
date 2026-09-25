@@ -144,7 +144,7 @@ class AgentSession:
 
         前置条件：协议层保证本连接尚未开始；参数类型和范围已通过 Start 校验。
         逻辑：精确复用或解析简历→构造岗位→装配端口→初始化计划→规范化阶段转换。
-        预算：整场题数乘以每题 120 秒；项目/话题总题数由共享入口解析，能力权重不变。
+        预算：分钟时长转换为真实时间预算；题数仅作为安全上限，Planner 规划目标和分配。
         返回：question 响应字典，或 Agent 直接结束时的 finished 响应字典。
         副作用：调用模型并原子写入数据库上下文；面试壳由协议层先建立，异常向上传播。
         """
@@ -156,6 +156,7 @@ class AgentSession:
         )
         # CLI 和网页共用预算解析；旧追问参数只在此入口转换一次。
         settings = interview_settings(
+            max_questions=command.max_questions,
             max_follow_up_per_topic=command.max_follow_up_per_topic,
             max_questions_per_project=command.max_questions_per_project,
             max_questions_per_topic=command.max_questions_per_topic,
@@ -172,7 +173,8 @@ class AgentSession:
                     interview_id=self.interview_id,
                     candidate_profile=self.profile,
                     job_profile=self.job,
-                    duration_seconds=command.max_questions * self.app.seconds_per_question,
+                    duration_seconds=command.duration_minutes * 60,
+                    planning_enabled=True,
                     enabled_stages=[InterviewStage.PROJECT_DEEP_DIVE],
                 )
             )
@@ -186,7 +188,7 @@ class AgentSession:
         逻辑：先保存待评价回答→提取证据→原子提交反馈与状态→追加展示缓存→生成响应。
         原子边界：数据库仓库将回答评价、状态、下一动作和日志一起提交。
         提交失败时保留未评分回答，但不追加展示缓存；协议层显式结束连接，不自动重试。
-        时间语义：按 MVP 固定扣除 seconds_per_question，不使用实际输入耗时。
+        时间语义：Agent 根据持久化的首题开始时刻计算真实耗时，包含输入和模型等待。
         异常：评价、仓库或响应生成错误向上传播；本方法不重发答案或重试整轮。
         """
         question = self.action.question
@@ -232,7 +234,6 @@ class AgentSession:
             self.action = await self.service.apply_evaluation_feedback(
                 self.interview_id,
                 feedback,
-                elapsed_seconds=self.app.seconds_per_question,
                 answer=answer,
             )
         self.history.append(history_entry)
@@ -273,6 +274,7 @@ class AgentSession:
                 "question": self.action.question.model_dump(mode="json"),
                 "question_index": context.state.question_index,
                 "interview_state": context.state.model_dump(mode="json"),
+                "interview_plan": context.plan.model_dump(mode="json"),
                 "last_evaluation": self.history[-1]["evaluation"] if self.history else None,
             }
         if self.action.type != InterviewActionType.FINISH:
@@ -319,6 +321,12 @@ class AgentSession:
                 "job_profile": self.job.model_dump(mode="json"),
                 "topics": [project.name for project in self.profile.projects],
                 "question_history": self.history,
+                "interview_plan": context.plan.model_dump(mode="json"),
+                "plan_history": [item.model_dump(mode="json") for item in context.plan_history],
+                "topic_progress": {
+                    key: value.model_dump(mode="json")
+                    for key, value in context.topic_progress.items()
+                },
                 "interview_state": context.state.model_dump(mode="json"),
                 "decision_logs": [
                     log.model_dump(mode="json")

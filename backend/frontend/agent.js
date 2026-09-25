@@ -70,7 +70,7 @@ let completedStages = [];
 function controls() {
   const busy = pendingId !== null || pendingCommand !== null;
   for (const id of ["start-agent", "prepare-resume", "resume"]) el(id).disabled = busy || interviewActive;
-  for (const id of ["job", "limit", "probes"]) el(id).disabled = interviewActive;
+  for (const id of ["job", "duration", "limit", "probes"]) el(id).disabled = interviewActive;
   const answering = interviewActive && questionId !== null && !busy;
   el("answer").disabled = !answering;
   el("submit-answer").disabled = !answering;
@@ -235,7 +235,7 @@ function dispatch(command) {
     }
   } catch (error) { stop(error.message); }
 }
-/** 输入表单事件；校验简历和岗位，以原有预算开始面试，服务端再次匹配预解析文本。 */
+/** 输入表单事件；发送分钟时长及题数安全上限，服务端再次匹配预解析文本并规划面试。 */
 function onStart(event) {
   event.preventDefault();
   if (pendingId || pendingCommand || interviewActive) return;
@@ -244,6 +244,7 @@ function onStart(event) {
   if (!resume || !job) { status("请填写简历文本和目标岗位。"); return; }
   clearResults(); interviewActive = true;
   dispatch({ type: "start", resume_text: resume, job_title: job,
+    duration_minutes: Number(el("duration").value),
     max_questions: Number(el("limit").value), max_follow_up_per_topic: Number(el("probes").value) });
 }
 /** 显式预解析，只要求简历；相同已准备结果不重复发请求，不在输入事件中调用模型。 */

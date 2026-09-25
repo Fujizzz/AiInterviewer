@@ -2,6 +2,7 @@
 
 import pytest
 
+from agents.config import load_agent_settings
 from agents.orchestrator import InterviewAgentService
 from shared.contracts import AnswerAnalysis, CandidateAnswer, EvaluationFeedback
 from tests.agent.integration.test_question_pipeline_integration import pipeline_request
@@ -11,7 +12,11 @@ from tests.agent.mocks import InMemoryRepository, MockLLMAdapter
 @pytest.mark.asyncio
 async def test_dialogue_sequence_preserves_parent_and_topic_until_followup_limit():
     repository = InMemoryRepository()
-    service = InterviewAgentService(repository=repository, llm=MockLLMAdapter())
+    service = InterviewAgentService(
+        repository=repository,
+        llm=MockLLMAdapter(),
+        settings=load_agent_settings().model_copy(update={"max_questions_per_topic": 3}),
+    )
     first = (await service.initialize_interview(pipeline_request())).first_action.question
     questions = [first]
     statuses = [

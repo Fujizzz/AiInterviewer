@@ -38,8 +38,6 @@ DEFAULT_COMPETENCY_IMPORTANCE: dict[Competency, float] = {
 class MVPInterviewApplication:
     """Run the terminal MVP while delegating all interview decisions to the Agent core."""
 
-    seconds_per_question = 120
-
     def __init__(
         self,
         llm: StructuredLLM,
@@ -55,7 +53,8 @@ class MVPInterviewApplication:
         self,
         resume_text: str,
         *,
-        max_questions: int = 5,
+        duration_minutes: int = 30,
+        max_questions: int | None = None,
         max_follow_up_per_topic: int | None = None,
         max_questions_per_project: int | None = None,
         max_questions_per_topic: int | None = None,
@@ -63,9 +62,12 @@ class MVPInterviewApplication:
         read_answer: Callable[[str], str] = input,
         write: Callable[[str], None] = print,
     ) -> dict[str, Any]:
-        if max_questions < 1:
+        if duration_minutes < 1:
+            raise ValueError("duration_minutes must be positive")
+        if max_questions is not None and max_questions < 1:
             raise ValueError("max_questions must be positive")
         settings = interview_settings(
+            max_questions=max_questions,
             max_questions_per_project=max_questions_per_project,
             max_questions_per_topic=max_questions_per_topic,
             max_follow_up_per_topic=max_follow_up_per_topic,
@@ -75,7 +77,8 @@ class MVPInterviewApplication:
         emit_trace(
             "interview.started",
             interview_id=interview_id,
-            max_questions=max_questions,
+            duration_minutes=duration_minutes,
+            max_questions=settings.max_questions,
             max_questions_per_project=settings.max_questions_per_project,
             max_questions_per_topic=settings.max_questions_per_topic,
             job_title=job_title,
@@ -97,7 +100,7 @@ class MVPInterviewApplication:
             llm=self.agent_llm,
             settings=settings,
         )
-        duration_seconds = max_questions * self.seconds_per_question
+        duration_seconds = duration_minutes * 60
         initialized = await service.initialize_interview(
             InitializeInterviewRequest(
                 interview_id=interview_id,
@@ -105,10 +108,11 @@ class MVPInterviewApplication:
                 job_profile=job_profile,
                 duration_seconds=duration_seconds,
                 enabled_stages=[InterviewStage.PROJECT_DEEP_DIVE],
+                planning_enabled=True,
             )
         )
 
-        write("AI Interviewer started (dialogue-driven ReAct Agent).")
+        write(f"AI Interviewer started (Plan and Execute, {duration_minutes} minutes).")
         history: list[dict[str, Any]] = []
         action = await self._advance_non_question_actions(
             service,
@@ -167,7 +171,6 @@ class MVPInterviewApplication:
             action = await service.apply_evaluation_feedback(
                 interview_id,
                 feedback,
-                elapsed_seconds=self.seconds_per_question,
                 answer=candidate_answer,
             )
             action = await self._advance_non_question_actions(service, interview_id, action)
@@ -184,6 +187,11 @@ class MVPInterviewApplication:
             "topics": [project.name for project in candidate_profile.projects],
             "question_history": history,
             "interview_state": context.state.model_dump(mode="json"),
+            "interview_plan": context.plan.model_dump(mode="json"),
+            "plan_history": [item.model_dump(mode="json") for item in context.plan_history],
+            "topic_progress": {
+                key: value.model_dump(mode="json") for key, value in context.topic_progress.items()
+            },
             "decision_logs": [
                 log.model_dump(mode="json")
                 for log in self.repository.decision_logs_for(interview_id)
