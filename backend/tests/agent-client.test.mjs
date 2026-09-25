@@ -106,6 +106,7 @@ function makePage() {
   getElement("resume").value = "A synthetic resume.";
   getElement("job").value = "General AI / Software Engineer";
   getElement("limit").value = "5";
+  getElement("duration").value = "30";
   getElement("probes").value = "2";
   vm.runInNewContext(SCRIPT, {
     document: { getElementById: getElement }, window: { addEventListener: ignoreEvent },
@@ -153,6 +154,8 @@ test("edited resume invalidates preview and start sends current content", () => 
   page.el("start-form").fire("submit");
   assert.equal(ws.sent.at(-1).resume_text, "Changed synthetic resume.");
   assert.equal(ws.sent.at(-1).max_questions, 5);
+  assert.equal(ws.sent.at(-1).duration_minutes, 30);
+  assert.equal(page.el("duration").disabled, true);
   assert.equal(ws.sent.at(-1).max_follow_up_per_topic, 2);
 });
 

@@ -35,6 +35,7 @@ class QualityIssue(BaseModel):
         "INTERNAL_RULE_LEAK",
         "UNSUPPORTED_PREMISE",
         "TOPIC_MISMATCH",
+        "ANSWER_HINT",
     ]
     instruction: str = Field(min_length=1, max_length=1000)
 
@@ -50,7 +51,7 @@ class QuestionQualityReview(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     # Required: a malformed/missing review must never implicitly pass.
-    issues: list[QualityIssue] = Field(max_length=5)
+    issues: list[QualityIssue] = Field(max_length=6)
     answer_requests: list[str] | None = Field(
         default=None,
         max_length=8,
@@ -99,8 +100,10 @@ def followup_brief(interview, *, text_limit=4000):
         "latest_answer": latest.answer.text[:text_limit] if latest.answer else None,
         "missing_information": [item[:300] for item in analysis.missing_information[:4]],
         "focus": (
-            "Clarify one detail in the latest answer that the previous question did not "
-            "already request. After an unspecified upgrade, ask for one concrete change. "
+            "Narrow an unresolved detail in the latest answer, even under the same information "
+            "goal; do not repeat the same request at the same breadth. Ask openly without "
+            "supplying possible technical answers. After an unspecified upgrade, "
+            "ask for one concrete change. "
             "If the last question asked which component was handled, do not ask that again. "
             "Do not repeat a broad architecture question."
             if analysis.answer_scope in {"label_only", "none"}
@@ -163,7 +166,9 @@ class QuestionQualityGate:
             "current_thread": [
                 {
                     "question": entry.question.text,
+                    "information_goal": entry.question.information_goal,
                     "answer": entry.answer.text[:limit] if entry.answer else None,
+                    "thread_complete": entry.feedback.analysis.thread_complete,
                 }
                 for entry in thread[-self._settings.question_agent.history_tool_limit :]
             ],

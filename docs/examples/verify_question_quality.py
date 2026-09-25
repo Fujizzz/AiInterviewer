@@ -171,7 +171,7 @@ class SeededBadDraft:
                     "dialogue_action": "clarify",
                     "project_id": active["project_id"],
                     "topic_key": active["topic_key"],
-                    "information_goal": "Identify architecture and attention adaptations",
+                    "information_goal": active["goals"][0],
                     "decision_summary": "Injected historical-style repeated draft for regression.",
                 },
             )

@@ -6,6 +6,10 @@
 目录：
 - PersistenceTests：
   用 TransactionTestCase 验证提交和清理后的可观测数据库状态。
+- PersistenceTests.test_custom_project_and_topic_budgets_are_persisted：
+  验证时长、计划、计时起点与安全上限一起持久化。
+- PersistenceTests.test_start_rejects_conflicting_topic_options：
+  拒绝新旧话题上限同时出现。
 - PersistenceTests.start_session：
   预留 start 请求并运行真实 Agent 初始化，返回会话与首题。
 - PersistenceTests.answer_command：
@@ -87,12 +91,14 @@ class PersistenceTests(TransactionTestCase):
     """用 TransactionTestCase 验证提交和清理后的可观测数据库状态。"""
 
     async def test_custom_project_and_topic_budgets_are_persisted(self):
+        """验证时长、计划版本、实际计时起点和题数安全上限随上下文一起持久化。"""
         session = AgentSession(llm=FixtureLLM())
         command = Start(
             request_id=uuid4(),
             type="start",
             resume_text=RESUME,
             max_questions=8,
+            duration_minutes=15,
             max_questions_per_project=3,
             max_questions_per_topic=2,
         )
@@ -104,9 +110,15 @@ class PersistenceTests(TransactionTestCase):
         )
         self.assertEqual(context.plan.max_questions_per_project, 3)
         self.assertEqual(context.plan.max_questions_per_topic, 2)
+        self.assertEqual(context.plan.max_questions, 8)
+        self.assertEqual(context.plan.duration_seconds, 900)
+        self.assertEqual(context.plan.version, 1)
+        self.assertIsNotNone(context.state.clock_started_at)
+        self.assertTrue(context.plan_history)
         self.assertNotIn("max_consecutive_probes", context.plan.model_dump())
 
     def test_start_rejects_conflicting_topic_options(self):
+        """新旧话题上限互斥，错误在模型调用之前拒绝。"""
         with self.assertRaises(ValueError):
             Start(
                 request_id=uuid4(),
@@ -167,7 +179,7 @@ class PersistenceTests(TransactionTestCase):
         self.assertEqual(saved_request.response, result)
         self.assertEqual(answer.committed_state_version, turn.state_version)
         self.assertEqual(answer.evaluation["request_id"], str(command.request_id))
-        self.assertEqual(result["result"]["interview_state"]["elapsed_seconds"], 120)
+        self.assertLess(result["result"]["interview_state"]["elapsed_seconds"], 120)
         self.assertAlmostEqual(result["result"]["final_report"]["overall_score"], 3.0)
         fresh = DjangoInterviewRepository(session.interview_id)
         context = await fresh.get_interview_context(session.interview_id)

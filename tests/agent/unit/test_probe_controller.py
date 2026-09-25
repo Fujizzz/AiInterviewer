@@ -16,6 +16,8 @@ def dialogue_context(status="partial", missing=None, contradictions=None):
         InterviewHistoryEntry(
             question=PlannedQuestion(
                 question_id="q",
+                thread_id="q",
+                project_id="llm-serving",
                 topic="memory",
                 difficulty=2,
                 probe_depth=1,
@@ -62,6 +64,27 @@ def test_followup_stops_at_conversation_limits(stop):
         value.state.remaining_seconds = 30
     else:
         value.active_thread.goals = ["Which test"]
+        value.question_history[-1].feedback.analysis.thread_complete = True
+    assert not ProbeController().decide(context=value).should_probe
+
+
+def test_unresolved_current_goal_can_be_clarified():
+    value = dialogue_context(missing=["Which test"])
+    value.active_thread.goals = ["Which test"]
+    assert ProbeController().decide(context=value).should_probe
+
+
+def test_same_goal_exception_does_not_reopen_closed_threads():
+    value = dialogue_context(missing=["Which test"])
+    value.closed_threads = [
+        DialogueThread(
+            thread_id="closed",
+            project_id="llm-serving",
+            topic="old",
+            topic_key="old",
+            goals=["Which test"],
+        )
+    ]
     assert not ProbeController().decide(context=value).should_probe
 
 

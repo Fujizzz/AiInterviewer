@@ -35,7 +35,8 @@ class InterviewTests(unittest.TestCase):
         self.assertTrue(result["interview_finished"])
         self.assertEqual(result["candidate_name"], "Alex Chen")
         self.assertEqual(len(result["question_history"]), 5)
-        self.assertEqual(result["interview_state"]["remaining_seconds"], 0)
+        self.assertGreater(result["interview_state"]["remaining_seconds"], 0)
+        self.assertEqual(result["interview_plan"]["duration_seconds"], 1800)
         self.assertEqual(result["interview_state"]["status"], "finished")
         self.assertEqual(result["final_report"]["overall_score"], 3.0)
         self.assertEqual(len(result["decision_logs"]), 6)
@@ -54,7 +55,7 @@ class InterviewTests(unittest.TestCase):
         self.assertEqual(latest["answer"]["text"], result["question_history"][0]["answer"])
         self.assertEqual(latest["question"]["question_id"], latest["answer"]["question_id"])
 
-    def test_question_limit_controls_deterministic_time_budget(self):
+    def test_question_safety_limit_does_not_determine_time_budget(self):
         for limit in (1, 3):
             with self.subTest(limit=limit):
                 result = run_interview(
@@ -65,7 +66,11 @@ class InterviewTests(unittest.TestCase):
                     write=lambda _: None,
                 )
                 self.assertEqual(len(result["question_history"]), limit)
-                self.assertEqual(result["interview_state"]["elapsed_seconds"], limit * 120)
+                self.assertLess(result["interview_state"]["elapsed_seconds"], 120)
+                self.assertEqual(result["interview_plan"]["duration_seconds"], 1800)
+                self.assertEqual(
+                    result["decision_logs"][-1]["reason_code"], "QUESTION_SAFETY_LIMIT"
+                )
                 self.assertTrue(result["interview_finished"])
 
     def test_application_reuse_keeps_interviews_isolated(self):

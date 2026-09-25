@@ -18,6 +18,12 @@ from shared.contracts import CandidateClaim
 # Project, prior question and answer define the scope; expected verdicts are assertions,
 # never supplied to the provider.
 CONTEXTS = {
+    "speed": (
+        "AI Subtitle-to-Lip Synchronization System",
+        "Optimized GPU-CPU inference and visualization pipelines with Ray",
+        "What bottleneck did you optimize in this project's Ray pipeline?",
+        "the speed",
+    ),
     "ray": (
         "AI Subtitle-to-Lip Synchronization System",
         "Optimized GPU-CPU inference and visualization pipelines with Ray",
@@ -39,6 +45,38 @@ CONTEXTS = {
 }
 CASES = [
     (
+        "Broad SQL work areas are not concrete answers",
+        "sql",
+        None,
+        "In your Bochun Network Technology work, what specific change did you make "
+        "to the SQL queries or database structure?",
+    ),
+    (
+        "Same goal: narrow a vague speed answer",
+        "speed",
+        None,
+        "In this project's Ray pipeline, which operation was slow?",
+    ),
+    (
+        "Same goal: merely rephrase the old request",
+        "speed",
+        "SEMANTIC_REPEAT",
+        "Which performance bottleneck did you address in this project's Ray pipeline?",
+    ),
+    (
+        "Do not offer possible optimization methods",
+        "speed",
+        "ANSWER_HINT",
+        "What change did you make in this project's Ray pipeline, "
+        "such as parallelizing inference or caching intermediate results?",
+    ),
+    (
+        "Candidate can name a change without suggested answers",
+        "speed",
+        None,
+        "What specific change did you make in this project's Ray pipeline?",
+    ),
+    (
         "Ray：一个处理阶段",
         "ray",
         None,
@@ -48,7 +86,7 @@ CASES = [
     (
         "Ray：同一答案的备选项",
         "ray",
-        None,
+        "ANSWER_HINT",
         "In the AI Subtitle-to-Lip Synchronization System, which specific pipeline stage "
         "(e.g., inference or visualization) did you optimize using Ray?",
     ),
@@ -130,7 +168,7 @@ async def main():
             update={
                 "topic": topic,
                 "text": text,
-                "information_goal": "Clarify the candidate's work in the selected topic",
+                "information_goal": "Describe this work",
                 "dialogue_action": "clarify" if previous else "new_topic",
             }
         )

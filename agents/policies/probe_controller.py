@@ -42,7 +42,9 @@ class ProbeController:
                 elif not analysis.thread_complete:
                     action, goal = "probe", "Explain one concrete implementation step in this work"
                 if action:
-                    if controller.goal_already_asked(thread.project_id, goal):
+                    if controller.goal_already_asked(
+                        thread.project_id, goal, allow_current_clarification=True
+                    ):
                         reason = "INFORMATION_GOAL_ALREADY_ASKED"
                     else:
                         return ProbeDecision(

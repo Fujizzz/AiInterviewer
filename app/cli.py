@@ -19,7 +19,8 @@ def run_interview(
     application: MVPInterviewApplication,
     resume_text: str,
     *,
-    max_questions: int = 5,
+    duration_minutes: int = 30,
+    max_questions: int | None = None,
     max_follow_up_per_topic: int | None = None,
     max_questions_per_project: int | None = None,
     max_questions_per_topic: int | None = None,
@@ -32,6 +33,7 @@ def run_interview(
     result = asyncio.run(
         application.run(
             resume_text,
+            duration_minutes=duration_minutes,
             max_questions=max_questions,
             max_follow_up_per_topic=max_follow_up_per_topic,
             max_questions_per_project=max_questions_per_project,
@@ -57,21 +59,27 @@ def run_interview(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Evidence-based technical interview using the deterministic local Agent core"
-    )
+    parser = argparse.ArgumentParser(description="Time-based Plan and Execute technical interview")
     parser.add_argument("resume", type=Path, help="UTF-8 text or text-based PDF resume")
-    parser.add_argument("--max-questions", type=int, default=5)
+    parser.add_argument(
+        "--duration-minutes",
+        type=int,
+        default=30,
+        help="Interview time budget in minutes (default: 30)",
+    )
+    parser.add_argument(
+        "--max-questions", type=int, help="Total question safety ceiling (default: config, 40)"
+    )
     parser.add_argument(
         "--max-questions-per-project",
         type=int,
-        help="Maximum questions per project, including follow-ups (default: config)",
+        help="Per-project safety ceiling including follow-ups (default: config, 20)",
     )
     topic_options = parser.add_mutually_exclusive_group()
     topic_options.add_argument(
         "--max-questions-per-topic",
         type=int,
-        help="Maximum questions per topic, including its first question",
+        help="Per-topic safety ceiling including its first question (default: config, 8)",
     )
     topic_options.add_argument(
         "--max-follow-up-per-topic",
@@ -87,7 +95,8 @@ def main() -> int:
     )
     args = parser.parse_args()
     if (
-        args.max_questions < 1
+        args.duration_minutes < 1
+        or (args.max_questions is not None and args.max_questions < 1)
         or any(
             value is not None and value < 1
             for value in (args.max_questions_per_project, args.max_questions_per_topic)
@@ -101,6 +110,7 @@ def main() -> int:
             result = run_interview(
                 build_application(),
                 read_resume(args.resume),
+                duration_minutes=args.duration_minutes,
                 max_questions=args.max_questions,
                 max_follow_up_per_topic=args.max_follow_up_per_topic,
                 max_questions_per_project=args.max_questions_per_project,

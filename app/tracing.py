@@ -109,12 +109,36 @@ class FileTrace:
             self._followup_limit = topic_limit - 1
             return (
                 f"岗位：{self._brief(data['job_title'], 200)}；"
-                f"计划题数：{data['max_questions']}；"
+                f"面试时长：{data.get('duration_minutes', '未指定')} 分钟；"
+                f"总题数安全上限：{data['max_questions']}；"
                 f"每项目最多 {data.get('max_questions_per_project', 4)} 题；"
                 f"每话题最多 {topic_limit} 题（均包含主问题和追问）"
             )
         if event == "model.response" and "projects" in data.get("output", {}):
             return f"简历解析完成：识别到 {len(data['output']['projects'])} 个项目。"
+        if event == "planning.revised":
+            revision = data["revision"]
+            return (
+                f"## 面试计划 v{revision['version']}\n\n"
+                f"触发：{revision['trigger']}；原因：{revision['reason']}\n\n"
+                + "\n".join(
+                    f"- {item['topic_key']}：{item['objective']}；"
+                    f"累计预算 {item['budget_seconds']} 秒；"
+                    f"预计累计 {item['expected_questions']} 题"
+                    for item in revision["topics"]
+                )
+            )
+        if event == "planning.execution":
+            return (
+                "## 计划执行结果\n\n"
+                f"实际耗时：{data['elapsed_seconds']} 秒；"
+                f"已提问：{data['question_count']} 题\n\n"
+                + "\n".join(
+                    f"- {key}：{item['status']}；{item['questions_asked']} 题；"
+                    f"{item['elapsed_seconds']} 秒；{item['reason']}"
+                    for key, item in data["topics"].items()
+                )
+            )
         if event == "question.started":
             self._attempt += 1
             if data.get("question_id"):
@@ -255,6 +279,15 @@ class FileTrace:
         return None
 
     def save_result(self, result):
+        if result.get("topic_progress"):
+            self.emit(
+                "planning.execution",
+                {
+                    "elapsed_seconds": result["interview_state"]["elapsed_seconds"],
+                    "question_count": result["interview_state"]["question_index"],
+                    "topics": result["topic_progress"],
+                },
+            )
         self.emit("interview.result", {"report": result["final_report"]})
 
     def __exit__(self, exc_type, exc, traceback):

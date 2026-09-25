@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Sequence
-from time import perf_counter
+from time import perf_counter, time
 from typing import TypeVar
 from uuid import uuid4
 
@@ -30,6 +30,7 @@ from agents.evidence import apply_evidence
 from agents.orchestrator.replay import replay_decision as replay_policy_decision
 from agents.orchestrator.state_machine import InterviewStageMachine
 from agents.orchestrator.termination import TerminationPolicy
+from agents.planning import InterviewPlannerAgent
 from agents.policies import DifficultyController
 from agents.policies.dialogue_controller import DialogueController
 from agents.policies.dialogue_policy import choose_dialogue
@@ -84,12 +85,15 @@ class InterviewAgentService:
         evaluation: EvaluationPort | None = None,
         llm: LLMPort | None = None,
         settings: AgentSettings | None = None,
+        clock=time,
     ) -> None:
         self._repository = repository
         self._rag = rag
         self._evaluation = evaluation
         self._llm = llm
         self._settings = settings or load_agent_settings()
+        self._clock = clock
+        self._interview_planner = InterviewPlannerAgent(llm, self._settings, self._sync_clock)
         self._difficulty_controller = DifficultyController(self._settings)
         self._question_planner = QuestionPlanner()
         self._question_generator = (
@@ -116,6 +120,12 @@ class InterviewAgentService:
         self._validate_contract_version(request.job_profile.contract_version)
 
         enabled_stages = self._normalize_stages(request.enabled_stages)
+        if request.planning_enabled and (
+            enabled_stages != [InterviewStage.PROJECT_DEEP_DIVE] or request.duration_seconds < 60
+        ):
+            raise InvalidAgentState(
+                "Time planning requires project_deep_dive and at least 60 seconds"
+            )
         if request.duration_seconds < len(enabled_stages):
             raise InvalidAgentState(
                 "duration_seconds must allow at least one second for each enabled stage"
@@ -144,6 +154,8 @@ class InterviewAgentService:
             thread_difficulty=self._settings.initial_question_difficulty,
             policy_config_version=self._settings.policy_config_version,
         )
+        if request.planning_enabled:
+            await self._interview_planner.revise(context, "INITIAL_PLAN")
         await self._repository_call(
             self._repository.initialize_interview(context),
             operation="initialize interview",
@@ -266,11 +278,14 @@ class InterviewAgentService:
         updated.question_history = updated.question_history[
             -self._settings.question_agent.history_retention :
         ]
-        updated.state.elapsed_seconds += elapsed_seconds
-        updated.state.remaining_seconds = max(
-            0,
-            updated.state.remaining_seconds - elapsed_seconds,
-        )
+        if updated.plan.planning_enabled:
+            self._sync_clock(updated)
+        else:
+            updated.state.elapsed_seconds += elapsed_seconds
+            updated.state.remaining_seconds = max(
+                0,
+                updated.state.remaining_seconds - elapsed_seconds,
+            )
         updated.thread_difficulty = self._difficulty_controller.adjust(
             current_question.difficulty, feedback
         )
@@ -280,6 +295,13 @@ class InterviewAgentService:
                 0
                 if feedback.analysis.new_information
                 else updated.active_thread.no_information_count + 1
+            )
+        if updated.plan.planning_enabled:
+            self._interview_planner.feedback(
+                updated,
+                current_question,
+                feedback,
+                updated.state.elapsed_seconds - context.state.elapsed_seconds,
             )
         updated.state.evidence_ids = list(
             dict.fromkeys([*updated.state.evidence_ids, *feedback.evidence_ids])
@@ -299,6 +321,12 @@ class InterviewAgentService:
         feedback_request_id: str | None,
         started_at: float,
     ) -> InterviewAction:
+        self._sync_clock(context)
+        if context.plan.planning_enabled and not self._termination_policy.should_finish(
+            context.state, context.plan
+        ):
+            await self._interview_planner.review(context)
+            self._sync_clock(context)
         if self._termination_policy.should_finish(context.state, context.plan):
             return await self._finish(
                 context,
@@ -361,6 +389,22 @@ class InterviewAgentService:
                 started_at=started_at,
                 reason="NO_MORE_TOPICS",
             )
+        if (
+            context.plan.planning_enabled
+            and not probe.should_probe
+            and state.clock_started_at is not None
+            and state.remaining_seconds - context.plan.closing_seconds
+            < max(
+                self._settings.planning.minimum_question_seconds,
+                int(context.estimated_question_seconds),
+            )
+        ):
+            return await self._finish(
+                context,
+                feedback_request_id=feedback_request_id,
+                started_at=started_at,
+                reason="INSUFFICIENT_TIME_FOR_NEW_TOPIC",
+            )
         latest = context.question_history[-1] if context.question_history else None
         question_plan = self._question_planner.plan(
             project=project,
@@ -375,6 +419,11 @@ class InterviewAgentService:
             parent_question_id=state.current_question_id,
             answer_excerpt=(latest.answer.text[:1000] if latest and latest.answer else ""),
         )
+        agenda_item = next(
+            (item for item in context.plan.topics if item.topic_key == topic.topic_key), None
+        )
+        if agenda_item and not probe.should_probe:
+            question_plan.intent = question_plan.information_goal = agenda_item.objective
         if (
             not probe.should_probe
             and context.active_thread
@@ -425,6 +474,14 @@ class InterviewAgentService:
             agent_result=agent_result,
         )
         generation_latency_ms = self._elapsed_ms(generation_started)
+        timed_context = context.model_copy(deep=True)
+        self._sync_clock(timed_context)
+        if self._termination_policy.should_finish(timed_context.state, timed_context.plan):
+            return await self._finish(
+                timed_context,
+                feedback_request_id=feedback_request_id,
+                started_at=started_at,
+            )
         if agent_result.question is not None:
             project = next(
                 (
@@ -464,9 +521,16 @@ class InterviewAgentService:
             duration_ms=generation_latency_ms,
         )
         updated = context.model_copy(deep=True)
+        if updated.plan.planning_enabled and updated.state.clock_started_at is None:
+            # Initial resume parsing, planning and first question generation are preparation.
+            updated.state.clock_started_at = self._clock()
         DialogueController(updated, self._settings).record_question(
             question, closed_reason=probe.reason_code
         )
+        # Topic allocations are checked at admission. Charge generation to the
+        # selected topic after recording it; crossing a soft allocation during
+        # generation must not invalidate an already admitted question.
+        self._sync_clock(updated)
         updated.state.question_index += 1
         updated.state.current_question_id = question.question_id
         updated.state.asked_question_ids.append(question.question_id)
@@ -588,6 +652,13 @@ class InterviewAgentService:
     ) -> InterviewAction:
         state = context.state
         updated_context = context.model_copy(deep=True)
+        if context.plan.planning_enabled:
+            for progress in updated_context.topic_progress.values():
+                if progress.status in {"active", "pending"}:
+                    progress.status = "skipped"
+                    progress.reason = reason or self._termination_policy.reason_code(
+                        state, context.plan
+                    )
         if updated_context.active_thread:
             updated_context.active_thread.closed_reason = reason or "INTERVIEW_FINISHED"
         updated_context.state.stage = InterviewStage.FINISHED
@@ -599,7 +670,7 @@ class InterviewAgentService:
             from_stage=state.stage,
             to_stage=InterviewStage.FINISHED,
             decision_trace=DecisionTrace(
-                reason_code=reason or self._termination_policy.reason_code(state)
+                reason_code=reason or self._termination_policy.reason_code(state, context.plan)
             ),
         )
         log = self._decision_log(
@@ -841,7 +912,28 @@ class InterviewAgentService:
             stages=self._allocate_stage_budgets(request.duration_seconds, enabled_stages),
             max_questions_per_project=self._settings.max_questions_per_project,
             max_questions_per_topic=self._settings.max_questions_per_topic,
+            max_questions=self._settings.max_questions,
+            planning_enabled=request.planning_enabled,
         )
+
+    def _sync_clock(self, context):
+        if (
+            not context.plan.planning_enabled
+            or context.state.clock_started_at is None
+            or context.state.status == "finished"
+        ):
+            return
+        state = context.state
+        previous_elapsed = state.elapsed_seconds
+        state.elapsed_seconds = max(
+            state.elapsed_seconds,
+            int(self._clock() - state.clock_started_at),
+        )
+        state.remaining_seconds = max(0, context.plan.duration_seconds - state.elapsed_seconds)
+        active = context.active_thread
+        progress = context.topic_progress.get(active.topic_key) if active else None
+        if progress is not None and progress.status == "active":
+            progress.elapsed_seconds += state.elapsed_seconds - previous_elapsed
 
     @staticmethod
     def _normalize_stages(stages: Sequence[InterviewStage]) -> list[InterviewStage]:
