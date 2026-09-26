@@ -68,6 +68,12 @@ class QuestionAgentSettings(BaseModel):
     text_char_limit: int = Field(default=4000, ge=100, le=20000)
 
 
+class PlanningSettings(BaseModel):
+    timeout_seconds: float = Field(default=20.0, gt=0)
+    replan_cooldown_questions: int = Field(default=2, ge=1)
+    minimum_question_seconds: int = Field(default=30, ge=1)
+
+
 class AgentSettings(QuestionBudgets):
     policy_config_version: str = "dialogue-policy-v2"
     min_question_difficulty: int = Field(default=1, ge=1, le=5)
@@ -84,6 +90,7 @@ class AgentSettings(QuestionBudgets):
     timeouts: TimeoutSettings = Field(default_factory=TimeoutSettings)
     retries: RetrySettings = Field(default_factory=RetrySettings)
     question_agent: QuestionAgentSettings = Field(default_factory=QuestionAgentSettings)
+    planning: PlanningSettings = Field(default_factory=PlanningSettings)
 
 
 class ConfigDocument(BaseModel):

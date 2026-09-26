@@ -1,6 +1,7 @@
 """Resolve conversation continuation before project/topic selection."""
 
 from agents.domain.models import TopicSelection
+from agents.planning.planner import execution_topics
 from agents.policies.dialogue_controller import DialogueController
 from agents.policies.probe_controller import ProbeController
 from agents.policies.project_selector import ProjectSelector
@@ -25,7 +26,11 @@ def choose_dialogue(context, settings):
     available = {}
     for project, topic in controller.available_topics().values():
         available.setdefault(project.project_id, topic)
-    if not projects and "general:experience" not in context.used_topic_keys:
+    if (
+        not projects
+        and "general:experience" not in context.used_topic_keys
+        and (not context.plan.planning_enabled or execution_topics(context))
+    ):
         return (
             None,
             TopicSelection(

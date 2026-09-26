@@ -37,6 +37,24 @@ Check the actual wording, not just the information_goal:
   component the candidate personally handled is valid; asking the architecture
   and attention adaptations again is repetition. A different project may validly
   explore the same skill. Never redirect a follow-up into a closed thread.
+  Equality of information_goal is NOT evidence of repetition: inspect the actual
+  questions and current_thread answers. "What bottleneck did you optimize?" ->
+  "the speed" -> "Which operation in this project's pipeline was slow?" is valid
+  even with the SAME goal. Asking the bottleneck again with synonyms is not.
+- ANSWER_HINT: supplies plausible answers to the unknown experience being assessed,
+  letting the candidate select or echo a technical method, cause, component or result
+  instead of recalling it. "What did you change, such as parallelizing inference or
+  caching?" and "Which stage was slow: transfer or scheduling?" give away answers.
+  Ask an open question without those examples. This is separate from OVERLOADED:
+  an alternatives menu can request ONE answer and still leak possible answers.
+  Do not flag technical context already established in the resume/current answer,
+  quoting the candidate's own claim, or neutral scope words like "configuration or code".
+  Broad work areas like "SQL queries or database structure" also locate the work;
+  they do not reveal a technique. Do not flag those alone. In contrast, "adding an
+  index or caching results" supplies concrete methods and should be removed.
+  Naming the project, Ray, or its GPU-CPU pipeline to locate the question is valid.
+  Naming concrete stages as possible answers to WHICH stage is a hint even when
+  the resume lists those stages; mentioning them as established context is not.
 - OVERLOADED_QUESTION: requires two or more independent answers, even with one
   question mark (e.g. problem + solution + measured impact, component + tech stack).
   A context sentence followed by one clear question is valid. Do not demand a terse question:

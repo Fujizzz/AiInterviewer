@@ -199,7 +199,7 @@ class ProgressTests(TransactionTestCase):
                 final = (await collect_until(comm, "finished", rid))[-1]["result"]
                 self.assertEqual(final["final_report"]["overall_score"], score["overall_score"])
                 self.assertEqual(final["final_report"]["competencies"], score["competencies"])
-                self.assertEqual(final["interview_state"]["elapsed_seconds"], 120)
+                self.assertLess(final["interview_state"]["elapsed_seconds"], 120)
                 self.assertEqual((await comm.receive_output())["code"], 1000)
                 await comm.wait()
             finally:
@@ -283,4 +283,4 @@ class ProgressTests(TransactionTestCase):
         self.assertEqual(result["result"]["report_narrative_status"], "fallback")
         self.assertAlmostEqual(result["result"]["final_report"]["overall_score"], 3.0)
         self.assertNotIn("private-report-marker", " ".join(captured.output))
-        self.assertEqual(result["result"]["interview_state"]["elapsed_seconds"], 120)
+        self.assertLess(result["result"]["interview_state"]["elapsed_seconds"], 120)

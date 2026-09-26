@@ -20,6 +20,7 @@ from shared.contracts import (
     RetrievalResponse,
     RetrievalSource,
 )
+from shared.contracts.planning import PlanRevision, TopicProgress
 
 REPOSITORY_CONTRACT_VERSION = "2.0"
 
@@ -137,6 +138,10 @@ class InterviewContext(BaseModel):
     used_topic_keys: list[str] = Field(default_factory=list)
     evidence_records: list[EvidenceRecord] = Field(default_factory=list)
     processed_feedback_ids: list[str] = Field(default_factory=list)
+    topic_progress: dict[str, TopicProgress] = Field(default_factory=dict)
+    plan_history: list[PlanRevision] = Field(default_factory=list)
+    last_replan_question_index: int = 0
+    estimated_question_seconds: float = 120.0
     policy_config_version: str
 
     @model_validator(mode="after")

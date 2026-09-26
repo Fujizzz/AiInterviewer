@@ -15,13 +15,19 @@ from agents.config import AgentSettings
 from agents.domain.models import InterviewContext, InterviewHistoryEntry
 from agents.model_calls import run_model_call, validation_issues
 from agents.ports import LLMPort
-from agents.question.dialogue import DialogueSelection, dialogue_view, resolve_selection
+from agents.question.dialogue import (
+    DialogueSelection,
+    dialogue_view,
+    resolve_selection,
+    writing_brief,
+)
 from agents.question.quality import QuestionQualityGate, followup_brief
 from agents.question.validator import QuestionValidator
 from agents.tracing import emit_trace
 from shared.contracts import PlannedQuestion
 
 _REPAIR_INSTRUCTIONS = {
+    "PLAN_TOPIC_FINISHED": "The agenda closed this topic. Choose the next available topic.",
     "INTERNAL_RULE_LEAK": (
         "Remove interview budgets, counters and limit explanations from the wording. "
         "Transition naturally by naming the project and technical topic."
@@ -39,11 +45,13 @@ _REPAIR_INSTRUCTIONS = {
         "Do not invent a key or reuse one from latest_turn or a project with no available topics."
     ),
     "REPEATED_INFORMATION_GOAL": (
-        "The previous goal has already been asked. Ask for a different concrete detail "
-        "supported by the current answer; do not merely rephrase a goal in active_thread.goals."
+        "This goal belongs to a closed thread or a completed answer. Do not reopen it or "
+        "rename it to bypass the guard. Choose an allowed unresolved detail. Unresolved "
+        "current-thread goals may be reused only with a meaningfully narrower question."
     ),
     "MULTIPLE_PRIMARY_QUESTIONS": (
-        "Write context as statements, then one focused question with a single question mark."
+        "Keep ONLY the first unresolved information request; remove the other requests, "
+        "including failure handling or impact. Do not just replace question marks with commas."
     ),
     "action:literal_error": (
         "Top-level action must be get_project, get_history, get_plan, or final. "
@@ -191,6 +199,7 @@ class ReactQuestionAgent:
         repair_errors: list[str] = []
         quality_feedback: list[dict[str, str]] = []
         rejected_question: str | None = None
+        rejected_attempts: list[dict[str, Any]] = []
         seen_calls: set[tuple[str, str | None, int | None]] = set()
         tool_calls = 0
         repairs = 0
@@ -228,6 +237,7 @@ class ReactQuestionAgent:
                 "final_only": final_only or tool_calls >= limits.max_tool_calls,
                 "repair_errors": list(repair_errors),
                 "rejected_question": rejected_question,
+                "rejected_attempts": list(rejected_attempts),
                 "quality_feedback": quality_feedback,
                 "followup_brief": followup_brief(interview, text_limit=limits.text_char_limit),
                 "repair_instructions": [
@@ -240,6 +250,9 @@ class ReactQuestionAgent:
                 payload.pop("question_plan")
                 payload.pop("context")
                 payload["dialogue_state"] = dialogue_view(interview, self._settings)
+                payload["writing_brief"] = writing_brief(interview, payload["dialogue_state"])
+                if payload["dialogue_state"]["followup_block"] is not None:
+                    payload["followup_brief"] = None
             emit_trace(
                 "react.input",
                 question_id=plan.question_id,
@@ -354,6 +367,16 @@ class ReactQuestionAgent:
                         result.repaired = rewrites > 0
                         result.stop_reason = "FINAL"
                         return
+                    rejected_attempts.append(
+                        {
+                            "text": candidate.text,
+                            "selection": decision.selection.model_dump(mode="json")
+                            if decision.selection
+                            else None,
+                            "errors": list(repair_errors),
+                            "guidance": list(quality_feedback),
+                        }
+                    )
                     final_only = True
                 elif payload["final_only"]:
                     result.steps.append({"action": decision.action, "status": "TOOL_LIMIT"})

@@ -140,7 +140,8 @@ class AgentTests(TransactionTestCase):
                 self.assertTrue(result["interview_finished"])
                 self.assertEqual(len(result["question_history"]), count)
                 self.assertEqual(result["final_report"], expected["final_report"])
-                self.assertEqual(result["interview_state"]["elapsed_seconds"], count * 120)
+                self.assertLess(result["interview_state"]["elapsed_seconds"], 120)
+                self.assertEqual(result["interview_plan"]["duration_seconds"], 1800)
                 self.assertEqual(
                     result["interview_state"]["competencies"],
                     expected["interview_state"]["competencies"],

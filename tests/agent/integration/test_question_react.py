@@ -84,6 +84,42 @@ async def test_tools_observations_then_final_preserve_plan_and_context():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("blocked", [False, True])
+async def test_writing_scope_disables_old_followup_brief_after_thread_closes(blocked):
+    from tests.agent.mocks.dialogue_output import selection_for
+
+    repository, _, question, feedback, answer = await seed()
+    context = await repository.get_interview_context("pipeline-interview")
+    feedback.analysis.status = "explicit_unknown" if blocked else "partial"
+    feedback.analysis.thread_complete = False
+    feedback.analysis.missing_information = ["Explain the old implementation detail"]
+    context.question_history = [
+        InterviewHistoryEntry(question=question, feedback=feedback, answer=answer)
+    ]
+    before = context.model_dump()
+
+    class ScopeModel(ScriptedLLM):
+        async def generate_structured(self, *, prompt_name, payload, response_model):
+            if response_model.__name__ == "QuestionQualityReview":
+                return response_model(issues=[])
+            self.calls.append(deepcopy(payload))
+            return response_model.model_validate(decision(selection=selection_for(payload)))
+
+    model = ScopeModel()
+    result = await ReactQuestionAgent(model, load_agent_settings()).generate(
+        question, "", interview=context, autonomous=True
+    )
+    assert result.question
+    payload = model.calls[0]
+    brief = payload["writing_brief"]
+    assert (brief["mode"] == "open_new_scope") is blocked
+    assert (brief["active_scope"] is None) is blocked
+    assert (payload["followup_brief"] is None) is blocked
+    assert brief["next_available_scope"]["topic_key"] != question.topic_key
+    assert context.model_dump() == before
+
+
+@pytest.mark.asyncio
 async def test_repeated_tool_call_is_observed_and_cannot_loop_forever():
     repository, _, question, _, _ = await seed()
     context = await repository.get_interview_context("pipeline-interview")

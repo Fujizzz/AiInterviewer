@@ -8,7 +8,7 @@ start-form（简历和预算）；prepare-resume/profile-preview（预解析）�
 pdf-file/pdf-parse/pdf-preview/pdf-use（PDF 提取后视觉校对及人工采用）；
 agent-status/wait-time/stage-log（状态、实际等待时长与阶段耗时）；answer-form（回答和取消）；
 evaluation-panel（上一题评价）；report-panel（最终报告及完整结果）。本文件无函数定义。
-关键元素：resume/job/limit/probes 提供初始化参数；question/answer 绑定当前轮；report 保存当前结果文本；data-language-selector 选择中文、英文或跟随系统。
+关键元素：resume/job/duration/limit/probes 提供简历、岗位、时长和安全上限；question/answer 绑定当前轮；report 保存当前结果文本。
 约束：密钥只由后端读取；表单内容通过同源连接发送，不持久化表单或面试状态；i18n.js 仅保存语言偏好。
 关联：/agent/ 路由交付本页；后端保存资料、回答及报告历史，离开页面仍会中断当前面试。
 -->
@@ -111,10 +111,11 @@ evaluation-panel（上一题评价）；report-panel（最终报告及完整结�
     <label for="job" data-i18n="job_label">目标岗位</label>
     <input id="job" value="General AI / Software Engineer" required>
     <div class="settings-grid">
-      <div><label for="limit" data-i18n="limit_label">题目预算</label><input id="limit" type="number" min="1" step="1" value="5" required></div>
-      <div><label for="probes" data-i18n="probes_label">同主题连续追问上限</label><input id="probes" type="number" min="0" step="1" value="2" required></div>
+      <div><label for="duration" data-i18n="duration_label">面试时长（分钟）</label><input id="duration" type="number" min="1" step="1" value="30" required></div>
+      <div><label for="limit" data-i18n="limit_label">总题数安全上限</label><input id="limit" type="number" min="1" step="1" value="40" required></div>
+      <div><label for="probes" data-i18n="probes_label">每话题追问安全上限</label><input id="probes" type="number" min="0" step="1" value="7" required></div>
     </div>
-    <p class="hint" data-i18n="budget_hint">沿用 MVP 每题 120 秒的逻辑预算，不是实际答题倒计时。问题完整生成后显示。</p>
+    <p class="hint" data-i18n="budget_hint">从首题准备完毕开始计时，包含后续输入和模型等待；提交回答后检查是否收尾，不强制中断输入。</p>
     <button id="start-agent" type="submit" data-i18n="start_interview">开始面试</button>
   </form>
   </details>

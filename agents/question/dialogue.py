@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from agents.planning.planner import execution_topics, planning_view
 from agents.policies.dialogue_controller import DialogueController
 from shared.contracts import PlannedQuestion, QuestionType
 
@@ -48,9 +49,17 @@ def dialogue_view(context, settings):
     if (
         not context.candidate_profile.projects
         and "general:experience" not in context.used_topic_keys
+        and (not context.plan.planning_enabled or execution_topics(context))
     ):
         allowed_actions.append("new_topic")
     return {
+        "agenda": planning_view(context) if context.plan.planning_enabled else None,
+        "safety_guardrails": {
+            "max_questions": context.plan.max_questions,
+            "questions_asked": context.state.question_index,
+            "max_questions_per_project": context.plan.max_questions_per_project,
+            "max_questions_per_topic": context.plan.max_questions_per_topic,
+        },
         "job_title": context.job_profile.title,
         "projects": [
             {
@@ -71,6 +80,7 @@ def dialogue_view(context, settings):
             "general:experience"
             if not context.candidate_profile.projects
             and "general:experience" not in context.used_topic_keys
+            and (not context.plan.planning_enabled or execution_topics(context))
             else None
         ),
         "active_thread": context.active_thread.model_dump(mode="json")
@@ -102,6 +112,53 @@ def dialogue_view(context, settings):
     }
 
 
+def writing_brief(context, view):
+    """Expose the next usable scope without turning agenda objectives into questions."""
+    topics = available_topics(context)
+    ordered_keys = [item.topic_key for item in execution_topics(context)]
+    ordered_keys.extend(key for key in topics if key not in ordered_keys)
+    active = context.active_thread
+    can_continue = view["followup_block"] is None
+    next_scope = None
+    for key in ordered_keys:
+        if key not in topics:
+            continue
+        project, topic = topics[key]
+        action = (
+            "new_project" if active and project.project_id != active.project_id else "new_topic"
+        )
+        if action not in view["allowed_dialogue_actions"]:
+            continue
+        next_scope = {
+            "dialogue_action": action,
+            "project_id": project.project_id,
+            "project_name": project.name,
+            "topic_key": key,
+            "topic": topic.topic,
+        }
+        break
+    return {
+        "mode": "continue_or_switch" if can_continue else "open_new_scope",
+        "active_scope": {
+            "project_id": active.project_id,
+            "topic_key": active.topic_key,
+            "topic": active.topic,
+        }
+        if active and can_continue
+        else None,
+        "next_available_scope": next_scope,
+        "scope_rule": (
+            "For clarify/probe use the active scope and latest answer. For new_topic/new_project "
+            "use only the selected new scope; old answer gaps are not questions for the new topic."
+            if can_continue
+            else "The old thread is closed for this turn. Choose an available new scope; "
+            "do not continue the latest answer or its missing-information list."
+        ),
+        "question_rule": "Select ONE unresolved detail from the topic objective, not the entire "
+        "objective or completion criteria. Request one answer without supplying possible answers.",
+    }
+
+
 def resolve_selection(selection, context, settings, question_id=None):
     """Derive server-owned IDs/depth/difficulty; reject invalid model choices."""
     active = context.active_thread
@@ -125,6 +182,7 @@ def resolve_selection(selection, context, settings, question_id=None):
             and selection.project_id is None
             and selection.topic_key == "general:experience"
             and selection.topic_key not in context.used_topic_keys
+            and (not context.plan.planning_enabled or execution_topics(context))
         ):
             topic, project_id = "your project experience", None
         else:
@@ -133,7 +191,7 @@ def resolve_selection(selection, context, settings, question_id=None):
         if selection.dialogue_action != expected:
             raise ValueError("INCORRECT_DIALOGUE_ACTION")
     if DialogueController(context, settings).goal_already_asked(
-        project_id, selection.information_goal
+        project_id, selection.information_goal, allow_current_clarification=continuing
     ):
         raise ValueError("REPEATED_INFORMATION_GOAL")
     question_id = question_id or str(uuid4())

@@ -12,6 +12,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from shared.contracts.budgets import QuestionBudgets
+from shared.contracts.planning import TopicAllocation
 
 CONTRACT_VERSION = "2.0"
 
@@ -112,6 +113,7 @@ class InterviewState(BaseModel):
     current_question_id: str | None = None
     question_index: int = Field(default=0, ge=0)
     elapsed_seconds: int = Field(default=0, ge=0)
+    clock_started_at: float | None = None
     remaining_seconds: int
     competencies: dict[Competency, CompetencyState]
     asked_question_ids: list[str] = Field(default_factory=list)
@@ -133,6 +135,11 @@ class InterviewPlan(QuestionBudgets):
     interview_id: str
     duration_seconds: int = Field(gt=0)
     stages: list[StagePlan]
+    planning_enabled: bool = False
+    version: int = Field(default=0, ge=0)
+    topics: list[TopicAllocation] = Field(default_factory=list)
+    reserve_seconds: int = Field(default=0, ge=0)
+    closing_seconds: int = Field(default=0, ge=0)
 
 
 class PlannedQuestion(BaseModel):
@@ -272,6 +279,7 @@ class InitializeInterviewRequest(BaseModel):
     job_profile: JobProfile
     duration_seconds: int = Field(gt=0)
     enabled_stages: list[InterviewStage]
+    planning_enabled: bool = False
 
 
 class InitializeInterviewResponse(BaseModel):

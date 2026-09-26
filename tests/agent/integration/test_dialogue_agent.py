@@ -166,11 +166,30 @@ async def test_model_selection_must_pass_server_guards(violation, expected):
         selection.project_id = "other"
     elif violation == "repeat_goal":
         selection.information_goal = context.active_thread.goals[0]
+        context.question_history[-1].feedback.analysis.thread_complete = True
     elif violation == "unknown_topic":
         selection.dialogue_action = "new_topic"
         selection.topic_key = "invented"
     with pytest.raises(ValueError, match=expected):
         resolve_selection(selection, context, load_agent_settings())
+
+
+@pytest.mark.asyncio
+async def test_same_unresolved_goal_reaches_wording_review_without_renaming():
+    from docs.examples.verify_question_quality import scenario
+
+    first, context = await scenario()
+    selection = DialogueSelection(
+        dialogue_action="clarify",
+        project_id=first.project_id,
+        topic_key=first.topic_key,
+        information_goal=first.information_goal,
+        decision_summary="Narrow the vague answer to the personally handled component.",
+    )
+    result = resolve_selection(selection, context, load_agent_settings())
+    assert result.information_goal == first.information_goal
+    assert result.thread_id == first.thread_id
+    assert result.parent_question_id == first.question_id
 
 
 @pytest.mark.asyncio

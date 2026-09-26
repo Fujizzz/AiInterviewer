@@ -6,8 +6,9 @@
 - Prepare：
   预解析简历，不启动题目预算；已开始的连接不可重新准备。
 - Start：
-  MVP 原有参数默认值；文本必须非空，题数及追问范围保持原有语义。
-- Start.exclusive_topic_budget：拒绝同时传入两个互斥的追问预算字段。
+  校验面试分钟时长及三层题数安全上限，默认时长为 30 分钟。
+- Start.exclusive_topic_budget：
+  拒绝同时指定旧追问上限与新话题总题数上限。
 - Answer：
   回答必须关联当前问题，旧问题或重复请求不能再次触发模型调用。
 - Cancel：
@@ -35,8 +36,8 @@
 agent_socket 内 session 属于当前连接；operation 为唯一业务任务，receiver 为接收任务。
 interview_started 区分资料已准备和已开始面试；progress_events 只控制事件交付，不影响策略。
 request_id 关联当前响应；seen 记录已接受执行的请求。Command.request_id 为 UUID。
-数据库请求主键提供跨连接去重；scope.user 来自会话认证，历史按创建用户隔离。
-Start 保留 MVP 默认题数、追问和岗位参数；Answer 绑定当前问题。
+数据库请求主键提供跨连接去重；输入正文不写日志；历史仍受本机同源访问策略保护。
+Start 的题数参数为安全上限，不决定时间预算；Answer 绑定当前问题。
 ASGI 准入租约通过模型引用延长到实际同步调用结束；不把资源拒绝传入 Agent 触发备用出题。
 """
 
@@ -79,11 +80,12 @@ class Prepare(Command):
 
 
 class Start(Command):
-    """MVP 原有参数默认值；文本必须非空，题数及追问范围保持原有语义。"""
+    """输入分钟时长和可选题数安全上限；默认使用 30 分钟及 Agent 配置上限。"""
 
     type: Literal["start"]
     resume_text: str = Field(min_length=1)
-    max_questions: int = Field(default=5, ge=1)
+    duration_minutes: int = Field(default=30, ge=1)
+    max_questions: int | None = Field(default=None, ge=1)
     max_follow_up_per_topic: int | None = Field(default=None, ge=0)
     max_questions_per_project: int | None = Field(default=None, ge=1)
     max_questions_per_topic: int | None = Field(default=None, ge=1)
@@ -91,7 +93,7 @@ class Start(Command):
 
     @model_validator(mode="after")
     def exclusive_topic_budget(self):
-        """校验本实例的两个预算字段互斥；冲突抛 ValueError，否则原样返回，不改变默认值。"""
+        """拒绝新旧话题上限同时出现；旧参数仅在配置入口转换一次。"""
         if self.max_follow_up_per_topic is not None and self.max_questions_per_topic is not None:
             raise ValueError("Use max_questions_per_topic OR max_follow_up_per_topic, not both")
         return self
