@@ -26,7 +26,12 @@ jobs:
         with:
           node-version: '22'
       - name: Install locked runtime and test tools
-        run: python -m pip install -r deploy/requirements-linux.lock.txt pytest==9.1.1 pytest-asyncio==1.4.0
+        run: |
+          python -m venv .runtime
+          .runtime/bin/python -m pip install --no-deps -r deploy/requirements-linux.lock.txt
+          .runtime/bin/python -m pip check
+          .runtime/bin/python -m pip install pytest==9.1.1 pytest-asyncio==1.4.0
+          echo "$PWD/.runtime/bin" >> "$GITHUB_PATH"
       - name: Core tests
         run: python -m pytest -q
       - name: Backend tests

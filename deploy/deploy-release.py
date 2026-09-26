@@ -128,6 +128,7 @@ def main():
                 str(release / "deploy/requirements-linux.lock.txt"),
             ]
         )
+        run([uv, "pip", "check", "--python", str(release / ".venv/bin/python")])
         app_command(release, ["manage.py", "check", "--deploy"])
         app_command(release, ["manage.py", "makemigrations", "--check", "--dry-run"])
         run(["bash", str(release / "deploy/backup-postgresql.sh")])
