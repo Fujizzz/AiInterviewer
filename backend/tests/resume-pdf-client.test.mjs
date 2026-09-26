@@ -18,7 +18,7 @@
  * - makePage.run：在隔离上下文执行客户端公开的本地函数。
  * - response：构造逐字节 UTF-8 NDJSON 响应。
  * - response.start：向读取流推入事件字节。
- * - callback1：校对成功后才能采用，人工采用才更新简历并派发 input。
+ * - callback1：排队状态可见，校对成功后人工采用才更新简历并派发 input。
  * - callback1.fetch：返回进度和校对完成事件流，不发网络请求。
  * - callback2：视觉失败不显示未校对结果，不覆盖手工简历。
  * - callback2.fetch：返回显式失败事件。
@@ -97,11 +97,13 @@ function response(events) {
   return { ok: true, body: new ReadableStream({ start }) };
 }
 
-/** 校对结果不能在用户采用之前覆盖既有简历。 */
+/** 验证排队反馈；校对结果不能在用户采用之前覆盖既有简历。 */
 test("reviewed results require explicit adoption and invalidate prepared input", async () => {
   /** 返回进度及校对成功终态，不访问真实后端。 */
   async function fetch() { return response([PROGRESS, { type: "result", changed_pages: 0, text: RESULT_TEXT, pages: [{ number: 1, uncertainties: [] }] }]); }
   const page = makePage(fetch);
+  page.run('pdfEvent({type:"progress", stage:"queued", detail:"queued"})');
+  assert.match(page.el("pdf-status").textContent, /等待后台处理/);
   page.el("resume").value = "manual text";
   await page.run("pdfRun()");
   assert.equal(page.el("resume").value, "manual text");

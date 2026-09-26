@@ -86,7 +86,7 @@ TCP 80/443，随后申请证书：
 
 ## 已验证与边界
 
-- 账号版本此前在 SQLite/PostgreSQL 通过 104 项后端测试；队列版本新增 5 项生命周期测试。
+- 队列版本在本地 SQLite 和服务器临时 PostgreSQL 均通过 109 项后端测试，核心 211 项测试和前端 26 项测试通过。
 - PostgreSQL migrations 与 `makemigrations --check --dry-run` 通过；健康接口报告 `postgresql`。
 - 公网 HTTPS 主页与账号页公开；未登录 API 返回 401、面试页跳转登录，登录后可访问自己的记录。
 - 注册、登录、退出、CSRF、跨账号读写隔离及退出后现有 WebSocket 失效均通过公网实测。
@@ -140,10 +140,12 @@ Actions 使用独立 `DEPLOY_SSH_KEY` 和固定 `DEPLOY_KNOWN_HOSTS`；密钥只
 `/usr/local/sbin/ai-interviewer-deploy`，更新该入口须显式审查并安装新版脚本。
 
 发布按完整 SHA 建立独立目录及虚拟环境，进行配置检查、迁移差异检查和 PostgreSQL 备份，
-再停止 ASGI/worker、执行迁移、切换 current 并启动服务。随后检查 HTTP、数据库、Redis，
+再停止 ASGI/worker、执行迁移、切换 current 并启动服务。发布会短暂重启服务，现有面试连接将断开，请在空闲时段推送。随后检查 HTTP、数据库、Redis，
 并实际发送/消费一个无模型调用的 Celery 探针。验证成功后写入 `/opt/ai-interviewer/deployed-revision`。
 并发 workflow 串行运行，服务器另有文件锁；同一成功版本再次部署只验证健康。
 
 失败在 Actions 中明确显示，日志保留；没有自动重试或数据库回滚。数据库迁移失败时保持停服，
 人工审查备份和 schema 后恢复。失败发布目录保留，修正代码用新提交部署。旧版本和数据库备份
 不会自动删除，目前需管理员按磁盘占用维护。
+
+验证记录：main 推送已实际触发 GitHub Actions 完成测试和服务器切换；线上 PDF 经 Redis/Celery、沙箱和真实视觉模型返回 result，取消在 worker 日志确认，损坏 PDF 明确返回 error。发布归档已验证普通文件可用，拒绝路径穿越、链接和环境秘密文件。
