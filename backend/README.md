@@ -1,6 +1,6 @@
 # Backend 后端、MVP Agent 与流式传输测试
 
-Django + DRF 提供题库、练习场次、单题记录接口，SQLite 仅保存业务数据。流式测试的媒体与统计只在内存中处理，不写数据库或本地文件。
+Django + DRF 提供题库、练习场次、单题记录接口，默认 SQLite、生产 PostgreSQL 保存业务数据。流式测试的媒体与统计只在内存中处理，不写数据库或本地文件。
 同一 ASGI 服务提供 WebSocket 回传接口与浏览器测试页面，用于验证 ping/pong、二进制和音视频分片传输。
 本目录已接入根目录的 Agent MVP，通过 `/ws/agent/` 提供简历文本解析、逐题面试、评价与最终报告，测试页面位于 `/agent/`。
 Agent 沿用 MVP 的默认参数、策略和每题 120 秒逻辑预算；后端练习接口继续保留原有 10 秒准备和 90 秒回答配置，两条流程独立运行。
@@ -44,7 +44,8 @@ PDF 提取/渲染现运行于 Linux/WSL 沙箱；新增同机面试连接和 PDF
 
 后端 Python 直接依赖固定在本目录的 `requirements.txt`，使用 `python -m pip install -r requirements.txt` 安装即可，无需指定环境管理工具。可按个人习惯使用 Python 自带的 `venv` 或已有 Python 环境；以下命令中的 `python` 应指向你选择的解释器。
 本目录 `requirements.txt` 通过 `-r ../requirements.txt` 引用已有 MVP 依赖，安装一次即可运行后端与 Agent；保留完整仓库目录。根目录的 `pyproject.toml` 与 `uv.lock` 继续管理终端 MVP 环境。
-本次使用 SQLite，没有添加 MySQL 或 PostgreSQL 的备用连接配置。
+默认开发配置使用 SQLite；服务器通过独立的 `config.production` 显式使用 PostgreSQL，
+连接失败不会回退。HTTPS、用户账号认证、systemd 与维护命令见[部署说明](../deploy/README.md)。
 
 ## 启动
 
@@ -65,6 +66,12 @@ python -m uvicorn config.asgi:application --host 127.0.0.1 --port 8765 --ws webs
 `DJANGO_SECRET_KEY` 必须在环境变量或 `backend/.env` 中显式设置，上面的命令仅为当前开发 shell 生成随机值，源码不包含应用密钥。
 可显式设置 `INTERVIEW_DB_PATH` 指向其他 SQLite 文件；默认数据库及本地秘密文件已加入 `.gitignore`。
 迁移会创建数据表，并初始化原有两道通用练习题，已有题目不会被覆盖。
+
+## 界面语言
+
+主页 `/`、文字面试 `/agent/` 和传输诊断 `/stream-demo/` 均提供语言选择器：中文、English 和跟随系统。
+选择会保存在浏览器的 `localStorage` 中；跟随系统时，中文浏览器使用中文，其他浏览器使用 English，并响应浏览器的语言变化事件。
+语言层只翻译界面、状态和诊断提示，不改变 WebSocket 协议、API 字段、评分逻辑或模型请求内容。
 
 ## Agent 模型配置
 
@@ -140,7 +147,7 @@ node --test tests/interview-camera.test.mjs  # 模拟权限、设备中断与媒
 
 ## 当前边界
 
-- 本地单用户原型，HTTP 和 WebSocket 限制回环地址及同源访问，启动时只绑定 `127.0.0.1`。没有账号、权限隔离或公网部署。
+- 默认开发模式限制回环地址及同源访问，启动时只绑定 `127.0.0.1`。服务器模式经同机 Nginx 提供 HTTPS，应用仍只绑定回环；Django 会话保护网页、API 和 WebSocket，每个账号的面试与练习记录独立，题库共用，见[部署说明](../deploy/README.md)。
 - 音视频、字节数与校验统计只在内存中处理，不写数据库或媒体文件；不提供流式历史查询。
 - 每次连接使用临时 connection_id，断开后服务端不保留结果。页面日志仅保留最近 30 行；服务端日志输出到控制台，启动时不要重定向到文件。
 - 浏览器仅保留当前回放的临时 Blob URL，点击“清空结果与媒体缓存”、开始下一次测试或离开页面时释放。没有 localStorage、IndexedDB、下载或文件写入逻辑。
@@ -153,3 +160,9 @@ node --test tests/interview-camera.test.mjs  # 模拟权限、设备中断与媒
 - [MDN：MediaRecorder dataavailable](https://developer.mozilla.org/en-US/docs/Web/API/MediaRecorder/dataavailable_event)：分片事件与末尾数据处理。
 - [MDN：WebSocket binaryType](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket/binaryType)：浏览器接收 ArrayBuffer。
 - [Django：SQLite notes](https://docs.djangoproject.com/en/5.2/ref/databases/#sqlite-notes)：SQLite 并发与事务限制。
+
+## 注册与登录
+
+生产入口 `/register/` 和 `/login/` 只填写用户名与密码，注册后直接登录；不要求邮箱、验证码或密码组合。用户名最多 150 字符、密码最多 128 字符，均不能为空。密码使用 Django 默认哈希，退出为带 CSRF token 的 POST `/logout/`。
+
+生产配置强制登录；默认回环开发模式保留匿名访问。网页未登录时跳转登录页，API 返回 401，WebSocket 从 session Cookie 校验账号并在后续消息时重新检查会话有效性。写接口使用 session 与 CSRF token；PDF 客户端从页面读取 token 并随请求发送。用户只能查询或修改自己的面试、子请求和练习，跨账号 ID 返回 404。迁移前没有归属的记录保持空归属，不自动分配给新账号。

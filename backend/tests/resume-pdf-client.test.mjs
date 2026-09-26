@@ -4,7 +4,7 @@
  * 实现：最小 DOM 和 fetch 替身，真实 TextDecoder/ReadableStream 解析，不访问模型。
  * 关联：frontend/resume-pdf.js、agent.html；不能替代真实 PDF 或供应商测试。
  * 目录：
- * - makePage：构造脚本上下文和实际模板 ID 集合。
+ * - makePage：构造脚本上下文、实际模板 ID 集合和合成 CSRF token。
  * - makePage.getElement：返回模板元素，不容忍未知 ID。
  * - makePage.Element：DOM 数据与事件的替身。
  * - makePage.Element.constructor：初始化字段与监听器。
@@ -30,7 +30,7 @@
  * - callback5：面试锁定和上传超限均不会发起请求或替换简历。
  * - callback5.fetch：记录任何非预期请求。
  * - callback6：只展示最终文本和必要疑点，不显示修改建议。
- * - callback6.fetch：断言上传无模式字段并返回最终结果。
+ * - callback6.fetch：断言 CSRF 请求头和上传字段并返回最终结果。
  * 关键变量：
  * - SCRIPT：真实客户端源码。
  * - HTML：真实模板，用于元素引用验证。
@@ -47,7 +47,7 @@ const HTML = readFileSync(new URL("../frontend/agent.html", import.meta.url), "u
 const PROGRESS = { type: "progress", detail: "视觉校对：已完成 0/1 页" };
 const RESULT_TEXT = "李 Test";
 
-/** 输入 fetch 替身，输出 DOM 与代码调用器；不读取任何真实候选人文件。 */
+/** 输入 fetch 替身，输出含合成 CSRF token 的 DOM 与代码调用器；不读取真实候选人文件。 */
 function makePage(fetch) {
   /** 替身元素只提供真实脚本使用的字段与事件接口。 */
   class Element {
@@ -73,6 +73,7 @@ function makePage(fetch) {
   function noop() { return 1; }
   /** 返回固定单调时间，只验证计时调用不会影响业务。 */
   function now() { return 100; }
+  getElement("csrf-token").content = "synthetic-csrf-token";
   const context = vm.createContext({ document: { getElementById: getElement }, fetch,
     MutationObserver: Observer, window: { addEventListener: noop }, performance: { now },
     setInterval: noop, clearInterval: noop, AbortController, FormData, TextDecoder, Event, console });
@@ -172,9 +173,10 @@ test("interview lock and size limit block requests and adoption", async () => {
 
 /** 输入提取基线及单处修订，前端只呈现最终文字与疑点，不显示逐条修改建议。 */
 test("single pipeline only displays final text and uncertainties", async () => {
-  /** 检查实际上传字段，返回逐页完成信息与完整终态，不发送网络请求。 */
+  /** 检查实际上传字段及 CSRF 请求头，返回完整终态，不发送网络请求。 */
   async function fetch(url, options) {
     assert.equal(url, "/api/resume/parse/");
+    assert.equal(options.headers["X-CSRFToken"], "synthetic-csrf-token");
     assert.deepEqual([...options.body.keys()], ["file"]);
     return response([PROGRESS, { type: "page", number: 1, changed: true,
       text: "李 Text", uncertainties: [] },

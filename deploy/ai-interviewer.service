@@ -1,0 +1,35 @@
+# 职责：以低权限用户启动 ASGI；Django 提供 session 认证，Nginx 提供 HTTPS。
+# 实现：仅监听回环，信任同机代理协议；退出保持 failed 状态，不自动重放请求。
+# 关联：backend/config/production.py 与 nginx.conf；PDF 沙箱需要 user namespace。
+# 目录：无函数/类。变量索引：EnvironmentFile 提供凭据，StateDirectory 保存容量锁。
+[Unit]
+Description=AI Interviewer ASGI service
+After=network.target postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=aiinterviewer
+Group=aiinterviewer
+WorkingDirectory=/opt/ai-interviewer/current/backend
+EnvironmentFile=/etc/ai-interviewer/app.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/ai-interviewer/venv/bin/python -m uvicorn config.asgi:application --host 127.0.0.1 --port 8765 --ws websockets-sansio --proxy-headers --forwarded-allow-ips=127.0.0.1 --no-access-log
+Restart=no
+TimeoutStopSec=150
+UMask=0077
+StateDirectory=ai-interviewer
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/ai-interviewer
+CapabilityBoundingSet=
+# bubblewrap 需 AF_NETLINK 初始化隔离网络中的 loopback；PDF worker 仍由 seccomp 禁止 socket。
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

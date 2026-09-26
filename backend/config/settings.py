@@ -17,13 +17,16 @@
 - DEFAULT_AUTO_FIELD：
   未显式声明主键类型时使用的 Django 默认字段。
 - INSTALLED_APPS：
-  ORM 内容类型、DRF 与 interviews 应用的装配清单。
+  Django 用户/会话、ORM 内容类型、DRF 与 interviews 应用的装配清单。
 - LOGGING：
   控制台日志格式、级别和处理器；不配置文件日志。
 - MIDDLEWARE：
-  按顺序执行安全设置、本机来源检查与通用 HTTP 处理。
+  按顺序执行安全、来源、会话身份、部署登录门禁、CSRF 和通用 HTTP 处理。
 - REST_FRAMEWORK：
-  JSON 渲染/解析、分页、无账号鉴权及统一错误处理配置。
+  JSON 渲染/解析、分页、session 认证及统一错误处理；登录用户写请求校验 CSRF。
+- TEMPLATES：页面模板目录和请求/身份上下文，不向模板提供密钥。
+- INTERVIEW_REQUIRE_LOGIN：默认本地回环开发不强制登录，生产配置显式启用。
+- AUTH_PASSWORD_VALIDATORS：注册不施加密码复杂度规则，哈希仍使用 Django 标准实现。
 - ROOT_URLCONF：
   Django 根路由模块名称。
 - SECRET_KEY：
@@ -51,10 +54,35 @@ load_dotenv(BASE_DIR / ".env", override=False)
 SECRET_KEY = os.environ["DJANGO_SECRET_KEY"]
 DEBUG = False
 ALLOWED_HOSTS = ["127.0.0.1", "localhost", "[::1]"]
-INSTALLED_APPS = ["django.contrib.contenttypes", "rest_framework", "interviews"]
+INSTALLED_APPS = [
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+    "django.contrib.sessions",
+    "rest_framework",
+    "interviews",
+]
+INTERVIEW_REQUIRE_LOGIN = False
+AUTH_PASSWORD_VALIDATORS = []
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [BASE_DIR / "frontend"],
+        "APP_DIRS": True,
+        "OPTIONS": {
+            "context_processors": [
+                "django.template.context_processors.request",
+                "django.contrib.auth.context_processors.auth",
+            ]
+        },
+    }
+]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "interviews.middleware.LocalOnlyMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "interviews.accounts.AccountRequiredMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
     "django.middleware.common.CommonMiddleware",
 ]
 ROOT_URLCONF = "config.urls"
@@ -70,7 +98,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 USE_TZ = True
 TIME_ZONE = "UTC"
 REST_FRAMEWORK = {
-    "DEFAULT_AUTHENTICATION_CLASSES": [],
+    "DEFAULT_AUTHENTICATION_CLASSES": ["rest_framework.authentication.SessionAuthentication"],
     "DEFAULT_PERMISSION_CLASSES": [],
     "UNAUTHENTICATED_USER": None,
     "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],

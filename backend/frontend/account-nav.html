@@ -1,0 +1,14 @@
+<!--
+职责：主页、面试与诊断页共用账号导航；Django 自动转义用户名，退出使用 CSRF POST。
+目录：当前用户名/退出表单或登录/注册链接。函数/类：无。
+变量索引：user 为请求认证用户；csrf_token 由模板上下文生成。无持久化或客户端状态。
+-->
+<div class="account-nav">
+{% if user.is_authenticated %}
+  <span class="account-username" title="{{ user.username }}">{{ user.username }}</span>
+  <form method="post" action="/logout/">{% csrf_token %}<button type="submit" class="account-logout" data-i18n="auth_logout">退出</button></form>
+{% else %}
+  <a href="/login/" data-i18n="auth_login">登录</a>
+  <a class="account-register-link" href="/register/" data-i18n="auth_register">注册</a>
+{% endif %}
+</div>

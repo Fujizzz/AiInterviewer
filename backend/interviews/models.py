@@ -25,12 +25,14 @@
 
 关键状态说明：
 PracticeSession.version 用于乐观并发控制；prep_seconds/answer_seconds 保留练习计时。
+PracticeSession.owner 是创建用户；旧记录保持 null，不自动分配给后来注册的账号。
 SessionQuestion.question_text 保存题目快照。
 各 Meta.constraints 约束状态/时间组合、同场次顺序唯一和最多一题作答中。
 """
 
 import uuid
 
+from django.conf import settings
 from django.db import models
 from django.db.models import Q
 
@@ -60,7 +62,7 @@ class Question(models.Model):
 
 
 class PracticeSession(models.Model):
-    """场次实体。保存固定准备/回答时长、状态、时间和乐观并发版本。"""
+    """保存创建用户、固定计时与版本；owner 为空仅表示旧的本地记录，不属于任何注册用户。"""
 
     class Status(models.TextChoices):
         """场次状态域：active 可修改，completed 为不可重新开启的终态。"""
@@ -69,6 +71,8 @@ class PracticeSession(models.Model):
         COMPLETED = "completed"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True,
+                              on_delete=models.PROTECT, related_name="practice_sessions")
     status = models.CharField(max_length=16, choices=Status, default=Status.ACTIVE)
     prep_seconds = models.PositiveIntegerField(default=10, editable=False)
     answer_seconds = models.PositiveIntegerField(default=90, editable=False)

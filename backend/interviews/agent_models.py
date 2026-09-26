@@ -19,6 +19,7 @@
 （无模块级变量。）
 
 状态说明：
+AgentInterview.owner 标识创建用户；旧数据为 null，不向注册用户公开或自动认领。
 Interview.status 为 preparing/active/completed/interrupted/failed；与 Agent 内部状态分开。
 Request.status 为 running/succeeded/failed/interrupted；进程骤停可能留下 running，不能自动重放。
 context/state_version 是当前状态唯一来源；Request.response 是发送前存储的不可变响应快照，
@@ -27,6 +28,7 @@ context/state_version 是当前状态唯一来源；Request.response 是发送�
 
 import uuid
 
+from django.conf import settings
 from django.db import models
 from django.db.models import Q
 
@@ -34,11 +36,13 @@ from django.db.models import Q
 class AgentInterview(models.Model):
     """保存最新上下文和服务生命周期，不重复存储完整历史。
 
-    输入由后端及 Agent 仓库提供；id 沿用后端生成的 UUID。无用户账户时仅在本机访问边界内使用。
+    输入由后端及 Agent 仓库提供；id 沿用后端 UUID，owner 只取已认证的 WebSocket 身份。
     context 为空表示尚未完成初始化；state_version 与 JSON 内版本由仓库事务同步写入。
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True,
+                              on_delete=models.PROTECT, related_name="agent_interviews")
     status = models.CharField(max_length=16, default="preparing")
     job_title = models.TextField(blank=True)
     context = models.JSONField(null=True, blank=True)

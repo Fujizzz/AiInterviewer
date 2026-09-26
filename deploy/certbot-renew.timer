@@ -1,0 +1,12 @@
+# 职责：每六小时检查六天有效期的 IP 证书，不改变应用请求重试语义。
+# 目录：无函数/类。变量索引：OnCalendar 为检查频率，Persistent 补偿关机错过的调度。
+[Unit]
+Description=Check AI Interviewer certificate renewal every six hours
+
+[Timer]
+OnCalendar=*-*-* 00,06,12,18:00:00
+Persistent=true
+Unit=ai-interviewer-certbot-renew.service
+
+[Install]
+WantedBy=timers.target

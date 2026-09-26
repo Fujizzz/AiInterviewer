@@ -1,0 +1,10 @@
+# 职责：检查 IP 短期证书续签并在成功后加载 Nginx 证书。
+# 目录：无函数/类。变量索引：ExecStart 使用 Certbot 保存的 ACME 配置；失败保留日志。
+[Unit]
+Description=Renew AI Interviewer IP TLS certificate
+After=network-online.target nginx.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/ai-interviewer/certbot/bin/certbot renew --quiet --deploy-hook "/usr/sbin/nginx -t && /bin/systemctl reload nginx"

@@ -35,17 +35,22 @@ class PendingRequest(Exception):
 
 
 @sync_to_async
-def reserve_request(interview_id, command):
+def reserve_request(interview_id, command, *, owner_id=None):
     """原子创建面试壳与请求记录，重复请求不会留下新面试。
 
-    输入为服务器面试 UUID 与已通过协议校验的命令；不保存原始简历。
+    输入为服务器面试 UUID、已验证命令和握手认证的 owner_id；默认 None 为本地旧流程。
+    owner_id 不能由客户端字段提供，已有场次归属不符则拒绝，不保存原始简历。
     返回 None。全局主键冲突转换为 DuplicateRequest，已有未结束请求转 PendingRequest，
     其他数据库错误保持传播。
     此步骤须在任何收费调用之前完成；同一 UUID 换内容也不会重新执行。
     """
     try:
         with transaction.atomic():
-            interview, _ = AgentInterview.objects.get_or_create(id=interview_id)
+            interview, _ = AgentInterview.objects.get_or_create(
+                id=interview_id, defaults={"owner_id": owner_id}
+            )
+            if interview.owner_id != owner_id:
+                raise PermissionError("Interview does not belong to this connection")
             if interview.status not in {"preparing", "active"}:
                 raise RuntimeError("Interview is no longer accepting commands")
             AgentRequest.objects.create(

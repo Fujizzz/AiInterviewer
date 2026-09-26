@@ -1,6 +1,6 @@
 /**
  * @module app
- * 功能：流式诊断页面入口：协调 StreamClient、媒体采集模块和 DemoView，处理整次测试的生命周期。
+ * 功能：流式诊断页面入口：协调 StreamClient、媒体采集模块和 DemoView，处理整次测试的生命周期及多语言状态文案。
  *
  * 目录：
  * - registerControls：
@@ -49,6 +49,8 @@
  *   当前录制器的停止回调。
  * - cleanupMedia：
  *   当前媒体来源的清理回调。
+ * - appText：
+ *   读取 i18n.js 的当前语言文案；缺失时保留测试环境兼容键值。
  *
  * 关键状态说明：
  * stream-client 负责网络协议，media 负责设备与录制，view 负责 DOM 与 Blob URL。测试参数、超时和失败语义保持既定行为。
@@ -60,6 +62,8 @@ import { DemoView } from "./view.js";
 const view = new DemoView(document);
 const wsUrl = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/ws/echo/`;
 view.element("endpoint").textContent = wsUrl;
+/** 读取诊断页当前语言文案；缺失国际化模块时保留中文开发测试语义。 */
+const appText = (key, values = {}) => window.AppI18n?.t(key, values) ?? key;
 let client = null;
 let running = false;
 let stopRecording = null;
@@ -81,7 +85,7 @@ async function runTest(mode, test) {
   running = true;
   view.busy(true);
   view.reset();
-  view.status("连接中");
+  view.status(appText("status_connecting"));
   client = new StreamClient(wsUrl, {
     /** 将已校验分片的进度交给视图，不自行累加计数。 */
     onProgress: (progress) => view.progress(progress),
@@ -90,8 +94,8 @@ async function runTest(mode, test) {
   });
   try {
     const hello = await client.connect();
-    view.log(`连接 ${hello.connection_id} · ${mode}`);
-    view.status("已连接 · 正在测试");
+    view.log(`${appText("status_connection")} ${hello.connection_id} · ${mode}`);
+    view.status(appText("status_testing"));
     await test(client);
     view.success(mode, await client.finish());
   } catch (error) {
@@ -108,7 +112,7 @@ async function runTest(mode, test) {
 async function testPing(connection) {
   const rtt = await connection.ping();
   view.element("latency").textContent = rtt.toFixed(1);
-  view.log(`pong 已收到 · RTT ${rtt.toFixed(1)} ms`);
+  view.log(appText("status_pong", { ms: rtt.toFixed(1) }));
 }
 
 /** 按原条件发送 12 个 32 KiB 确定性载荷，分片之间保留 50 ms 测试间隔。 */

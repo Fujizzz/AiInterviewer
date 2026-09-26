@@ -1,6 +1,6 @@
 /*
  * 文件职责：测试页展示样式，不参与传输逻辑。
- * 目录：基础字体与配色；连接与指标卡；操作控件；媒体网格；日志；窄屏布局。
+ * 目录：基础字体与配色；连接与指标卡；操作控件；语言选择器；媒体网格；日志；窄屏布局。
  * 关键选择器：.panel 管理内容分区，.metrics 展示计数，.media-grid 排列媒体；
  * #status.error 标记失败，button:disabled 呈现不可操作状态。无函数或 CSS 自定义变量。
  * 约束：样式只影响视觉和布局，不改变采集参数或实验时长。
@@ -35,4 +35,6 @@ video { width: 100%; aspect-ratio: 16 / 9; background: #142d34; border-radius: 8
 #summary { font-size: 13px; overflow-wrap: anywhere; line-height: 1.8; }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; margin-bottom: 0; background: #f3f6f6; padding: 16px; border-radius: 6px; max-height: 160px; overflow-y: auto; font: 12px/1.8 Consolas, monospace; }
 footer { text-align: center; font-size: 12px; color: #6a7d84; padding: 10px; }
+.language-picker { display: inline-flex; align-items: center; gap: 7px; margin-left: 12px; color: #526d74; font-size: 12px; }
+.language-picker select { border: 1px solid #afc6c0; border-radius: 6px; background: #fff; color: #236b5d; padding: 6px 8px; font: inherit; }
 @media (max-width: 650px) { main { padding: 28px 16px; } h1 { font-size: 28px; } .metrics { gap: 8px; } .metrics div { padding: 12px; } .metrics strong { font-size: 21px; } .metrics small { display: block; } .media-grid { grid-template-columns: 1fr; } .panel { padding: 18px; } }

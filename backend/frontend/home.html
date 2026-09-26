@@ -1,65 +1,73 @@
 <!doctype html>
 <!--
+账号关联：Django 渲染用户导航和 CSRF token；用户名自动转义，退出经 POST，不在客户端存储凭据。
 职责：统一主页，介绍 PDF/文本简历入口并帮助使用者进入文字面试或开发诊断。
-实现：使用静态语义 HTML 与同源链接导航；不调用模型、不创建会话、不申请设备权限。
-关联：由 config.urls 的 / 路由经 demo_asset 交付，样式来自 style.css 和 home.css。
-目录：主导航；面试介绍与入口；三步使用说明；开发诊断入口；页脚。函数和类：无。
-变量索引：无脚本变量或配置项；#main-content 是跳过导航的目标，#diagnostics 是诊断锚点。
+实现：使用静态语义 HTML、同源链接和统一语言选择器导航；不调用模型、不创建会话、不申请设备权限。
+关联：由 config.urls 的 / 路由经 demo_asset 交付，样式来自 style.css 和 home.css，i18n.js 负责中英文和系统语言切换。
+目录：主导航与语言选择；面试介绍与入口；三步使用说明；开发诊断入口；页脚。函数和类：无。
+变量索引：data-page-title、data-i18n 和 data-language-selector 供 i18n.js 使用；#main-content 是跳过导航的目标，#diagnostics 是诊断锚点。
 约束：能力说明对应现有文字 MVP；不将传输诊断描述为语音面试，不显示未经检测的健康状态。
 -->
-<html lang="zh-CN">
+<html lang="zh-CN" data-page-title="home_title">
 <head>
   <meta charset="utf-8">
+  <meta id="csrf-token" name="csrf-token" content="{{ csrf_token }}">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>AI Interviewer · 主页</title>
+  <script type="module" src="/stream-demo/i18n.js"></script>
   <link rel="stylesheet" href="/stream-demo/style.css">
   <link rel="stylesheet" href="/stream-demo/home.css">
+  <link rel="stylesheet" href="/stream-demo/account.css">
 </head>
 <body class="home-page">
-  <a class="skip-link" href="#main-content">跳转到主要内容</a>
+  <a class="skip-link" href="#main-content" data-i18n="home_skip">跳转到主要内容</a>
   <div class="home-shell">
-    <nav class="home-nav" aria-label="主导航">
+    <nav class="home-nav" aria-label="主导航" data-i18n-attr="aria-label:nav_label">
       <a class="brand" href="/" aria-current="page"><span class="brand-mark" aria-hidden="true">AI</span> Interviewer</a>
-      <a class="nav-link" href="#diagnostics">开发诊断 <span aria-hidden="true">↗</span></a>
+      <div class="home-nav-actions">
+        {% include "account-nav.html" %}
+        <a class="nav-link" href="#diagnostics" data-i18n="home_diagnostics">开发诊断 ↗</a>
+        <label class="language-picker"><span data-language-label>界面语言</span><select data-language-selector aria-label="界面语言" data-i18n-attr="aria-label:language"><option value="system" data-i18n="language_system">跟随系统</option><option value="zh" data-i18n="language_zh">中文</option><option value="en" data-i18n="language_en">English</option></select></label>
+      </div>
     </nav>
     <main id="main-content">
       <section class="hero" aria-labelledby="home-title">
         <div class="hero-copy">
           <span class="eyebrow">AI MOCK INTERVIEW</span>
-          <h1 id="home-title">从你的经历出发，<br>练习更有深度的面试。</h1>
-          <p class="hero-description">围绕简历中的项目展开问答，根据你的回答继续追问，帮助你梳理技术思路、个人贡献与决策依据。</p>
-          <a class="primary-link" href="/agent/">开始 AI 文字面试 <span aria-hidden="true">↗</span></a>
-          <p class="hero-note">支持粘贴简历文本，也可导入 PDF，自动提取并对照原页校对。</p>
+          <h1 id="home-title" data-i18n="home_heading">从你的经历出发，<br>练习更有深度的面试。</h1>
+          <p class="hero-description" data-i18n="home_description">围绕简历中的项目展开问答，根据你的回答继续追问，帮助你梳理技术思路、个人贡献与决策依据。</p>
+          <a class="primary-link" href="/agent/" data-i18n="home_start">开始 AI 文字面试 ↗</a>
+          <p class="hero-note" data-i18n="home_note">支持粘贴简历文本，也可导入 PDF，自动提取并对照原页校对。</p>
         </div>
         <aside class="overview" aria-labelledby="overview-title">
-          <span class="eyebrow">你的面试练习</span>
-          <h2 id="overview-title">个性化提问，结构化反馈</h2>
-          <p>从项目经历到回答证据，逐步了解你展现出的能力。</p>
+          <span class="eyebrow" data-i18n="home_practice">你的面试练习</span>
+          <h2 id="overview-title" data-i18n="home_overview">个性化提问，结构化反馈</h2>
+          <p data-i18n="home_overview_text">从项目经历到回答证据，逐步了解你展现出的能力。</p>
           <ul class="feature-list">
-            <li><span aria-hidden="true">01</span><div><strong>简历驱动</strong><p>围绕你的项目、技术栈和实际职责提问。</p></div></li>
-            <li><span aria-hidden="true">02</span><div><strong>自适应追问</strong><p>结合回答调整问题方向与深入程度。</p></div></li>
-            <li><span aria-hidden="true">03</span><div><strong>能力反馈</strong><p>结束后查看评分、覆盖程度和改进建议。</p></div></li>
+            <li><span aria-hidden="true">01</span><div><strong data-i18n="home_feature_resume">简历驱动</strong><p data-i18n="home_feature_resume_text">围绕你的项目、技术栈和实际职责提问。</p></div></li>
+            <li><span aria-hidden="true">02</span><div><strong data-i18n="home_feature_adaptive">自适应追问</strong><p data-i18n="home_feature_adaptive_text">结合回答调整问题方向与深入程度。</p></div></li>
+            <li><span aria-hidden="true">03</span><div><strong data-i18n="home_feature_feedback">能力反馈</strong><p data-i18n="home_feature_feedback_text">结束后查看评分、覆盖程度和改进建议。</p></div></li>
           </ul>
         </aside>
       </section>
       <section class="steps-section" aria-labelledby="steps-title">
-        <h2 id="steps-title">三步完成一次练习</h2>
+        <h2 id="steps-title" data-i18n="home_steps_title">三步完成一次练习</h2>
         <ol class="steps">
-          <li><span class="step-number">01 / 准备</span><h3>导入简历</h3><p>粘贴文本或解析 PDF，核对后填写岗位和面试设置。</p></li>
-          <li><span class="step-number">02 / 对话</span><h3>逐题回答</h3><p>用文字说明你的思路，结合具体例子和结果。</p></li>
-          <li><span class="step-number">03 / 复盘</span><h3>查看报告</h3><p>回顾问答、能力评价和需要补充的证据。</p></li>
+          <li><span class="step-number" data-i18n="home_step_prepare">01 / 准备</span><h3 data-i18n="home_step_prepare_title">导入简历</h3><p data-i18n="home_step_prepare_text">粘贴文本或解析 PDF，核对后填写岗位和面试设置。</p></li>
+          <li><span class="step-number" data-i18n="home_step_dialogue">02 / 对话</span><h3 data-i18n="home_step_dialogue_title">逐题回答</h3><p data-i18n="home_step_dialogue_text">用文字说明你的思路，结合具体例子和结果。</p></li>
+          <li><span class="step-number" data-i18n="home_step_review">03 / 复盘</span><h3 data-i18n="home_step_review_title">查看报告</h3><p data-i18n="home_step_review_text">回顾问答、能力评价和需要补充的证据。</p></li>
         </ol>
-        <p class="session-note">简历和回答会发送给已配置的模型服务。资料、回答和报告会保存在本机数据库；清空页面不会删除历史，离开后暂不支持续接面试。</p>
+        <p class="session-note" data-i18n="home_session_note">简历和回答会发送给已配置的模型服务。资料、回答和报告会保存在服务端数据库；清空页面不会删除历史，离开后暂不支持续接面试。</p>
       </section>
       <section id="diagnostics" class="diagnostics" aria-labelledby="diagnostics-title">
-        <div><span class="eyebrow">开发工具</span><h2 id="diagnostics-title">检查连接与媒体传输</h2><p>用于本地开发调试，音视频测试独立于文字面试。</p></div>
+        <div><span class="eyebrow" data-i18n="home_tools">开发工具</span><h2 id="diagnostics-title" data-i18n="home_diagnostics_title">检查连接与媒体传输</h2><p data-i18n="home_diagnostics_text">用于本地开发调试，音视频测试独立于文字面试。</p></div>
         <div class="diagnostic-links">
-          <a class="secondary-link" href="/stream-demo/">进入传输诊断 <span aria-hidden="true">↗</span></a>
-          <a class="health-link" href="/api/health/">查看服务健康信息（JSON）</a>
+          <a class="secondary-link" href="/stream-demo/" data-i18n="home_stream">进入传输诊断 ↗</a>
+          <a class="health-link" href="/api/health/" data-i18n="home_health">查看服务健康信息（JSON）</a>
         </div>
       </section>
     </main>
-    <footer class="home-footer"><span>AI Interviewer</span><span>自适应提问 · 基于回答证据的反馈</span></footer>
+    <footer class="home-footer"><span>AI Interviewer</span><span data-i18n="home_footer">自适应提问 · 基于回答证据的反馈</span></footer>
   </div>
 </body>
 </html>

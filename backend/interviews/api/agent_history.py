@@ -1,7 +1,7 @@
 """职责：提供本机只读 Agent 面试历史，不将历史查询当作重新执行或恢复命令。
 
 实现：分页列表仅读关系元数据；详情按面试外键读取问题、回答与最后成功报告。
-关联：使用 agent_models，沿用 LocalOnlyMiddleware；未来共享访问须先增加身份和对象权限。
+关联：使用 agent_models，按会话认证用户过滤；无归属旧记录不向注册账号公开。
 
 目录：
 - InterviewSummary：显式列出可公开的面试元数据，不在列表加载候选人上下文。
@@ -9,6 +9,7 @@
 - RequestSummary：公开请求状态和固定错误码，不在列表返回资料或响应正文。
 - RequestSummary.Meta：定义请求元数据字段。
 - AgentHistoryViewSet：只读历史及请求查询，不开放创建、修改、删除或自动重试。
+- AgentHistoryViewSet.get_queryset：按登录用户过滤，使详情与子请求路由共用同一归属边界。
 - AgentHistoryViewSet.finalize_response：对历史成功及错误响应设置禁止缓存头。
 - AgentHistoryViewSet.retrieve：返回上下文、已接受回答及提交标记，区分未完成报告。
 - AgentHistoryViewSet.requests：分页返回当前面试的请求元数据。
@@ -61,13 +62,17 @@ class AgentHistoryViewSet(
 ):
     """只读历史及请求查询，不开放创建、修改、删除或自动重试。
 
-    当前无用户身份，访问权限完全沿用本机限制；UUID 不是授权凭据，不开放远程共享。
+    按登录用户过滤；本地匿名模式只读未归属记录。UUID 不是授权凭据。
     queryset 避免列表读取较大的 JSON 列；详情在按 ID 定位后再读取它们。
     """
 
     queryset = AgentInterview.objects.defer("context", "latest_action")
     serializer_class = InterviewSummary
     http_method_names = ["get", "head", "options"]
+
+    def get_queryset(self):
+        """按当前认证用户 ID 过滤，所有详情及请求查询调用 get_object 后才可读取内容。"""
+        return super().get_queryset().filter(owner_id=getattr(self.request.user, "pk", None))
 
     def finalize_response(self, request, response, *args, **kwargs):
         """对历史成功及错误响应设置禁止缓存头；其余 DRF 响应处理保持原样。"""

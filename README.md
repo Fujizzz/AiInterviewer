@@ -115,6 +115,8 @@ uv run python main.py resume.pdf \
 其浏览器诊断页位于 `backend/frontend/`，与未来根目录 `frontend/` 产品代码分开。
 安装与启动见 [后端说明](backend/README.md)，模块职责和函数注释规范见 [代码阅读指南](backend/docs/code-guide.md)。
 
+三个浏览器页面均支持中文、English 和跟随系统；语言选择保存在浏览器中，只影响界面和诊断文案，不改变面试协议或评分逻辑。
+
 ## 测试
 
 ```bash

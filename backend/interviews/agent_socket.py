@@ -7,6 +7,7 @@
   预解析简历，不启动题目预算；已开始的连接不可重新准备。
 - Start：
   MVP 原有参数默认值；文本必须非空，题数及追问范围保持原有语义。
+- Start.exclusive_topic_budget：拒绝同时传入两个互斥的追问预算字段。
 - Answer：
   回答必须关联当前问题，旧问题或重复请求不能再次触发模型调用。
 - Cancel：
@@ -34,7 +35,7 @@
 agent_socket 内 session 属于当前连接；operation 为唯一业务任务，receiver 为接收任务。
 interview_started 区分资料已准备和已开始面试；progress_events 只控制事件交付，不影响策略。
 request_id 关联当前响应；seen 记录已接受执行的请求。Command.request_id 为 UUID。
-数据库请求主键提供跨连接去重；输入正文不写日志；历史仍受本机同源访问策略保护。
+数据库请求主键提供跨连接去重；scope.user 来自会话认证，历史按创建用户隔离。
 Start 保留 MVP 默认题数、追问和岗位参数；Answer 绑定当前问题。
 ASGI 准入租约通过模型引用延长到实际同步调用结束；不把资源拒绝传入 Agent 触发备用出题。
 """
@@ -90,6 +91,7 @@ class Start(Command):
 
     @model_validator(mode="after")
     def exclusive_topic_budget(self):
+        """校验本实例的两个预算字段互斥；冲突抛 ValueError，否则原样返回，不改变默认值。"""
         if self.max_follow_up_per_topic is not None and self.max_questions_per_topic is not None:
             raise ValueError("Use max_questions_per_topic OR max_follow_up_per_topic, not both")
         return self
@@ -131,7 +133,7 @@ def parse_command(raw):
 async def agent_socket(scope, receive, send):
     """管理一次本机同源文字面试的 ASGI 生命周期，不访问练习数据库。
 
-    输入：scope 提供连接地址和来源；receive/send 为 ASGI 异步事件回调。
+    输入：scope 提供连接地址、来源和上游验证的 user；receive/send 为 ASGI 异步事件回调。
     逻辑：握手校验→公告限制→并行等待接收与当前业务任务→校验命令→返回完整结果。
     先发送 started，再调度业务协程，保证真实阶段事件不会早于请求接收确认。
     状态不变量：operation 至多一个；receiver 持续监听；seen 只收录已接受执行的请求 ID。
@@ -310,7 +312,10 @@ async def agent_socket(scope, receive, send):
                     await reject("stale_question", "请回答服务端返回的当前问题。", incoming_id)
                     continue
             try:
-                await reserve_request(session.interview_id, command)
+                await reserve_request(
+                    session.interview_id, command,
+                    owner_id=getattr(scope.get("user"), "pk", None),
+                )
             except DuplicateRequest:
                 await reject("duplicate_request", "此 request_id 已接收，请勿重发。", incoming_id)
                 continue

@@ -1,6 +1,6 @@
 /**
  * @module view
- * 功能：封装诊断页 DOM 与回放资源管理，不执行网络请求或设备采集。
+ * 功能：封装诊断页 DOM、回放资源管理和当前语言结果文案，不执行网络请求或设备采集。
  *
  * 目录：
  * - DemoView：
@@ -38,7 +38,7 @@
  * （无模块级变量。）
  *
  * 关键状态说明：
- * document 为调用者提供的 DOM；playbackUrl 至多指向当前回放，替换或离开页面时释放。日志只在页面内保留，不写 console、文件或浏览器持久存储。
+ * document 为调用者提供的 DOM；playbackUrl 至多指向当前回放，替换或离开页面时释放。日志只在页面内保留，不写 console、文件或浏览器持久存储；结果文案由 AppI18n 按当前语言生成。
  */
 /** 管理诊断页面的 DOM 展示、忙碌状态与回放 URL 生命周期。 */
 export class DemoView {
@@ -89,7 +89,7 @@ export class DemoView {
     this.element("chunks").textContent = "0";
     this.element("bytes").textContent = "0";
     this.element("latency").textContent = "—";
-    this.element("summary").textContent = "测试进行中…";
+    this.element("summary").textContent = window.AppI18n?.t("stream_running") ?? "测试进行中…";
   }
 
   /** 将 MediaStream 交给本地预览；传入 null 可解除元素对采集流的引用。 */
@@ -116,18 +116,20 @@ export class DemoView {
 
   /** 展示服务端完成确认；ping 与媒体校验使用不同文字以避免零分片误导。 */
   success(mode, summary) {
-    this.status("通过 · 回传校验完成");
+    const t = (key, values = {}) => window.AppI18n?.t(key, values) ?? key;
+    this.status(t("stream_pass"));
     this.element("summary").textContent = mode === "ping"
-      ? "PASS · 收到匹配的 pong 响应。结果仅在当前页面显示。"
-      : `PASS · ${summary.chunk_count} 个分片 / ${summary.byte_count} bytes，全部通过 SHA-256 校验。结果仅在当前页面显示。`;
-    this.log(`完成：${summary.chunk_count} 个分片，${summary.byte_count} bytes`);
+      ? t("stream_pass_ping")
+      : t("stream_pass_media", { chunks: summary.chunk_count, bytes: summary.byte_count });
+    this.log(t("stream_complete_log", { chunks: summary.chunk_count, bytes: summary.byte_count }));
   }
 
   /** 展示失败并撤销可能尚未获最终确认的回放；不触发重连或重试。 */
   failure(error) {
-    this.status("测试失败", true);
-    this.element("summary").textContent = `FAIL · ${error.message}`;
-    this.log(`失败：${error.message}`);
+    const t = (key, values = {}) => window.AppI18n?.t(key, values) ?? key;
+    this.status(t("stream_failed"), true);
+    this.element("summary").textContent = t("stream_fail_summary", { message: error.message });
+    this.log(t("stream_fail_log", { message: error.message }));
     this.releasePlayback();
   }
 
@@ -136,7 +138,8 @@ export class DemoView {
     this.reset();
     this.element("source").getContext("2d").clearRect(0, 0, 640, 360);
     this.element("log").textContent = "";
-    this.element("summary").textContent = "已清空本次结果与媒体缓存。";
-    this.status("就绪");
+    const t = (key) => window.AppI18n?.t(key) ?? key;
+    this.element("summary").textContent = t("stream_cleared");
+    this.status(t("status_ready"));
   }
 }
