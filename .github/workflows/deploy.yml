@@ -1,0 +1,59 @@
+# 职责：main 推送后测试并自动部署至既有 Ubuntu 服务器。
+# 实现：GitHub 托管 runner 执行测试；受限 SSH 密钥上传确定提交，服务器串行备份/发布/验证。
+# 关联：deploy-release.py 为服务器 root 固定入口；私钥和 known_hosts 存于 Actions secrets。
+# 目录：verify、deploy 两个 job。变量索引：secrets.DEPLOY_SSH_KEY/DEPLOY_KNOWN_HOSTS 为访问凭据。
+name: Verify and deploy
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: production-main
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-22.04
+    env:
+      DJANGO_SECRET_KEY: ci-only-non-production-key
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install locked runtime and test tools
+        run: python -m pip install -r deploy/requirements-linux.lock.txt pytest pytest-asyncio
+      - name: Core tests
+        run: python -m pytest -q
+      - name: Backend tests
+        working-directory: backend
+        run: python manage.py test interviews --noinput
+      - name: Browser client tests
+        run: node --test backend/tests/*.test.mjs
+  deploy:
+    needs: verify
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy verified commit
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          REVISION: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/deploy_key ~/.ssh/known_hosts
+          trap 'rm -f ~/.ssh/deploy_key' EXIT
+          git archive --format=tar.gz "$REVISION" | ssh -T -i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes ai-deploy@47.239.50.129 "deploy $REVISION"
+      - name: Verify public HTTPS
+        run: curl --fail --silent --show-error https://47.239.50.129/login/ --output /dev/null

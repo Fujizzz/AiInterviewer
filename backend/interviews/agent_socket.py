@@ -36,7 +36,7 @@
 agent_socket 内 session 属于当前连接；operation 为唯一业务任务，receiver 为接收任务。
 interview_started 区分资料已准备和已开始面试；progress_events 只控制事件交付，不影响策略。
 request_id 关联当前响应；seen 记录已接受执行的请求。Command.request_id 为 UUID。
-数据库请求主键提供跨连接去重；输入正文不写日志；历史仍受本机同源访问策略保护。
+数据库请求主键提供跨连接去重；scope.user 来自会话认证，历史按创建用户隔离。
 Start 的题数参数为安全上限，不决定时间预算；Answer 绑定当前问题。
 ASGI 准入租约通过模型引用延长到实际同步调用结束；不把资源拒绝传入 Agent 触发备用出题。
 """

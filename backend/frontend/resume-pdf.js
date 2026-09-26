@@ -37,7 +37,7 @@ let pdfStarted = 0;
 let pdfReviewed = false;
 const PDF_FALLBACK = {
   pdf_selected: "文件已选择，点击后将依次执行传统提取和视觉校对。", pdf_cancelled: "已取消，尚未完成视觉校对。", pdf_initial: "选择 PDF 后解析并校对；也可以直接粘贴文本。",
-  pdf_done: "校对完成，可直接使用下方结果。", pdf_empty: "PDF 必须非空且不超过 10 MiB。", pdf_uploading: "正在上传 PDF…",
+  pdf_done: "校对完成，可直接使用下方结果。", pdf_empty: "PDF 必须非空且不超过 10 MiB。", pdf_uploading: "正在上传 PDF…", pdf_queued: "任务已提交，等待后台处理…",
   pdf_extra_data: "完成事件后收到额外数据。", pdf_incomplete: "解析连接提前结束，结果未完成。", pdf_failed: "解析失败：{message}（未自动采用文本）",
   pdf_extracting: "正在隔离环境中提取 PDF 文本并渲染页面", pdf_review_progress: "视觉校对：已完成 {done}/{total} 页", pdf_uncertainty: "第 {page} 页待核对：{notes}",
   pdf_used: "已填入简历文本，可继续编辑、提前解析或开始面试。",
@@ -90,13 +90,14 @@ function pdfCancel() {
   pdfControls();
 }
 
-/** 输入服务端事件，更新本次预览并返回是否成功终态；error 抛错且不伪装完成。 */
+/** 输入服务端事件，翻译排队/处理状态并更新本次预览并返回是否成功终态；error 抛错且不伪装完成。 */
 function pdfEvent(data) {
   if (data.type === "error") throw new Error(data.detail);
   if (data.type === "progress") {
+    const queued = data.stage === "queued";
     const extracting = data.detail === "正在隔离环境中提取 PDF 文本并渲染页面";
     const review = /^视觉校对：已完成 (\d+)\/(\d+) 页$/.exec(data.detail || "");
-    pdfEl("pdf-status").textContent = extracting ? pdfText("pdf_extracting")
+    pdfEl("pdf-status").textContent = queued ? pdfText("pdf_queued") : extracting ? pdfText("pdf_extracting")
       : review ? pdfText("pdf_review_progress", { done: review[1], total: review[2] }) : data.detail;
   }
   else if (data.type === "result") {

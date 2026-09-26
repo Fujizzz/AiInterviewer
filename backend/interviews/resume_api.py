@@ -1,5 +1,6 @@
-"""职责：提供本地 PDF 上传及可取消的阶段流，不写业务数据库或保存简历。
-实现：multipart 有界读取；PDF 库只在隔离进程解析，视觉最多三页并发并按实际完成数发进度。
+"""职责：提供 PDF 上传及可取消的阶段流，不写业务数据库或保存简历。
+实现：按显式配置在 Celery 或开发进程执行同一管线；multipart 有界读取；
+PDF 库只在隔离进程解析，视觉最多三页并发并按实际完成数发进度。
 关联：api.urls 注册 /api/resume/parse/；resume-pdf.js 消费 NDJSON；Agent 校验转写。
 
 目录：
@@ -27,6 +28,7 @@ from contextlib import aclosing
 from time import perf_counter
 from uuid import uuid4
 
+from django.conf import settings
 from django.http import JsonResponse, StreamingHttpResponse
 
 from agents.resume_cleanup import ResumeCleanupAgent
@@ -80,10 +82,11 @@ async def review_pages(agent, pages):
 
 
 async def parse_resume_pdf(request):
-    """输入本机同源 multipart POST，输出 NDJSON 流或固定格式 4xx 错误。
+    """输入已认证同源 multipart POST，输出 NDJSON 流或固定格式 4xx 错误。
 
     仅接受一个 file，不接受模式选择；内容由规则层再校验。
     有界读取避免把超限上传载入业务内存；上传解析在工作线程，避免阻塞 ASGI 循环。
+    生产把一次性输入和进度交给 Redis/Celery，流关闭将通知 worker 取消。
     未修改全局 JSON API 解析器、WebSocket 消息上限和已有面试行为。
     """
     if request.method != "POST":
@@ -99,9 +102,14 @@ async def parse_resume_pdf(request):
     if not 0 < upload.size <= MAX_BYTES:
         return JsonResponse({"error": "PDF 必须非空且不超过 10 MiB。"}, status=413)
     data = await asyncio.to_thread(upload.read, MAX_BYTES + 1)
-    response = StreamingHttpResponse(
-        resume_events(data), content_type="application/x-ndjson; charset=utf-8"
-    )
+    # 生产队列不可用时由队列层明确失败；开发 inline 是显式模式，绝非故障回退。
+    if settings.PDF_TASK_EXECUTION == "celery":
+        from .pdf_queue import queued_resume_events
+
+        events = queued_resume_events(data)
+    else:
+        events = resume_events(data)
+    response = StreamingHttpResponse(events, content_type="application/x-ndjson; charset=utf-8")
     response["Cache-Control"] = "no-store"
     response["X-Accel-Buffering"] = "no"
     return response

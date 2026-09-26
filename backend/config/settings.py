@@ -4,6 +4,9 @@
 （无本地函数或类定义。）
 
 关键变量：
+- PDF_TASK_EXECUTION：开发默认 inline；显式 celery 模式使用 Redis，不自动回退。
+- CELERY_BROKER_URL：Celery 私有 Redis 队列地址。
+- PDF_TASK_REDIS_URL：PDF 短期正文、进度和取消标记的私有 Redis 地址。
 - ALLOWED_HOSTS：
   本机 HTTP Host 白名单，与访问中间件共同限制服务入口。
 - ASGI_APPLICATION：
@@ -114,3 +117,9 @@ LOGGING = {
     "handlers": {"console": {"class": "logging.StreamHandler", "formatter": "context"}},
     "loggers": {"interviews": {"handlers": ["console"], "level": "INFO", "propagate": False}},
 }
+
+PDF_TASK_EXECUTION = os.environ.get("PDF_TASK_EXECUTION", "inline")
+if PDF_TASK_EXECUTION not in {"inline", "celery"}:
+    raise ValueError("PDF_TASK_EXECUTION must be inline or celery")
+CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "redis://127.0.0.1:6379/0")
+PDF_TASK_REDIS_URL = os.environ.get("PDF_TASK_REDIS_URL", "redis://127.0.0.1:6379/1")

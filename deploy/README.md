@@ -14,8 +14,8 @@
 | 应用服务 | `ai-interviewer.service`，低权限用户 `aiinterviewer`，仅监听 `127.0.0.1:8765` |
 | 公网入口 | Nginx 80/443，HTTP 跳转 HTTPS，Django session 账号认证，WebSocket/NDJSON 不缓冲 |
 | TLS | Let's Encrypt IP 短期证书，`ai-interviewer-certbot-renew.timer` 每六小时检查续签 |
-| 发布目录 | `/opt/ai-interviewer/releases/20260926-accounts`；`current` 符号链接指向当前版本 |
-| 应用依赖 | `/opt/ai-interviewer/venv`；实际版本保存在 `requirements-linux.lock.txt` |
+| 发布目录 | `/opt/ai-interviewer/releases/<完整提交 SHA>`；`current` 符号链接指向当前版本 |
+| 应用依赖 | 每个发布目录的 `.venv`；固定依赖保存在 `requirements-linux.lock.txt` |
 | 凭据 | `/etc/ai-interviewer/app.env`，root 所有，权限 `0600`；模型配置沿用本地 |
 | 用户账号 | PostgreSQL 中的 Django 用户与 session；密码仅保存哈希 |
 | PDF 隔离环境 | `/opt/ai-interviewer/pdf-sandbox`，系统 Python 3.10 专用解析依赖和 bubblewrap |
@@ -23,8 +23,9 @@
 | 数据备份 | `backup-postgresql.sh` 手动创建 `/var/backups/ai-interviewer/*.dump` |
 
 服务器使用新建数据库，只由既有迁移初始化两道练习题；未导入本地 SQLite 历史。
-部署包含当前工作区已有的未提交前端变更；未上传 `.git`、本地数据库、日志、缓存或虚拟环境。
-模型、采样参数、评分策略、推荐权重、PDF 参数和容量限制均保留原设置。
+部署使用 Git 提交的源码归档；未上传 `.git`、本地数据库、日志、缓存或虚拟环境。
+Redis/Celery 接入不修改模型、采样参数、评分策略、推荐权重、PDF 参数或容量限制。
+本次同时合并远程 main 的 Plan and Execute 版本；面试时长和题数安全上限沿用该远程版本。
 生产配置通过 `DJANGO_SETTINGS_MODULE=config.production` 显式启用；默认开发启动仍使用 SQLite。
 PostgreSQL 配置不全或连接失败时明确报错，不回退到 SQLite。
 
@@ -33,7 +34,7 @@ PostgreSQL 配置不全或连接失败时明确报错，不回退到 SQLite。
 以下命令通过 SSH 在服务器以 root 执行：
 
 ```bash
-systemctl status ai-interviewer nginx postgresql --no-pager
+systemctl status ai-interviewer ai-interviewer-celery redis-server nginx postgresql --no-pager
 journalctl -u ai-interviewer -n 100 --no-pager
 systemctl restart ai-interviewer
 systemctl list-timers ai-interviewer-certbot-renew.timer --no-pager
@@ -55,8 +56,8 @@ set -a
 . /etc/ai-interviewer/app.env
 set +a
 cd /opt/ai-interviewer/current/backend
-runuser -u aiinterviewer -- /opt/ai-interviewer/venv/bin/python manage.py migrate --noinput
-runuser -u aiinterviewer -- /opt/ai-interviewer/venv/bin/python manage.py check --deploy
+runuser -u aiinterviewer -- /opt/ai-interviewer/current/.venv/bin/python manage.py migrate --noinput
+runuser -u aiinterviewer -- /opt/ai-interviewer/current/.venv/bin/python manage.py check --deploy
 curl -fsS -H 'Host: 47.239.50.129' -H 'X-Forwarded-Proto: https' \
   http://127.0.0.1:8765/login/ > /dev/null
 ```
@@ -85,7 +86,7 @@ TCP 80/443，随后申请证书：
 
 ## 已验证与边界
 
-- 本地 SQLite 和服务器临时 PostgreSQL 数据库分别通过全部 104 项后端测试。
+- 账号版本此前在 SQLite/PostgreSQL 通过 104 项后端测试；队列版本新增 5 项生命周期测试。
 - PostgreSQL migrations 与 `makemigrations --check --dry-run` 通过；健康接口报告 `postgresql`。
 - 公网 HTTPS 主页与账号页公开；未登录 API 返回 401、面试页跳转登录，登录后可访问自己的记录。
 - 注册、登录、退出、CSRF、跨账号读写隔离及退出后现有 WebSocket 失效均通过公网实测。
@@ -106,3 +107,43 @@ TCP 80/443，随后申请证书：
 
 ASGI 下的数据库连接配置依据 [Django 5.2 数据库说明](https://docs.djangoproject.com/en/5.2/ref/databases/)。
 IP 证书与续签设置依据 [Let's Encrypt / Certbot 官方说明](https://letsencrypt.org/2026/03/11/shorter-certs-certbot)。
+
+## Redis 与 Celery
+
+生产的 PDF 上传由独立 `ai-interviewer-celery.service` 执行，页面仍使用同一条 NDJSON
+连接接收排队、提取、校对和完成事件；取消/关闭连接通过 Redis 消费标记通知 worker。
+面试模型仍按既有 WebSocket 流程执行。Celery 两个进程保持两份 PDF 容量，每份三页视觉并发不变。
+
+Redis 仅绑定 `127.0.0.1`/`::1`，随机密码保存在 root 私有配置；0 号库存消息，1 号库存
+短期输入与进度。禁用 RDB/AOF，512 MiB 上限、noeviction，避免候选人资料写入 Redis 持久文件。
+Celery 消息只包含随机任务 ID；正文被 worker 原子取走并删除，禁止重复消息重新调用模型。
+正常完成或取消清理临时键；进程崩溃时正文/事件最多保留一小时，存活标记在秒级过期。
+客户端停止续期十秒后 worker 取消；worker 心跳失效则前端明确报错。已被模型服务接收的请求
+仍可能计费。禁用任务重试、发布重试和 broker 自动重连；故障后需排查并显式重启，不切回 inline。
+
+本地默认 `PDF_TASK_EXECUTION=inline`；显式配置 `celery` 时需要启动 Redis 并设置
+`CELERY_BROKER_URL` 和 `PDF_TASK_REDIS_URL`，随后在 backend 运行：
+
+```bash
+celery -A config.celery:app worker --loglevel=WARNING --concurrency=2
+```
+
+生产配置强制 Celery。环境、密钥与模型参数位于 `/etc/ai-interviewer/app.env`；
+Redis 专用配置为 `/etc/redis/ai-interviewer.conf`。两个应用服务均由 systemd 管理并开机启动。
+
+## 自动部署
+
+仓库 `.github/workflows/deploy.yml` 在 **push 到 main** 时自动运行，也可在 Actions 手动触发。
+本地修改或仅 commit 尚未 push 不会发布。流程先运行核心、后端、前端测试，全部成功后部署。
+Actions 使用独立 `DEPLOY_SSH_KEY` 和固定 `DEPLOY_KNOWN_HOSTS`；密钥只允许执行发布入口，
+禁用交互 shell、端口转发和代理转发，不使用 root 密码。服务器入口由 root 安装为
+`/usr/local/sbin/ai-interviewer-deploy`，更新该入口须显式审查并安装新版脚本。
+
+发布按完整 SHA 建立独立目录及虚拟环境，进行配置检查、迁移差异检查和 PostgreSQL 备份，
+再停止 ASGI/worker、执行迁移、切换 current 并启动服务。随后检查 HTTP、数据库、Redis，
+并实际发送/消费一个无模型调用的 Celery 探针。验证成功后写入 `/opt/ai-interviewer/deployed-revision`。
+并发 workflow 串行运行，服务器另有文件锁；同一成功版本再次部署只验证健康。
+
+失败在 Actions 中明确显示，日志保留；没有自动重试或数据库回滚。数据库迁移失败时保持停服，
+人工审查备份和 schema 后恢复。失败发布目录保留，修正代码用新提交部署。旧版本和数据库备份
+不会自动删除，目前需管理员按磁盘占用维护。

@@ -7,6 +7,9 @@
 （无本地函数或类定义。）
 
 关键变量：
+- PDF_TASK_EXECUTION：生产 PDF 显式交付 Celery，服务故障不在 ASGI 内运行。
+- CELERY_BROKER_URL：必填的私有 Redis 队列连接。
+- PDF_TASK_REDIS_URL：必填的任务正文与进度连接。
 - ALLOWED_HOSTS：部署时显式指定的逗号分隔主机白名单，不接受通配符或 URL。
 - DATABASES：PostgreSQL 连接；ASGI 请求不保持跨请求的持久连接。
 - SECURE_PROXY_SSL_HEADER：仅信任同机 Nginx 覆写的协议头。
@@ -61,3 +64,7 @@ MIDDLEWARE = [
 ]
 X_FRAME_OPTIONS = "DENY"
 INTERVIEW_REQUIRE_LOGIN = True
+
+PDF_TASK_EXECUTION = "celery"
+CELERY_BROKER_URL = os.environ["CELERY_BROKER_URL"]
+PDF_TASK_REDIS_URL = os.environ["PDF_TASK_REDIS_URL"]

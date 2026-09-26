@@ -4,8 +4,8 @@
 # 目录：无函数/类。变量索引：EnvironmentFile 提供凭据，StateDirectory 保存容量锁。
 [Unit]
 Description=AI Interviewer ASGI service
-After=network.target postgresql.service
-Requires=postgresql.service
+After=network.target postgresql.service redis-server.service ai-interviewer-celery.service
+Requires=postgresql.service redis-server.service
 
 [Service]
 Type=simple
@@ -15,7 +15,7 @@ WorkingDirectory=/opt/ai-interviewer/current/backend
 EnvironmentFile=/etc/ai-interviewer/app.env
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/opt/ai-interviewer/venv/bin/python -m uvicorn config.asgi:application --host 127.0.0.1 --port 8765 --ws websockets-sansio --proxy-headers --forwarded-allow-ips=127.0.0.1 --no-access-log
+ExecStart=/opt/ai-interviewer/current/.venv/bin/python -m uvicorn config.asgi:application --host 127.0.0.1 --port 8765 --ws websockets-sansio --proxy-headers --forwarded-allow-ips=127.0.0.1 --no-access-log
 Restart=no
 TimeoutStopSec=150
 UMask=0077

@@ -169,3 +169,7 @@ node --test tests/interview-camera.test.mjs  # 模拟权限、设备中断与媒
 生产入口 `/register/` 和 `/login/` 只填写用户名与密码，注册后直接登录；不要求邮箱、验证码或密码组合。用户名最多 150 字符、密码最多 128 字符，均不能为空。密码使用 Django 默认哈希，退出为带 CSRF token 的 POST `/logout/`。
 
 生产配置强制登录；默认回环开发模式保留匿名访问。网页未登录时跳转登录页，API 返回 401，WebSocket 从 session Cookie 校验账号并在后续消息时重新检查会话有效性。写接口使用 session 与 CSRF token；PDF 客户端从页面读取 token 并随请求发送。用户只能查询或修改自己的面试、子请求和练习，跨账号 ID 返回 404。迁移前没有归属的记录保持空归属，不自动分配给新账号。
+
+## 后台 PDF 任务
+
+生产 PDF 通过 Redis/Celery 在独立 worker 执行；前端沿用上传 NDJSON、真实进度与取消。默认开发模式 inline 不要求 Redis；显式 celery 模式无故障回退或任务重试。Redis 短期键只向后端开放，账号验证与 CSRF 在入队前执行，客户端不能提供任务 ID。部署及 main 自动发布见 [部署说明](../deploy/README.md)。
