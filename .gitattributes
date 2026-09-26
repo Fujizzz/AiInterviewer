@@ -1,0 +1,10 @@
+# 职责：让 Git 归档及 Windows 检出保持 Linux 部署文件的 LF 换行。
+# 实现：仅约束部署脚本、服务和 workflow；不转换数据文件。
+# 目录：无函数/类。变量索引：text/eol 为 Git 文件属性。
+deploy/*.sh text eol=lf
+deploy/*.py text eol=lf
+deploy/*.service text eol=lf
+deploy/*.timer text eol=lf
+deploy/*.conf text eol=lf
+deploy/*.example text eol=lf
+.github/workflows/*.yml text eol=lf
