@@ -50,6 +50,7 @@ class TimeoutSettings(BaseModel):
     rag_seconds: float = Field(default=2.0, gt=0)
     evaluation_seconds: float = Field(default=30.0, gt=0)
     llm_generation_seconds: float = Field(default=30.0, gt=0)
+    resume_extraction_seconds: float = Field(default=90.0, gt=0)
     repository_seconds: float = Field(default=1.0, gt=0)
 
 

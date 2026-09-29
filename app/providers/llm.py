@@ -55,7 +55,9 @@ class OpenAILLM:
             client_options["base_url"] = os.getenv(
                 "DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"
             ).strip()
-        self.request_timeout = load_agent_settings().timeouts.llm_generation_seconds
+        timeouts = load_agent_settings().timeouts
+        self.request_timeout = timeouts.llm_generation_seconds
+        self.resume_timeout = timeouts.resume_extraction_seconds
         self.client = OpenAI(
             api_key=key, timeout=self.request_timeout, max_retries=0, **client_options
         )
@@ -110,7 +112,10 @@ class OpenAILLM:
         remaining = call.deadline - perf_counter()
         if call.abandoned or remaining <= 0:
             raise LLMError("The model call deadline has elapsed.", code="timeout")
-        return min(self.request_timeout, remaining)
+        request_timeout = (
+            self.resume_timeout if call.operation == "resume_extraction" else self.request_timeout
+        )
+        return min(request_timeout, remaining)
 
     def _qwen(self, prompt: str, data: dict, schema: type[T]) -> T:
         """Request JSON output, validate it, and retry invalid structure once."""
@@ -165,5 +170,27 @@ class OpenAILLM:
                     " Previous output failed validation at these schema locations: "
                     + ", ".join(issues)
                     + ". Correct those fields and return the complete JSON object."
+                )
+                if any(issue.endswith(":list_type") for issue in issues):
+                    messages[0]["content"] += (
+                        " list_type means the field must be a JSON array. For string arrays, "
+                        'use ["one item"] for a single item and [] when no facts are present; '
+                        "never use null, a bare string or an object. Do not invent missing facts."
+                    )
+                if any(issue.endswith(":duplicate_competency") for issue in issues):
+                    messages[0]["content"] += (
+                        " Each competency may occur at most once in dimensions. Select one "
+                        "representative exact answer quote for each competency; do not "
+                        "return multiple entries for different quotes of the same competency."
+                    )
+                messages.extend(
+                    [
+                        {"role": "assistant", "content": choice.message.content},
+                        {
+                            "role": "user",
+                            "content": "Repair the preceding output according to the schema and "
+                            "validation feedback. Return the entire corrected JSON object.",
+                        },
+                    ]
                 )
         raise LLMError("No valid structured output.")
