@@ -3,11 +3,13 @@
 import asyncio
 import re
 
-from pydantic import Field
+from pydantic import Field, ValidationError, field_validator
+from pydantic_core import PydanticCustomError
 
 from agents.config import load_agent_settings
-from agents.model_calls import run_model_call
-from app.providers.llm import OutputModel, StructuredLLM
+from agents.model_calls import run_model_call, safe_error_details
+from agents.tracing import emit_trace
+from app.providers.llm import LLMError, OutputModel, StructuredLLM
 from shared.contracts import (
     AnswerAnalysis,
     DimensionEvidence,
@@ -20,7 +22,22 @@ class AnswerEvidence(OutputModel):
     answer_relevance: float = Field(ge=0, le=1)
     evidence_strength: float = Field(ge=0, le=1)
     analysis: AnswerAnalysis
-    dimensions: list[DimensionEvidence]
+    dimensions: list[DimensionEvidence] = Field(
+        description="At most one assessment per competency; select one grounded quote."
+    )
+
+    @field_validator("dimensions")
+    @classmethod
+    def unique_dimensions(cls, dimensions):
+        if len({item.competency for item in dimensions}) != len(dimensions):
+            raise PydanticCustomError(
+                "duplicate_competency", "At most one assessment per dimension per answer"
+            )
+        return dimensions
+
+
+class InvalidEvaluationEvidence(ValueError):
+    """Model evidence failed grounding checks; do not treat it as candidate evidence."""
 
 
 class LLMEvaluationAdapter:
@@ -29,6 +46,33 @@ class LLMEvaluationAdapter:
         self._repository = repository
 
     async def evaluate(self, request: EvaluationRequest) -> EvaluationFeedback:
+        try:
+            return await self._evaluate(request)
+        except (LLMError, TimeoutError, ValidationError, InvalidEvaluationEvidence) as error:
+            emit_trace(
+                "evaluation.fallback",
+                question_id=request.question.question_id,
+                answer_id=request.answer.answer_id,
+                **safe_error_details(error),
+            )
+            # A provider/validation failure says nothing about candidate competence.
+            # Preserve the answer via normal feedback submission, but publish no scores,
+            # completion claims or invented evidence. Cancellation still propagates.
+            return EvaluationFeedback(
+                request_id=request.request_id,
+                question_id=request.question.question_id,
+                answer_relevance=0,
+                evidence_strength=0,
+                analysis=AnswerAnalysis(
+                    status="partial",
+                    summary="Automated evaluation was unavailable; this answer is unassessed.",
+                    uncertainties=[
+                        "Evaluation failed; do not infer that the candidate lacks knowledge."
+                    ],
+                ),
+            )
+
+    async def _evaluate(self, request: EvaluationRequest) -> EvaluationFeedback:
         context = await self._repository.get_interview_context(request.interview_id)
         history = [
             entry
@@ -72,6 +116,9 @@ class LLMEvaluationAdapter:
                     "Give at most one next information need unless there is a contradiction. "
                     "Assess any supported dimensions among technical_depth, ownership, "
                     "decision_making, debugging, evaluation, adaptability. "
+                    "Return at most ONE entry per competency. If several passages support "
+                    "the same competency, select one representative exact quote; do not "
+                    "repeat the competency or increase its score by counting passages. "
                     "Omit unobserved dimensions. "
                     "Every dimension MUST quote an exact nonempty substring of the current "
                     "answer, "
@@ -178,9 +225,9 @@ class LLMEvaluationAdapter:
         seen = set()
         for evidence in dimensions:
             if evidence.quote not in request.answer.text or not evidence.quote.strip():
-                raise ValueError("Evidence must quote the current answer exactly")
+                raise InvalidEvaluationEvidence("Evidence must quote the current answer exactly")
             if evidence.competency in seen:
-                raise ValueError("At most one assessment per dimension per answer")
+                raise InvalidEvaluationEvidence("At most one assessment per dimension per answer")
             seen.add(evidence.competency)
         return EvaluationFeedback(
             request_id=request.request_id,
