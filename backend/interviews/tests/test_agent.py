@@ -32,10 +32,10 @@
 - AgentTests.test_connections_keep_candidate_state_isolated：
   两个连接分别建立 Agent 仓库，问题和面试 ID 互不串用。
 - ProviderTests：
-  后端配置不读取根目录秘密，保留 MVP 调用参数与异常行为。
+  模型客户端复用 Django 已装载的统一配置，保留 MVP 调用参数与异常行为。
 - ProviderTests.test_missing_config_does_not_initialize_sdk：
   缺少供应商、模型或 key 时明确停止，不启用默认模型或模拟实现。
-- ProviderTests.test_provider_options_and_no_root_dotenv：
+- ProviderTests.test_provider_options_without_reloading_dotenv：
   只使用已装载的后端环境，并保持 MVP 温度、60 秒超时和两次 SDK 重试。
 - ProviderTests.test_inflight_client_closed_only_after_call_returns：
   取消不破坏在途同步 SDK；禁止新调用并在后台返回后释放连接。
@@ -325,7 +325,7 @@ class AgentTests(SimpleTestCase):
 
 
 class ProviderTests(SimpleTestCase):
-    """后端配置不读取根目录秘密，保留 MVP 调用参数与异常行为。"""
+    """模型客户端复用 Django 已装载的统一配置，保留 MVP 调用参数与异常行为。"""
 
     @patch.dict("os.environ", {}, clear=True)
     def test_missing_config_does_not_initialize_sdk(self):
@@ -345,7 +345,7 @@ class ProviderTests(SimpleTestCase):
         },
         clear=True,
     )
-    def test_provider_options_and_no_root_dotenv(self):
+    def test_provider_options_without_reloading_dotenv(self):
         """只使用已装载的后端环境，并保持 MVP 温度、60 秒超时和两次 SDK 重试。"""
         with (
             patch("interviews.agent_provider.OpenAI") as sdk,

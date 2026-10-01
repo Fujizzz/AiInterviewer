@@ -1,23 +1,24 @@
 <!doctype html>
 <!--
-文件职责：MVP 文字面试测试页的表单与展示结构，由 agent.js 处理事件，agent.css 补充样式。
+文件职责：MVP 数字人语音面试测试页；agent.js 协调面试，interview-voice.js 管理语音呈现。
 目录：start-form（简历和预算）；agent-status（连接状态）；answer-form（回答和取消）；
 evaluation-panel（上一题评价）；report-panel（最终报告及完整结果）。本文件无函数定义。
 关键元素：resume/job/limit/probes 提供初始化参数；question/answer 绑定当前轮；report 保存当前结果文本。
+avatar-view 提供 Pixel Streaming 视频容器，transcript-draft 显示未确认转录；确认提交才进入评分。
 约束：密钥只由后端读取；表单内容通过同源连接发送，不使用浏览器持久存储。
 -->
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>MVP Agent · 文字面试</title>
+  <title>MVP Agent · 数字人语音面试</title>
   <link rel="stylesheet" href="/stream-demo/style.css">
   <link rel="stylesheet" href="/stream-demo/agent.css">
   <script type="module" src="/stream-demo/agent.js"></script>
 </head>
 <body><main>
   <header><span class="eyebrow">MOCK INTERVIEW / AGENT LAB</span>
-    <h1>MVP Agent 文字面试</h1>
+    <h1>MVP Agent 数字人语音面试</h1>
     <p>粘贴简历后开始面试，逐题回答并查看评价报告。密钥由后端读取，简历和回答将发送给你配置的模型服务。</p>
     <a href="/">返回音视频传输测试</a>
   </header>
@@ -38,13 +39,30 @@ evaluation-panel（上一题评价）；report-panel（最终报告及完整结�
   </form>
   <section class="panel">
     <h2>02 · 当前问题</h2>
+    <div id="avatar-view" class="avatar-view" aria-label="数字人面试官画面"></div>
+    <div class="avatar-connection">
+      <label for="signalling-url">本机数字人信令地址</label>
+      <input id="signalling-url" value="ws://127.0.0.1:8889">
+      <button id="connect-avatar" type="button" class="secondary">连接／播放数字人</button>
+    </div>
+    <label><input id="voice-enabled" type="checkbox" checked> 自动朗读英文问题</label>
+    <p id="voice-status" class="hint" role="status">数字人未连接，可使用语音或文字回答。</p>
+    <p id="speech-metrics" class="hint"></p>
+    <p id="avatar-metrics" class="hint"></p>
     <p id="question-meta" class="hint"></p>
     <p id="question">开始面试后，问题会显示在这里。</p>
+    <div class="actions">
+      <button id="replay-question" type="button" class="secondary" disabled>重新朗读</button>
+      <button id="interrupt-speech" type="button" class="secondary" disabled>打断朗读</button>
+      <button id="start-recording" type="button" disabled>开始回答</button>
+      <button id="stop-recording" type="button" class="secondary" disabled>结束回答</button>
+    </div>
+    <p id="transcript-draft" class="transcript-draft" aria-live="polite"></p>
     <form id="answer-form">
       <label for="answer">你的回答</label>
       <textarea id="answer" rows="6" required disabled></textarea>
       <div class="actions">
-        <button id="submit-answer" type="submit" disabled>提交回答</button>
+        <button id="submit-answer" type="submit" disabled>确认提交回答</button>
         <button id="cancel-agent" type="button" class="secondary" disabled>取消面试</button>
         <button id="clear-agent" type="button" class="secondary">清空内容</button>
       </div>

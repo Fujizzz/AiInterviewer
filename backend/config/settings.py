@@ -9,7 +9,7 @@
 - ASGI_APPLICATION：
   ASGI 协议入口的导入路径。
 - BASE_DIR：
-  backend 目录绝对路径，用于定位 .env、SQLite 默认路径和诊断页资源。
+  backend 目录绝对路径，用于定位 SQLite 默认路径和诊断页资源；上一级是统一配置目录。
 - DATABASES：
   SQLite 连接配置；环境可显式指定路径，锁等待超时保留既定值。
 - DEBUG：
@@ -27,14 +27,14 @@
 - ROOT_URLCONF：
   Django 根路由模块名称。
 - SECRET_KEY：
-  从进程环境或 backend/.env 取得的 Django 应用密钥，不是模型 API key。
+  从进程环境或仓库根目录 .env 取得的 Django 应用密钥，不是模型 API key。
 - TIME_ZONE：
   服务器时间基准，保持 UTC。
 - USE_TZ：
   是否启用带时区的时间处理。
 
 设计说明：
-装配说明：先加入仓库模块搜索路径，再读取 backend/.env，已存在的进程环境变量优先。
+装配说明：先加入仓库模块搜索路径，再读取仓库根目录 .env，已存在的进程环境变量优先。
 """
 
 import os
@@ -46,7 +46,7 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent
 # 后端可从自己的目录启动，同时复用仓库内的 Agent/App/Shared 模块。
 sys.path.insert(0, str(BASE_DIR.parent))
-load_dotenv(BASE_DIR / ".env", override=False)
+load_dotenv(BASE_DIR.parent / ".env", override=False)
 # 环境缺少密钥时立即停止启动，避免以隐式默认密钥运行。
 SECRET_KEY = os.environ["DJANGO_SECRET_KEY"]
 DEBUG = False

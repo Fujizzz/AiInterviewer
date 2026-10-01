@@ -8,18 +8,21 @@
   由 Django 使用的路由列表；具体路径及模块职责见下方装配语句。
 
 设计说明：
-路由说明：首页和 /stream-demo/ 提供诊断资源；/agent/ 提供文字面试页。
-/api/health/ 检查数据库连接，/api/ 注册业务接口。
+路由说明：首页和 /stream-demo/ 提供诊断资源；/agent/ 提供数字人语音面试页。
+/api/health/ 检查数据库连接，/api/speech/ 提供临时音频，/api/ 注册业务接口。
 """
 
 from django.urls import include, path
 from interviews.api.views import health
 from interviews.demo import demo_asset
+from interviews.speech.views import audio, tts
 
 urlpatterns = [
     path("", demo_asset, {"name": "index.html"}),
     path("agent/", demo_asset, {"name": "agent.html"}),
     path("stream-demo/<str:name>", demo_asset),
     path("api/health/", health),
+    path("api/speech/tts/", tts),
+    path("api/speech/audio/<uuid:utterance_id>/", audio),
     path("api/", include("interviews.api.urls")),
 ]

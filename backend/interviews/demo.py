@@ -15,8 +15,22 @@ from django.conf import settings
 from django.http import Http404, HttpResponse
 
 ASSETS = {
-    "index.html", "app.js", "view.js", "media.js", "stream-client.js", "style.css",
-    "agent.html", "agent.js", "agent.css",
+    "index.html",
+    "app.js",
+    "view.js",
+    "media.js",
+    "stream-client.js",
+    "style.css",
+    "agent.html",
+    "agent.js",
+    "agent.css",
+    "interview-voice.js",
+    "speech-capture.js",
+    "speech-worklet.js",
+    "pcm-resampler.js",
+    "pixel-player.js",
+    "digital-human-check.html",
+    "digital-human-check.js",
 }
 
 
@@ -35,8 +49,15 @@ def demo_asset(request, name):
         ".js": "text/javascript",
         ".css": "text/css",
     }[Path(name).suffix]
+    asset = settings.BASE_DIR / "frontend" / name
+    if name == "pixel-player.js":
+        asset = settings.BASE_DIR / "frontend" / "digital-human" / "dist" / name
+    elif name in {"digital-human-check.html", "digital-human-check.js"}:
+        asset = settings.BASE_DIR / "diagnostics" / name
+    if not asset.is_file():
+        raise Http404("Build backend/frontend/digital-human before connecting the avatar.")
     response = HttpResponse(
-        (settings.BASE_DIR / "frontend" / name).read_bytes(),
+        asset.read_bytes(),
         content_type=content_type,
     )
     response["Cache-Control"] = "no-store"

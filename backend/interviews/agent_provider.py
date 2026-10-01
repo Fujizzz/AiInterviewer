@@ -39,19 +39,19 @@ class BackendLLM(OpenAILLM):
 
         输入：可选 interview_id，仅用于连接模型日志与会话日志，不参与提示词或评分。
         逻辑：验证供应商、对应密钥与模型名→读取推理选项→建立 SDK→初始化并发计数。
-        依赖：跳过父类构造器以避免读取根目录 .env；仍复用其 __call__ 和千问结构化实现。
+        依赖：统一 .env 已由 Django settings 装载；跳过父类构造器避免重复加载，仍复用模型调用。
         参数：保留 MVP 的温度默认值、60 秒 SDK 超时和两次 SDK 重试，不覆盖 Agent 超时。
         异常：缺少配置抛 LLMError；温度转换或 SDK 参数错误直接传播，供协议层统一处理。
         """
         self.interview_id = interview_id
         self.provider = os.getenv("LLM_PROVIDER", "").strip().lower()
         if self.provider not in {"openai", "dashscope"}:
-            raise LLMError("Set LLM_PROVIDER to openai or dashscope in backend/.env.")
+            raise LLMError("Set LLM_PROVIDER to openai or dashscope in the repository-root .env.")
         prefix = "DASHSCOPE" if self.provider == "dashscope" else "OPENAI"
         key = os.getenv(f"{prefix}_API_KEY", "").strip()
         self.model = os.getenv(f"{prefix}_MODEL", "").strip()
         if not key or not self.model:
-            raise LLMError(f"Set {prefix}_API_KEY and {prefix}_MODEL in backend/.env.")
+            raise LLMError(f"Set {prefix}_API_KEY and {prefix}_MODEL in the repository-root .env.")
         temperature = os.getenv("OPENAI_TEMPERATURE", "0").strip()
         self.options = {"temperature": float(temperature)} if temperature else {}
         client_options = {}
@@ -93,7 +93,7 @@ class BackendLLM(OpenAILLM):
             cause = exc.__cause__ or exc
             logger.error(
                 "Agent model failed interview=%s schema=%s exception=%s status=%s; "
-                "check backend/.env, network, quota and structured-output support",
+                "check repository-root .env, network, quota and structured-output support",
                 self.interview_id,
                 schema.__name__,
                 type(cause).__name__,

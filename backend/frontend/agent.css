@@ -1,7 +1,8 @@
 /*
- * 文件职责：为 agent.html 的文字面试表单提供布局与可读性样式，叠加在 style.css 之后。
+ * 文件职责：为 agent.html 的数字人语音面试表单提供布局，叠加在 style.css 之后。
  * 目录：label/input/textarea（表单）；.settings-grid（预算参数）；#question/#report-summary（长文本）；
- * details/pre（展开结果）；[hidden]（显示状态）；@media（窄屏排列）。本文件无函数或 CSS 自定义变量。
+ * details/pre（展开结果）；.avatar-view（串流）；.transcript-draft（识别草稿）；@media（窄屏排列）。
+ * 本文件无函数或 CSS 自定义变量。
  * 关键选择器：#start-agent 与 #answer-form .actions 控制操作区间距；不改变 disabled 或网络状态。
  * 约束：仅调整外观和布局；预算、评分及协议状态由脚本与后端决定。
  */
@@ -16,3 +17,10 @@ textarea { resize: vertical; }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 480px; overflow: auto; }
 [hidden] { display: none !important; }
 @media (max-width: 520px) { .settings-grid { grid-template-columns: 1fr; } }
+/* Digital-human display and editable recognition draft, independent of scoring. */
+.avatar-view { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #111923; border-radius: 12px; overflow: hidden; }
+.avatar-view:empty::after { content: "数字人画面 · 连接 UE 后显示"; position: absolute; inset: 0; display: grid; place-items: center; color: #a0afc2; }
+.avatar-view video { width: 100%; height: 100%; object-fit: contain; }
+.avatar-connection { margin: 1rem 0; }
+#voice-enabled { width: auto; }
+.transcript-draft { min-height: 1.5em; color: #66768b; white-space: pre-wrap; }

@@ -43,17 +43,25 @@
  *   尚未完成命令的 UUID；收到完整问题后清空。
  * - terminal：
  *   页面是否主动进入完成、取消或错误终态，避免重复提示意外断线。
+ * - voice：
+ *   独立的语音与数字人呈现协调器，不参与评分或自动提交答案。
+ * - requestStartedAt：
+ *   当前业务请求的单调时钟起点，用于分开记录问题等待与语音准备耗时。
  *
  * 关键状态说明：
  * 事件路径：start-form 创建连接，hello 触发初始化；answer-form 逐题提交；消息回调按 UUID 展示结果。cancel-agent
  * 直接断开，clear-agent 同时清空简历，pagehide 关闭连接。无浏览器持久存储，不自动重连或重发。
  */
+import { InterviewVoice } from "./interview-voice.js";
+
 /** 按页面内唯一 ID 取得 DOM 元素；模板必须提供该元素，调用方负责具体读写操作。 */
 const el = (id) => document.getElementById(id);
+const voice = new InterviewVoice();
 let socket = null;
 let questionId = null;
 let pendingId = null;
 let terminal = false;
+let requestStartedAt = 0;
 
 /**
  * 根据连接阶段统一切换表单可编辑性，防止处理中重复开始或重复提交。
@@ -67,6 +75,7 @@ function controls(active, answering = false) {
   el("answer").disabled = !answering;
   el("submit-answer").disabled = !answering;
   el("cancel-agent").disabled = !active;
+  window.dispatchEvent(new CustomEvent("interview-controls", { detail: { active, answering } }));
 }
 
 /** 用 textContent 更新可访问状态提示；模型和错误文本均不作为 HTML 执行。 */
@@ -78,6 +87,7 @@ function status(text) { el("agent-status").textContent = text; }
  * 开始新面试时复用简历；“清空内容”事件另行清除简历输入，两者语义明确区分。
  */
 function clearResults() {
+  voice.reset();
   questionId = null;
   pendingId = null;
   el("question").textContent = "开始面试后，问题会显示在这里。";
@@ -97,6 +107,7 @@ function clearResults() {
 function send(command) {
   if (!socket || socket.readyState !== WebSocket.OPEN) throw new Error("连接已关闭，请重新开始面试。");
   pendingId = crypto.randomUUID();
+  requestStartedAt = performance.now();
   socket.send(JSON.stringify({ ...command, request_id: pendingId }));
 }
 
@@ -106,6 +117,8 @@ function send(command) {
  * close 仅停止本地会话，不能保证已发送的同步模型请求在供应商处取消。
  */
 function stop(message) {
+  voice.reset();
+  voice.setState("idle");
   terminal = true;
   if (socket) socket.close();
   socket = null;
@@ -122,6 +135,7 @@ el("start-form").addEventListener("submit", (event) => {
   clearResults();
   terminal = false;
   controls(true);
+  voice.setState("thinking");
   status("正在连接后端…");
   const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/agent/`);
   socket = ws;
@@ -155,6 +169,7 @@ el("start-form").addEventListener("submit", (event) => {
         controls(true, true);
         status("请回答当前问题");
         el("answer").focus();
+        voice.setQuestion(message.question, performance.now() - requestStartedAt);
       } else if (message.type === "finished") {
         // 分数由后端计算；页面只格式化展示，不根据叙述重新推断或修改评分。
         const result = message.result;
@@ -185,8 +200,10 @@ el("start-form").addEventListener("submit", (event) => {
 el("answer-form").addEventListener("submit", (event) => {
   event.preventDefault();
   const answer = el("answer").value.trim();
-  if (!answer || !questionId || pendingId) return;
+  if (!answer || !questionId || pendingId || voice.busy || voice.capture) return;
   try {
+    voice.reset();
+    voice.setState("thinking");
     send({ type: "answer", question_id: questionId, answer_text: answer });
     controls(true);
     status("正在提交回答…");
@@ -205,4 +222,4 @@ el("clear-agent").addEventListener("click", () => {
   el("resume").value = "";
 });
 /** 页面离开事件：释放当前连接，不向浏览器持久存储写入面试上下文。 */
-window.addEventListener("pagehide", () => { if (socket) socket.close(); });
+window.addEventListener("pagehide", () => { voice.close(); if (socket) socket.close(); });

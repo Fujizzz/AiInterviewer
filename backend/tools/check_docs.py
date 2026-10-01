@@ -20,7 +20,7 @@
 - DEFINITION_TYPES：
   Python 中需要 docstring 和目录条目的具名函数、异步函数及类节点类型。
 - IGNORED_DIRS：
-  源码遍历前剪除的环境、依赖、缓存与测试输出目录名称。
+  源码遍历前剪除的环境、依赖、缓存、构建产物与测试输出目录名称。
 
 
 设计说明：
@@ -36,7 +36,7 @@ from pathlib import Path
 
 from javascript_docs import javascript_symbols
 
-IGNORED_DIRS = {".git", ".venv", "venv", "node_modules", "__pycache__", "test-results"}
+IGNORED_DIRS = {".git", ".venv", "venv", "node_modules", "__pycache__", "test-results", "dist"}
 DEFINITION_TYPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
 
 
