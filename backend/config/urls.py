@@ -9,7 +9,8 @@
 
 设计说明：
 路由说明：/ 提供统一主页；/stream-demo/ 提供传输诊断页及其子路径资源；
-/agent/ 提供数字人语音面试页。各页面通过普通链接导航，不共享面试状态。
+/agent/ 提供需登录的版本语音/文字面试页，/resumes/ 提供姓名/邮箱及简历维护的统一个人中心。
+各页面通过普通链接导航，不共享面试状态。
 /api/health/ 检查数据库连接，/api/speech/ 提供语音与临时音频，/api/ 注册业务接口；
 login/register/logout 提供账号操作。
 """
@@ -26,6 +27,7 @@ urlpatterns = [
     path("logout/", sign_out),
     path("", demo_asset, {"name": "home.html"}),
     path("agent/", demo_asset, {"name": "agent.html"}),
+    path("resumes/", demo_asset, {"name": "resumes.html"}),
     path("stream-demo/", demo_asset, {"name": "index.html"}),
     path("stream-demo/<str:name>", demo_asset),
     path("api/health/", health),

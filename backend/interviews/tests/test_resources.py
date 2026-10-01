@@ -101,11 +101,16 @@ class ResourceTests(SimpleTestCase):
         take_slot("agent", 1).release()
 
     async def test_http_capacity_before_body(self):
-        """上传名额耗尽时返回 503，不读取正文、不调用后续解析或模型。"""
+        """原 PDF、版本上传与版本解析共享原名额；满额返回 503，不读取正文或调用模型。"""
         lease = take_slot("pdf", 1)
         app, receive, send = AsyncMock(), AsyncMock(), AsyncMock()
         try:
-            await limited_application(app, self.scope, receive, send)
+            for path in [
+                "/api/resume/parse/",
+                "/api/resume-versions/",
+                "/api/resume-versions/00000000-0000-0000-0000-000000000001/parse/",
+            ]:
+                await limited_application(app, {**self.scope, "path": path}, receive, send)
         finally:
             lease.release()
         self.assertEqual(send.call_args_list[0].args[0]["status"], 503)

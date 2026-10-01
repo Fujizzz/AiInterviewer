@@ -38,11 +38,11 @@ from django.test import TransactionTestCase
 
 from app.parsing.resume import ResumeExtraction
 from app.reporting.final_report import ReportNarrative, build_final_report
-from interviews.agent_records import complete_request, reserve_request
+from interviews.agent_records import reserve_request
 from interviews.agent_session import AgentSession
 from interviews.agent_socket import Answer, Start, agent_socket
 
-from .agent_fixtures import ANSWER, RESUME, FixtureLLM
+from .agent_fixtures import ANSWER, RESUME, FixtureLLM, SafetyTestMixin, complete_fixture_request
 
 
 async def connect():
@@ -95,8 +95,8 @@ async def disconnect(comm):
     await comm.wait()
 
 
-class ProgressTests(TransactionTestCase):
-    """固定模型与真实状态机组成协议测试；不允许数据库访问，不等价于真实 API 验证。"""
+class ProgressTests(SafetyTestMixin, TransactionTestCase):
+    """固定模型与真实状态机组成协议测试；使用隔离测试数据库，不等价于真实 API 验证。"""
 
     async def test_prepare_reuse_and_original_result(self):
         """prepare 仅解析一次；start 精确复用、只生成首题，验证阶段与原有预算。"""
@@ -270,7 +270,7 @@ class ProgressTests(TransactionTestCase):
         command = Start(request_id=uuid4(), type="start", resume_text=RESUME, max_questions=1)
         await reserve_request(session.interview_id, command)
         first = await session.start(command)
-        await complete_request(session.interview_id, command.request_id, first)
+        await complete_fixture_request(session.interview_id, command.request_id, first)
         with self.assertLogs("interviews.agent_session", level="INFO") as captured:
             command = Answer(
                 request_id=uuid4(),

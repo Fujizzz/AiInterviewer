@@ -54,13 +54,15 @@ DigitalHuman/ UE 5.8 MetaHuman 工程、原生运行插件及本机启动工具
 frontend/    产品前端团队预留目录
 evaluation/  生产 Evaluation 模块预留目录
 rag/         生产 RAG 模块预留目录
-ai_security/ AI 安全模块预留目录
+ai_security/ AI 安全：面试行为许可、语义合格性与输入输出发布边界（已接入文字面试输入输出）
 tests/       按 Agent 和 App 分类的 Python 测试
 docs/        架构、模块规范、指南与示例
 ```
 
 依赖方向和团队上传规则见 [`docs/REPOSITORY_LAYOUT.md`](docs/REPOSITORY_LAYOUT.md)，
 中文文件索引见 [`docs/guides/FILE_GUIDE_ZH.md`](docs/guides/FILE_GUIDE_ZH.md)。
+
+AI 安全接口、接入边界及评测结果见 [`ai_security/README.md`](ai_security/README.md)。
 
 ## 安装
 

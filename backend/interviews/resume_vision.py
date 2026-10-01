@@ -1,5 +1,5 @@
 """职责：为简历整理 Agent 实现独立的异步多模态模型适配器。
-实现：读取专用配置，以 Chat Completions JSON 模式传递单页 PNG 和规则文本，严格校验结构。
+实现：读取专用配置，以 Chat Completions JSON 模式传递单页 PNG 和编号原文行，严格校验结构。
 关联：agents.resume_cleanup 定义端口；resume_api 管理本适配器生命周期。
 
 目录：
@@ -25,9 +25,11 @@ import logging
 import os
 from time import perf_counter
 
-from openai import AsyncOpenAI
+from openai import APITimeoutError, AsyncOpenAI
+from pydantic import ValidationError
 
-from agents.resume_cleanup import PageReview, ResumePage
+from agents.model_calls import safe_error_details, validation_issues
+from agents.resume_cleanup import PageReview, ResumePage, source_lines
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +79,9 @@ class ResumeVision:
 
         图片使用内嵌 PNG，不上传到文件服务；模型必须支持图片与 JSON 模式。
         拒绝、截断、空输出及非 JSON 均失败。
+        原文行号由 source_lines 与 Agent 共用；仅去掉行分隔符，行内空白保留。
         日志仅含诊断元数据；供应商响应正文即使异常也不写日志。
+        成功记录修改数量；失败记录安全错误码、HTTP 状态和去除输入值的 schema 路径。
         """
         started = perf_counter()
         logger.info("resume_vision start page=%s model=%s", page.number, self.model)
@@ -98,7 +102,15 @@ class ResumeVision:
                             {
                                 "type": "text",
                                 "text": json.dumps(
-                                    {"number": page.number, "rule_text": page.text},
+                                    {
+                                        "number": page.number,
+                                        "rule_lines": [
+                                            {"line": number, "text": line.rstrip("\r\n")}
+                                            for number, line in enumerate(
+                                                source_lines(page.text), 1
+                                            )
+                                        ],
+                                    },
                                     ensure_ascii=False,
                                 ),
                             },
@@ -119,9 +131,27 @@ class ResumeVision:
             choice = response.choices[0]
             if choice.finish_reason != "stop" or choice.message.refusal:
                 raise ValueError("resume_vision_incomplete_or_refused")
-            return PageReview.model_validate_json(choice.message.content or "")
+            result = PageReview.model_validate_json(choice.message.content or "")
+            logger.info(
+                "resume_vision validated page=%s corrections=%d uncertainties=%d "
+                "input_tokens=%s output_tokens=%s",
+                page.number,
+                len(result.corrections),
+                len(result.uncertainties),
+                getattr(getattr(response, "usage", None), "prompt_tokens", None),
+                getattr(getattr(response, "usage", None), "completion_tokens", None),
+            )
+            return result
         except Exception as exc:
-            logger.warning("resume_vision failed page=%s error=%s", page.number, type(exc).__name__)
+            details = safe_error_details(exc)
+            logger.warning(
+                "resume_vision failed page=%s error=%s code=%s status=%s schema_issues=%s",
+                page.number,
+                type(exc).__name__,
+                "timeout" if isinstance(exc, APITimeoutError) else details["category"],
+                details["status_code"],
+                validation_issues(exc, PageReview) if isinstance(exc, ValidationError) else [],
+            )
             raise
         finally:
             logger.info(

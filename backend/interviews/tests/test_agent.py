@@ -36,7 +36,7 @@
 - ProviderTests.test_missing_config_does_not_initialize_sdk：
   缺少供应商、模型或 key 时明确停止，不启用默认模型或模拟实现。
 - ProviderTests.test_provider_options_without_reloading_dotenv：
-  只使用已装载的后端环境，并保持 MVP 温度、60 秒超时和两次 SDK 重试。
+  只使用已装载环境，验证生成/简历预算与剩余截止时间，保持温度和禁用 SDK 重试。
 - ProviderTests.test_inflight_client_closed_only_after_call_returns：
   取消不破坏在途同步 SDK；后台返回后才释放客户端和服务名额。
 - ProviderTests.test_inflight_client_closed_only_after_call_returns.blocked：
@@ -50,12 +50,14 @@ import asyncio
 import json
 import threading
 from tempfile import TemporaryDirectory
+from time import perf_counter
 from unittest.mock import Mock, patch
 from uuid import uuid4
 
 from asgiref.testing import ApplicationCommunicator
 from django.test import SimpleTestCase, TransactionTestCase
 
+from agents.model_calls import ModelCall, current_model_call
 from app.application import MVPInterviewApplication
 from app.providers.llm import LLMError, OpenAILLM
 from interviews.agent_provider import BackendLLM
@@ -63,10 +65,10 @@ from interviews.agent_session import AgentSession
 from interviews.agent_socket import MAX_MESSAGE_BYTES, agent_socket
 from interviews.capacity import CapacityExceeded, take_slot
 
-from .agent_fixtures import ANSWER, RESUME, FixtureLLM
+from .agent_fixtures import ANSWER, RESUME, FixtureLLM, SafetyTestMixin
 
 
-class AgentTests(TransactionTestCase):
+class AgentTests(SafetyTestMixin, TransactionTestCase):
     """使用 ASGI 消息驱动完整面试，TransactionTestCase 隔离持久化数据。"""
 
     async def connect(self, origin="http://localhost", client="127.0.0.1"):
@@ -238,10 +240,12 @@ class AgentTests(TransactionTestCase):
         for cancel in (True, False):
             blocked = asyncio.Event()
             stopped = asyncio.Event()
+            entered = asyncio.Event()
 
-            async def slow_start(command, blocked=blocked, stopped=stopped):
-                """模拟尚未返回的上游任务，finally 证明取消已传递。"""
+            async def slow_start(command, blocked=blocked, stopped=stopped, entered=entered):
+                """输入测试命令及同步屏障；标记业务已进入，finally 证明取消已传递。"""
                 try:
+                    entered.set()
                     await blocked.wait()
                 finally:
                     stopped.set()
@@ -252,6 +256,7 @@ class AgentTests(TransactionTestCase):
             with patch("interviews.agent_socket.AgentSession", return_value=fake):
                 comm = await self.accepted()
                 await self.command(comm, "start", resume_text=RESUME)
+                await asyncio.wait_for(entered.wait(), timeout=3)
                 busy = await self.command(comm, "start", resume_text=RESUME)
                 self.assertEqual(busy["code"], "busy")
                 if cancel:
@@ -349,7 +354,11 @@ class ProviderTests(SimpleTestCase):
         clear=True,
     )
     def test_provider_options_without_reloading_dotenv(self):
-        """只使用已装载的后端环境，并保持 MVP 温度、60 秒超时和两次 SDK 重试。"""
+        """SDK 和 dotenv 均模拟，不访问模型；验证后端装配兼容父类的两种超时预算。
+
+        输入为隔离环境配置与显式模型调用上下文；断言简历预算、普通生成预算及
+        剩余截止时间限制。finally 恢复上下文，避免污染后续测试，不验证真实供应商。
+        """
         with (
             patch("interviews.agent_provider.OpenAI") as sdk,
             patch("app.providers.llm.load_dotenv") as dotenv,
@@ -358,6 +367,18 @@ class ProviderTests(SimpleTestCase):
             sdk.assert_called_once_with(api_key="test-only", timeout=30.0, max_retries=0)
             dotenv.assert_not_called()
             self.assertEqual(provider.options, {"temperature": 0.0})
+            call = ModelCall("resume_extraction", None, None, perf_counter() + 120)
+            token = current_model_call.set(call)
+            try:
+                self.assertEqual(provider._remaining_timeout(), 90.0)
+                call.operation = "question_generation"
+                self.assertEqual(provider._remaining_timeout(), 30.0)
+                call.operation = "resume_extraction"
+                call.deadline = perf_counter() + 10
+                self.assertGreater(provider._remaining_timeout(), 0)
+                self.assertLessEqual(provider._remaining_timeout(), 10)
+            finally:
+                current_model_call.reset(token)
             provider.close()
             sdk.return_value.close.assert_called_once()
 

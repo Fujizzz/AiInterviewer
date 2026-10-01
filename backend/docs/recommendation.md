@@ -27,6 +27,56 @@ python -m uvicorn config.asgi:application --host 127.0.0.1 --port 8765 --ws webs
 
 ## 调用示例
 
+### 个人中心入口与岗位来源
+
+`/resumes/` 的“在线简历”下方提供“为你推荐的岗位”，侧栏也可直达。
+用户核对 11 项推荐槽位、保存编辑稿后，显式点击“推荐岗位”；修改或切换简历会清空旧结果。
+接口 `POST /api/resume-versions/{id}/recommendations/` 只接受空请求体，读取本人 ready
+版本的已保存槽位，使用相同 `rank_pairs` 与冻结模型。自动提取建议、未保存文本和账号联系方式
+不参与调用。接口强制登录、本人归属、Session CSRF，并禁止缓存响应。
+
+维护者在 仓库根目录 `.env` 显式设置 `RECOMMENDATION_JOB_CATALOG` 为岗位 JSON 的绝对路径；
+默认未配置，返回 `503/job_catalog_not_configured`，不自动启用研究数据或生成岗位。
+目录必须明确来源，`source_kind` 为 `live` 或 `experience`；体验数据在界面标注“非实时招聘职位”。
+示例仅说明格式，不会自动装入系统：
+
+```json
+{
+  "source_name": "维护者提供的岗位库",
+  "source_kind": "live",
+  "jobs": [
+    {
+      "title": "后端开发实习生",
+      "company": "岗位发布单位",
+      "location": "岗位所在地",
+      "description": "真实岗位描述",
+      "requirements": {
+        "job_id": "unique-job-id",
+        "required_skills": ["Python", "SQL"],
+        "min_months_experience": 3
+      }
+    }
+  ]
+}
+```
+
+`requirements` 遵循下面的 JobInput 契约；技能大小写及 GPA 等单位须与用户特征一致。
+目录支持 1 至 100 个唯一岗位，超过既有请求上限、重复 ID、非法字段或读失败均明确报错，
+不静默抽样或截断。展示信息不参与评分。当前仅接入文件目录，不包含抓取、岗位 CRUD 或训练。
+响应额外提供 `resume_version_id/source_name/source_kind` 以及每个结果的 `job/matched_skills`；
+技能交集仅用于展示，模型公式、排序、分数和缺失语义保持不变。
+全未知保存槽位返回 `422/recommendation_profile_empty`；未 ready 返回 `409/resume_not_ready`；
+非法来源和模型故障分别返回 `503/job_catalog_invalid`、`503/recommendation_model_unavailable`。
+卡片展示推荐顺序和可用特征数，不将原始模型分数当概率或百分比。
+完整岗位池全部排序并返回，界面每次展开 10 张卡，岗位介绍按需展开，展示分页不改变评分。
+保存槽位非法和数值特征越界分别返回 `503/recommendation_profile_invalid`、
+`422/recommendation_features_invalid`，不生成替代结果。
+
+本机已按用户明确选择，将 `RECOMMENDATION_JOB_CATALOG` 配置为
+`interviews/recommendation/data/experience-jobs.json` 的绝对路径。
+它包含与冻结模型同源的 100 个实验岗位，来源、哈希和无损字段转换见该目录的 README。
+未配置该环境项的新部署仍保持明确的“来源未配置”状态。
+
 用户只填写技能，也可以发起请求；此例没有GPA、经验和时间信息：
 
 ```powershell
@@ -99,7 +149,7 @@ Invoke-RestMethod -Method Post `
 
 已知技能/兴趣/专业列表为`[]`表示明确为空，可得到零匹配；`null`表示未知。岗位`required_skills: []`仍按训练协议拒绝，不能用它代指未填写。岗位“没有要求”与“未采集要求”需调用者明确区分，未知不能擅自填成0。
 
-现有`shared/contracts/CandidateProfile`主要保存技能与项目，`JobProfile`主要保存标题、领域和能力权重。这些契约没有全部实验字段，本次不修改共享契约或面试流程。调用者提供有据可查的资料；未采集的字段保持null。尚未自动把PDF/文本简历接到此接口，模型也未直接使用项目文本和面试评分。
+现有`shared/contracts/CandidateProfile`主要保存技能与项目，`JobProfile`主要保存标题、领域和能力权重。这些契约没有全部实验字段，本次不修改共享契约或面试流程。调用者提供有据可查的资料；未采集的字段保持null。个人中心已将 PDF/文本的有依据槽位建议接到编辑保存流程，确认后可用于个人岗位推荐；模型未直接使用项目文本和面试评分。
 
 ## 错误与可观测性
 

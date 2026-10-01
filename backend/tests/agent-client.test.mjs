@@ -27,11 +27,18 @@
  * - makePage.dispatchPageEvent：将面试控件状态交给真实语音协调器。
  * - PageEvent：仅提供 CustomEvent 的 type 与 detail 字段。
  * - PageEvent.constructor：创建测试页面事件，不接触浏览器。
+
+ * - Element.append：追加选项节点。
+ * - Element.replaceChildren：清空旧选项。
+ * - makePage.createElement：创建测试选项。
+ * - makePage.fetch.object1.json：返回合成分页 JSON。
+ * - makePage.fetch：模拟本人分页版本接口，记录调用而不访问模型。
+ * - makePage.ignoreError：记录类型日志，不暴露用户正文。
  * - makePage.tick：推进测试时间并执行已登记显示回调。
  * - hello：完成协议公告并返回已发送命令的 UUID。
- * - callback1：预解析期间岗位可编辑，计时只显示实际经过时间，完成后不重复请求。
- * - callback2：编辑简历失效预览，start 发送最新文本且不变更题目默认值。
- * - callback3：取消后旧事件不能覆盖新状态，显示计时器已清理。
+ * - callback1：start 发送版本 ID、保持原预算并展示真实计时。
+ * - callback2：跨页加载 current，并拒绝不可用指定版本。
+ * - callback3：取消后旧事件不能覆盖状态，版本保留且计时器清理。
  * - callback4：评分先可见，后续错误明确报告未完成且保留评分。
  * - callback5：正常题目与最终报告结束等待，恢复控件。
  * - callback6：超限输入在发请求前被拒绝，避免多余模型调用。
@@ -40,6 +47,8 @@
  * - callback9：当前问题启用语音控件，播放期间禁止确认提交，结束后恢复。
  * - callback10：录音期间禁止确认提交，取消时释放录音并恢复开始按钮。
  * - callback10.page.voice.capture.close：记录被取消的录音资源释放。
+
+ * - blockedResumeSelection：缺少 ready、未选 current 或未授权时不能创建面试连接。
  * 关键变量：
  * - SCRIPT：待验证的真实客户端源码。
  * - HTML：实际面试模板，用于核验客户端元素引用。
@@ -68,9 +77,13 @@ class PageEvent {
 /** 最小 DOM 替身，仅维护测试需要的文本、禁用状态和事件，不模拟真实浏览器布局。 */
 class Element {
   /** 输入无；所有字段初始为空，hidden 为 true 以模拟尚未出现的结果区。 */
-  constructor() { this.value = ""; this.textContent = ""; this.hidden = true; this.disabled = false; this.listeners = {}; }
+  constructor() { this.value = ""; this.textContent = ""; this.hidden = true; this.disabled = false; this.listeners = {}; this.children = []; }
   /** 输入事件名和处理器，保存引用，返回无。 */
   addEventListener(name, handler) { this.listeners[name] = handler; }
+  /** 输入节点列表；保存版本选项，无布局或解析 HTML 副作用。 */
+  append(...nodes) { this.children.push(...nodes); }
+  /** 清除此前选项，保持 DOM 对象身份。 */
+  replaceChildren() { this.children = []; }
   /** 记录客户端要求聚焦，不操作真实窗口。 */
   focus() { this.focused = true; }
   /** 输入事件名称，构造 currentTarget 并调用已注册处理器，缺失监听器立即失败。 */
@@ -98,8 +111,8 @@ class Socket {
   emit(data, name = "message") { this.listeners[name]({ data: JSON.stringify(data), currentTarget: this }); }
 }
 
-/** 无外部输入；执行真实脚本，返回元素查询、计时推进和计时器集合，均无网络副作用。 */
-function makePage() {
+/** 输入合成 versions/search/failure 选项，执行真实脚本并等待初次加载；输出测试页面，无真实网络。 */
+async function makePage(options = {}) {
   const elements = new Map();
   for (const match of HTML.matchAll(/id="([^"]+)"/g)) elements.set(match[1], new Element());
   const timers = new Map();
@@ -125,21 +138,40 @@ function makePage() {
   function ignoreEvent() {}
   /** 输入毫秒推进测试时钟，再执行当前显示回调。 */
   function tick(ms) { time += ms; for (const fn of timers.values()) fn(); }
-  getElement("resume").value = "A synthetic resume.";
+
   getElement("job").value = "General AI / Software Engineer";
   getElement("limit").value = "5";
   getElement("duration").value = "30";
   getElement("probes").value = "2";
+  const requests = [];
+  const versions = options.versions || [{id:"version-a",status:"ready",label:"Current resume",is_current:true}];
+  /** 输入请求 URL，输出合成分页 JSON；失败用真实 HTTP 状态，不隐式降级。 */
+  async function fetch(url) {
+    requests.push(url);
+    const page = Number(new URL(url, "http://localhost").searchParams.get("page"));
+    return { ok: !options.failure, status: options.failure || 200,
+      /** 返回对应合成页；每页 1 个记录使测试覆盖 current 在后续页。 */
+      async json() { return {results: versions.slice(page-1,page),next: page < versions.length ? "next" : null}; },
+    };
+  }
+  /** 输入标签名，输出选项节点，无真实窗口副作用。 */
+  function createElement() { return new Element(); }
+  /** 保存日志类型，不打印合成版本内容。 */
+  function ignoreError() {}
   const clientScript = CAPTURE_SCRIPT.replace("export class SpeechCapture", "class SpeechCapture")
     + VOICE_SCRIPT.replace('import { SpeechCapture } from "./speech-capture.js";', "").replace("export class InterviewVoice", "class InterviewVoice")
-    + SCRIPT.replace('import { InterviewVoice } from "./interview-voice.js";', "") + "\n;voice;";
-  const voice = vm.runInNewContext(clientScript, {
-    document: { getElementById: getElement }, window: { addEventListener: addPageListener, dispatchEvent: dispatchPageEvent },
+    + SCRIPT.replace('import { InterviewVoice } from "./interview-voice.js";', "");
+  const context = vm.createContext({
+    document: { getElementById: getElement, createElement },
+    window: { addEventListener: addPageListener, dispatchEvent: dispatchPageEvent },
     performance: { now }, crypto: { randomUUID: uuid },
-    location: { protocol: "http:", host: "localhost" }, WebSocket: Socket, TextEncoder,
+    location: { protocol: "http:", host: "localhost", search: options.search || "" },
+    WebSocket: Socket, TextEncoder, URLSearchParams, fetch, console: {error:ignoreError},
     setInterval: setTimer, clearInterval: clearTimer, clearTimeout, CustomEvent: PageEvent,
   });
-  return { el: getElement, tick, timers, voice };
+  await vm.runInContext(clientScript, context);
+  const voice = vm.runInContext("voice", context);
+  return { el: getElement, tick, timers, requests, voice };
 }
 
 /** 输入连接及可选测试消息上限，模拟 hello，返回被客户端发送的命令 ID 或 undefined。 */
@@ -148,59 +180,47 @@ function hello(ws, limit = 262144) {
   return ws.sent.at(-1)?.request_id;
 }
 
-/** 固定时钟下预解析完成前可设置岗位；相同文本重复点击不再次调用模型。 */
-test("prepare exposes real timing and permits job setup without duplicate requests", () => {
-  const page = makePage();
-  page.el("prepare-resume").fire("click");
-  const ws = Socket.instances.at(-1);
-  const id = hello(ws);
-  assert.equal(ws.sent[0].type, "prepare");
-  assert.equal(page.el("job").disabled, false);
-  ws.emit({ type: "progress", request_id: id, stage: "resume_parsing", state: "running" });
-  page.tick(32000);
-  assert.match(page.el("wait-time").textContent, /32 秒/);
-  ws.emit({ type: "prepared", request_id: id, candidate_profile: { skills: ["Python"] } });
-  assert.equal(page.timers.size, 0);
-  assert.equal(page.el("profile-panel").hidden, false);
-  page.el("prepare-resume").fire("click");
-  assert.equal(ws.sent.length, 1);
-});
-
-/** 已准备后编辑文本，预览失效且 start 使用新文本，原题数和追问上限不变。 */
-test("edited resume invalidates preview and start sends current content", () => {
-  const page = makePage();
-  page.el("prepare-resume").fire("click");
-  const ws = Socket.instances.at(-1);
-  const id = hello(ws);
-  ws.emit({ type: "prepared", request_id: id, candidate_profile: {} });
-  page.el("resume").value = "Changed synthetic resume.";
-  page.el("resume").fire("input");
-  assert.equal(page.el("profile-panel").hidden, true);
+/** 元数据就绪后 start 只发送版本 ID；保持阶段计时与原有预算，不发送姓名/邮箱/正文。 */
+test("selected ready version starts once with original budget and real timing", async () => {
+  const page = await makePage();
+  assert.equal(page.el("resume-select").value, "version-a");
   page.el("start-form").fire("submit");
-  assert.equal(ws.sent.at(-1).resume_text, "Changed synthetic resume.");
-  assert.equal(ws.sent.at(-1).max_questions, 5);
-  assert.equal(ws.sent.at(-1).duration_minutes, 30);
-  assert.equal(page.el("duration").disabled, true);
-  assert.equal(ws.sent.at(-1).max_follow_up_per_topic, 2);
+  const ws = Socket.instances.at(-1); const id = hello(ws);
+  assert.equal(ws.sent[0].type, "start");
+  assert.equal(ws.sent[0].resume_version_id, "version-a");
+  assert.equal("resume_text" in ws.sent[0], false);
+  assert.equal(ws.sent[0].duration_minutes, 30);
+  assert.equal(ws.sent[0].max_questions, 5);
+  assert.equal(ws.sent[0].max_follow_up_per_topic, 2);
+  assert.equal(page.el("resume-select").disabled, true);
+  ws.emit({type:"progress", request_id:id,stage:"resume_parsing",state:"running"});
+  page.tick(32000); assert.match(page.el("wait-time").textContent,/32 秒/);
+  page.el("start-form").fire("submit"); assert.equal(ws.sent.length,1);
 });
 
-/** 取消后迟到进度、结果和关闭事件不能覆盖终态或重新启动 interval。 */
-test("cancel clears timers and ignores late events from old socket", () => {
-  const page = makePage();
-  page.el("prepare-resume").fire("click");
-  const ws = Socket.instances.at(-1);
-  const id = hello(ws);
+/** current 可以位于后续页；未 ready 版本不进入选项，明确指定不可用版本不自动选择其他版本。 */
+test("selection includes later pages and rejects an unavailable explicit version", async () => {
+  const versions=[{id:"pending",status:"uploaded"},{id:"version-b",status:"ready",is_current:true}];
+  const page=await makePage({versions});
+  assert.equal(page.el("resume-select").value,"version-b");assert.equal(page.requests.length,2);
+  const missing=await makePage({versions,search:"?resume_version_id=pending"});
+  assert.equal(missing.el("resume-select").value,"");assert.equal(missing.el("start-agent").disabled,true);
+  assert.match(missing.el("resume-selection-status").textContent,/不可用/);
+});
+
+/** 取消后迟到事件不恢复面试，已选版本仍保留，计时清理。 */
+test("cancel clears timers and ignores late events while retaining the selected version", async () => {
+  const page = await makePage();page.el("start-form").fire("submit");
+  const ws = Socket.instances.at(-1);const id=hello(ws);
   page.el("cancel-agent").fire("click");
-  ws.emit({ type: "prepared", request_id: id, candidate_profile: {} });
-  ws.emit({}, "close");
-  assert.match(page.el("agent-status").textContent, /已取消/);
-  assert.equal(page.el("profile-panel").hidden, true);
-  assert.equal(page.timers.size, 0);
+  ws.emit({type:"progress",request_id:id,stage:"resume_parsing",state:"running"});ws.emit({},"close");
+  assert.match(page.el("agent-status").textContent,/已取消/);
+  assert.equal(page.el("resume-select").value,"version-a");assert.equal(page.timers.size,0);
 });
 
 /** 先行评分尚无文字报告时断线，保留分数并明确未完成，停止计时。 */
-test("early assessment stays visible if report connection fails", () => {
-  const page = makePage();
+test("early assessment stays visible if report connection fails", async () => {
+  const page = await makePage();
   page.el("start-form").fire("submit");
   const ws = Socket.instances.at(-1);
   const id = hello(ws);
@@ -213,8 +233,8 @@ test("early assessment stays visible if report connection fails", () => {
 });
 
 /** 首题允许回答并停止计时，最后一轮报告成功后保留真实总结并恢复开始按钮。 */
-test("question and finished response release pending UI state", () => {
-  const page = makePage();
+test("question and finished response release pending UI state", async () => {
+  const page = await makePage();
   page.el("start-form").fire("submit");
   const ws = Socket.instances.at(-1);
   let id = hello(ws);
@@ -234,9 +254,9 @@ test("question and finished response release pending UI state", () => {
 });
 
 /** 模拟服务端公告低上限，仅验证客户端边界；不得发送超限内容或遗留计时器。 */
-test("oversized command is rejected before send", () => {
-  const page = makePage();
-  page.el("prepare-resume").fire("click");
+test("oversized command is rejected before send", async () => {
+  const page = await makePage();
+  page.el("start-form").fire("submit");
   const ws = Socket.instances.at(-1);
   hello(ws, 5);
   assert.equal(ws.sent.length, 0);
@@ -245,8 +265,8 @@ test("oversized command is rejected before send", () => {
 });
 
 /** 原有报告回退被服务端标记时，前端必须明确告知来源，不改变有效分数。 */
-test("report fallback is explicitly labeled", () => {
-  const page = makePage();
+test("report fallback is explicitly labeled", async () => {
+  const page = await makePage();
   page.el("start-form").fire("submit");
   const ws = Socket.instances.at(-1);
   const id = hello(ws);
@@ -259,9 +279,9 @@ test("report fallback is explicitly labeled", () => {
 });
 
 /** 同连接内错误 request_id 不得误改当前阶段，应明确失败并清理计时器。 */
-test("foreign request progress is rejected", () => {
-  const page = makePage();
-  page.el("prepare-resume").fire("click");
+test("foreign request progress is rejected", async () => {
+  const page = await makePage();
+  page.el("start-form").fire("submit");
   const ws = Socket.instances.at(-1);
   hello(ws);
   ws.emit({ type: "progress", request_id: "foreign", stage: "resume_parsing", state: "running" });
@@ -270,8 +290,8 @@ test("foreign request progress is rejected", () => {
 });
 
 /** 新版客户端与真实语音协调器共享当前问题和回答边界。 */
-test("voice playback blocks answer submission and releases it on completion", () => {
-  const page = makePage();
+test("voice playback blocks answer submission and releases it on completion", async () => {
+  const page = await makePage();
   page.el("start-form").fire("submit");
   const ws = Socket.instances.at(-1);
   const id = hello(ws);
@@ -295,8 +315,8 @@ test("voice playback blocks answer submission and releases it on completion", ()
 });
 
 /** 录音草稿不自动提交；取消旧会话必须停止设备并释放控件。 */
-test("recording blocks confirmation and cancellation releases capture", () => {
-  const page = makePage();
+test("recording blocks confirmation and cancellation releases capture", async () => {
+  const page = await makePage();
   page.el("start-form").fire("submit");
   const ws = Socket.instances.at(-1);
   const id = hello(ws);
@@ -318,3 +338,20 @@ test("recording blocks confirmation and cancellation releases capture", () => {
   assert.equal(page.el("start-recording").disabled, true);
   assert.equal(page.voice.capture, null);
 });
+
+/** 没有可用输入时禁止 start，失败不选择其他版本；这些是模拟权限响应，不替代真实服务权限。 */
+async function blockedResumeSelection() {
+  const before = Socket.instances.length;
+  for (const options of [
+    { versions: [] },
+    { versions: [{ id: "waiting", status: "uploaded", is_current: true }] },
+    { versions: [{ id: "ready", status: "ready", is_current: false }] },
+    { failure: 403 },
+  ]) {
+    const page = await makePage(options);
+    assert.equal(page.el("start-agent").disabled, true);
+    page.el("start-form").fire("submit");
+    assert.equal(Socket.instances.length, before);
+  }
+}
+test("missing ready selection or authorization cannot start an interview", blockedResumeSelection);

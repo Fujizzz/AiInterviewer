@@ -5,6 +5,8 @@
 目录：
 - PdfQueueTests：队列生命周期和一次性执行回归。
 - PdfQueueTests.test_success_stream_and_cleanup：返回原终态并删除临时正文/消费标记。
+- PdfQueueTests.test_advanced_mode_reaches_worker：
+  队列和 worker 均透传显式高级模式，无真实 Redis/模型调用。
 - PdfQueueTests.test_publish_failure_has_no_inline_fallback：发布失败不调用原管线或重发。
 - PdfQueueTests.test_close_cancels_consumer：浏览器关闭流会通知 worker，不保留消费标记。
 - PdfQueueTests.test_duplicate_task_does_not_call_pipeline：已被取走的输入不重复处理。
@@ -40,6 +42,7 @@ class PdfQueueTests(SimpleTestCase):
         send.assert_called_once()
         self.assertNotIn(b"%PDF-synthetic", send.call_args.kwargs["args"])
         self.assertFalse(send.call_args.kwargs["retry"])
+        self.assertEqual(send.call_args.kwargs["kwargs"], {"mode": "traditional"})
         self.assertGreaterEqual(redis.delete.await_count, 2)
         redis.aclose.assert_awaited_once()
 
@@ -59,6 +62,32 @@ class PdfQueueTests(SimpleTestCase):
         self.assertNotIn(b"private detail", lines[0])
         send.assert_called_once()
         inline.assert_not_called()
+
+    async def test_advanced_mode_reaches_worker(self):
+        """消息和 Redis 均替身；验证显式 advanced 随发布参数及 worker 管线传递。
+        不证明外部服务可用。
+        """
+        redis = AsyncMock()
+        line = b'{"type":"result"}\n'
+        redis.xread.return_value = [(b"stream", [(b"1-0", {b"line": line, b"terminal": b"1"})])]
+        with (
+            patch("interviews.pdf_queue.redis_client", return_value=redis),
+            patch("config.celery.app.send_task") as send,
+        ):
+            stream = queued_resume_events(b"synthetic", mode="advanced")
+            await anext(stream)
+            await anext(stream)
+            await stream.aclose()
+        self.assertEqual(send.call_args.kwargs["kwargs"], {"mode": "advanced"})
+        redis.exists.return_value = 1
+        redis.eval.return_value = b"synthetic"
+        with (
+            patch("interviews.tasks.redis_client", return_value=redis),
+            patch("interviews.tasks.publish_events", new_callable=AsyncMock) as producer,
+            patch("interviews.tasks.watch_client", new_callable=AsyncMock),
+        ):
+            await execute_pdf("test-job", mode="advanced")
+        producer.assert_awaited_once_with(redis, "test-job", b"synthetic", mode="advanced")
 
     async def test_close_cancels_consumer(self):
         """流在 queued 后关闭仍执行 finally，worker 将观察到消费者标记删除。"""

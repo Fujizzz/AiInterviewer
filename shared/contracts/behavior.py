@@ -1,0 +1,228 @@
+"""职责：定义面试 Agent 的行为许可、拟执行行为及合格性结果，独立于文本攻击标签。
+实现：后端边界与不可信证据/提案分离；严格契约、有限参数约束及完整语义检查覆盖。
+关联：ai_security.behavior 执行检查；后端 agent_safety 从真实数据库装配请求。
+
+目录：
+- ParameterBound：单个参数的必填、枚举或整数区间契约。
+- ParameterBound.validate_bound：拒绝无效或混合的参数约束。
+- BehaviorRequirement：由后端提供的可审计语义要求。
+- BehaviorPermit：一个操作的角色、阶段、资源、字段和受众许可。
+- BehaviorPermit.validate_permit：验证唯一性和语义检查要求。
+- BehaviorBoundary：后端认证后的上下文与允许范围。
+- BehaviorBoundary.validate_boundary：验证许可引用及当前状态。
+- BehaviorProposal：实际即将调用或发送的内容，不是用户的原始请求。
+- BehaviorRequest：将后端边界绑定到一次完整行为快照。
+- BehaviorRequest.validate_references：核对证据拓扑、唯一性及提案引用。
+- BehaviorAssessment：模型对拟执行行为的合格性判断。
+- BehaviorAssessment.validate_assessment：限制结论、检查项与违反项的一致性。
+- BehaviorDecision：可审计的放行、拒绝或未完成结果。
+- BehaviorDecision.validate_decision：禁止错误伪装为完成检查或自动放行。
+
+关键变量：
+（无）
+
+约束说明：
+继承 SecurityModel 的严格类型、冻结和禁止额外字段；嵌套参数仍须执行前序列化隔离。
+边界只能由后端构造，不是浏览器可提交的授权凭证。模型生成内容不得填充权限字段。
+行为契约版本保持 1.0；公共类型只提供结构校验，不提供其他授权或分类入口。
+"""
+
+from typing import Literal
+
+from pydantic import Field, JsonValue, model_validator
+
+from .security import Identifier, Recipient, SecurityContent, SecurityModel
+
+
+class ParameterBound(SecurityModel):
+    """功能：约束参数；逻辑：枚举精确匹配或整数范围；约束：不解释攻击词，不执行 JSON Schema。"""
+
+    name: Identifier
+    required: bool
+    kind: Literal["enum", "integer"]
+    values: tuple[JsonValue, ...]
+    minimum: int | None
+    maximum: int | None
+
+    @model_validator(mode="after")
+    def validate_bound(self):
+        """功能：校验配置；输入：参数约束；输出：自身；非法范围或空枚举直接报错，无宽松默认。"""
+        if self.kind == "enum":
+            if not self.values or self.minimum is not None or self.maximum is not None:
+                raise ValueError("enum requires values and no integer range")
+        elif self.values or self.minimum is None or self.maximum is None:
+            raise ValueError("integer requires explicit range and no enum values")
+        elif self.minimum > self.maximum:
+            raise ValueError("integer range must be ordered")
+        return self
+
+
+class BehaviorRequirement(SecurityModel):
+    """功能：描述语义边界；逻辑：固定 ID 与后端说明；约束：说明不得来自未批准的模型计划。"""
+
+    requirement_id: Identifier
+    description: str = Field(min_length=1, max_length=4000)
+
+
+class BehaviorPermit(SecurityModel):
+    """功能：声明操作许可；逻辑：集合取交集、未知参数拒绝；约束：许可不证明资源真实归属。
+
+    effect 区分读、写、输出；fields 是操作实际读写或披露的字段，不是模型自己声称的范围。
+    参数只支持后端固定枚举与整数区间；复杂业务对象须先经原业务契约验证，再显式绑定。
+    """
+
+    operation: Identifier
+    effect: Literal["read", "write", "output"]
+    roles: tuple[Identifier, ...] = Field(min_length=1)
+    phases: tuple[Literal["preparation", "active", "completed"], ...] = Field(min_length=1)
+    stages: tuple[Identifier, ...] = Field(min_length=1)
+    resource_ids: tuple[Identifier, ...] = Field(min_length=1)
+    fields: tuple[Identifier, ...]
+    recipients: tuple[Recipient, ...] = Field(min_length=1)
+    parameters: tuple[ParameterBound, ...]
+    requires_evidence: bool
+    requirement_ids: tuple[Identifier, ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_permit(self):
+        """功能：核对许可；输入：所有集合字段；输出：自身；重复或同名参数拒绝，不合并扩大范围。"""
+        for values in (
+            self.roles,
+            self.phases,
+            self.stages,
+            self.resource_ids,
+            self.fields,
+            self.recipients,
+            self.requirement_ids,
+            tuple(p.name for p in self.parameters),
+        ):
+            if len(values) != len(set(values)):
+                raise ValueError("permit entries must be unique")
+        return self
+
+
+class BehaviorBoundary(SecurityModel):
+    """功能：保存后端授权快照；逻辑：绑定主体、会话、状态与显式许可；约束：无隐式允许操作。"""
+
+    policy_version: Identifier
+    actor_id: Identifier
+    actor_role: Identifier
+    session_id: Identifier
+    state_version: int = Field(ge=0)
+    phase: Literal["preparation", "active", "completed"]
+    stage: Identifier
+    task_purpose: str = Field(min_length=1, max_length=4000)
+    question_purpose: str = Field(max_length=2000)
+    requirements: tuple[BehaviorRequirement, ...] = Field(min_length=1, max_length=32)
+    permits: tuple[BehaviorPermit, ...] = Field(max_length=32)
+
+    @model_validator(mode="after")
+    def validate_boundary(self):
+        """功能：核对边界；输入：阶段和许可引用；输出：自身；拒绝重复操作、未知要求及结束态矛盾。"""
+        ids = [r.requirement_id for r in self.requirements]
+        operations = [p.operation for p in self.permits]
+        if len(ids) != len(set(ids)) or len(operations) != len(set(operations)):
+            raise ValueError("boundary requirements and operations must be unique")
+        if any(not set(p.requirement_ids).issubset(ids) for p in self.permits):
+            raise ValueError("permit references an unknown requirement")
+        if (self.phase == "completed") != (self.stage == "finished"):
+            raise ValueError("phase and stage disagree")
+        return self
+
+
+class BehaviorProposal(SecurityModel):
+    """功能：绑定拟执行操作；逻辑：资源、字段、参数、正文均纳入摘要；约束：必须由执行器实际使用。"""
+
+    operation: Identifier
+    resource_id: Identifier
+    recipient: Recipient
+    fields: tuple[Identifier, ...]
+    arguments: dict[str, JsonValue]
+    content: SecurityContent | None
+    evidence_ids: tuple[Identifier, ...]
+
+
+class BehaviorRequest(SecurityModel):
+    """功能：组成行为检查；逻辑：证据与提案分离；约束：证据中的攻击请求不等于系统已违反边界。"""
+
+    contract_version: Literal["1.0"] = "1.0"
+    request_id: Identifier
+    boundary: BehaviorBoundary
+    evidence: tuple[SecurityContent, ...] = Field(max_length=64)
+    proposal: BehaviorProposal
+
+    @model_validator(mode="after")
+    def validate_references(self):
+        """功能：验证来源；输入：证据与提案；输出：自身；拒绝重复、缺失、循环引用和伪造输出来源。
+
+        evidence_ids 是论据引用；derived_from 是数据传播标签，两个字段不相互代替或自动脱敏。
+        """
+        seen = set()
+        for item in self.evidence:
+            if item.content_id == "proposal" or item.content_id in seen:
+                raise ValueError("evidence IDs must be unique and not reserved")
+            if not set(item.derived_from).issubset(seen):
+                raise ValueError("evidence parents must precede children")
+            seen.add(item.content_id)
+        for values in (self.proposal.evidence_ids, self.proposal.fields):
+            if len(values) != len(set(values)):
+                raise ValueError("proposal references must be unique")
+        if not set(self.proposal.evidence_ids).issubset(seen):
+            raise ValueError("proposal evidence must exist")
+        content = self.proposal.content
+        if content is not None:
+            if content.content_id != "proposal" or content.source != "model_output":
+                raise ValueError("proposal content must be model_output named proposal")
+            if not set(content.derived_from).issubset(seen):
+                raise ValueError("proposal parents must exist")
+        return self
+
+
+class BehaviorAssessment(SecurityModel):
+    """功能：记录行为合格性；逻辑：有限结论和要求 ID；约束：无工具权限、不输出可执行修复建议。"""
+
+    verdict: Literal["compliant", "noncompliant", "uncertain"]
+    checked_requirement_ids: tuple[Identifier, ...]
+    violated_requirement_ids: tuple[Identifier, ...]
+
+    @model_validator(mode="after")
+    def validate_assessment(self):
+        """功能：验证结论；输入：检查与违反项；输出：自身；矛盾或重复立即失败，不修复响应。"""
+        for values in (self.checked_requirement_ids, self.violated_requirement_ids):
+            if len(values) != len(set(values)):
+                raise ValueError("assessment IDs must be unique")
+        if not set(self.violated_requirement_ids).issubset(self.checked_requirement_ids):
+            raise ValueError("violations must reference checked requirements")
+        if (self.verdict == "noncompliant") != bool(self.violated_requirement_ids):
+            raise ValueError("only noncompliant requires violations")
+        return self
+
+
+class BehaviorDecision(SecurityModel):
+    """功能：承载审计结果；逻辑：检查失败与违反边界分开；约束：allow 不是通用执行令牌。"""
+
+    contract_version: Literal["1.0"] = "1.0"
+    request_id: Identifier
+    decision_id: Identifier
+    request_digest: str = Field(pattern=r"^[a-f0-9]{64}$")
+    policy_version: Identifier
+    boundary_version: Identifier
+    status: Literal["allow", "deny", "error"]
+    coverage: Literal["deterministic", "semantic", "incomplete"]
+    violations: tuple[Identifier, ...]
+    error_code: Literal["semantic_timeout", "semantic_failure", "semantic_uncertain"] | None
+    latency_ms: float = Field(ge=0)
+
+    @model_validator(mode="after")
+    def validate_decision(self):
+        """功能：校验结果；输入：状态/覆盖/错误；输出：自身；不允许程序准入直接当成语义放行。"""
+        if self.status == "error":
+            if self.coverage != "incomplete" or not self.error_code or self.violations:
+                raise ValueError("error requires incomplete coverage without violations")
+        elif self.error_code or self.coverage == "incomplete":
+            raise ValueError("completed decisions cannot contain errors")
+        elif (self.status == "deny") != bool(self.violations):
+            raise ValueError("deny requires violations")
+        elif self.status == "allow" and self.coverage != "semantic":
+            raise ValueError("allow requires semantic coverage")
+        return self

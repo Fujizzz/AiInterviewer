@@ -18,6 +18,7 @@
 BackendLLM._lock 保护 _active 与 _closing；_active 是在途调用数。
 _closing 阻止新调用，由最后一个在途调用释放 client。
 provider/model/options 控制原 MVP 推理参数；interview_id 只用于日志关联。
+request_timeout/resume_timeout 分别复用共享配置的生成与简历提取预算，供父类按调用类型选择。
 capacity_lease 由 ASGI 准入传入；同步调用借用它，确保断线后实际调用未返回时不释放名额。
 """
 
@@ -42,8 +43,9 @@ class BackendLLM(OpenAILLM):
 
         输入：可选 interview_id，仅用于连接模型日志与会话日志，不参与提示词或评分。
         逻辑：验证供应商、对应密钥与模型名→读取推理选项→建立 SDK→初始化并发计数。
-        依赖：根目录 .env 已由 Django settings 装载；跳过父类构造器，仍复用模型调用实现。
-        参数：复用 Agent 的请求超时预算；禁用 SDK 自动重试，结构化修复由对应调用层负责。
+        依赖：Django 已装载根目录 .env；跳过父类构造器避免重复装载，复用其调用实现。
+        参数：分别复用 Agent 的生成与简历提取超时预算；父类根据调用上下文选择预算，
+        并受剩余截止时间约束。禁用 SDK 自动重试，结构化修复由对应调用层负责。
         异常：缺少配置抛 LLMError；温度转换或 SDK 参数错误直接传播，供协议层统一处理。
         """
         self.interview_id = interview_id
@@ -62,7 +64,9 @@ class BackendLLM(OpenAILLM):
             client_options["base_url"] = os.getenv(
                 "DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"
             ).strip()
-        self.request_timeout = load_agent_settings().timeouts.llm_generation_seconds
+        timeouts = load_agent_settings().timeouts
+        self.request_timeout = timeouts.llm_generation_seconds
+        self.resume_timeout = timeouts.resume_extraction_seconds
         self.client = OpenAI(
             api_key=key, timeout=self.request_timeout, max_retries=0, **client_options
         )

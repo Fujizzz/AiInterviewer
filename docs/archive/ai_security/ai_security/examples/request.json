@@ -1,0 +1,38 @@
+{
+  "contract_version": "3.0",
+  "checkpoint": "input",
+  "context": {
+    "request_id": "demo-request-1",
+    "session_id": "demo-session",
+    "actor_id": "demo-actor",
+    "task": "interview_question",
+    "phase": "active",
+    "recipient": "internal",
+    "trusted_task": {
+      "policy_version": "interview-context-v3",
+      "state_version": 0,
+      "permitted_operations": [
+        "retrieve_own_interview"
+      ],
+      "public_information": [
+        "scoring_dimensions",
+        "candidate_feedback"
+      ],
+      "allow_answer_correction": true,
+      "allow_question_clarification": true
+    }
+  },
+  "contents": [
+    {
+      "content_id": "answer-1",
+      "source": "user",
+      "text": "我负责实现 Python API 和数据库查询优化。",
+      "readable_by": [
+        "candidate",
+        "staff",
+        "internal"
+      ],
+      "derived_from": []
+    }
+  ]
+}

@@ -20,6 +20,8 @@
 
 状态说明：
 AgentInterview.owner 标识创建用户；旧数据为 null，不向注册用户公开或自动认领。
+resume_version 固定本人输入版本；resume_text_snapshot 固定实际输入，context 内的
+candidate_profile 固定实际结构化资料。后续版本切换不修改历史依据，公开资料仍从已检响应读取。
 Interview.status 为 preparing/active/completed/interrupted/failed；与 Agent 内部状态分开。
 Request.status 为 running/succeeded/failed/interrupted；进程骤停可能留下 running，不能自动重放。
 context/state_version 是当前状态唯一来源；Request.response 是发送前存储的不可变响应快照，
@@ -41,10 +43,19 @@ class AgentInterview(models.Model):
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    owner = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True,
-                              on_delete=models.PROTECT, related_name="agent_interviews")
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="agent_interviews",
+    )
     status = models.CharField(max_length=16, default="preparing")
     job_title = models.TextField(blank=True)
+    resume_version = models.ForeignKey(
+        "ResumeVersion", null=True, blank=True, on_delete=models.PROTECT, related_name="interviews"
+    )
+    resume_text_snapshot = models.TextField(blank=True)
     context = models.JSONField(null=True, blank=True)
     state_version = models.PositiveIntegerField(default=0)
     latest_action = models.JSONField(null=True, blank=True)

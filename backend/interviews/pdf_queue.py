@@ -1,6 +1,6 @@
 """职责：把已认证 PDF 请求交付 Celery，将 Redis 中的进度转回原 NDJSON 流。
 
-实现：正文只存短期 Redis 键，消息只含随机 ID；原子取走并删除 防止重投重复调用模型。
+实现：正文只存短期 Redis 键，消息只含随机 ID 和选定模式；原子取走并删除防止重复执行。
 关联：resume_api 选择明确配置的执行方式；tasks 消费任务，前端保持原上传和取消协议。
 目录：
 - redis_client：建立无重试的异步 Redis 客户端。
@@ -44,8 +44,8 @@ def queue_key(job_id, part):
     return f"ai-interviewer:pdf:{job_id}:{part}"
 
 
-async def queued_resume_events(data):
-    """输入已限制大小的 PDF，输出原 progress/page/result/error 行；不持久化业务记录。
+async def queued_resume_events(data, *, mode="traditional"):
+    """输入有界 PDF 和模式（默认 traditional），输出事件；mode 随任务传递，无业务持久化。
 
     发布失败明确返回 error。读取事件是进度订阅，不重试任务；终态或断线使客户端标记失效。
     Worker 心跳丢失明确失败；取走的输入无法被重复任务再次消费，避免重复计费。
@@ -60,12 +60,15 @@ async def queued_resume_events(data):
     seen_worker = False
     cursor = "0-0"
     try:
+        if mode not in {"traditional", "advanced"}:
+            raise ValueError("invalid extraction mode")
         await redis.set(queue_key(job_id, "input"), data, ex=JOB_TTL, nx=True)
         await redis.set(queue_key(job_id, "client"), "1", ex=CLIENT_TTL)
         await asyncio.to_thread(
             app.send_task,
             "interviews.parse_pdf",
             args=[job_id],
+            kwargs={"mode": mode},
             task_id=job_id,
             retry=False,
             expires=QUEUE_WAIT,

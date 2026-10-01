@@ -1,0 +1,52 @@
+{
+  "purpose": "New interview behavior boundary evaluation authorized by user; fixed proposals, not an end-to-end agent experiment.",
+  "data_frozen_before_model_call": true,
+  "model_configuration": {
+    "provider": "dashscope",
+    "model": "qwen-plus",
+    "options": {
+      "temperature": 0.0
+    },
+    "enable_thinking": false,
+    "sdk_timeout_seconds": 30.0,
+    "sdk_max_retries": 0,
+    "sdk_version": "2.54.0",
+    "endpoint_sha256": "5891aed827c4e67b2d7c0c73ea819327ce3f2b6ef72213cd79669486a26b1ead",
+    "instructions_sha256": "07252c6ab9bd62739133acecc78f68854adb45f1d2469b24cec747be6bd190d5",
+    "calls": [],
+    "review_type": "behavior-v1"
+  },
+  "files_sha256": {
+    "tests/security/data/behavior_cases_v1.jsonl": "cf44e26a52e5e25094b93d8de36ecaa696875601fc40b3a3cf15b4fc9f08e744",
+    "ai_security/examples/behavior_policy.json": "843d06b4ec8bd30356e707f3fd248d8eee841657af8c749af77c1260c16a2ffe",
+    "ai_security/examples/behavior_policy_15s_eval.json": "49a97f9378d40bbf0db8afc8d54d61f47525f5049a72ee1645eaceee8075f91f",
+    "ai_security/admission.py": "7d77e58a08ce2864a5e57b348d9474be404ac7b07de015b45eabb593920a5934",
+    "ai_security/behavior.py": "9f2ad88a417cbaea37e78316abd085cc5ed1855378a90a2ad07535103ea1e4cc",
+    "ai_security/behavior_benchmark.py": "80cc5507d25f3e93312825d8495dd79ad88021d18fea43e3c2d33a58499d85d6",
+    "ai_security/behavior_bounds.py": "439c5b7412e7a1566dfc5bdaa54b39654b61f57e801381d5888fdc89cdac247a",
+    "ai_security/behavior_cli.py": "ac451bface88ef6db01858bf858d3d56f9923c75f826b738ccef711d749008d8",
+    "ai_security/behavior_interview.py": "b9bea672e961440597de3cb24878d0e1f9ca953b1e2882752c15be55d636db43",
+    "ai_security/behavior_semantic.py": "83196d4c6ecd11064aea61e8f056dc0dedfa3654be86fd48878bf5bc88f2ea87",
+    "ai_security/benchmark.py": "13d0ab89dcccf257954b791e35c182165fb724982eeb6e814357686b35c84407",
+    "ai_security/engine.py": "eadb36d9cc64b8dc9756f8e1313101b1c7adfba3d43ac4e3735cfc9027633f21",
+    "ai_security/execution.py": "80b8454898d5c1b5b6bf9692dc59e0c542a74070af1165adb5175fff3daa6e3a",
+    "ai_security/interview.py": "9c7ed7fd1c3faae1ca3616ba1e318e0e4f52dfcaf3c67fe3232fdf20032e93e8",
+    "ai_security/policy.py": "d132deba66624064b35932fa25911cc680fffc3a5a7a6c979510a325d3f945b6",
+    "ai_security/project_provider.py": "be1db22ada24be3964fa51711cafe74aaa73f88e2b7c2b83da45bf26463216de",
+    "ai_security/runtime.py": "3b4aa51add9160304ee0c502404b5d486f2c4c3707df5eeaf97aeeabe83d531c",
+    "ai_security/semantic.py": "3d69f655d18e189ec10a7a0ba85315a449c2b34c85079bf9609a64e48dda54f0",
+    "ai_security/__init__.py": "cdf101411d456dd3ed4d90fc0596efcfbe5a9527c78cf5c0844d81b09508b4dd",
+    "ai_security/__main__.py": "7ae6a643631e45cdb1ba320c97db51484a57558eb90f79f71a66ba2ae64e80c4",
+    "shared/contracts/behavior.py": "b38244f0ef47f4aa074576f9964db1c7f54ddf4b9a1be4020f64678956e7fcdc",
+    "shared/contracts/security.py": "728eb2d57a068c39c43b32e7ec90032840bf91d70973e41c705a51e5fae01824"
+  },
+  "legacy_reports_sha256": {
+    "contextual-cases-qwen-v3-r2-15s.json": "4468eda4f26f9fe9c617210e60cea0ae9d028d3f3e55a5792354a46208165d9e",
+    "contextual-cases-qwen-v3-r2.json": "33b57e19f2b6ddc49b107cae0a2d8c1b88e53828020cd323e96a320736377cc4",
+    "deepset-test-qwen-v3-r2-15s.json": "de7d3f60e7d6587aaba03792741588d8d9317223136f269dd4566d8db9bf38f4",
+    "deepset-test-qwen-v3-r2.json": "5d36b2cb2ce9ca52a9011e5c0e1a39657db0fb02ba64957e11196e20e06df183",
+    "interview-cases-qwen-v3-r2-15s.json": "26bc703f361c8c920c130edb819e63d594f23a60b484706a546b2645910e1ce9",
+    "interview-cases-qwen-v3-r2.json": "ce3fdadfcaf0d0bc2906de62b9fd6f457190c091f4ffa3cf843b824c7394d529"
+  },
+  "legacy_default_policy_sha256": "172f0d0ee2b7adfefd83fe736fd53815b148bdf7210ffcc1508140ded8e15bf3"
+}

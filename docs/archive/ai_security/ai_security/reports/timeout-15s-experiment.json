@@ -1,0 +1,42 @@
+{
+  "purpose": "Authorized 15-second independent evaluation; original 5-second default unchanged.",
+  "baseline_report_sha256": {
+    "interview-cases-qwen-v3-r2.json": "ce3fdadfcaf0d0bc2906de62b9fd6f457190c091f4ffa3cf843b824c7394d529",
+    "contextual-cases-qwen-v3-r2.json": "33b57e19f2b6ddc49b107cae0a2d8c1b88e53828020cd323e96a320736377cc4",
+    "deepset-test-qwen-v3-r2.json": "5d36b2cb2ce9ca52a9011e5c0e1a39657db0fb02ba64957e11196e20e06df183"
+  },
+  "default_policy_sha256": "172f0d0ee2b7adfefd83fe736fd53815b148bdf7210ffcc1508140ded8e15bf3",
+  "only_policy_change": {
+    "semantic_timeout_seconds": {
+      "before": 5.0,
+      "after": 15.0
+    }
+  },
+  "expected_model_configuration": {
+    "provider": "dashscope",
+    "model": "qwen-plus",
+    "options": {
+      "temperature": 0.0
+    },
+    "enable_thinking": false,
+    "sdk_timeout_seconds": 30.0,
+    "sdk_max_retries": 0,
+    "sdk_version": "2.54.0",
+    "endpoint_sha256": "5891aed827c4e67b2d7c0c73ea819327ce3f2b6ef72213cd79669486a26b1ead",
+    "instructions_sha256": "b2520c8dc4781224a3303d49d4e38cceb71423d6d9964dc7b13f7866e8446c9a"
+  },
+  "implementation_sha256": {
+    "ai_security\\admission.py": "7d77e58a08ce2864a5e57b348d9474be404ac7b07de015b45eabb593920a5934",
+    "ai_security\\benchmark.py": "13d0ab89dcccf257954b791e35c182165fb724982eeb6e814357686b35c84407",
+    "ai_security\\engine.py": "eadb36d9cc64b8dc9756f8e1313101b1c7adfba3d43ac4e3735cfc9027633f21",
+    "ai_security\\execution.py": "80b8454898d5c1b5b6bf9692dc59e0c542a74070af1165adb5175fff3daa6e3a",
+    "ai_security\\interview.py": "9c7ed7fd1c3faae1ca3616ba1e318e0e4f52dfcaf3c67fe3232fdf20032e93e8",
+    "ai_security\\policy.py": "d132deba66624064b35932fa25911cc680fffc3a5a7a6c979510a325d3f945b6",
+    "ai_security\\project_provider.py": "be1db22ada24be3964fa51711cafe74aaa73f88e2b7c2b83da45bf26463216de",
+    "ai_security\\runtime.py": "3b4aa51add9160304ee0c502404b5d486f2c4c3707df5eeaf97aeeabe83d531c",
+    "ai_security\\semantic.py": "3d69f655d18e189ec10a7a0ba85315a449c2b34c85079bf9609a64e48dda54f0",
+    "ai_security\\__init__.py": "4db613dbefda4d409f515d8b79e5b231d87f8da3c29e3c58199a928c88c5c850",
+    "ai_security\\__main__.py": "7ae6a643631e45cdb1ba320c97db51484a57558eb90f79f71a66ba2ae64e80c4",
+    "shared\\contracts\\security.py": "728eb2d57a068c39c43b32e7ec90032840bf91d70973e41c705a51e5fae01824"
+  }
+}

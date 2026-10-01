@@ -14,15 +14,24 @@
 - ResumeFlowTests.setUp：显式模拟沙箱边界，原解析算法在独立单元测试与沙箱联调中验证。
 - ResumeFlowTests.setUp.local_parse：仅供流程测试返回既有算法的页面，不属于生产备用路径。
 - ResumeFlowTests.test_no_changes_preserves_baseline：无修改建议时逐字保留提取基线。
-- ResumeFlowTests.test_precise_corrections：只改变明确的片段并拒绝错误定位或重叠。
+- ResumeFlowTests.test_precise_corrections：仅替换编号行范围，越界、逆序、重叠或无依据拒绝。
+- ResumeFlowTests.test_unchanged_suggestions_preserve_baseline：同文建议保留原文，不冒充实际修改。
+- ResumeFlowTests.test_unchanged_suggestions_with_real_changes：
+  忽略同文覆盖区间，仍验证行号与理由。
+- ResumeFlowTests.test_line_ranges_preserve_unedited_repeated_text：
+  行号区分重复文字，保留未选中行、CRLF 与末端无换行。
 - ResumeFlowTests.test_vision_order_and_close：规则先返回，视觉按页序合并并关闭。
 - ResumeFlowTests.test_failure_no_fallback：视觉失败无成功终态，错误不泄露原文。
+- ResumeFlowTests.test_failure_codes_are_specific_and_redacted：
+  定位失败与超时返回明确有限码，未知异常不泄露原文。
 - ResumeFlowTests.test_cancellation_closes_client：取消发生后释放视觉连接。
 - ResumeFlowTests.test_agent_rejects_mismatch_and_omission：拒绝缺图、页码错配与非空页丢失。
 - ResumeFlowTests.test_http_contract：真实 Django 路由接受 multipart 并拒绝错误方法和参数。
+- ResumeFlowTests.test_default_traditional_has_no_model_call：
+  默认传统提取返回原基线，不构造或调用视觉客户端。
 - ResumeProviderTests：模拟 SDK，验证真实适配器配置与图文请求。
 - ResumeProviderTests.test_explicit_configuration：缺专用模型时不使用面试文本模型。
-- ResumeProviderTests.test_multimodal_payload：图片和规则文本实际进入请求，禁止 SDK 重试。
+- ResumeProviderTests.test_multimodal_payload：图片和编号规则行实际进入请求，禁止 SDK 重试。
 - ResumeProviderTests.test_invalid_output_is_not_retried：截断及非法 JSON 不能标记成功。
 
 - ControlledAgent：用事件控制每页完成或失败，不依赖时间估计并发。
@@ -45,11 +54,13 @@ from unittest.mock import AsyncMock, patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import AsyncClient, SimpleTestCase
+from httpx import ReadTimeout, Request
+from openai import APITimeoutError
 from PIL import Image, ImageDraw
 from pypdf import PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
-from agents.resume_cleanup import PageReview, ResumeCleanupAgent, ResumePage, TextCorrection
+from agents.resume_cleanup import LineCorrection, PageReview, ResumeCleanupAgent, ResumePage
 from interviews.resume_api import VISION_CONCURRENCY, resume_events, review_pages
 from interviews.resume_pdf import (
     MAX_BYTES,
@@ -177,22 +188,22 @@ class ResumeFlowTests(SimpleTestCase):
         self.assertEqual(result.uncertainties, ["日期不清晰，保留原文"])
 
     async def test_precise_corrections(self):
-        """有效补丁只替换对应原文；重复来源、重叠、无依据或无变化补丁明确拒绝。"""
+        """有效编号范围只替换选中行；越界、逆序、重叠和无依据补丁仍明确拒绝。"""
         port = SimpleNamespace(review=AsyncMock())
-        page = ResumePage(1, "", "  Pyth0n / SQL / 30%", image_png=b"png")
-        correction = TextCorrection(before="Pyth0n", after="Python", reason="图中为字母 o")
+        page = ResumePage(1, "", "  Pyth0n / SQL / 30%\n  日期 2026\n", image_png=b"png")
+        correction = LineCorrection(
+            start_line=1, end_line=1, text="  Python / SQL / 30%", reason="图中为字母 o"
+        )
         port.review.return_value = PageReview(number=1, corrections=[correction], uncertainties=[])
         result = await ResumeCleanupAgent(port).clean_page(page)
-        self.assertEqual(result.text, "  Python / SQL / 30%")
+        self.assertEqual(result.text, "  Python / SQL / 30%\n  日期 2026\n")
         self.assertTrue(result.changed)
         self.assertEqual(result.corrections, [correction])
         for corrections in (
-            [TextCorrection(before="missing", after="x", reason="test")],
-            [TextCorrection(before=" / ", after="x", reason="test")],
-            [TextCorrection(before="", after="x", reason="test")],
-            [TextCorrection(before="SQL", after="SQL", reason="test")],
-            [TextCorrection(before="SQL", after="x", reason=" ")],
-            [correction, TextCorrection(before="Pyth0n / SQL", after="x", reason="test")],
+            [LineCorrection(start_line=3, end_line=3, text="x", reason="test")],
+            [LineCorrection(start_line=2, end_line=1, text="x", reason="test")],
+            [LineCorrection(start_line=1, end_line=1, text="x", reason=" ")],
+            [correction, LineCorrection(start_line=1, end_line=2, text="x", reason="test")],
         ):
             port.review.return_value = PageReview(
                 number=1, corrections=corrections, uncertainties=[]
@@ -201,14 +212,110 @@ class ResumeFlowTests(SimpleTestCase):
                 await ResumeCleanupAgent(port).clean_page(page)
         port.review.return_value = PageReview(
             number=1,
-            corrections=[TextCorrection(before="", after="扫描文字", reason="图片可见")],
+            corrections=[
+                LineCorrection(start_line=1, end_line=1, text="扫描文字", reason="图片可见")
+            ],
             uncertainties=[],
         )
         result = await ResumeCleanupAgent(port).clean_page(ResumePage(1, "", "", image_png=b"png"))
         self.assertEqual(result.text, "扫描文字")
+        # 两条实际补录占据同一个虚拟空行，不能因字符范围长度为零而绕过重叠检查。
+        port.review.return_value = PageReview(
+            number=1,
+            corrections=[
+                LineCorrection(start_line=1, end_line=1, text="first", reason="test"),
+                LineCorrection(start_line=1, end_line=1, text="second", reason="test"),
+            ],
+            uncertainties=[],
+        )
+        with self.assertRaisesRegex(ValueError, "overlapping"):
+            await ResumeCleanupAgent(port).clean_page(ResumePage(1, "", "", image_png=b"png"))
+
+    async def test_unchanged_suggestions_preserve_baseline(self):
+        """模拟视觉同文建议；真实 Agent 保留字符/空白/疑点，changed 为 false 且补丁为空。"""
+        page = ResumePage(1, "", "  Python / SQL\n", image_png=b"png")
+        port = SimpleNamespace(
+            review=AsyncMock(
+                return_value=PageReview(
+                    number=1,
+                    corrections=[
+                        LineCorrection(start_line=1, end_line=1, text=page.text, reason="图片一致")
+                    ],
+                    uncertainties=["日期需核对"],
+                )
+            )
+        )
+        result = await ResumeCleanupAgent(port).clean_page(page)
+        self.assertEqual(result.text, page.text)
+        self.assertFalse(result.changed)
+        self.assertEqual(result.corrections, [])
+        self.assertEqual(result.uncertainties, ["日期需核对"])
+        port.review.assert_awaited_once()
+
+    async def test_unchanged_suggestions_with_real_changes(self):
+        """同文区间不阻止真实替换；无效行号和空理由仍拒绝，模型仅调用一次。"""
+        page = ResumePage(1, "", " Pyth0n / SQL\n", image_png=b"png")
+        correction = LineCorrection(
+            start_line=1, end_line=1, text=" Python / SQL", reason="图中为字母 o"
+        )
+        unchanged = LineCorrection(start_line=1, end_line=1, text=page.text, reason="已核对")
+        port = SimpleNamespace(
+            review=AsyncMock(
+                return_value=PageReview(
+                    number=1,
+                    corrections=[unchanged, correction],
+                    uncertainties=[],
+                )
+            )
+        )
+        result = await ResumeCleanupAgent(port).clean_page(page)
+        self.assertEqual(result.text, " Python / SQL\n")
+        self.assertEqual(result.corrections, [correction])
+        self.assertTrue(result.changed)
+        port.review.assert_awaited_once()
+        for invalid in (
+            LineCorrection(start_line=2, end_line=2, text="missing", reason="test"),
+            LineCorrection(start_line=1, end_line=1, text=page.text, reason=" "),
+        ):
+            port.review.return_value = PageReview(number=1, corrections=[invalid], uncertainties=[])
+            with self.assertRaises(ValueError):
+                await ResumeCleanupAgent(port).clean_page(page)
+
+    async def test_line_ranges_preserve_unedited_repeated_text(self):
+        """重复基线不需模型复制定位文本；修改第二行，保留第一行与最后一行全部字符。"""
+        page = ResumePage(1, "", "  SQL\r\n  SQL\r\nTAIL", image_png=b"png")
+        port = SimpleNamespace(
+            review=AsyncMock(
+                return_value=PageReview(
+                    number=1,
+                    corrections=[
+                        LineCorrection(
+                            start_line=2, end_line=2, text="  Python", reason="图片依据"
+                        ),
+                    ],
+                    uncertainties=[],
+                )
+            )
+        )
+        result = await ResumeCleanupAgent(port).clean_page(page)
+        self.assertEqual(result.text, "  SQL\r\n  Python\r\nTAIL")
+        # 模型提供 LF 时仍恢复范围末端原有 CRLF，保留后续未选中的字符。
+        port.review.return_value = PageReview(
+            number=1,
+            corrections=[
+                LineCorrection(start_line=1, end_line=2, text="SQL\nPython\n", reason="图片依据"),
+            ],
+            uncertainties=[],
+        )
+        result = await ResumeCleanupAgent(port).clean_page(page)
+        self.assertEqual(result.text, "SQL\nPython\r\nTAIL")
 
     async def test_vision_order_and_close(self):
-        """两个独立单页结果保持原页序；首个进度事件在视觉构造前产生。"""
+        """原算法文本与编号行补丁按页合并；第一条进度先于模型构造，SDK 为显式替身。"""
+        baseline = extract_pdf(make_pdf())[0].text
+        lines = baseline.splitlines(keepends=True)
+        target_line = next(i for i, line in enumerate(lines, 1) if "Data pipeline" in line)
+        replacement = lines[target_line - 1].replace("Data pipeline", "Data pipeline test")
         provider = SimpleNamespace(
             review=AsyncMock(
                 side_effect=[
@@ -216,9 +323,10 @@ class ResumeFlowTests(SimpleTestCase):
                     PageReview(
                         number=2,
                         corrections=[
-                            TextCorrection(
-                                before="Data pipeline",
-                                after="Data pipeline test",
+                            LineCorrection(
+                                start_line=target_line,
+                                end_line=target_line,
+                                text=replacement,
                                 reason="test image",
                             )
                         ],
@@ -229,11 +337,10 @@ class ResumeFlowTests(SimpleTestCase):
             close=AsyncMock(),
         )
         with patch("interviews.resume_api.ResumeVision", return_value=provider) as constructor:
-            stream = resume_events(make_pdf(2))
+            stream = resume_events(make_pdf(2), mode="advanced")
             self.assertEqual(json.loads(await anext(stream))["type"], "progress")
             constructor.assert_not_called()
             events = await collect(stream)
-        baseline = extract_pdf(make_pdf())[0].text
         self.assertEqual(
             events[-1]["text"],
             baseline + "\n\n" + baseline.replace("Data pipeline", "Data pipeline test"),
@@ -250,11 +357,31 @@ class ResumeFlowTests(SimpleTestCase):
             review=AsyncMock(side_effect=RuntimeError("private-resume")), close=AsyncMock()
         )
         with patch("interviews.resume_api.ResumeVision", return_value=provider):
-            events = await collect(resume_events(make_pdf()))
+            events = await collect(resume_events(make_pdf(), mode="advanced"))
         self.assertEqual(events[-1]["type"], "error")
         self.assertEqual(events[-1]["stage"], "vision")
         self.assertNotIn("result", [event["type"] for event in events])
         self.assertNotIn("private-resume", json.dumps(events))
+
+    async def test_failure_codes_are_specific_and_redacted(self):
+        """真实流程配合显式视觉替身；验证定位失败/超时提示和有限错误码，原文与任意异常消息不公开。"""
+        timeout = APITimeoutError(request=Request("POST", "https://example.test"))
+        timeout.__cause__ = ReadTimeout("private-network-cause")
+        for error, expected in [
+            (ValueError("resume_correction_range_invalid"), "resume_correction_range_invalid"),
+            (TimeoutError("private-timeout"), "timeout"),
+            (timeout, "timeout"),
+            (ValueError("private-resume-secret"), "model_error"),
+        ]:
+            provider = SimpleNamespace(review=AsyncMock(side_effect=error), close=AsyncMock())
+            with patch("interviews.resume_api.ResumeVision", return_value=provider):
+                events = await collect(resume_events(make_pdf(), mode="advanced"))
+            self.assertEqual(events[-1]["type"], "error")
+            self.assertEqual(events[-1]["code"], expected)
+            self.assertNotIn("private-", json.dumps(events))
+            self.assertFalse(any(event["type"] == "result" for event in events))
+            provider.review.assert_awaited_once()
+            provider.close.assert_awaited_once()
         provider.close.assert_awaited_once()
 
     async def test_cancellation_closes_client(self):
@@ -264,7 +391,7 @@ class ResumeFlowTests(SimpleTestCase):
         )
         with patch("interviews.resume_api.ResumeVision", return_value=provider):
             with self.assertRaises(asyncio.CancelledError):
-                await collect(resume_events(make_pdf(2)))
+                await collect(resume_events(make_pdf(2), mode="advanced"))
         self.assertEqual(provider.review.await_count, 2)
         provider.close.assert_awaited_once()
 
@@ -279,7 +406,7 @@ class ResumeFlowTests(SimpleTestCase):
             PageReview(number=2, corrections=[], uncertainties=[]),
             PageReview(
                 number=1,
-                corrections=[TextCorrection(before="x", after="", reason="test")],
+                corrections=[LineCorrection(start_line=1, end_line=1, text="", reason="test")],
                 uncertainties=[],
             ),
         ):
@@ -288,7 +415,7 @@ class ResumeFlowTests(SimpleTestCase):
                 await agent.clean_page(ResumePage(1, "x", "x", image_png=b"png"))
 
     async def test_http_contract(self):
-        """使用真实异步 Django 路由和 multipart，模拟视觉端口；验证方法、拒绝模式选择及流返回。"""
+        """真实 Django 路由配合视觉替身；验证非法模式拒绝、显式 advanced 调用和流返回。"""
         client = AsyncClient(headers={"host": "127.0.0.1"})
         response = await client.get("/api/resume/parse/")
         self.assertEqual(response.status_code, 405)
@@ -300,6 +427,7 @@ class ResumeFlowTests(SimpleTestCase):
                 "file": SimpleUploadedFile(
                     "resume.pdf", make_pdf(), content_type="application/pdf"
                 ),
+                "mode": "advanced",
             },
         )
         self.assertEqual(response.status_code, 200)
@@ -312,6 +440,26 @@ class ResumeFlowTests(SimpleTestCase):
         provider.review.assert_awaited_once()
         self.assertEqual(events[-1]["type"], "result")
         self.assertEqual(response["Cache-Control"], "no-store")
+
+    async def test_default_traditional_has_no_model_call(self):
+        """真实路由与原规则算法、沙箱替身；缺省模式不创建视觉客户端，返回规则文本和风险提示。"""
+        client = AsyncClient(headers={"host": "127.0.0.1"})
+        with patch("interviews.resume_api.ResumeVision") as constructor:
+            response = await client.post(
+                "/api/resume/parse/",
+                {
+                    "file": SimpleUploadedFile(
+                        "resume.pdf", make_pdf(), content_type="application/pdf"
+                    )
+                },
+            )
+            events = await collect(response.streaming_content)
+        constructor.assert_not_called()
+        self.assertEqual(events[-1]["type"], "result")
+        self.assertEqual(events[-1]["mode"], "traditional")
+        self.assertEqual(events[-1]["text"], extract_pdf(make_pdf())[0].text)
+        self.assertTrue(events[-1]["pages"][0]["uncertainties"])
+        self.assertFalse(any(event.get("stage") == "vision" for event in events))
 
 
 class ResumeProviderTests(SimpleTestCase):
@@ -359,7 +507,9 @@ class ResumeProviderTests(SimpleTestCase):
             patch("interviews.resume_vision.AsyncOpenAI", return_value=sdk) as constructor,
         ):
             provider = ResumeVision()
-            result = await provider.review(ResumePage(1, "raw", "rule", image_png=b"png"), "system")
+            result = await provider.review(
+                ResumePage(1, "raw", "  rule\r\nnext", image_png=b"png"), "system"
+            )
             await provider.close()
         self.assertEqual(result.corrections, [])
         self.assertEqual(constructor.call_args.kwargs["max_retries"], 0)
@@ -370,6 +520,11 @@ class ResumeProviderTests(SimpleTestCase):
                 "data:image/png;base64,"
             )
         )
+        numbered = json.loads(payload["messages"][1]["content"][0]["text"])
+        self.assertEqual(
+            numbered["rule_lines"], [{"line": 1, "text": "  rule"}, {"line": 2, "text": "next"}]
+        )
+        self.assertNotIn("rule_text", numbered)
         self.assertEqual(payload["extra_body"], {"enable_thinking": False})
         sdk.close.assert_awaited_once()
 
@@ -407,7 +562,9 @@ class ResumeProviderTests(SimpleTestCase):
             ):
                 provider = ResumeVision()
                 with self.assertRaises(ValueError):
-                    await provider.review(ResumePage(1, "raw", "rule", image_png=b"png"), "system")
+                    await provider.review(
+                        ResumePage(1, "raw", "  rule\r\nnext", image_png=b"png"), "system"
+                    )
                 await provider.close()
             sdk.chat.completions.create.assert_awaited_once()
 

@@ -1,0 +1,105 @@
+/*
+ * 职责：个人中心的企业招聘式布局：紧凑导航、附件操作、单元编辑、原文对照和版本记录。
+ * 实现：单入口上传、附件行内解析和按需展开选项；对照展开才分双栏；手机单栏；粘附保存栏。
+ * 关联：resumes.html/resumes.js；selected/current 标记版本，不通过样式修改数据或可用状态。
+ * 目录：页面框架；侧栏；附件；表单单元与推荐字段；对照；保存栏；推荐卡片；历史；响应式。
+ * 函数和类声明：None。变量索引：None，无 CSS 自定义变量或配置项。
+ * 约束：仅展示，hidden 保持隐藏；长文件名/用户名换行，键盘焦点可见，表单原文不裁剪。
+ */
+.resumes-page { background: #f4f6f8; color: #243b42; }
+.resumes-page .home-shell { max-width: 1360px; padding: 0 32px; }
+.resumes-page .home-nav { padding: 20px 0; }
+.resumes-page .resume-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 26px 0 8px; }
+.resumes-page h1 { font-size: 25px; margin: 8px 0; }
+.resumes-page .workspace-note { font-size: 12px; color: #697980; }
+.resumes-page .operation-status { margin: 4px 0 16px; min-height: 24px; color: #236b5d; font-size: 13px; line-height: 1.8; overflow-wrap: anywhere; }
+.resumes-page .operation-status.error { color: #b3261e; }
+.resumes-page .resume-layout { display: grid; grid-template-columns: 196px minmax(0, 1fr); gap: 24px; align-items: start; }
+.resumes-page .workspace-sidebar { position: sticky; top: 18px; background: #fff; border: 1px solid #e2e7ec; border-radius: 10px; padding: 20px 16px; }
+.resumes-page .sidebar-identity { border-bottom: 1px solid #edf0f2; padding-bottom: 12px; }
+.resumes-page .account-avatar { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; color: #245e4c; background: #e8efe6; margin-bottom: 10px; font-size: 19px; }
+.resumes-page .profile-name { display: block; overflow-wrap: anywhere; font-size: 15px; }
+.resumes-page .sidebar-identity p { font-size: 12px; color: #64747c; }
+.resumes-page .section-navigation { display: flex; flex-direction: column; gap: 4px; padding: 12px 0; }
+.resumes-page .section-navigation a { padding: 11px 8px; border-radius: 6px; font-size: 13px; color: #465f66; }
+.resumes-page .section-navigation a:hover { background: #eef4f1; color: #236b5d; }
+.resumes-page .unit-navigation { border-left: 2px solid #e2e7ec; margin-left: 8px; }
+.resumes-page .unit-navigation summary { cursor: pointer; padding: 6px 10px; font-size: 12px; color: #64747c; }
+.resumes-page .unit-navigation a { display: block; padding: 5px 10px; font-size: 12px; }
+.resumes-page .account-summary { border-top: 1px solid #edf0f2; padding-top: 14px; font-size: 13px; }
+.resumes-page .account-summary summary { cursor: pointer; font-weight: 600; }
+.resumes-page #profile-save { width: 100%; margin-top: 14px; }
+.resumes-page .panel { border-color: #e2e7ec; padding: 24px; border-radius: 10px; margin-bottom: 20px; }
+.resumes-page .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.resumes-page .section-heading h2 { margin: 0; font-size: 18px; }
+.resumes-page .section-subtitle, .resumes-page .editor-state { font-size: 12px; color: #64747c; }
+.resumes-page label { display: block; margin: 12px 0 7px; font-size: 13px; font-weight: 600; color: #465f66; }
+.resumes-page input, .resumes-page textarea, .resumes-page select:not([data-language-selector]) { width: 100%; border: 1px solid #cfdadd; background: #fff; border-radius: 6px; padding: 10px; font: inherit; font-size: 13px; color: #243b42; }
+.resumes-page textarea { resize: vertical; line-height: 1.8; }
+.resumes-page input:focus-visible, .resumes-page textarea:focus-visible, .resumes-page select:focus-visible { outline: 2px solid #34786c; outline-offset: 2px; }
+.resumes-page .import-heading { display: flex; gap: 18px; align-items: start; justify-content: space-between; }
+.resumes-page #upload-kind { width: 150px; }
+.resumes-page .import-options { max-width: 320px; flex: 1; font-size: 12px; }
+.resumes-page .import-options summary { text-align: right; cursor: pointer; color: #64747c; padding: 12px 0; }
+.resumes-page .file-upload { display: flex; align-items: center; gap: 18px; border: 1px dashed #bdcece; background: #f7faf9; border-radius: 8px; padding: 24px; margin: 16px 0 0; }
+.resumes-page .file-symbol { display: grid; place-items: center; width: 46px; height: 54px; flex: 0 0 auto; border: 1px solid #d7e4df; border-radius: 6px; background: white; color: #34786c; font-size: 12px; font-weight: 700; }
+.resumes-page .file-upload-copy { flex: 1; min-width: 0; font-size: 14px; }
+.resumes-page .file-upload-copy .hint { margin: 6px 0 0; font-size: 12px; }
+.resumes-page .saved-attachment { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 12px; }
+.resumes-page .saved-attachment:has(> [hidden]):has(> .attachment-toolbar[hidden]) { margin: 0; }
+.resumes-page .attachment-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; flex: 0 1 370px; }
+.resumes-page .attachment-toolbar select:not([data-language-selector]) { width: auto; flex: 1; min-width: 150px; }
+.resumes-page .attachment-toolbar .hint { flex-basis: 100%; margin: 0; }
+.resumes-page .attachment-state { margin: 0; flex: 1; min-width: 180px; color: #346651; font-size: 13px; line-height: 1.8; overflow-wrap: anywhere; }
+.resumes-page fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
+.resumes-page .editor-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-items: start; }
+.resumes-page .original-comparison { grid-row: 1; background: #f7f9fa; border: 1px solid #e2e7ec; border-radius: 8px; padding: 14px; }
+.resumes-page .editor-layout:has(.original-comparison details[open]) { grid-template-columns: minmax(0, 1.75fr) minmax(230px, 1fr); gap: 22px; }
+.resumes-page .editor-layout:has(.original-comparison details[open]) .original-comparison { grid-column: 2; position: sticky; top: 18px; }
+.resumes-page .editor-layout:has(.original-comparison details[open]) .editable-units { grid-row: 1; }
+.resumes-page .original-comparison summary { font-size: 13px; font-weight: 600; cursor: pointer; }
+.resumes-page #preview-text { background: #fcfdfd; font-size: 12px; min-height: 300px; max-height: 500px; line-height: 1.8; }
+.resumes-page #preview-notes { white-space: pre-wrap; }
+.resumes-page .resume-unit { border: 1px solid #e2e7ec; border-radius: 8px; margin: 16px 0; scroll-margin-top: 18px; }
+.resumes-page .resume-unit summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; padding: 15px; font-size: 14px; font-weight: 600; }
+.resumes-page .resume-unit[open] summary { border-bottom: 1px solid #edf0f2; }
+.resumes-page .resume-unit > summary::after { content: "+"; color: #75868b; font-weight: 400; }
+.resumes-page .resume-unit[open] > summary::after { content: "−"; }
+.resumes-page .unit-body { padding: 0 15px 16px; }
+.resumes-page .unit-body .hint { margin: 12px 0; }
+.resumes-page .slot-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; margin-top: 6px; }
+.resumes-page .slot-field small { display: block; font-size: 11px; line-height: 1.7; color: #7a898e; margin-top: 6px; }
+.resumes-page .recommendation-fields { margin-top: 12px; border-top: 1px solid #edf0f2; }
+.resumes-page .recommendation-fields summary { display: list-item; padding: 12px 0 0; font-size: 12px; font-weight: 400; color: #64747c; }
+.resumes-page .recommendation-fields[open] summary { border: 0; }
+.resumes-page .editor-savebar { position: sticky; bottom: 0; z-index: 2; background: #fff; border-top: 1px solid #e2e7ec; margin-top: 18px; padding: 16px 0 2px; box-shadow: 0 -6px 12px #fff; }
+.resumes-page .editor-savebar p { font-size: 12px; color: #64747c; margin: 0 0 12px; }
+.resumes-page .nav-link { font-size: 13px; color: #236b5d; padding: 8px 0; align-self: center; }
+.resumes-page .version-card { border: 1px solid #e2e7ec; border-radius: 8px; padding: 16px; margin: 12px 0; }
+.resumes-page .version-card.selected { border-color: #34786c; background: #f4f8f6; }
+.resumes-page .version-more { position: relative; margin-left: auto; }
+.resumes-page .version-more summary { cursor: pointer; font-size: 13px; color: #64747c; padding: 8px; }
+.resumes-page .version-menu { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; border-top: 1px solid #e2e7ec; padding: 12px 0 0; }
+.resumes-page .version-more[open] { width: 100%; }
+.resumes-page .version-card h3 { color: #243b42; font-size: 14px; font-weight: 600; margin: 0 0 8px; overflow-wrap: anywhere; }
+.resumes-page .version-meta { margin: 8px 0 14px; color: #62777c; font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.resumes-page .badge { display: inline-block; border-radius: 4px; padding: 4px 8px; background: #eef2f3; color: #526b71; font-size: 11px; margin-right: 8px; }
+.resumes-page .badge.current { background: #245e4c; color: #fff; }
+.resumes-page button.danger { color: #a33a2e; border-color: #dfb9b2; background: white; }
+.resumes-page button.danger:hover:not(:disabled) { background: #a33a2e; color: white; }
+.resumes-page .pagination { display: flex; align-items: center; justify-content: center; gap: 18px; padding: 14px 0 6px; font-size: 12px; }
+.resumes-page .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.resumes-page [hidden] { display: none !important; }
+@media (max-width: 1000px) { .resumes-page .home-nav, .resumes-page .home-nav-actions { flex-wrap: wrap; } .resumes-page .home-nav-actions { gap: 12px; } .resumes-page .resume-layout { grid-template-columns: 172px minmax(0, 1fr); gap: 16px; } .resumes-page .editor-layout:has(.original-comparison details[open]) { grid-template-columns: minmax(0, 1fr); } .resumes-page .editor-layout:has(.original-comparison details[open]) .original-comparison { grid-column: 1; position: static; } .resumes-page .editor-layout:has(.original-comparison details[open]) .editable-units { grid-row: 2; } }
+@media (max-width: 700px) { .resumes-page .home-shell { padding: 0 16px; } .resumes-page .resume-layout { grid-template-columns: 1fr; } .resumes-page .workspace-sidebar { position: static; } .resumes-page .section-navigation { flex-direction: row; flex-wrap: wrap; } .resumes-page .sidebar-identity { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; } .resumes-page .sidebar-identity p { margin-left: auto; } .resumes-page .account-avatar { margin: 0; } .resumes-page .resume-heading { align-items: start; flex-direction: column; gap: 6px; } .resumes-page .panel { padding: 18px; } .resumes-page .slot-grid { grid-template-columns: 1fr; } .resumes-page .attachment-toolbar { flex-basis: 100%; } .resumes-page .file-upload { flex-wrap: wrap; padding: 18px; gap: 12px; } .resumes-page #choose-file { width: 100%; } .resumes-page .language-picker { margin-left: 0; } .resumes-page .workspace-note { font-size: 11px; } }
+
+@media (max-width: 700px) { .resumes-page .unit-navigation { display: none; } }
+
+/* 推荐仅展示来源和排序证据；长岗位文本换行，单列布局适用于桌面与手机。 */
+.resumes-page .recommendation-state { color: #536a70; font-size: 13px; line-height: 1.8; overflow-wrap: anywhere; }
+.resumes-page .recommended-job { border: 1px solid #e2e7ec; border-radius: 8px; padding: 18px; margin-top: 12px; overflow-wrap: anywhere; }
+.resumes-page .recommended-job h3 { margin: 10px 0 6px; font-size: 17px; }
+.resumes-page .recommended-job p { line-height: 1.7; }
+.resumes-page .job-skills { font-size: 13px; color: #236b5d; }
+.resumes-page .recommended-job summary { cursor: pointer; color: #64747c; font-size: 13px; }
+.resumes-page #recommendation-more { margin-top: 16px; }

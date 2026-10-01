@@ -1,55 +1,53 @@
 /**
  * @module agent
- * 功能：同源文字面试客户端，提供预解析、真实阶段、等待计时、先行评分和多语言动态文案。
- * 实现：每次只发送一个命令；响应绑定连接和 UUID；预解析精确复用同连接简历；动态提示通过 i18n.js 的 AppI18n 解析。
- * 关联：agent.html 提供 DOM，i18n.js 提供语言服务，/ws/agent/ 提供 prepare/progress/assessment 事件。
+ * 职责：选择个人中心已就绪简历并进行语音/文字面试，提供真实阶段、计时、评分和报告。
+ * 实现：读取本人分页版本元数据，优先当前版本或显式 URL 指定版本；仅通过 UUID 发送 start。
+ * 关联：agent.html、i18n.js、/api/resume-versions/、/ws/agent/；资料维护集中在 /resumes/。
  * 目录：
  * - el：按 ID 查询元素。
- * - uiText：读取当前语言文案并执行命名参数插值。
- * - uiText.callback1：将命名参数转换为显示文本，不执行模型内容。
- * - controls：按请求与面试状态切换表单；预解析时允许填写岗位设置。
- * - status：以纯文本显示状态。
- * - updateClock：显示实际等待与阶段秒数，不参与逻辑预算。
+ * - uiText：读取当前语言动态文案并插值。
+ * - uiText.callback1：纯文本替换命名参数。
+ * - controls：按版本加载、请求和面试状态切换控件。
+ * - status：显示纯文本状态。
+ * - loadResumeVersions：加载全部本人版本元数据，只显示 ready，不调用模型。
+ * - onResumeSelect：验证手动选择并清空旧面试展示。
+ * - updateClock：显示实际等待与阶段秒数。
  * - beginWait：启动新请求唯一计时器。
- * - endWait：停止计时并保留总耗时。
- * - clearPrepared：清除预解析标记与预览。
+ * - endWait：停止计时并保留实际耗时。
  * - clearResults：清除旧问答、报告及计时显示。
- * - send：校验消息大小并生成请求 UUID。
- * - stop：关闭连接、计时与预解析，保留已返回评分。
- * - displayAssessment：原样显示后端评分与能力状态。
- * - onMessage：验证连接和请求，再分派完整事件。
- * - onError：当前连接错误后终止，不自动重连。
- * - onClose：意外断开后失效预解析并保留结果。
- * - dispatch：使用空闲连接或等待新连接 hello 后发送一次命令。
- * - onStart：使用原有参数开始面试。
- * - onPrepare：显式调用预解析，不在编辑时发送模型请求。
- * - onResumeInput：编辑后清除已准备标记。
- * - onAnswer：提交当前题答案。
- * - onCancel：关闭整场连接与计时。
- * - onClear：清空会话和候选人内容。
- * - onPageHide：离开时清理连接与计时，不持久化。
+ * - send：校验消息大小并发送唯一请求 UUID。
+ * - stop：关闭连接、命令与计时，保留已展示评分和版本选择。
+ * - displayAssessment：展示后端评分与能力状态。
+ * - onMessage：按连接和请求 UUID 分派完整事件。
+ * - onError：停止当前错误连接。
+ * - onClose：意外断线停止计时，不重连。
+ * - dispatch：创建或复用连接，等待 hello 后发送一次命令。
+ * - onStart：使用已加载 ready 版本 UUID 和原有参数开始面试。
+ * - onAnswer：仅在未朗读/录音且请求空闲时提交确认答案。
+ * - onCancel：取消当前面试连接。
+ * - onClear：清空面试问答，保留版本与岗位设置。
+ * - onPageHide：离开时清理连接、计时、录音和数字人资源。
  * 关键变量：
- * - el：DOM 查询函数引用。
+ * - el：模板节点查询函数。
+ * - STAGES：服务端阶段名对应翻译 key。
+ * - FALLBACK_TEXT：独立客户端测试未加载 i18n 时的中文资源。
+ * - uiText：动态文案查询函数。
+ * - socket：当前唯一 WebSocket。
  * - voice：数字人呈现和语音交互协调器，不参与面试评分。
- * - STAGES：固定服务端阶段名到显示文字的映射。
- * - socket：唯一有效 WebSocket，旧连接事件不能更新界面。
  * - questionId：当前问题 ID。
  * - pendingId：当前请求 UUID。
- * - pendingCommand：等待 hello 的一次性命令。
- * - terminal：是否已主动结束连接。
- * - interviewActive：是否已提交 start，准备阶段为 false。
- * - preparedText：本连接已解析文本，编辑或断线即失效。
- * - submittedResume：当前 prepare 的文本快照。
- * - messageLimit：服务器公告的消息字节上限。
- * - waitStarted：本请求实际起始时刻，null 表示未计时。
- * - stageStarted：当前阶段起始时刻。
- * - clockTimer：仅负责显示的 interval 标识。
- * - completedStages：本请求已完成阶段的耗时文字。
- * - FALLBACK_TEXT：i18n.js 未加载时的中文兼容文案。
- * - uiText：读取当前语言动态文案并进行插值。
+ * - pendingCommand：等待 hello 的唯一命令。
+ * - terminal：当前连接是否主动结束。
+ * - interviewActive：是否已开始面试。
+ * - resumesLoading：版本列表请求锁，防止在完成前发送 start。
+ * - availableResumes：本人所有 ready 版本元数据，无原始正文。
+ * - messageLimit：服务端公告消息字节上限。
+ * - waitStarted：实际等待起点。
+ * - stageStarted：当前阶段起点。
+ * - clockTimer：显示用 interval ID。
+ * - completedStages：已完成阶段实际耗时文案。
  * 约束：
- * 不推测进度百分比、不重发模型请求、不改变评分或题目预算；
- * 模型内容只经 textContent 展示，取消不能保证供应商已发请求停止。
+ * 不上传或编辑简历，不改变预算/评分；无重发、自动选择其他版本或模型调用降级。
  */
 import { InterviewVoice } from "./interview-voice.js";
 
@@ -61,27 +59,55 @@ const STAGES = {
   next_action: "agent_stage_next", report_generation: "agent_stage_report",
 };
 const FALLBACK_TEXT = {
-  agent_stage_resume: "解析简历", agent_stage_question: "生成首题", agent_stage_evaluation: "评价回答",
+  agent_resume_choice: "选择已保存简历",
+  agent_resume_select: "请选择已就绪的简历版本",
+  agent_manage_profile: "前往个人中心维护资料与简历 ↗",
+  agent_resumes_loading: "正在加载已保存简历…",
+  agent_resumes_failed: "加载简历失败，请点击刷新后查看。",
+  agent_resume_unavailable: "指定或此前选择的简历不可用，请重新选择已就绪版本。",
+  agent_resumes_ready: "这里只选择面试使用的版本。资料上传、解析与维护请前往个人中心。",
+  agent_resumes_empty: "暂无已就绪简历，请到个人中心上传并完成解析。",
+  agent_resume_required: "请选择已就绪的简历并填写目标岗位。",
+  agent_unexpected_close: "连接意外关闭，当前操作未完成。不会自动重发。",
+  agent_message_limit: "消息超过服务端大小限制，请缩短回答或检查面试设置。",
+  agent_stage_resume: "解析简历",
+  agent_stage_question: "生成首题",
+  agent_stage_evaluation: "评价回答",
   agent_question_placeholder: "开始面试后，问题会显示在这里。",
-  agent_stage_next: "决定下一步并生成问题", agent_stage_report: "生成报告文字", agent_waiting: "已等待 {seconds} 秒",
-  agent_waiting_stage: "已等待 {seconds} 秒 · 当前阶段 {stage} 秒", agent_request_time: "本次请求用时 {seconds} 秒",
-  agent_closed: "连接已关闭，请重新开始。", agent_message_limit: "消息超过服务端大小限制，请缩短简历或回答。",
-  agent_report_incomplete: "评分已计算，但完整报告未完成。", agent_score_missing: "暂无足够证据评分",
-  agent_score: "综合评分：{score} / 5", agent_request_received: "请求已接收，等待处理…", agent_prepared: "简历已解析。保持此页面连接，开始面试时将直接复用。",
-  agent_prepared_ready: "简历已准备，可设置岗位后开始面试", agent_question_answer: "请回答当前问题", agent_prepare_duplicate: "简历已准备，无需重复解析。",
-  agent_resume_required: "请填写简历文本和目标岗位。", agent_resume_paste: "请先粘贴简历文本。", agent_resume_changed: "简历已修改，需要重新解析。",
-  agent_submit: "正在提交回答…", agent_connecting: "正在连接后端…", agent_unknown_stage: "未知处理阶段。",
-  agent_unknown_response: "收到未知响应。", agent_backend_old: "后端版本不支持阶段进度，请更新后端。", agent_mismatch: "响应与当前请求不匹配。",
+  agent_stage_next: "决定下一步并生成问题",
+  agent_stage_report: "生成报告文字",
+  agent_waiting: "已等待 {seconds} 秒",
+  agent_waiting_stage: "已等待 {seconds} 秒 · 当前阶段 {stage} 秒",
+  agent_request_time: "本次请求用时 {seconds} 秒",
+  agent_closed: "连接已关闭，请重新开始。",
+  agent_report_incomplete: "评分已计算，但完整报告未完成。",
+  agent_score_missing: "暂无足够证据评分",
+  agent_score: "综合评分：{score} / 5",
+  agent_request_received: "请求已接收，等待处理…",
+  agent_question_answer: "请回答当前问题",
+  agent_submit: "正在提交回答…",
+  agent_connecting: "正在连接后端…",
+  agent_unknown_stage: "未知处理阶段。",
+  agent_unknown_response: "收到未知响应。",
+  agent_backend_old: "后端版本不支持阶段进度，请更新后端。",
+  agent_mismatch: "响应与当前请求不匹配。",
   report_generating: "评分已计算，报告文字生成中；完整报告尚未完成。",
-  agent_finished: "面试完成", agent_cancelled: "面试已取消；已发送的模型请求可能仍会完成。",
-  agent_cancel_message: "已取消；已发送的模型请求可能仍会完成。", agent_unexpected_close: "连接意外关闭，当前操作未完成。预解析已失效，不会自动重发。",
-  agent_processing_failed: "处理失败：{message}", agent_connection_failed: "连接失败，请检查后端服务。", agent_page_left: "页面已离开，连接已结束。",
-  agent_cleared: "内容已清空", agent_report_fallback: "模型报告文字生成失败，以下为既有的确定性摘要；评分保持有效。\n",
+  agent_finished: "面试完成",
+  agent_cancelled: "面试已取消；已发送的模型请求可能仍会完成。",
+  agent_cancel_message: "已取消；已发送的模型请求可能仍会完成。",
+  agent_processing_failed: "处理失败：{message}",
+  agent_connection_failed: "连接失败，请检查后端服务。",
+  agent_page_left: "页面已离开，连接已结束。",
+  agent_cleared: "内容已清空",
+  agent_report_fallback: "模型报告文字生成失败，以下为既有的确定性摘要；评分保持有效。\n",
+  rm_auth_error: "登录已失效或请求未获授权，请重新登录后操作。",
+  rm_unnamed: "未命名文本简历",
+  rm_current: "当前简历",
 };
 /** 返回翻译文案；独立运行测试只加载本模块时使用中文兼容回退。 */
 const uiText = (key, values = {}) => {
   const template = window.AppI18n?.t(key, values) ?? (FALLBACK_TEXT[key] ?? key);
-  return template.replace(/\{(\w+)\}/g, /** 将命名插值替换为显示文本。 */ (_, name) => String(values[name] ?? `{${name}}`));
+  return template.replace(/\{(\w+)\}/g, /** 输入匹配内容与参数名，返回纯文本替换，不解析 HTML。 */ (_, name) => String(values[name] ?? `{${name}}`));
 };
 let socket = null;
 let questionId = null;
@@ -89,18 +115,19 @@ let pendingId = null;
 let pendingCommand = null;
 let terminal = false;
 let interviewActive = false;
-let preparedText = null;
-let submittedResume = null;
+let resumesLoading = false;
+let availableResumes = [];
 let messageLimit = null;
 let waitStarted = null;
 let stageStarted = null;
 let clockTimer = null;
 let completedStages = [];
 
-/** 读取请求与面试状态更新 disabled；准备期间允许岗位设置，无网络副作用。 */
+/** 读取请求与面试状态更新 disabled；版本加载及会话期间保护版本选择，无网络副作用。 */
 function controls() {
   const busy = pendingId !== null || pendingCommand !== null;
-  for (const id of ["start-agent", "prepare-resume", "resume"]) el(id).disabled = busy || interviewActive;
+  el("start-agent").disabled = busy || interviewActive || resumesLoading || !el("resume-select").value;
+  for (const id of ["resume-select", "refresh-resumes"]) el(id).disabled = busy || interviewActive || resumesLoading;
   for (const id of ["job", "duration", "limit", "probes"]) el(id).disabled = interviewActive;
   const answering = interviewActive && questionId !== null && !busy;
   el("answer").disabled = !answering;
@@ -110,6 +137,54 @@ function controls() {
 }
 /** 输入状态文字，用 textContent 展示，不执行 HTML，输出无。 */
 function status(text) { el("agent-status").textContent = text; }
+/** 读取本人分页元数据，返回无；初次使用 URL 指定 ID 或 current，刷新保持原选择。
+ * 只提供 ready 版本；指定/既选版本消失时明确要求重选，不静默换成其他版本，不调用模型。
+ * 失败清空选择、记录异常类型并允许显式刷新；已开始面试或正在加载时不发重复请求。
+ */
+async function loadResumeVersions() {
+  if (resumesLoading || interviewActive || pendingId || pendingCommand) return;
+  const previous = el("resume-select").value;
+  const requested = new URLSearchParams(location.search).get("resume_version_id");
+  resumesLoading = true; controls();
+  el("resume-selection-status").textContent = uiText("agent_resumes_loading");
+  try {
+    const versions = [];
+    let page = 1;
+    while (true) {
+      const response = await fetch(`/api/resume-versions/?page=${page}`, { credentials: "same-origin" });
+      if (!response.ok) throw new Error(uiText(response.status === 401 || response.status === 403 ? "rm_auth_error" : "agent_resumes_failed"));
+      const data = await response.json();
+      for (const version of data.results) if (version.status === "ready") versions.push(version);
+      if (!data.next) break;
+      page += 1;
+    }
+    availableResumes = versions;
+    const select = el("resume-select");
+    select.replaceChildren();
+    const placeholder = document.createElement("option");
+    placeholder.value = ""; placeholder.textContent = uiText("agent_resume_select"); select.append(placeholder);
+    let current = "";
+    for (const version of versions) {
+      const option = document.createElement("option"); option.value = version.id;
+      option.textContent = version.label || version.original_name || uiText("rm_unnamed");
+      if (version.is_current) { current = version.id; option.textContent += " · " + uiText("rm_current"); }
+      select.append(option);
+    }
+    const selected = previous || requested || current;
+    let found = false;
+    for (const version of versions) if (version.id === selected) found = true;
+    select.value = found ? selected : "";
+    el("resume-selection-status").textContent = selected && !found ? uiText("agent_resume_unavailable") : versions.length ? uiText("agent_resumes_ready") : uiText("agent_resumes_empty");
+  } catch (error) {
+    availableResumes = [];
+    el("resume-select").replaceChildren();
+    el("resume-select").value = "";
+    console.error("Interview resume list failed", error.name);
+    el("resume-selection-status").textContent = error.message;
+  } finally { resumesLoading = false; controls(); }
+}
+/** 手动选择仅更新本次面试输入并清除旧展示，不修改后端当前版本或调用模型。 */
+function onResumeSelect() { clearResults(); controls(); }
 /** 读取单调时钟更新实际秒数；不作为预算、超时、完成或重试条件。 */
 function updateClock() {
   if (waitStarted === null) return;
@@ -138,14 +213,7 @@ function endWait() {
   waitStarted = null;
   stageStarted = null;
 }
-/** 清除预解析文本标记和预览；不请求模型，也不直接关闭连接。 */
-function clearPrepared() {
-  preparedText = null;
-  el("prepared-status").textContent = "";
-  el("profile-preview").textContent = "";
-  el("profile-panel").hidden = true;
-}
-/** 清空旧问答、报告与时间显示，保留简历、岗位和预解析，不操作网络。 */
+/** 清空旧问答、报告与时间显示，保留已保存版本选择和岗位，不操作网络。 */
 function clearResults() {
   voice.reset();
   voice.setState("idle");
@@ -176,8 +244,6 @@ function stop(message) {
   pendingId = null;
   pendingCommand = null;
   interviewActive = false;
-  submittedResume = null;
-  clearPrepared();
   endWait();
   controls();
   if (!el("report-panel").hidden && el("report").textContent === "") {
@@ -221,13 +287,6 @@ function onMessage(event) {
         stageStarted = null;
       } else throw new Error(uiText("agent_unknown_stage"));
       updateClock();
-    } else if (message.type === "prepared") {
-      pendingId = null;
-      preparedText = submittedResume;
-      el("profile-preview").textContent = JSON.stringify(message.candidate_profile, null, 2);
-      el("profile-panel").hidden = false;
-      el("prepared-status").textContent = uiText("agent_prepared");
-      endWait(); controls(); status(uiText("agent_prepared_ready"));
     } else if (message.type === "assessment") {
       displayAssessment(message.assessment);
       el("report-summary").textContent = uiText("report_generating");
@@ -257,7 +316,7 @@ function onMessage(event) {
 }
 /** 输入 error 事件，仅停止当前连接，旧连接事件无副作用。 */
 function onError(event) { if (socket === event.currentTarget) stop(uiText("agent_connection_failed")); }
-/** 输入 close 事件，意外断线时失效缓存和计时，不自动重连或声称报告完成。 */
+/** 输入 close 事件，意外断线时清理计时，不自动重连或声称报告完成。 */
 function onClose(event) {
   if (socket === event.currentTarget && !terminal) stop(uiText("agent_unexpected_close"));
 }
@@ -279,30 +338,19 @@ function dispatch(command) {
     }
   } catch (error) { stop(error.message); }
 }
-/** 输入表单事件；发送分钟时长及题数安全上限，服务端再次匹配预解析文本并规划面试。 */
+/** 输入开始表单事件；只发送已加载 ready 版本 ID，后端再次校验归属与状态，不发送正文。 */
 function onStart(event) {
   event.preventDefault();
-  if (pendingId || pendingCommand || interviewActive) return;
-  const resume = el("resume").value.trim();
+  if (pendingId || pendingCommand || interviewActive || resumesLoading) return;
+  const id = el("resume-select").value;
   const job = el("job").value.trim();
-  if (!resume || !job) { status(uiText("agent_resume_required")); return; }
+  let ready = false;
+  for (const version of availableResumes) if (version.id === id) ready = true;
+  if (!ready || !job) { status(uiText("agent_resume_required")); return; }
   clearResults(); interviewActive = true;
-  dispatch({ type: "start", resume_text: resume, job_title: job,
+  dispatch({ type: "start", resume_version_id: id, job_title: job,
     duration_minutes: Number(el("duration").value),
     max_questions: Number(el("limit").value), max_follow_up_per_topic: Number(el("probes").value) });
-}
-/** 显式预解析，只要求简历；相同已准备结果不重复发请求，不在输入事件中调用模型。 */
-function onPrepare() {
-  if (pendingId || pendingCommand || interviewActive) return;
-  const resume = el("resume").value.trim();
-  if (!resume) { status(uiText("agent_resume_paste")); return; }
-  if (resume === preparedText && socket?.readyState === WebSocket.OPEN) { status(uiText("agent_prepare_duplicate")); return; }
-  clearPrepared(); submittedResume = resume;
-  dispatch({ type: "prepare", resume_text: resume });
-}
-/** 简历编辑后只清空浏览器预览与准备标记；下次命令携带完整新文本供后端精确匹配。 */
-function onResumeInput() {
-  if (preparedText !== null) { clearPrepared(); el("prepared-status").textContent = uiText("agent_resume_changed"); }
 }
 /** 输入回答表单事件，仅在当前题且无在途请求时提交；评价与下一题仍由后端顺序处理。 */
 function onAnswer(event) {
@@ -315,15 +363,17 @@ function onAnswer(event) {
 }
 /** 用户取消时关闭连接和显示计时，不保证供应商已发请求停止或不计费。 */
 function onCancel() { stop(uiText("agent_cancel_message")); }
-/** 清空连接、问答及所有候选人文本，岗位和题数参数保持原值。 */
-function onClear() { stop(uiText("agent_cleared")); clearResults(); el("resume").value = ""; submittedResume = null; }
+/** 清空连接和当前面试展示；已选版本、岗位和题数参数保持原值。 */
+function onClear() { stop(uiText("agent_cleared")); clearResults(); }
 /** 页面离开后停止连接与 interval，不使用浏览器持久存储恢复会话。 */
 function onPageHide() { stop(uiText("agent_page_left")); voice.close(); }
 
 el("start-form").addEventListener("submit", onStart);
-el("prepare-resume").addEventListener("click", onPrepare);
-el("resume").addEventListener("input", onResumeInput);
+el("resume-select").addEventListener("change", onResumeSelect);
+el("refresh-resumes").addEventListener("click", loadResumeVersions);
 el("answer-form").addEventListener("submit", onAnswer);
 el("cancel-agent").addEventListener("click", onCancel);
 el("clear-agent").addEventListener("click", onClear);
 window.addEventListener("pagehide", onPageHide);
+
+loadResumeVersions();

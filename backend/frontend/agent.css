@@ -3,8 +3,7 @@
  * 实现：题目位于舞台上方，面试官居中，本地视频绝对定位于舞台右上角；窄屏缩小预览并保持回答区可用。
  * 关联：agent.js 决定业务状态，interview-camera.js 决定本地预览状态；样式不创建或改变媒体流。
  * 目录：label/input/textarea（表单）；.settings-grid（预算参数）；#question/#report-summary（长文本）；
- * details/pre（展开结果）；#stage-log/#wait-time（真实阶段与计时）；预解析按钮；
- * fieldset/legend（PDF 导入区分组）；#pdf-preview（保留布局的规则/视觉文本预览）；
+ * details/pre（展开结果）；#stage-log/#wait-time（真实阶段与计时）；已保存版本选择；
  * [hidden]（显示状态）；.studio-header/.studio-heading（导航）；.question-card（题目）；
  * .interviewer-stage/.interviewer-placeholder（中央形象）；.self-preview（右上角本地视频）；
  * .camera-toolbar/.answer-panel/.setup-panel（操作和设置）；@media（窄屏排列）。本文件无函数或 CSS 自定义变量。
@@ -12,7 +11,7 @@
  * 约束：仅调整外观和布局；预算、评分及协议状态由脚本与后端决定。
  */
 label { display: block; margin: 12px 0 6px; font-weight: 600; }
-input, textarea { width: 100%; box-sizing: border-box; font: inherit; padding: 10px;
+input, textarea, #resume-select { width: 100%; box-sizing: border-box; font: inherit; padding: 10px;
   border: 1px solid #afc6c0; border-radius: 8px; background: white; color: #183d34; }
 textarea { resize: vertical; }
 .settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
@@ -23,11 +22,6 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 480px; overflo
 [hidden] { display: none !important; }
 #stage-log { flex-basis: 100%; margin: 0; }
 #wait-time { font-variant-numeric: tabular-nums; color: #516670; }
-#prepare-resume { margin-top: 12px; }
-#prepared-status { color: #276e60; font-size: 13px; }
-fieldset { min-width: 0; margin: 16px 0; padding: 16px; border: 1px solid #afc6c0; border-radius: 10px; }
-legend { padding: 0 8px; font-weight: 600; }
-#pdf-preview { font-family: ui-monospace, monospace; white-space: pre; overflow: auto; }
 @media (max-width: 520px) { .settings-grid { grid-template-columns: 1fr; } }
 
 .interview-page { background: #f6f7f3; color: #263d36; }
@@ -116,3 +110,6 @@ input:focus-visible, textarea:focus-visible, summary:focus-visible, a:focus-visi
 .voice-panel input[type="checkbox"] { width: auto; margin: 0; }
 .avatar-connection { margin-top: 12px; }
 .transcript-draft { min-height: 1.5em; color: #60716a; }
+
+#resume-selection-status { white-space: pre-wrap; }
+#start-form .actions a { align-self: center; color: #236b5d; font-size: 13px; }

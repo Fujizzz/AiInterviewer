@@ -1,0 +1,14 @@
+"""职责：定义行为检查与后端提交共享的状态变化异常。
+实现：提供无正文、无业务副作用的异常类型，使调用层区分过期快照与检测失败。
+关联：behavior 执行前重读、agent_records 原子保存及 agent_safety 错误码映射。
+
+目录：
+- SecurityContextChanged：表示检查后的状态、权限或提案已经改变。
+
+关键变量：
+（无）
+"""
+
+
+class SecurityContextChanged(RuntimeError):
+    """功能：阻止过期放行；逻辑：由刷新或提交核对抛出；约束：不提供重试或回退行为。"""

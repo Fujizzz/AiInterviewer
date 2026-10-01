@@ -1,17 +1,13 @@
 <!doctype html>
 <!--
-账号关联：Django 渲染用户导航和 CSRF token；用户名自动转义，退出经 POST，不在客户端存储凭据。
-文件职责：面试工作台的语义结构；i18n.js 管理语言，agent.js 处理既有面试与语音状态，interview-camera.js 管理本地摄像头，agent.css 提供布局。
-实现：上方显示题目，中央展示 UE 数字人面试官，右上角显示本地摄像头，下方提供文字回答和可展开设置。
-目录：主页与诊断导航；question（题目）；interviewer-stage（面试官）；self-video/camera-toggle/camera-status（本地预览）；
-avatar-view/connect-avatar（数字人）；start-recording/stop-recording/transcript-draft（语音回答）；
-start-form（简历和预算）；prepare-resume/profile-preview（预解析）；
-pdf-file/pdf-parse/pdf-preview/pdf-use（PDF 提取后视觉校对及人工采用）；
-agent-status/wait-time/stage-log（状态、实际等待时长与阶段耗时）；answer-form（回答和取消）；
-evaluation-panel（上一题评价）；report-panel（最终报告及完整结果）。本文件无函数定义。
-关键元素：resume/job/duration/limit/probes 提供简历、岗位、时长和安全上限；question/answer 绑定当前轮；report 保存当前结果文本。
-约束：密钥只由后端读取；表单内容通过同源连接发送，不持久化表单或面试状态；i18n.js 仅保存语言偏好。
-关联：/agent/ 路由交付本页；后端保存资料、回答及报告历史，离开页面仍会中断当前面试。
+职责：面试专用工作台；仅选择个人中心已就绪简历，不上传、提取或编辑个人资料。
+实现：agent.js 读取本人版本元数据，以 resume_version_id 开始面试；camera 模块只做本地预览，InterviewVoice 协调数字人和语音控件。
+关联：/resumes/ 集中维护资料；/api/resume-versions/ 提供版本；/ws/agent/ 处理面试。
+目录：导航；题目/面试官/本地摄像头；语音/文字回答；版本选择/岗位与预算设置；评分与报告。
+函数和类：None。变量索引：user/csrf_token 为 Django 上下文；resume-select 选择版本 UUID；
+job/duration/limit/probes 为岗位、时长和安全上限，question/answer/report 为当前会话展示。
+约束：版本输入须登录；用户名转义，不在浏览器持久化资料；离开页面中断当前面试。
+avatar-view/connect-avatar 为数字人入口；start-recording/stop-recording/transcript-draft 管理录音与待确认转录。
 -->
 <html lang="zh-CN" data-page-title="agent_title">
 <head>
@@ -23,7 +19,6 @@ evaluation-panel（上一题评价）；report-panel（最终报告及完整结�
   <link rel="stylesheet" href="/stream-demo/style.css">
   <link rel="stylesheet" href="/stream-demo/agent.css">
   <script type="module" src="/stream-demo/agent.js"></script>
-  <script type="module" src="/stream-demo/resume-pdf.js"></script>
   <script type="module" src="/stream-demo/interview-camera.js"></script>
   <link rel="stylesheet" href="/stream-demo/account.css">
 </head>
@@ -86,31 +81,10 @@ evaluation-panel（上一题评价）；report-panel（最终报告及完整结�
   <!-- 参数表单的初始值与 MVP 默认值一致；运行期间由脚本禁用，避免同连接重复初始化。 -->
   <form id="start-form" class="panel">
     <h2 data-i18n="settings_title">简历与面试设置</h2>
-    <fieldset>
-      <legend data-i18n="pdf_legend">导入 PDF 简历</legend>
-      <label for="pdf-file" data-i18n="pdf_choose">选择 PDF（最多 10 MiB、10 页）</label>
-      <input id="pdf-file" type="file" accept="application/pdf,.pdf">
-      <div class="actions">
-        <button id="pdf-parse" type="button" class="secondary" disabled data-i18n="pdf_parse">解析并校对 PDF</button>
-        <button id="pdf-cancel" type="button" class="secondary" disabled data-i18n="pdf_cancel">取消解析</button>
-      </div>
-      <p class="hint" data-i18n="pdf_hint">先由传统库提取文本，再由视觉模型对照原 PDF 校对；正确内容保持原样，仅调整确认的问题。页面图片与提取文本会发送给配置的模型服务，可能产生费用。</p>
-      <p id="pdf-status" role="status" data-i18n="pdf_initial">选择 PDF 后解析并校对；也可以直接在下方粘贴文本。</p>
-      <span id="pdf-time" class="hint"></span>
-      <details id="pdf-panel" hidden open>
-        <summary data-i18n="pdf_review">校对结果</summary>
-        <label for="pdf-preview" data-i18n="pdf_review_label">校对结果（完成后可编辑）</label>
-        <textarea id="pdf-preview" rows="9"></textarea>
-        <pre id="pdf-notes"></pre>
-        <button id="pdf-use" type="button" class="secondary" disabled data-i18n="pdf_use">使用已核对的文本</button>
-      </details>
-    </fieldset>
-    <label for="resume" data-i18n="resume_label">简历文本</label>
-    <textarea id="resume" rows="9" required placeholder="粘贴简历中的项目、技术栈、个人职责和成果。" data-i18n-attr="placeholder:resume_placeholder"></textarea>
-    <button id="prepare-resume" type="button" class="secondary" data-i18n="prepare_resume">提前解析简历</button>
-    <p class="hint" data-i18n="prepare_hint">可先解析简历，再填写岗位与题目设置。此操作会调用模型；简历未修改且连接保持时，开始面试将复用结果。</p>
-    <p id="prepared-status" role="status"></p>
-    <details id="profile-panel" hidden><summary data-i18n="profile_summary">查看提取的技能与项目</summary><pre id="profile-preview"></pre></details>
+    <label for="resume-select" data-i18n="agent_resume_choice">选择已保存简历</label>
+    <select id="resume-select" required disabled><option value="" data-i18n="agent_resume_select">请选择已就绪的简历版本</option></select>
+    <div class="actions"><button id="refresh-resumes" type="button" class="secondary" data-i18n="rm_refresh">刷新</button><a href="/resumes/" data-i18n="agent_manage_profile">前往个人中心维护资料与简历 ↗</a></div>
+    <p id="resume-selection-status" class="hint" role="status"></p>
     <label for="job" data-i18n="job_label">目标岗位</label>
     <input id="job" value="General AI / Software Engineer" required>
     <div class="settings-grid">

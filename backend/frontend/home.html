@@ -1,7 +1,7 @@
 <!doctype html>
 <!--
 账号关联：Django 渲染用户导航和 CSRF token；用户名自动转义，退出经 POST，不在客户端存储凭据。
-职责：统一主页，介绍 PDF/文本简历入口并帮助使用者进入文字面试或开发诊断。
+职责：统一主页，导航到个人中心的 PDF/文本维护、版本文字面试及开发诊断。
 实现：使用静态语义 HTML、同源链接和统一语言选择器导航；不调用模型、不创建会话、不申请设备权限。
 关联：由 config.urls 的 / 路由经 demo_asset 交付，样式来自 style.css 和 home.css，i18n.js 负责中英文和系统语言切换。
 目录：主导航与语言选择；面试介绍与入口；三步使用说明；开发诊断入口；页脚。函数和类：无。
@@ -37,7 +37,7 @@
           <h1 id="home-title" data-i18n="home_heading">从你的经历出发，<br>练习更有深度的面试。</h1>
           <p class="hero-description" data-i18n="home_description">围绕简历中的项目展开问答，根据你的回答继续追问，帮助你梳理技术思路、个人贡献与决策依据。</p>
           <a class="primary-link" href="/agent/" data-i18n="home_start">开始 AI 文字面试 ↗</a>
-          <p class="hero-note" data-i18n="home_note">支持粘贴简历文本，也可导入 PDF，自动提取并对照原页校对。</p>
+          <p class="hero-note" data-i18n="home_note">在个人中心上传或粘贴简历，完成提取与核对后，选择版本进入面试。</p>
         </div>
         <aside class="overview" aria-labelledby="overview-title">
           <span class="eyebrow" data-i18n="home_practice">你的面试练习</span>
@@ -53,7 +53,7 @@
       <section class="steps-section" aria-labelledby="steps-title">
         <h2 id="steps-title" data-i18n="home_steps_title">三步完成一次练习</h2>
         <ol class="steps">
-          <li><span class="step-number" data-i18n="home_step_prepare">01 / 准备</span><h3 data-i18n="home_step_prepare_title">导入简历</h3><p data-i18n="home_step_prepare_text">粘贴文本或解析 PDF，核对后填写岗位和面试设置。</p></li>
+          <li><span class="step-number" data-i18n="home_step_prepare">01 / 准备</span><h3 data-i18n="home_step_prepare_title">导入简历</h3><p data-i18n="home_step_prepare_text">在个人中心保存并核对简历，再到面试页选择版本和岗位。</p></li>
           <li><span class="step-number" data-i18n="home_step_dialogue">02 / 对话</span><h3 data-i18n="home_step_dialogue_title">逐题回答</h3><p data-i18n="home_step_dialogue_text">用文字说明你的思路，结合具体例子和结果。</p></li>
           <li><span class="step-number" data-i18n="home_step_review">03 / 复盘</span><h3 data-i18n="home_step_review_title">查看报告</h3><p data-i18n="home_step_review_text">回顾问答、能力评价和需要补充的证据。</p></li>
         </ol>

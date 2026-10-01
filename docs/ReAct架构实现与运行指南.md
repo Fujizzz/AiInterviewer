@@ -171,13 +171,13 @@ if (-not (Test-Path .\.venv\Scripts\python.exe)) {
 
 ```powershell
 Set-Location D:\Interview\AiInterviewer
-if (-not (Test-Path .\backend\.env)) {
-    Copy-Item .\backend\.env.example .\backend\.env
+if (-not (Test-Path .\.env)) {
+    Copy-Item .\.env.example .\.env
 }
-notepad .\backend\.env
+notepad .\.env
 ```
 
-编辑 `backend/.env`，例如使用项目已有的千问配置：
+编辑 仓库根目录 `.env`，例如使用项目已有的千问配置：
 
 ```dotenv
 LLM_PROVIDER=dashscope
@@ -187,7 +187,7 @@ DASHSCOPE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 OPENAI_TEMPERATURE=0
 ```
 
-模型名和区域地址应对应你的供应商账户。网页后端只自动读取 `backend/.env`；终端读取仓库根目录 `.env`。进程环境变量优先于文件，修改配置后重启服务。
+模型名和区域地址应对应你的供应商账户。网页后端、终端和安全传输共用仓库根目录 `.env`。进程环境变量优先于文件，修改配置后重启服务。
 
 ### 7.3 初始化数据库并启动
 
@@ -200,13 +200,13 @@ $env:DJANGO_SECRET_KEY = & ..\.venv\Scripts\python.exe -c "import secrets; print
 ..\.venv\Scripts\python.exe -m uvicorn config.asgi:application --host 127.0.0.1 --port 8765 --ws websockets-sansio
 ```
 
-打开 **http://127.0.0.1:8765/agent/**，粘贴简历文本，设置题数和岗位，然后开始面试。此入口会使用默认启用的 ReAct 出题流程。
+先在 **http://127.0.0.1:8765/resumes/** 上传、解析并保存简历，再在 **http://127.0.0.1:8765/agent/** 选择已保存版本、岗位与面试参数。此入口会使用默认启用的 ReAct 出题流程。
 
-`DJANGO_SECRET_KEY` 是 Django 应用密钥，与模型 API key 不同。上面的随机值只对当前 shell 有效；也可自行生成后保存在 `backend/.env` 中供后续启动使用。
+`DJANGO_SECRET_KEY` 是 Django 应用密钥，与模型 API key 不同。上面的随机值只对当前 shell 有效；也可自行生成后保存在 仓库根目录 `.env` 中供后续启动使用。
 
 面试使用 WebSocket，需使用上述 ASGI 启动命令，不能用 `manage.py runserver` 替代。结束服务按 Ctrl+C。
 
-先粘贴文本即可跑通解析、出题、回答评价、报告和数据库保存。网页上传 PDF 还需独立的 WSL PDF 沙箱与视觉模型配置，详见 [PDF 指南](../backend/docs/resume-pdf.md) 和 [沙箱说明](../backend/sandbox/README.md)；只启动上述服务并不代表 PDF 上传功能已配置完成。
+个人中心保存文本简历后即可进入解析、出题、回答评价、报告和数据库保存流程。网页上传 PDF 还需独立的 WSL PDF 沙箱与视觉模型配置，详见 [PDF 指南](../backend/docs/resume-pdf.md) 和 [沙箱说明](../backend/sandbox/README.md)；只启动上述服务并不代表 PDF 上传功能已配置完成。
 
 ### 7.4 仅运行终端面试
 

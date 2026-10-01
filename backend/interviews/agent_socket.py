@@ -1,14 +1,19 @@
-"""文字面试 WebSocket：命令校验、单请求执行、断线清理及脱敏错误。
+"""文字面试 WebSocket：输入绑定、完整输出安全检查、单请求执行与断线清理。
+
+实现：业务模型运行前绑定可信状态，所有模型结果经安全网关后保存/发送；固定控制事件独立处理。
+关联：agent_safety 审查输出，agent_records 保存校验记录；不接入业务工具拦截。
 
 目录：
 - Command：
   校验 UUID 和可选阶段事件订阅，拒绝其他未知字段与隐式转换。
 - Prepare：
-  预解析简历，不启动题目预算；已开始的连接不可重新准备。
+  预解析文本或本人简历版本，不启动题目预算；已开始的连接不可重新准备。
+- Prepare.resume_source：要求文本与版本 ID 恰好提供一个。
 - Start：
   校验面试分钟时长及三层题数安全上限，默认时长为 30 分钟。
 - Start.exclusive_topic_budget：
   拒绝同时指定旧追问上限与新话题总题数上限。
+- Start.resume_source：要求文本与版本 ID 恰好提供一个。
 - Answer：
   回答必须关联当前问题，旧问题或重复请求不能再次触发模型调用。
 - Cancel：
@@ -22,9 +27,11 @@
 - agent_socket.reject：
   发送稳定 error 结构并记录关联 ID；未知或无效请求用 null 标识。
 - agent_socket.progress：
-  为请求内阶段与先行评分事件绑定 request_id，再交给单连接 emit。
+  校验固定阶段事件；评分事件必须经过行为审查后才发送。
+- agent_socket.progress.deliver_assessment：将已审查评分绑定请求 ID 并发送，不提前保存终态。
+- agent_socket.deliver_result：保存已审查完整响应与凭据，然后将相同正文交给网络。
 - agent_socket.run：
-  调度已接收命令并在发送响应前保存结果；失败只保存固定错误状态。
+  绑定输入、调度 Agent、检查完整结果并保存/发送；安全异常绕过业务备用路径。
 
 关键变量：
 - MAX_MESSAGE_BYTES：
@@ -33,9 +40,10 @@
   当前模块的控制台日志入口；上下文标识及异常处理方式见相应函数。
 
 关键状态说明：
-agent_socket 内 session 属于当前连接；operation 为唯一业务任务，receiver 为接收任务。
+agent_socket 内 session/safety 属于当前连接；operation 为唯一业务任务，receiver 为接收任务。
 interview_started 区分资料已准备和已开始面试；progress_events 只控制事件交付，不影响策略。
 request_id 关联当前响应；seen 记录已接受执行的请求。Command.request_id 为 UUID。
+transport_failed 标记发送端异常，避免将断线误报为可继续发送的业务错误。
 数据库请求主键提供跨连接去重；scope.user 来自会话认证，历史按创建用户隔离。
 Start 的题数参数为安全上限，不决定时间预算；Answer 绑定当前问题。
 ASGI 准入租约通过模型引用延长到实际同步调用结束；不把资源拒绝传入 Agent 触发备用出题。
@@ -58,7 +66,9 @@ from .agent_records import (
     interrupt_interview,
     reserve_request,
 )
+from .agent_safety import InterviewIOGateway, security_error_code, validate_progress
 from .agent_session import AgentSession
+from .api.resume_versions import resolve_resume_version
 
 logger = logging.getLogger(__name__)
 MAX_MESSAGE_BYTES = 262144
@@ -73,23 +83,39 @@ class Command(BaseModel):
 
 
 class Prepare(Command):
-    """输入非空 resume_text；保存请求及成功资料响应，不创建计划、不保存原始简历。"""
+    """输入非空文本或本人版本 ID；解析前由后端读取版本，不创建计划。"""
 
     type: Literal["prepare"]
-    resume_text: str = Field(min_length=1)
+    resume_text: str | None = Field(default=None, min_length=1)
+    resume_version_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def resume_source(self):
+        """输入已校验字段，输出命令；要求文本或版本 ID 恰好一个，解析后的可信命令由后端填充。"""
+        if (self.resume_text is None) == (self.resume_version_id is None):
+            raise ValueError("Provide resume_text OR resume_version_id")
+        return self
 
 
 class Start(Command):
     """输入分钟时长和可选题数安全上限；默认使用 30 分钟及 Agent 配置上限。"""
 
     type: Literal["start"]
-    resume_text: str = Field(min_length=1)
+    resume_text: str | None = Field(default=None, min_length=1)
+    resume_version_id: UUID | None = None
     duration_minutes: int = Field(default=30, ge=1)
     max_questions: int | None = Field(default=None, ge=1)
     max_follow_up_per_topic: int | None = Field(default=None, ge=0)
     max_questions_per_project: int | None = Field(default=None, ge=1)
     max_questions_per_topic: int | None = Field(default=None, ge=1)
     job_title: str = Field(default="General AI / Software Engineer", min_length=1)
+
+    @model_validator(mode="after")
+    def resume_source(self):
+        """输入已校验字段，输出命令；拒绝缺失或同时提供文本/版本，保留旧文本调用行为。"""
+        if (self.resume_text is None) == (self.resume_version_id is None):
+            raise ValueError("Provide resume_text OR resume_version_id")
+        return self
 
     @model_validator(mode="after")
     def exclusive_topic_budget(self):
@@ -136,10 +162,11 @@ async def agent_socket(scope, receive, send):
     """管理一次本机同源文字面试的 ASGI 生命周期，不访问练习数据库。
 
     输入：scope 提供连接地址、来源和上游验证的 user；receive/send 为 ASGI 异步事件回调。
-    逻辑：握手校验→公告限制→并行等待接收与当前业务任务→校验命令→返回完整结果。
+    逻辑：握手→校验命令及输入状态→Agent→安全检查完整结果→保存→发送。
     先发送 started，再调度业务协程，保证真实阶段事件不会早于请求接收确认。
     状态不变量：operation 至多一个；receiver 持续监听；seen 只收录已接受执行的请求 ID。
-    普通协议错误保留连接，配置/业务/存储错误关闭 1011，大小超限关闭 1009，结束/取消关闭 1000。
+    普通协议错误保留连接；安全拒绝关闭 1008，检查失败/配置/业务/存储错误关闭 1011。
+    大小超限关闭 1009，结束/取消关闭 1000；检查异常不送回 Agent 重试或生成备用答案。
     若接收与业务任务同时完成，先处理断线；其他命令在业务结果发布后按最新状态判断。
     退出时取消并等待本地任务，再提出客户端关闭请求；在途同步模型调用可能继续执行。
     返回 None；传输层或清理异常向 ASGI 服务器传播，本层不重连、不排队或重发计费请求。
@@ -152,15 +179,23 @@ async def agent_socket(scope, receive, send):
         return
     connection_id = str(uuid4())
     session = None
+    safety = None
+    owner_id = getattr(scope.get("user"), "pk", None)
     operation = None
     receiver = None
     request_id = None
     seen = set()
     interview_started = False
+    transport_failed = False
 
     async def emit(data):
         """将响应字典编码为单条 JSON 并发送给本连接；编码或传输异常保持传播。"""
-        await send({"type": "websocket.send", "text": json.dumps(data, ensure_ascii=False)})
+        nonlocal transport_failed
+        try:
+            await send({"type": "websocket.send", "text": json.dumps(data, ensure_ascii=False)})
+        except Exception:
+            transport_failed = True
+            raise
 
     async def reject(code, detail, rejected_id=None):
         """发送稳定 error 结构并记录关联 ID；未知或无效请求用 null 标识。
@@ -174,26 +209,43 @@ async def agent_socket(scope, receive, send):
         await emit({"type": "error", "request_id": rejected_id, "code": code, "detail": detail})
 
     async def progress(data):
-        """输入服务端进度/评分事件，绑定当前 request_id；单业务任务确保请求不会交叉。
+        """输入进度/评分字典；进度仅允许固定元数据，评分必须获准后才发送；返回 None。
 
-        由 Session 的事件循环协程调用，不从 SDK 工作线程发送；关闭时先取消任务，
-        因此迟到的同步模型返回不能继续发送事件。发送失败原样传播。
+        回调位于报告模型回退之外，安全失败直接终止本轮；取消传播，无缓冲后继续发送。
         """
-        await emit({**data, "request_id": request_id})
+
+        async def deliver_assessment(payload, receipt):
+            """输入网关检查后的正文及凭据；只发送正文并绑定请求 ID，不将评分当作最终成功响应。"""
+            await emit({**payload, "request_id": request_id})
+
+        if data.get("type") == "assessment":
+            await safety.publish(data, deliver_assessment)
+        else:
+            await emit({**validate_progress(data), "request_id": request_id})
+
+    async def deliver_result(payload, receipt):
+        """输入获准正文和凭据；原子核对版本后保存，再发送相同正文；发送失败不重试或撤销提交。"""
+        await complete_request(
+            session.interview_id, request_id, payload, receipt=receipt, owner_id=owner_id
+        )
+        await emit({**payload, "request_id": request_id})
+        return payload
 
     async def run(command):
-        """调度已接收命令并在发送响应前保存结果；失败只保存固定错误状态。
+        """输入已预留命令；绑定后端输入、运行 Agent、检查并交付输出；返回已交付响应。
 
-        输入为已预留数据库请求的命令；读取本连接 session，返回业务结果。
-        不在数据库事务内等待模型。取消由最终清理标为 interrupted；存储失败不会返回成功。
+        安全异常发生于 Agent 自动修复路径之外；失败只保存有限错误码，未检查结果不公开。
+        不在数据库事务内等待模型，取消由最终清理标记 interrupted。
         """
         try:
+            command = await safety.bind_input(command)
             handler = {"prepare": session.prepare, "start": session.start, "answer": session.answer}
             result = await handler[command.type](command)
-            await complete_request(session.interview_id, command.request_id, result)
-            return result
-        except Exception:
-            await fail_request(session.interview_id, command.request_id)
+            return await safety.publish(result, deliver_result)
+        except Exception as exc:
+            await fail_request(
+                session.interview_id, command.request_id, error_code=security_error_code(exc)
+            )
             raise
 
     await send({"type": "websocket.accept"})
@@ -222,6 +274,9 @@ async def agent_socket(scope, receive, send):
                 try:
                     result = operation.result()
                 except Exception as exc:
+                    if transport_failed:
+                        raise
+                    error_code = security_error_code(exc)
                     logger.error(
                         "Agent failed connection=%s request=%s exception=%s; "
                         "check model-call logs and backend configuration",
@@ -230,14 +285,20 @@ async def agent_socket(scope, receive, send):
                         type(exc).__name__,
                     )
                     await reject(
-                        "agent_failed",
-                        "面试处理失败，请检查后端日志、模型配置与简历内容。",
+                        error_code,
+                        "输出未通过安全检查或检查未完成，本次面试已停止。"
+                        if error_code.startswith("security_")
+                        else "面试处理失败，请检查后端日志、模型配置与简历内容。",
                         request_id,
                     )
-                    await send({"type": "websocket.close", "code": 1011})
+                    await send(
+                        {
+                            "type": "websocket.close",
+                            "code": 1008 if error_code == "security_denied" else 1011,
+                        }
+                    )
                     return
                 operation = None
-                await emit({**result, "request_id": request_id})
                 logger.info(
                     "Agent response connection=%s request=%s type=%s",
                     connection_id,
@@ -282,6 +343,9 @@ async def agent_socket(scope, receive, send):
                 try:
                     if session is None:
                         session = AgentSession()
+                        safety = InterviewIOGateway(
+                            session.interview_id, owner_id=owner_id, connection_id=connection_id
+                        )
                         if hasattr(getattr(session, "llm", None), "capacity_lease"):
                             session.llm.capacity_lease = scope.get("interview.capacity_lease")
                 except Exception as exc:
@@ -314,9 +378,21 @@ async def agent_socket(scope, receive, send):
                     await reject("stale_question", "请回答服务端返回的当前问题。", incoming_id)
                     continue
             try:
+                resume_version_id = getattr(command, "resume_version_id", None)
+                command = await resolve_resume_version(command, owner_id)
+            except ValueError:
+                await reject(
+                    "resume_unavailable",
+                    "简历版本不存在、不属于当前用户或尚未解析完成。",
+                    incoming_id,
+                )
+                continue
+            try:
                 await reserve_request(
-                    session.interview_id, command,
+                    session.interview_id,
+                    command,
                     owner_id=getattr(scope.get("user"), "pk", None),
+                    resume_version_id=resume_version_id,
                 )
             except DuplicateRequest:
                 await reject("duplicate_request", "此 request_id 已接收，请勿重发。", incoming_id)

@@ -1,4 +1,4 @@
-"""职责：在独立 Celery 进程运行既有 PDF 沙箱及视觉校对，保持模型参数不变。
+"""职责：在独立 Celery 进程按模式运行 PDF 沙箱与可选视觉校对，保持模型参数不变。
 
 实现：原子消费输入；短期 Redis stream 承载进度，消费者消失时取消整条异步管线。
 关联：pdf_queue 提交任务，resume_api.resume_events 保持页数、并发和失败语义。
@@ -24,11 +24,11 @@ from .pdf_queue import JOB_TTL, queue_key, redis_client
 logger = logging.getLogger(__name__)
 
 
-async def publish_events(redis, job_id, data):
-    """输入 Redis、任务 ID 和 PDF；完整消费原管线，按顺序写事件，异常保持传播。"""
+async def publish_events(redis, job_id, data, *, mode="traditional"):
+    """输入 Redis、任务 ID、PDF 和模式；完整消费选定管线，按顺序写事件，异常传播。"""
     from .resume_api import resume_events
 
-    async with aclosing(resume_events(data)) as stream:
+    async with aclosing(resume_events(data, mode=mode)) as stream:
         async for line in stream:
             terminal = json.loads(line)["type"] in {"result", "error"}
             async with redis.pipeline(transaction=True) as pipe:
@@ -44,8 +44,8 @@ async def watch_client(redis, job_id):
         await asyncio.sleep(1)
 
 
-async def execute_pdf(job_id):
-    """输入仅为任务 ID；一次性取得 PDF，监视断线，始终等待异步取消与客户端清理。
+async def execute_pdf(job_id, *, mode="traditional"):
+    """输入任务 ID 和模式；一次性取得 PDF，监视断线，始终等待取消和清理。
 
     重复投递或过期任务不再执行；Redis 故障日志只含类别并传播，不触发本机处理回退。
     """
@@ -64,7 +64,7 @@ async def execute_pdf(job_id):
             return
         logger.info("PDF worker started job=%s", job_id)
         await redis.set(queue_key(job_id, "worker"), "1", ex=5)
-        producer = asyncio.create_task(publish_events(redis, job_id, data))
+        producer = asyncio.create_task(publish_events(redis, job_id, data, mode=mode))
         watcher = asyncio.create_task(watch_client(redis, job_id))
         tasks = [producer, watcher]
         done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
@@ -84,10 +84,10 @@ async def execute_pdf(job_id):
 
 
 @app.task(name="interviews.parse_pdf", max_retries=0, ignore_result=True)
-def parse_pdf_task(job_id):
-    """Celery 仅接收服务端 UUID；执行一次事件循环，异常记录类别后抛固定异常以脱敏。"""
+def parse_pdf_task(job_id, *, mode="traditional"):
+    """输入服务端 UUID 和选定模式；执行一次事件循环，异常记录类别后抛固定脱敏异常。"""
     try:
-        asyncio.run(execute_pdf(job_id))
+        asyncio.run(execute_pdf(job_id, mode=mode))
     except Exception as exc:
         logger.error("PDF task failed job=%s exception=%s", job_id, type(exc).__name__)
         raise RuntimeError("PDF background task failed; inspect worker logs") from None

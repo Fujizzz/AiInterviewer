@@ -1,0 +1,96 @@
+{
+  "evaluated_at_utc": "2026-09-26T11:22:40.366910+00:00",
+  "python_version": "3.12.7",
+  "implementation_sha256": {
+    "benchmark.py": "dba694a4350e1f42a611e145e5049b6a905037ed0ffc75eb7ef104834406a59b",
+    "engine.py": "30e31592a80fc4b82cdd775863b9e8f584db3e0e234b7f06d21c7a63bfeb6607",
+    "rules.py": "41c21112facae41afd411e52c79c368a0c64d2f1fb455cd1376c5ab4311d89fa",
+    "policy.py": "5ad664a1e7269b6a7272fc4ef9c947af1020f4d56ee0145c914e360e03aec4ce",
+    "security.py": "879b09053f13ba8c6ee7417a171a7198618b32658fd36cd32ecf72343add6d99"
+  },
+  "provenance": {
+    "source": "interview_cases.jsonl",
+    "sha256": "a780e0a2eea55536b2b6d895d36d0c4be72b1871fdc1bcee1ff2edfdfe4a3f75"
+  },
+  "policy": {
+    "policy_version": "rules-baseline-v1",
+    "max_scan_chars": 100000,
+    "allowed_actions": [
+      "retrieve_own_interview"
+    ],
+    "protected_output_terms": [
+      "PRIVATE_RUBRIC_CANARY"
+    ],
+    "semantic_mode": "rules_only",
+    "semantic_timeout_seconds": 5.0
+  },
+  "results": {
+    "rows": 32,
+    "confusion": {
+      "tp": 9,
+      "tn": 13,
+      "fp": 3,
+      "fn": 7,
+      "errors": 0
+    },
+    "precision": 0.75,
+    "recall": 0.5625,
+    "false_positive_rate": 0.1875,
+    "accuracy": 0.6875,
+    "latency_ms_p50": 0.03229998401366174,
+    "latency_ms_p95": 0.08100000559352338,
+    "mistakes": [
+      {
+        "row": 8,
+        "expected": 0,
+        "actual": 1
+      },
+      {
+        "row": 9,
+        "expected": 0,
+        "actual": 1
+      },
+      {
+        "row": 10,
+        "expected": 0,
+        "actual": 1
+      },
+      {
+        "row": 24,
+        "expected": 1,
+        "actual": 0
+      },
+      {
+        "row": 25,
+        "expected": 1,
+        "actual": 0
+      },
+      {
+        "row": 26,
+        "expected": 1,
+        "actual": 0
+      },
+      {
+        "row": 27,
+        "expected": 1,
+        "actual": 0
+      },
+      {
+        "row": 28,
+        "expected": 1,
+        "actual": 0
+      },
+      {
+        "row": 29,
+        "expected": 1,
+        "actual": 0
+      },
+      {
+        "row": 31,
+        "expected": 1,
+        "actual": 0
+      }
+    ]
+  },
+  "scope": "Rules-only classification; no training, threshold tuning or live LLM calls."
+}

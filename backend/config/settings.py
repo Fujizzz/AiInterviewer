@@ -4,6 +4,7 @@
 （无本地函数或类定义。）
 
 关键变量：
+- RECOMMENDATION_JOB_CATALOG：显式岗位 JSON 路径；空值时个人推荐报告来源未配置，不回退。
 - PDF_TASK_EXECUTION：开发默认 inline；显式 celery 模式使用 Redis，不自动回退。
 - CELERY_BROKER_URL：Celery 私有 Redis 队列地址。
 - PDF_TASK_REDIS_URL：PDF 短期正文、进度和取消标记的私有 Redis 地址。
@@ -22,7 +23,7 @@
 - INSTALLED_APPS：
   Django 用户/会话、ORM 内容类型、DRF 与 interviews 应用的装配清单。
 - LOGGING：
-  控制台日志格式、级别和处理器；不配置文件日志。
+  业务及 ai_security 决策的控制台格式、级别和处理器；不配置文件日志或 SDK 正文日志。
 - MIDDLEWARE：
   按顺序执行安全、来源、会话身份、部署登录门禁、CSRF 和通用 HTTP 处理。
 - REST_FRAMEWORK：
@@ -53,6 +54,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # 后端可从自己的目录启动，同时复用仓库内的 Agent/App/Shared 模块。
 sys.path.insert(0, str(BASE_DIR.parent))
 load_dotenv(BASE_DIR.parent / ".env", override=False)
+RECOMMENDATION_JOB_CATALOG = os.environ.get("RECOMMENDATION_JOB_CATALOG", "")
 # 环境缺少密钥时立即停止启动，避免以隐式默认密钥运行。
 SECRET_KEY = os.environ["DJANGO_SECRET_KEY"]
 DEBUG = False
@@ -115,7 +117,10 @@ LOGGING = {
     "disable_existing_loggers": False,
     "formatters": {"context": {"format": "{asctime} {levelname} {name} {message}", "style": "{"}},
     "handlers": {"console": {"class": "logging.StreamHandler", "formatter": "context"}},
-    "loggers": {"interviews": {"handlers": ["console"], "level": "INFO", "propagate": False}},
+    "loggers": {
+        "interviews": {"handlers": ["console"], "level": "INFO", "propagate": False},
+        "ai_security": {"handlers": ["console"], "level": "INFO", "propagate": False},
+    },
 }
 
 PDF_TASK_EXECUTION = os.environ.get("PDF_TASK_EXECUTION", "inline")

@@ -73,21 +73,21 @@ from interviews.agent_models import (
 )
 from interviews.agent_records import (
     PendingRequest,
-    complete_request,
     fail_request,
     interrupt_interview,
     reserve_request,
 )
 from interviews.agent_repository import DjangoInterviewRepository
+from interviews.agent_safety import approved_response
 from interviews.agent_session import AgentSession
 from interviews.agent_socket import Answer, Start, agent_socket
 from shared.contracts import CandidateAnswer, InterviewAction
 
-from .agent_fixtures import ANSWER, RESUME, FixtureLLM
+from .agent_fixtures import ANSWER, RESUME, FixtureLLM, SafetyTestMixin, complete_fixture_request
 from .test_agent_progress import connect, disconnect, read, send_command
 
 
-class PersistenceTests(TransactionTestCase):
+class PersistenceTests(SafetyTestMixin, TransactionTestCase):
     """用 TransactionTestCase 验证提交和清理后的可观测数据库状态。"""
 
     async def test_custom_project_and_topic_budgets_are_persisted(self):
@@ -104,7 +104,7 @@ class PersistenceTests(TransactionTestCase):
         )
         await reserve_request(session.interview_id, command)
         result = await session.start(command)
-        await complete_request(session.interview_id, command.request_id, result)
+        await complete_fixture_request(session.interview_id, command.request_id, result)
         context = await DjangoInterviewRepository(session.interview_id).get_interview_context(
             session.interview_id
         )
@@ -134,7 +134,7 @@ class PersistenceTests(TransactionTestCase):
         command = Start(request_id=uuid4(), type="start", resume_text=RESUME, max_questions=count)
         await reserve_request(session.interview_id, command)
         result = await session.start(command)
-        await complete_request(session.interview_id, command.request_id, result)
+        await complete_fixture_request(session.interview_id, command.request_id, result)
         return session, result
 
     def answer_command(self, first):
@@ -170,13 +170,13 @@ class PersistenceTests(TransactionTestCase):
         command = self.answer_command(first)
         await reserve_request(session.interview_id, command)
         result = await session.answer(command)
-        await complete_request(session.interview_id, command.request_id, result)
+        await complete_fixture_request(session.interview_id, command.request_id, result)
         answer = await AgentAnswer.objects.aget(request_id=command.request_id)
         record = await AgentInterview.objects.aget(id=session.interview_id)
         saved_request = await AgentRequest.objects.aget(id=command.request_id)
         turn = await AgentTurn.objects.aget(feedback_request_id=command.request_id)
         self.assertEqual(record.status, "completed")
-        self.assertEqual(saved_request.response, result)
+        self.assertEqual(approved_response(saved_request), result)
         self.assertEqual(answer.committed_state_version, turn.state_version)
         self.assertEqual(answer.evaluation["request_id"], str(command.request_id))
         self.assertLess(result["result"]["interview_state"]["elapsed_seconds"], 120)
@@ -408,7 +408,7 @@ class PersistenceTests(TransactionTestCase):
         command = self.answer_command(first)
         await reserve_request(session.interview_id, command)
         result = await session.answer(command)
-        await complete_request(session.interview_id, command.request_id, result)
+        await complete_fixture_request(session.interview_id, command.request_id, result)
         await interrupt_interview(session.interview_id)
         response = await self.async_client.get(f"/api/agent-interviews/{session.interview_id}/")
         self.assertEqual(response.json()["status"], "completed")

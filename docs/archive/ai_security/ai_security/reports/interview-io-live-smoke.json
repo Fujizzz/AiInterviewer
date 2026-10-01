@@ -1,0 +1,73 @@
+{
+  "scope": "Actual ASGI + isolated database + real safety model; synthetic business LLM; not attack accuracy or full real interview",
+  "safety_timeout_seconds": 5.0,
+  "max_scan_chars": 100000,
+  "cases": [
+    {
+      "command": "prepare",
+      "events": [
+        {
+          "type": "started",
+          "code": null
+        },
+        {
+          "type": "prepared",
+          "code": null
+        }
+      ],
+      "saved_status": "succeeded",
+      "error_code": ""
+    },
+    {
+      "command": "start",
+      "events": [
+        {
+          "type": "started",
+          "code": null
+        },
+        {
+          "type": "question",
+          "code": null
+        }
+      ],
+      "saved_status": "succeeded",
+      "error_code": ""
+    }
+  ],
+  "provider": {
+    "provider": "dashscope",
+    "model": "qwen-plus",
+    "options": {
+      "temperature": 0.0
+    },
+    "enable_thinking": false,
+    "sdk_timeout_seconds": 30.0,
+    "sdk_max_retries": 0,
+    "sdk_version": "2.54.0",
+    "endpoint_sha256": "5891aed827c4e67b2d7c0c73ea819327ce3f2b6ef72213cd79669486a26b1ead",
+    "instructions_sha256": "07252c6ab9bd62739133acecc78f68854adb45f1d2469b24cec747be6bd190d5",
+    "calls": [
+      {
+        "sequence": 0,
+        "status": "received",
+        "usage": {
+          "input_tokens": 1640,
+          "output_tokens": 53,
+          "total_tokens": 1693
+        },
+        "response_model": "qwen-plus"
+      },
+      {
+        "sequence": 1,
+        "status": "received",
+        "usage": {
+          "input_tokens": 3486,
+          "output_tokens": 53,
+          "total_tokens": 3539
+        },
+        "response_model": "qwen-plus"
+      }
+    ],
+    "review_type": "behavior-v1"
+  }
+}

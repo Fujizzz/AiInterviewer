@@ -5,7 +5,7 @@
 
 目录：
 - reject_http：发送固定 JSON 错误与禁止缓存头，不回显请求。
-- limited_application：仅限制 PDF POST 和 Agent WebSocket，其他接口按原路由运行。
+- limited_application：限制 PDF/简历版本上传与解析 POST 和 Agent WebSocket。
 - limited_application.bounded_receive：累计上传 ASGI 分片，超出传输上限时停止交付正文。
 - limited_application.observed_send：记录 HTTP 响应开始，避免发送第二组响应头。
 - UploadTooLarge：正文累计超限时中断下游上传解析。
@@ -49,14 +49,20 @@ async def reject_http(send, status, code):
 
 
 async def limited_application(app, scope, receive, send):
-    """仅限制 PDF POST 和 Agent WebSocket，其他接口按原路由运行。
+    """限制既有 PDF POST、版本上传/解析 POST 和 Agent WebSocket，其他接口按原路由运行。
 
     输入为下游 ASGI 应用与标准事件函数。租约在读取正文前取得，防止 Django 先缓存整个上传。
     内容长度只作提前拒绝，实际仍累计分片；配置和锁文件错误明确返回 503/1013，不降级。
     """
     is_pdf = (
         scope["type"] == "http"
-        and scope.get("path") == "/api/resume/parse/"
+        and (
+            scope.get("path") in {"/api/resume/parse/", "/api/resume-versions/"}
+            or (
+                scope.get("path", "").startswith("/api/resume-versions/")
+                and scope.get("path", "").endswith("/parse/")
+            )
+        )
         and scope.get("method") == "POST"
     )
     is_agent = scope["type"] == "websocket" and scope.get("path") == "/ws/agent/"

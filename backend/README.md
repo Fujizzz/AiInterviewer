@@ -4,15 +4,18 @@ Django + DRF 提供题库、练习场次、单题记录接口，默认 SQLite、
 同一 ASGI 服务提供 WebSocket 回传接口与浏览器测试页面，用于验证 ping/pong、二进制和音视频分片传输。
 本目录已接入根目录的 Agent MVP，通过 `/ws/agent/` 提供简历文本解析、逐题面试、评价与最终报告，测试页面位于 `/agent/`。
 Agent 与 CLI 共用 Plan and Execute：默认 30 分钟，Planner 规划目标和时间，Question Agent 生成问题。
+文字面试现在通过行为安全网关后才返回模型结果，包含资料预览、问题及附带评价、评分事件和最终报告。检查失败或超时停止会话；历史只公开已检响应。检测使用既有项目模型和 5 秒安全预算，详见 [输入输出接入约定](../docs/modules/AI_SECURITY_BEHAVIOR.md)。工具和内部评分提交暂不拦截。
+
 `start.duration_minutes` 指定分钟时长；三个 `max_questions*` 参数仅为安全上限。
 从首题准备完毕开始计时，包含后续输入和模型等待；题目提交后检查是否收尾，不强制中断输入。
 后端练习接口继续保留原有 10 秒准备和 90 秒回答配置，两条流程独立运行。
-`/agent/` 现采用面试工作台布局：题目在上方、数字人面试官在中央、自己的摄像头预览在右上角，下方保留文字回答与可展开的简历设置。
-摄像头需显式点击开启，只申请视频权限，仅本地预览，不录制、不上传；关闭、设备中断或离开页面时释放轨道。数字人通过 UE Pixel Streaming 接入；支持问题朗读、打断、麦克风回答和可编辑转录，确认后才提交。
-文字面试页支持提前解析简历、真实阶段进度、实际等待计时，以及评分先展示、报告文字随后补齐。
-预解析只在当前连接内复用完全相同的简历，不改变 Agent 决策或增加推测性出题。
+`/agent/` 为面试工作台：题目在上方、数字人面试官在中央、摄像头预览在右上角，下方提供语音/文字回答及版本/岗位/预算设置。
+摄像头需显式点击开启，仅本地预览；数字人通过 UE Pixel Streaming 接入，支持问题朗读、打断、麦克风回答及编辑转录，确认后才提交。
+面试页只选择本人已就绪版本，保留真实进度、实际计时、评分先行和报告随后补齐。
+后端 prepare 协议仍供独立客户端使用；面试页面不再提供重复资料维护，start 使用版本 UUID。
 优化边界与需要 Agent 团队配合的事项见 [性能优化说明](docs/performance.md)。
-文字面试页现支持 PDF 上传：传统库提取后由独立视觉 Agent 校对；用户核对后采用文本。
+`/resumes/` 为统一个人中心：维护姓名/邮箱、上传 PDF 或文本、解析和管理历史版本。
+默认传统提取，可选高级多模态校对；核对后可设置当前版本或直接使用指定版本面试。
 配置、数据流和限制见 [PDF 简历解析](docs/resume-pdf.md)。
 PDF 提取/渲染现运行于 Linux/WSL 沙箱；新增同机面试连接和 PDF 上传容量控制。
 首次使用 PDF 前请按 [隔离环境与资源限制](sandbox/README.md) 配置运行目录。
@@ -77,6 +80,8 @@ python -m uvicorn config.asgi:application --host 127.0.0.1 --port 8765 --ws webs
 语言层只翻译界面、状态和诊断提示，不改变 WebSocket 协议、API 字段、评分逻辑或模型请求内容。
 
 ## Agent 模型配置
+
+简历版本管理、面试绑定及历史状态接口见 [简历版本接口](docs/resume-versions.md)。新增资源使用登录会话及本人权限，不修改 Agent 的出题或评分策略。
 
 API key 存放在 **仓库根目录 `.env`**。首次使用可在仓库根目录复制 `.env.example`；已有文件请直接编辑，避免覆盖。
 OpenAI 填写 `LLM_PROVIDER=openai`、`OPENAI_API_KEY`、`OPENAI_MODEL`；千问填写 `LLM_PROVIDER=dashscope`、`DASHSCOPE_API_KEY`、`DASHSCOPE_MODEL`。
@@ -179,3 +184,5 @@ node --test tests/interview-camera.test.mjs  # 模拟权限、设备中断与媒
 当前数字人播放器与语音交互代码位于 `backend/frontend/`，TTS/STT 位于 `interviews/speech/`。
 配置统一使用仓库根目录 `.env`，角色、场景和本机串流工具位于 `DigitalHuman/`。
 本机准备与启动见 [数字人操作说明](../docs/guides/DIGITAL_HUMAN_SETUP.md)。
+
+个人中心现支持独立在线编辑稿、九个文本单元及用户确认的推荐槽位；接口与单位约束见 [简历版本说明](docs/resume-versions.md#在线编辑稿与推荐资料)。原 PDF 与旧稿保留，每次保存创建新版本。

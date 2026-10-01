@@ -1,6 +1,6 @@
 """业务数据模型与数据库约束。题目快照和状态时间关系在存储层得到保护。
 
-关联：导入 agent_models 注册独立的 Agent 面试表；下列练习模型及其计时规则保持不变。
+关联：导入 agent_models/resume_models 注册 Agent 与简历版本表；练习模型及其计时规则保持不变。
 
 目录：
 - Question：
@@ -43,6 +43,7 @@ from .agent_models import (  # noqa: F401
     AgentRequest,
     AgentTurn,
 )
+from .resume_models import ResumeVersion  # noqa: F401
 
 
 class Question(models.Model):
@@ -71,8 +72,13 @@ class PracticeSession(models.Model):
         COMPLETED = "completed"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    owner = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True,
-                              on_delete=models.PROTECT, related_name="practice_sessions")
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="practice_sessions",
+    )
     status = models.CharField(max_length=16, choices=Status, default=Status.ACTIVE)
     prep_seconds = models.PositiveIntegerField(default=10, editable=False)
     answer_seconds = models.PositiveIntegerField(default=90, editable=False)
