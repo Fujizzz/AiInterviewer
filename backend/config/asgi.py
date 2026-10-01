@@ -4,7 +4,9 @@
 - handle_lifespan：
   响应 ASGI 启停握手；当前无常驻资源，确认 startup/shutdown 后正常返回。
 - application：
-  功能：按 ASGI scope 类型选择处理器。
+  功能：在 WebSocket 会话认证后进入服务级准入。
+- capacity_application：在身份检查后执行原有资源准入，保持容量与上传限制。
+- route_application：按 ASGI scope 类型选择处理器，保留原业务路由。
 
 关键变量：
 - django_application：
@@ -32,6 +34,21 @@ async def handle_lifespan(receive, send):
 
 
 async def application(scope, receive, send):
+    """输入输出遵循 ASGI；WebSocket 身份在资源准入前验证，HTTP 身份由 Django 中间件检查。"""
+    from interviews.session_socket import authenticated_socket
+
+    await authenticated_socket(capacity_application, scope, receive, send)
+
+
+async def capacity_application(scope, receive, send):
+    """在身份检查后执行原有资源准入；标准 ASGI 参数不变，不修改限额与失败语义。"""
+    # settings 完成仓库路径及环境装配后才导入资源层，支持从 backend 独立启动。
+    from interviews.resource_gate import limited_application
+
+    await limited_application(route_application, scope, receive, send)
+
+
+async def route_application(scope, receive, send):
     """功能：按 ASGI scope 类型选择处理器。
     方法：/ws/echo/ 传输诊断、/ws/agent/ 面试、/ws/speech/stt/ PCM 识别。
     未知 WebSocket 路径明确关闭。

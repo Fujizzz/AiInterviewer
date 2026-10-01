@@ -41,7 +41,6 @@ def test_project_selector_prefers_llm_serving_for_technical_depth() -> None:
         profile=profile,
         job=ai_infrastructure_job(),
         state=interview_state(),
-        competency=Competency.TECHNICAL_DEPTH,
     )
 
     assert selection.project_id == "llm"
@@ -75,7 +74,6 @@ def test_visit_penalty_can_switch_between_similarly_relevant_projects() -> None:
         profile=profile,
         job=ai_infrastructure_job(),
         state=state,
-        competency=Competency.TECHNICAL_DEPTH,
     )
 
     assert selection.project_id == "p2"
@@ -91,10 +89,9 @@ def test_topic_selector_uses_gpu_memory_claim_for_debugging() -> None:
 
     selection = TopicSelector().select(
         project=project,
-        competency=Competency.DEBUGGING,
     )
 
-    assert selection.topic == "GPU memory"
+    assert selection.topic == "Reduced GPU memory usage"
     assert selection.source_claim_id == "memory-claim"
 
 
@@ -113,7 +110,6 @@ def test_topic_selector_does_not_treat_prompt_injection_as_policy() -> None:
 
     selection = TopicSelector().select(
         project=project,
-        competency=Competency.DEBUGGING,
     )
 
     assert selection.topic == "CUDA"

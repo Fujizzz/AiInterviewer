@@ -1,0 +1,123 @@
+{
+  "model_id": "jobrec-v4-B",
+  "variant": "B",
+  "experimental": true,
+  "release_gate_passed": false,
+  "lightgbm_version": "4.6.0",
+  "dtype": "float32",
+  "feature_names": [
+    "skill_coverage",
+    "interest_matches_industry",
+    "major_accepted",
+    "work_mode_matches",
+    "gpa_margin",
+    "experience_months_margin",
+    "academic_level_margin",
+    "weekly_hours_margin",
+    "commitment_months_margin",
+    "publications_margin",
+    "summer_commitment"
+  ],
+  "files": {
+    "pref.txt": {
+      "sha256": "bd24d7a09c68fcbff17f3d50457a006b4140e48c4d94b6bae847aa01717d07dd",
+      "trees": 100
+    },
+    "qual.txt": {
+      "sha256": "1d05b1a36b26121bd69e658616e91d1f8586659c7beb8f415af272d2dabc2f69",
+      "trees": 20
+    }
+  },
+  "source_kernel": "https://www.kaggle.com/code/heropig/irs-jobrec-missing-v4",
+  "source_kernel_version": 1,
+  "training_date": "2026-09-22",
+  "dataset_repository": "https://github.com/brycekan123/DualOptimization_jobrec",
+  "dataset_commit": "c742feea3730e8d34ec2e8ae7e58c8c0ee8a53fd",
+  "seed": 42,
+  "protocol_sha256_lf": "fb330b6597748bfcc1da1f7db800c8db2307347d8cee78a96ac2bf6e30119063",
+  "qualification_target": "synthetic_per_job_winner",
+  "score_type": "uncalibrated_ranking_score",
+  "metrics": {
+    "clean_r0": {
+      "pref": {
+        "average_precision": 0.83724390513543,
+        "roc_auc": 0.9542270237048183,
+        "positive_prevalence": 0.15317087937036478,
+        "pairs": 6607,
+        "ndcg@5": 0.9354020147720988,
+        "recall@5": 0.9796407185628743,
+        "ndcg@10": 0.9441454075842526,
+        "recall@10": 1.0,
+        "positive_queries": 501,
+        "all_negative_queries_excluded": 143,
+        "median_labeled_pool": 10.0,
+        "mean_tied_fraction": 0.005752968563527571,
+        "queries_with_ties": 37
+      },
+      "qual": {
+        "average_precision": 0.2252697492098322,
+        "roc_auc": 0.8777619047619047,
+        "positive_prevalence": 0.02097902097902098,
+        "pairs": 715,
+        "ndcg@5": 0.47195925816339,
+        "recall@5": 0.6,
+        "ndcg@10": 0.5194535497777929,
+        "recall@10": 0.7333333333333333,
+        "positive_queries": 15,
+        "all_negative_queries_excluded": 0,
+        "median_labeled_pool": 50.0,
+        "mean_tied_fraction": 0.19358307275380446,
+        "queries_with_ties": 15
+      }
+    },
+    "random_30_r0": {
+      "pref": {
+        "average_precision": 0.6009988240483631,
+        "roc_auc": 0.8802983500937808,
+        "positive_prevalence": 0.15317087937036478,
+        "pairs": 6607,
+        "ndcg@5": 0.815563955451479,
+        "recall@5": 0.9161510312707918,
+        "ndcg@10": 0.848556092645414,
+        "recall@10": 0.9957917498336659,
+        "positive_queries": 501,
+        "all_negative_queries_excluded": 143,
+        "median_labeled_pool": 10.0,
+        "mean_tied_fraction": 0.03577720588590154,
+        "queries_with_ties": 151
+      },
+      "qual": {
+        "average_precision": 0.10684226658203269,
+        "roc_auc": 0.8020476190476191,
+        "positive_prevalence": 0.02097902097902098,
+        "pairs": 715,
+        "ndcg@5": 0.3345188373870666,
+        "recall@5": 0.4666666666666667,
+        "ndcg@10": 0.37753697161546057,
+        "recall@10": 0.6,
+        "positive_queries": 15,
+        "all_negative_queries_excluded": 0,
+        "median_labeled_pool": 50.0,
+        "mean_tied_fraction": 0.10156410256410257,
+        "queries_with_ties": 13
+      }
+    }
+  },
+  "gate_results": {
+    "pref": {
+      "clean_ap_change": -0.005734251280906544,
+      "clean_ndcg5_change": -0.008115589589002048,
+      "primary_ndcg5": 0.8028535428432053,
+      "primary_gain": 0.0015262269140902118,
+      "point_estimate_gate_pass": false
+    },
+    "qual": {
+      "clean_ap_change": -0.09657251627628763,
+      "clean_ndcg5_change": -0.11706153691087229,
+      "primary_ndcg5": 0.34254890663477294,
+      "primary_gain": -0.05168417765632871,
+      "point_estimate_gate_pass": false
+    }
+  },
+  "license_note": "Upstream dataset has no explicit license confirmed in this study; no license grant is inferred. Original profiles are not included."
+}

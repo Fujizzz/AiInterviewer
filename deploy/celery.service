@@ -1,0 +1,34 @@
+# 职责：独立执行 PDF 沙箱和视觉校对；任务经本机 Redis 交付。
+# 实现：两个 prefork 进程保持原两份 PDF 容量，每份原有三页并发不变。
+# 关联：config.celery、interviews.tasks；与 ASGI 使用同一发布版本和环境文件。
+# 目录：无函数/类。变量索引：EnvironmentFile 保存私有连接与既有模型配置。
+[Unit]
+Description=AI Interviewer PDF Celery worker
+After=network.target redis-server.service postgresql.service
+Requires=redis-server.service postgresql.service
+
+[Service]
+Type=simple
+User=aiinterviewer
+Group=aiinterviewer
+WorkingDirectory=/opt/ai-interviewer/current/backend
+EnvironmentFile=/etc/ai-interviewer/app.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/ai-interviewer/current/.venv/bin/celery -A config.celery:app worker --loglevel=WARNING --concurrency=2 --prefetch-multiplier=1 --without-gossip --without-mingle
+Restart=no
+TimeoutStopSec=150
+UMask=0077
+StateDirectory=ai-interviewer
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/ai-interviewer
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+LockPersonality=true
+RestrictRealtime=true
+
+[Install]
+WantedBy=multi-user.target

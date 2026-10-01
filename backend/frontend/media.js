@@ -1,6 +1,6 @@
 /**
  * @module media
- * 功能：音视频测试来源与采集流程：生成或获取 MediaStream，经 MediaRecorder 分片并由 StreamClient 校验回传。
+ * 功能：音视频测试来源与采集流程：生成或获取 MediaStream，经 MediaRecorder 分片并由 StreamClient 校验回传；错误提示按当前界面语言生成。
  *
  * 目录：
  * - createSyntheticSource：
@@ -36,7 +36,7 @@
  * （无模块级变量。）
  *
  * 关键状态说明：
- * 来源对象拥有 stream/cleanup；recorder 管理编码，queuedBytes 统计未处理分片，processing 串行化校验。
+ * 来源对象拥有 stream/cleanup；recorder 管理编码，queuedBytes 统计未处理分片，processing 串行化校验；错误文案由 i18n.js 提供。
  * recordingError 保存首次采集或回传错误；echoed 收集已验证载荷。保留 250 ms 分片目标、3/30 秒录制期限及 4 MiB 等待上限。
  */
 
@@ -47,7 +47,7 @@
  */
 export async function createSyntheticSource(canvas) {
   if (!canvas.captureStream || !window.AudioContext) {
-    throw new Error("浏览器不支持画布采集或 Web Audio。");
+    throw new Error(window.AppI18n?.t("media_canvas_unsupported") ?? "浏览器不支持画布采集或 Web Audio。");
   }
   const context = canvas.getContext("2d");
   let frame = 0;
@@ -96,7 +96,7 @@ export async function createSyntheticSource(canvas) {
  */
 export async function createDeviceSource(mode) {
   if (!navigator.mediaDevices?.getUserMedia) {
-    throw new Error("浏览器无法采集媒体，请通过 localhost 或 HTTPS 打开页面。");
+    throw new Error(window.AppI18n?.t("media_device_unsupported") ?? "浏览器无法采集媒体，请通过 localhost 或 HTTPS 打开页面。");
   }
   const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: mode === "video" });
   /** 停止所有设备轨道；不创建录制文件或向磁盘导出。 */
@@ -116,7 +116,7 @@ export async function createDeviceSource(mode) {
 export async function captureAndEcho(connection, mode, view, registerControls) {
   const mimeType = mode === "audio" ? "audio/webm;codecs=opus" : "video/webm;codecs=vp8,opus";
   if (!window.MediaRecorder || !MediaRecorder.isTypeSupported(mimeType)) {
-    throw new Error(`浏览器不支持 ${mimeType}，请使用支持该格式的浏览器。`);
+    throw new Error(window.AppI18n?.t("media_format_unsupported", { mime: mimeType }) ?? `浏览器不支持 ${mimeType}，请使用支持该格式的浏览器。`);
   }
   const source = mode === "synthetic"
     ? await createSyntheticSource(view.element("source"))
@@ -141,7 +141,7 @@ export async function captureAndEcho(connection, mode, view, registerControls) {
       recorder.onstop = resolve;
       /** 保存录制错误并请求停止，同时解除结束等待以进入错误处理。 */
       recorder.onerror = (event) => {
-        recordingError = event.error || new Error("MediaRecorder failed.");
+        recordingError = event.error || new Error(window.AppI18n?.t("media_recording_failed") ?? "MediaRecorder failed.");
         stop();
         resolve();
       };
@@ -151,7 +151,7 @@ export async function captureAndEcho(connection, mode, view, registerControls) {
       if (!data.size || recordingError) return;
       queuedBytes += data.size;
       if (queuedBytes > 4 * 1024 * 1024) {
-        recordingError = new Error("待发送媒体超过 4 MiB，网络未及时回传，测试已停止。");
+        recordingError = new Error(window.AppI18n?.t("media_backpressure") ?? "待发送媒体超过 4 MiB，网络未及时回传，测试已停止。");
         stop();
         return;
       }
@@ -166,13 +166,13 @@ export async function captureAndEcho(connection, mode, view, registerControls) {
     };
     recorder.start(250);
     view.element("stop").disabled = false;
-    view.status("采集中 · 分片实时回传");
+    view.status(window.AppI18n?.language() === "en" ? "Capturing · echoing chunks" : "采集中 · 分片实时回传");
     view.log(`MediaRecorder 开始 · ${mimeType} · 分片目标间隔 250 ms`);
     autoStop = setTimeout(stop, mode === "synthetic" ? 3000 : 30000);
     await stopped;
     await processing;
     if (recordingError) throw recordingError;
-    if (!echoed.length) throw new Error("没有产生可校验的媒体分片。");
+    if (!echoed.length) throw new Error(window.AppI18n?.t("media_empty") ?? "没有产生可校验的媒体分片。");
     const blob = new Blob(echoed, { type: recorder.mimeType });
     view.log(`回传媒体已重组 · ${blob.size} bytes`);
     return blob;

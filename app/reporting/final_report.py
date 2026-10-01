@@ -14,7 +14,6 @@ from app.providers.llm import OutputModel, StructuredLLM
 class CompetencyResult(OutputModel):
     score: float | None = Field(default=None, ge=1.0, le=5.0)
     coverage: float = Field(ge=0.0, le=1.0)
-    confidence: float = Field(ge=0.0, le=1.0)
     evidence_count: int = Field(ge=0)
     max_verified_difficulty: int = Field(ge=0, le=5)
 
@@ -22,7 +21,6 @@ class CompetencyResult(OutputModel):
 class ReportNarrative(OutputModel):
     strengths: list[str]
     weaknesses: list[str]
-    summary: str = Field(min_length=1)
 
 
 class FinalReport(OutputModel):
@@ -45,7 +43,6 @@ async def build_final_report(
         competency.value: CompetencyResult(
             score=state.score,
             coverage=state.coverage,
-            confidence=state.confidence,
             evidence_count=state.evidence_count,
             max_verified_difficulty=state.max_verified_difficulty,
         )
@@ -61,7 +58,9 @@ async def build_final_report(
     ]
     total_weight = sum(weight for weight, _ in scored)
     overall_score = (
-        sum(weight * score for weight, score in scored if score is not None) / total_weight
+        round(
+            sum(weight * score for weight, score in scored if score is not None) / total_weight, 4
+        )
         if total_weight > 0
         else None
     )
@@ -95,7 +94,12 @@ async def build_final_report(
         competencies=competencies,
         strengths=narrative.strengths,
         weaknesses=narrative.weaknesses,
-        summary=narrative.summary,
+        summary=(
+            f"Observed-dimension weighted score: {overall_score:.2f} / 5. "
+            if overall_score is not None
+            else "Insufficient evidence for an overall score. "
+        )
+        + f"Based on {len(question_history)} answers; unobserved competencies are not scored.",
     )
 
 
@@ -119,5 +123,4 @@ def _fallback_narrative(
     return ReportNarrative(
         strengths=strengths,
         weaknesses=weaknesses,
-        summary=f"Evidence-based report generated from {answer_count} interview answers.",
     )

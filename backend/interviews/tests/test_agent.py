@@ -1,8 +1,8 @@
-"""Agent 接入回归：真实 Agent 核心配合离线供应商，不访问业务数据库或真实模型。
+"""Agent 接入回归：真实 Agent 核心配合离线供应商和隔离测试数据库，不访问真实模型。
 
 目录：
 - AgentTests：
-  使用 ASGI 消息驱动完整面试，SimpleTestCase 禁止数据库访问。
+  使用 ASGI 消息驱动完整面试，TransactionTestCase 隔离持久化数据。
 - AgentTests.connect：
   建立受相同访问策略约束的测试连接；调用方须等待终态或显式调用 disconnect。
 - AgentTests.accepted：
@@ -38,7 +38,7 @@
 - ProviderTests.test_provider_options_without_reloading_dotenv：
   只使用已装载的后端环境，并保持 MVP 温度、60 秒超时和两次 SDK 重试。
 - ProviderTests.test_inflight_client_closed_only_after_call_returns：
-  取消不破坏在途同步 SDK；禁止新调用并在后台返回后释放连接。
+  取消不破坏在途同步 SDK；后台返回后才释放客户端和服务名额。
 - ProviderTests.test_inflight_client_closed_only_after_call_returns.blocked：
   在可控屏障等待，让测试在调用仍执行时请求关闭。
 
@@ -49,23 +49,25 @@
 import asyncio
 import json
 import threading
+from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 from uuid import uuid4
 
 from asgiref.testing import ApplicationCommunicator
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TransactionTestCase
 
 from app.application import MVPInterviewApplication
 from app.providers.llm import LLMError, OpenAILLM
 from interviews.agent_provider import BackendLLM
 from interviews.agent_session import AgentSession
 from interviews.agent_socket import MAX_MESSAGE_BYTES, agent_socket
+from interviews.capacity import CapacityExceeded, take_slot
 
 from .agent_fixtures import ANSWER, RESUME, FixtureLLM
 
 
-class AgentTests(SimpleTestCase):
-    """使用 ASGI 消息驱动完整面试，SimpleTestCase 禁止数据库访问。"""
+class AgentTests(TransactionTestCase):
+    """使用 ASGI 消息驱动完整面试，TransactionTestCase 隔离持久化数据。"""
 
     async def connect(self, origin="http://localhost", client="127.0.0.1"):
         """建立受相同访问策略约束的测试连接；调用方须等待终态或显式调用 disconnect。"""
@@ -138,7 +140,8 @@ class AgentTests(SimpleTestCase):
                 self.assertTrue(result["interview_finished"])
                 self.assertEqual(len(result["question_history"]), count)
                 self.assertEqual(result["final_report"], expected["final_report"])
-                self.assertEqual(result["interview_state"]["elapsed_seconds"], count * 120)
+                self.assertLess(result["interview_state"]["elapsed_seconds"], 120)
+                self.assertEqual(result["interview_plan"]["duration_seconds"], 1800)
                 self.assertEqual(
                     result["interview_state"]["competencies"],
                     expected["interview_state"]["competencies"],
@@ -244,7 +247,7 @@ class AgentTests(SimpleTestCase):
                     stopped.set()
 
             fake = Mock(spec=AgentSession)
-            fake.interview_id = "offline-test"
+            fake.interview_id = str(uuid4())
             fake.start = slow_start
             with patch("interviews.agent_socket.AgentSession", return_value=fake):
                 comm = await self.accepted()
@@ -264,7 +267,7 @@ class AgentTests(SimpleTestCase):
         """初始化失败或上游失败不能暴露异常正文，也不产生虚假成功。"""
         for setup in (True, False):
             fake = Mock(spec=AgentSession)
-            fake.interview_id = "offline-test"
+            fake.interview_id = str(uuid4())
 
             async def fail(command):
                 """制造含敏感标记的异常，验证日志与响应均不回显。"""
@@ -352,7 +355,7 @@ class ProviderTests(SimpleTestCase):
             patch("app.providers.llm.load_dotenv") as dotenv,
         ):
             provider = BackendLLM()
-            sdk.assert_called_once_with(api_key="test-only", timeout=60.0, max_retries=2)
+            sdk.assert_called_once_with(api_key="test-only", timeout=30.0, max_retries=0)
             dotenv.assert_not_called()
             self.assertEqual(provider.options, {"temperature": 0.0})
             provider.close()
@@ -368,7 +371,7 @@ class ProviderTests(SimpleTestCase):
         clear=True,
     )
     def test_inflight_client_closed_only_after_call_returns(self):
-        """取消不破坏在途同步 SDK；禁止新调用并在后台返回后释放连接。"""
+        """取消不破坏在途同步 SDK；后台返回后才释放客户端和服务名额，模型用屏障模拟。"""
         entered, release = threading.Event(), threading.Event()
 
         def blocked(*args):
@@ -379,15 +382,20 @@ class ProviderTests(SimpleTestCase):
             return "ok"
 
         with (
+            TemporaryDirectory() as directory,
             patch("interviews.agent_provider.OpenAI") as sdk,
             patch.object(OpenAILLM, "__call__", blocked),
         ):
             provider = BackendLLM()
+            provider.capacity_lease = take_slot("agent", 1, directory)
             worker = threading.Thread(target=provider, args=("", {}, FixtureLLM))
             worker.start()
             try:
                 self.assertTrue(entered.wait(3))
                 provider.close()
+                provider.capacity_lease.release()
+                with self.assertRaises(CapacityExceeded):
+                    take_slot("agent", 1, directory)
                 sdk.return_value.close.assert_not_called()
                 with self.assertRaises(LLMError):
                     provider("", {}, FixtureLLM)
@@ -395,3 +403,4 @@ class ProviderTests(SimpleTestCase):
                 release.set()
                 worker.join(3)
             sdk.return_value.close.assert_called_once()
+            take_slot("agent", 1, directory).release()

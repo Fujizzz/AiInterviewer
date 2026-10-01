@@ -6,14 +6,19 @@
 
 - 读取 UTF-8 TXT 和文本型 PDF 简历；
 - 将简历转换为版本化 `CandidateProfile`、结构化项目和可核验 claims；
-- 根据标准能力空间选择 competency、project、topic、difficulty 和 probe depth；
-- Planner、Generator、Validator、Fallback 分层生成问题；
-- 对每轮回答提取 relevance、evidence strength、confidence 和 rubric level；
+- 按面试时长规划项目、话题、考察目标、时间分配和预计题数；
+- Planner 只规划目标，Question Agent 通过有边界的 ReAct 循环生成具体问题；
+- 根据实际耗时和回答进度动态调整剩余计划，题数参数仅作为 safety guardrail；
+- 对每轮回答分析缺失信息与是否追问，并提取多个能力维度的原文证据；不再使用 confidence；
 - 原子提交状态、问题、反馈和决策日志，重复反馈保持幂等；
 - 按岗位能力权重在代码中计算最终分数，LLM 仅负责报告文字；
 - 支持 OpenAI 和千问 DashScope；
 - 支持网页数字人面试、英文问题朗读、语音转录和可编辑回答确认；
 - 输出问题历史、能力状态、决策日志和 JSON 报告。
+
+后端另提供支持缺失资料的实验性人岗双向排序接口，使用仓库附带的v4-B树模型，
+与面试评分流程独立。模型尚未通过整体效果门槛，分数不是录用概率；
+安装、输入输出和调用示例见[推荐模型接入说明](backend/docs/recommendation.md)。
 
 ## 架构
 
@@ -33,6 +38,9 @@ InterviewAgentService (agents/)
 ```
 
 旧版 LangGraph 流程、旧 `TypedDict` 状态和独立问题路由已移除，避免出现两个决策中心。
+
+ReAct 实现、Windows 启动命令和执行轨迹查看方法见
+[ReAct 架构实现与运行指南](docs/ReAct架构实现与运行指南.md)。
 
 ## 仓库模块
 
@@ -96,19 +104,32 @@ OPENAI_API_KEY=你的密钥
 
 ```bash
 uv run python main.py resume.pdf \
-  --max-questions 5 \
-  --max-follow-up-per-topic 2 \
+  --duration-minutes 30 \
   --job-title "AI Engineer"
 ```
 
 不提供 `--job-title` 时使用通用 AI / 软件工程岗位和均衡能力权重。
 
+`--duration-minutes` 默认 30。可选安全上限为 `--max-questions`（默认 40）、
+`--max-questions-per-project`（默认 20）、`--max-questions-per-topic`（默认 8），
+均包含主问题和追问。上限过低可能在时间用完前结束面试，并不会自动增加时长。
+旧的 `--max-follow-up-per-topic N` 等价于话题安全上限 `N + 1`。
+规划、计时、降级行为与输出字段见 [Plan and Execute](docs/PLAN_AND_EXECUTE.md)。
+
+终端运行默认将关键节点静默保存到 `output/interview_时间戳_唯一编号.md`，每次面试只有一个文件。
+记录选题依据、工具调用摘要、最终问题、回答评价、修复/兜底原因和最终结果；
+不保存完整 Prompt、State、工具返回正文或额外 JSON 文件。中断时保留已有记录。
+可用 `--output-dir` 更改目录；这些记录包含面试资料，已加入 Git 忽略规则。
+记录不包含模型未返回的内部推理文本，也不会在面试过程中打印。
+
 ## 独立后端与流式诊断
 
 `backend/` 提供 Django/DRF 练习接口、SQLite 业务存储和只在内存中处理的 WebSocket 音视频回传测试。
-`/ws/agent/` 已通过 `AgentSession` 接入 `InterviewAgentService`，复用现有面试决策、模型与评价流程。
+其中 `/ws/agent/` 已接入上面的 Agent 决策流程，并通过 Django/SQLite 保存面试数据；练习接口与音视频回传诊断仍独立运行。
 当前面试网页、语音交互和数字人播放器统一维护在 `backend/frontend/`；后续由后端团队迁入根目录 `frontend/`。
 安装与启动见 [后端说明](backend/README.md)，模块职责和函数注释规范见 [代码阅读指南](backend/docs/code-guide.md)。
+
+三个浏览器页面均支持中文、English 和跟随系统；语言选择保存在浏览器中，只影响界面和诊断文案，不改变面试协议或评分逻辑。
 
 ## 数字人面试官
 
@@ -143,6 +164,7 @@ SPEECH_STT_MODEL=qwen-audio-3.1-asr-flash-streaming
 
 ```powershell
 python -m pip install -r backend/requirements.txt
+python backend/manage.py migrate
 .\DigitalHuman\Tools\setup-streaming.ps1
 ```
 
@@ -174,7 +196,7 @@ python -m tests.app.smoke_interview
 
 ## 已知边界
 
-- PDF 只支持可提取文本，不包含 OCR；
+- 终端 CLI 的 PDF 只支持可提取文本；后端页面另提供规则提取与多模态转写，见 [PDF 简历解析](backend/docs/resume-pdf.md)；
 - MVP Repository 仍是内存实现，关闭进程后状态不会保留；
 - RAG 端口和数据库端口已定义，生产适配器仍需由对应模块接入；
 - 最终报告是辅助评估结果，不应直接作为自动化录用决定。

@@ -116,8 +116,8 @@ async def test_repository_v11_atomic_commit_success() -> None:
 
     stored = await repository.get_interview_context(context.interview_id)
     assert result.committed is True
-    assert stored.contract_version == "1.1"
-    assert result.contract_version == "1.1"
+    assert stored.contract_version == "2.0"
+    assert result.contract_version == "2.0"
     assert result.state.state_version == 2
     assert "atomic-question" in repository.questions
     assert repository.question_interviews["atomic-question"] == context.interview_id

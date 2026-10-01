@@ -49,6 +49,7 @@ class MockRAGAdapter:
                 for chunk in self._chunks_by_source.get(request.source, ())
             ]
         topic = request.topic or "candidate project"
+        competency = request.competency.value if request.competency else "project context"
         content = {
             RetrievalSource.CANDIDATE: (
                 f"Candidate context for {topic}: project claims and implementation details."
@@ -58,9 +59,7 @@ class MockRAGAdapter:
                 f"Question example for {topic}: ask for concrete evidence without "
                 "revealing a rubric."
             ),
-            RetrievalSource.JOB: (
-                f"Role context relevant to {topic} and {request.competency.value}."
-            ),
+            RetrievalSource.JOB: (f"Role context relevant to {topic} and {competency}."),
         }[request.source]
         return [
             RetrievedChunk(
@@ -68,7 +67,7 @@ class MockRAGAdapter:
                 source=request.source,
                 title=f"Mock {request.source.value} context",
                 content=content,
-                metadata={"topic": topic, "competency": request.competency.value},
+                metadata={"topic": topic, "competency": competency},
                 retrieval_score=1.0,
             )
         ]

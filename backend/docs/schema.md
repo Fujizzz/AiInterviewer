@@ -1,6 +1,7 @@
 # 数据库 Schema
 
-SQLite 存储，Django migrations 管理结构。所有时间为 UTC，API 返回 ISO 8601，主键均为 UUID。
+SQLite 存储，Django migrations 管理结构。所有时间为 UTC，API 返回 ISO 8601。
+练习表及 Agent 面试/请求/回答使用 UUID；AgentQuestion 沿用 Agent 字符串 ID，AgentTurn 使用数据库自增主键。
 
 ```mermaid
 erDiagram
@@ -37,7 +38,47 @@ erDiagram
     }
 ```
 
-数据库只包含上述三张业务表；流式测试不创建数据库记录。
+上述三张表只负责固定题库练习。Agent 面试使用下文五张独立表；流式诊断仍不创建数据库记录。
+
+## Agent 面试：关系约束与契约快照
+
+```mermaid
+erDiagram
+    AgentInterview ||--o{ AgentRequest : requests
+    AgentInterview ||--o{ AgentQuestion : questions
+    AgentInterview ||--o{ AgentTurn : commits
+    AgentQuestion ||--o| AgentAnswer : accepted_answer
+    AgentRequest ||--o| AgentAnswer : submitted_by
+    AgentRequest o|--o| AgentTurn : feedback_commit
+```
+
+| 表 | 主要字段 | 约束及用途 |
+| --- | --- | --- |
+| AgentInterview | id、status、job_title、context、state_version、latest_action、时间 | 最新上下文唯一来源；未初始化时 context 为空且版本为 0；终态必须有 closed_at |
+| AgentRequest | UUID、interview_id、kind、status、response、error_code、时间 | 请求 UUID 全库唯一；一场面试最多一条 running 请求；成功响应必须与结束时间同时存在 |
+| AgentQuestion | Agent 问题 ID、interview_id、ordinal、payload | 问题 ID 全局唯一；同场题号唯一；题目内容不可被其他场次覆盖 |
+| AgentAnswer | UUID、question_id、request_id、text、evaluation、committed_state_version | 一题一答、一请求一回答；评价与提交版本同时存在，区分已接收与已评分 |
+| AgentTurn | id、interview_id、state_version、feedback_request_id、action、decision_log | 同场版本唯一；每个反馈请求最多提交一次；初始化/阶段转换可无反馈请求 |
+
+关系字段承担查询和约束；context、问题、动作和评价 JSON 保持共享契约原值，避免复制评分规则。
+当前上下文不再在每个业务表重复存放。请求响应刻意保留发送时快照，以便网络交付失败后查询已完成结果；
+它是不可变交付记录，不是另一份可写状态。尚未引入向量库、PostgreSQL 迁移或新的账户模型。
+
+写入先执行带 `state_version` 条件的 UPDATE，再在同一短事务发布上下文、题目、评价和决策。
+这避免依赖 SQLite 行锁，也防止两个旧版本都提交成功；任何后续约束失败撤销整轮写入。
+事务内不调用 LLM。后端仓库不重试数据库失败；Agent 原有版本冲突处理规则保持不变。
+回答在评价前写入，但直到单轮提交成功，评价与版本标记才同时可见。
+
+历史列表索引为 `(created_at DESC, id DESC)`，请求历史使用 `(interview_id, created_at, id)`；
+问题和提交的复合唯一约束同时支持按场次、题号或版本读取。列表不加载大 JSON，详情才读取正文。
+这些复合索引的首列已覆盖 interview_id，因此对应外键不再额外创建重复单列索引；外键约束仍保留。
+现有三张练习表、计时、评分、模型与重试参数均保持原样。
+
+`preparing/active` 表示服务仍可执行，`completed/interrupted/failed` 为当前连接生命周期终态。
+Agent 内部 finished 不自动等于报告已生成；只有保存完整 finished 响应后才标记 completed。
+正常退出会记录中断；进程骤停可能留下 running 请求，应人工核查，当前无自动恢复和重放机制。
+迁移 `0004_agent_persistence` 仅新增表与约束，不重写既有练习数据。
+`0005_agent_request_order` 将请求索引补齐 UUID 排序列，消除相同时间下分页排序所需的临时 B-tree。
 
 ## Question · 题库
 

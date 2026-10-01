@@ -5,6 +5,8 @@ from typing import Any, TypeVar
 
 from pydantic import BaseModel
 
+from tests.agent.mocks.dialogue_output import plan_for, selection_for
+
 StructuredModel = TypeVar("StructuredModel", bound=BaseModel)
 
 
@@ -30,7 +32,24 @@ class MockLLMAdapter:
         payload: dict[str, Any],
         response_model: type[StructuredModel],
     ) -> StructuredModel:
+        # Scripted pass; semantic checks are exercised by dedicated quality tests.
+        if prompt_name == "question_quality_v1":
+            return response_model.model_validate({"issues": []})
         self.calls.append((prompt_name, payload.copy()))
+        if prompt_name == "question_react_v1" and self._structured_payload is None:
+            selection = selection_for(payload) if "dialogue_state" in payload else None
+            text_payload = (
+                {**payload, "question_plan": plan_for(payload, selection)} if selection else payload
+            )
+            return response_model.model_validate(
+                {
+                    "action": "final",
+                    "topic": None,
+                    "limit": None,
+                    "text": self._next_text(text_payload),
+                    "selection": selection,
+                }
+            )
         candidate = self._structured_payload if self._structured_payload is not None else payload
         if isinstance(candidate, BaseModel):
             candidate = candidate.model_dump()
@@ -43,6 +62,9 @@ class MockLLMAdapter:
         payload: dict[str, Any],
     ) -> str:
         self.calls.append((prompt_name, payload.copy()))
+        return self._next_text(payload)
+
+    def _next_text(self, payload: dict[str, Any]) -> str:
         if self._text_responses:
             response = self._text_responses.pop(0)
             if isinstance(response, BaseException):

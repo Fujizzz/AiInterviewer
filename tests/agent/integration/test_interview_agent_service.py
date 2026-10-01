@@ -1,7 +1,7 @@
 import pytest
 
 from agents.orchestrator import InterviewAgentService
-from shared.contracts import CompetencyState, EvaluationFeedback, InterviewActionType
+from shared.contracts import AnswerAnalysis, EvaluationFeedback, InterviewActionType
 from tests.agent.factories import initialize_request
 from tests.agent.mocks import (
     InMemoryRepository,
@@ -41,20 +41,9 @@ async def test_duplicate_feedback_does_not_advance_state_or_create_action_twice(
     feedback = EvaluationFeedback(
         request_id="feedback-1",
         question_id=question.question_id,
-        target_competency=question.target_competency,
         answer_relevance=0.9,
         evidence_strength=0.9,
-        evaluation_confidence=0.9,
-        rubric_level=4,
-        updated_competency_state=CompetencyState(
-            competency=question.target_competency,
-            score=4.0,
-            coverage=0.6,
-            confidence=0.7,
-            max_verified_difficulty=question.difficulty,
-            evidence_count=1,
-            independent_evidence_count=1,
-        ),
+        analysis=AnswerAnalysis(status="partial", missing_information=["Give one example"]),
         evidence_ids=["evidence-1"],
     )
 

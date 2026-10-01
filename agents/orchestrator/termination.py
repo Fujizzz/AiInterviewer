@@ -1,37 +1,32 @@
-"""Deterministic interview termination policy."""
+"""End on budget or terminal stage; assessment dimensions never drive termination."""
 
-from collections.abc import Iterable
-
-from agents.config import AgentSettings, load_agent_settings
-from shared.contracts import Competency, InterviewPlan, InterviewStage, InterviewState
+from shared.contracts import InterviewStage
 
 
 class TerminationPolicy:
-    def __init__(self, settings: AgentSettings | None = None) -> None:
-        self._settings = settings or load_agent_settings()
+    def __init__(self, settings=None):
+        self.minimum_question_seconds = (
+            settings.planning.minimum_question_seconds if settings else 30
+        )
 
-    def should_finish(
-        self,
-        state: InterviewState,
-        plan: InterviewPlan | None = None,
-        required_competencies: Iterable[Competency] | None = None,
-    ) -> bool:
-        if state.remaining_seconds <= 0 or state.stage == InterviewStage.FINISHED:
-            return True
-        if plan is None or required_competencies is None:
-            return False
-        if state.elapsed_seconds < self._settings.minimum_interview_seconds:
-            return False
-        return all(
-            state.competencies[competency].coverage >= plan.target_coverage[competency]
-            and state.competencies[competency].confidence >= plan.target_confidence[competency]
-            for competency in required_competencies
+    def should_finish(self, state, plan=None) -> bool:
+        return (
+            state.remaining_seconds <= 0
+            or state.stage == InterviewStage.FINISHED
+            or (plan is not None and state.question_index >= plan.max_questions)
+            or (
+                plan is not None
+                and plan.planning_enabled
+                and state.remaining_seconds < plan.closing_seconds + self.minimum_question_seconds
+            )
         )
 
     @staticmethod
-    def reason_code(state: InterviewState) -> str:
+    def reason_code(state, plan=None):
         if state.remaining_seconds <= 0:
             return "TIME_EXHAUSTED"
-        if state.stage == InterviewStage.FINISHED:
-            return "STAGE_FINISHED"
-        return "REQUIRED_COMPETENCIES_COMPLETE"
+        if plan is not None and state.question_index >= plan.max_questions:
+            return "QUESTION_SAFETY_LIMIT"
+        if plan is not None and plan.planning_enabled:
+            return "INSUFFICIENT_TIME_FOR_QUESTION"
+        return "STAGE_FINISHED"

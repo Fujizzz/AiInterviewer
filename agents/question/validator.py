@@ -6,6 +6,7 @@ import re
 
 from agents.config import AgentSettings, load_agent_settings
 from agents.domain.models import QuestionValidationResult
+from agents.question.quality import leaks_interview_rules
 from shared.contracts import PlannedQuestion
 
 _RUBRIC_LEAK_PATTERNS = (
@@ -17,7 +18,12 @@ _RUBRIC_LEAK_PATTERNS = (
 )
 
 _IMMUTABLE_FIELDS = (
-    "target_competency",
+    "dialogue_action",
+    "parent_question_id",
+    "thread_id",
+    "topic_key",
+    "information_goal",
+    "answer_excerpt",
     "project_id",
     "topic",
     "difficulty",
@@ -43,15 +49,20 @@ class QuestionValidator:
         if not text:
             errors.append("EMPTY_TEXT")
         else:
-            word_count = len(text.split())
+            cjk_count = len(re.findall(r"[\u4e00-\u9fff]", text))
+            word_count = len(text.split()) if cjk_count == 0 else cjk_count
             if word_count < rules.minimum_words:
                 errors.append("TOO_SHORT")
-            if word_count > rules.maximum_words:
+            if word_count > rules.maximum_words * (3 if cjk_count else 1):
                 errors.append("TOO_LONG")
-            if text.count("?") > rules.maximum_question_marks:
+            if text.count("?") + text.count("？") > rules.maximum_question_marks:
                 errors.append("MULTIPLE_PRIMARY_QUESTIONS")
+            if re.search(r"\b[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\b", text, re.IGNORECASE):
+                errors.append("INTERNAL_IDENTIFIER_LEAK")
             if any(pattern.search(text) for pattern in _RUBRIC_LEAK_PATTERNS):
                 errors.append("RUBRIC_OR_EXPECTED_ANSWER_LEAK")
+            if leaks_interview_rules(text):
+                errors.append("INTERNAL_RULE_LEAK")
 
         if not 1 <= question.difficulty <= 5:
             errors.append("INVALID_DIFFICULTY")

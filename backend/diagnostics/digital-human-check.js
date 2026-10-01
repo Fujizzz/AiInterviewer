@@ -96,8 +96,11 @@ async function synthesize() {
   controls();
   element("status").textContent = "Generating speech…";
   try {
+    const headers = {"Content-Type":"application/json"};
+    const csrf = element("csrf-token")?.content;
+    if (csrf) headers["X-CSRFToken"] = csrf;
     const response = await fetch("/api/speech/tts/", {
-      method:"POST", headers:{"Content-Type":"application/json"},
+      method:"POST", headers,
       body:JSON.stringify({text:element("text").value}),
     });
     const result = await response.json();

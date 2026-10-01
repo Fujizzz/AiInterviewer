@@ -45,6 +45,9 @@
  * - callback6.callback6：提供取消会话的识别错误回调。
  * - callback6.object2.getTracks：返回可验证停止状态的测试音轨。
  * - callback6.object2.getTracks.object1.stop：标记迟到音轨已释放。
+ * - callback7：验证登录页面提供的 CSRF token 随 TTS POST 发送。
+ * - callback7.globalThis.fetch：记录请求头并返回离线供应商错误。
+ * - callback7.globalThis.fetch.object1.json：返回固定公开错误，不启动音频。
  *
  * 关键变量：
  * （无模块级变量。）
@@ -181,4 +184,23 @@ test("microphone refusal reports failure and late permission cannot keep a cance
   await pending;
   assert.equal(stopped, true);
   assert.equal(cancelled.recording, false);
+});
+
+/** 新版账号接口要求 TTS 写请求携带页面 token；不削弱服务端 CSRF 检查。 */
+test("TTS includes the page CSRF token for authenticated sessions", async () => {
+  page();
+  document.getElementById("csrf-token").content = "public-test-csrf";
+  const voice = new InterviewVoice();
+  voice.eligible = true;
+  voice.question = { text: "Describe one contribution." };
+  let headers;
+  /** 保存客户端请求头；固定失败使测试不创建浏览器音频。 */
+  globalThis.fetch = async (_url, options) => {
+    headers = options.headers;
+    return { ok: false, /** 返回离线错误，禁止真实供应商调用。 */ json: async () => ({ error: { code: "offline", detail: "Test only" } }) };
+  };
+  await voice.speak();
+  assert.equal(headers["X-CSRFToken"], "public-test-csrf");
+  assert.equal(headers["Content-Type"], "application/json");
+  voice.close();
 });

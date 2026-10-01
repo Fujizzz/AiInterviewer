@@ -1,6 +1,6 @@
 from agents.orchestrator import InterviewStageMachine, TerminationPolicy
-from agents.policies import AnchorPolicy, RedundancyPolicy
-from shared.contracts import Competency, InterviewStage, PlannedQuestion, QuestionType
+from agents.policies import RedundancyPolicy
+from shared.contracts import InterviewStage, PlannedQuestion, QuestionType
 from tests.agent.factories import interview_plan, interview_state
 
 
@@ -21,19 +21,9 @@ def test_stage_budget_exhaustion_triggers_transition() -> None:
     assert stage_machine.next_stage(state, plan) == InterviewStage.FINISHED
 
 
-def test_anchor_is_complete_after_persisted_evidence() -> None:
-    state = interview_state()
-    policy = AnchorPolicy()
-
-    assert policy.is_completed(Competency.DEBUGGING, state=state) is False
-    state.competencies[Competency.DEBUGGING].evidence_count = 1
-    assert policy.is_completed(Competency.DEBUGGING, state=state) is True
-
-
-def test_redundancy_key_uses_competency_topic_and_question_type() -> None:
+def test_redundancy_key_uses_project_topic_and_goal() -> None:
     question = PlannedQuestion(
         question_id="q-1",
-        target_competency=Competency.DEBUGGING,
         topic="memory",
         difficulty=3,
         probe_depth=1,

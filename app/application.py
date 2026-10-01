@@ -6,12 +6,14 @@ from collections.abc import Callable
 from typing import Any
 from uuid import uuid4
 
-from agents.config import load_agent_settings
 from agents.orchestrator import InterviewAgentService
+from agents.tracing import emit_trace
 from app.adapters import InMemoryInterviewRepository, LLMEvaluationAdapter, ProviderLLMAdapter
 from app.parsing.resume import parse_resume_profile
 from app.providers.llm import OpenAILLM, StructuredLLM
 from app.reporting.final_report import build_final_report
+from app.settings import interview_settings
+from app.tracing import TracedLLM
 from shared.contracts import (
     CandidateAnswer,
     Competency,
@@ -36,35 +38,51 @@ DEFAULT_COMPETENCY_IMPORTANCE: dict[Competency, float] = {
 class MVPInterviewApplication:
     """Run the terminal MVP while delegating all interview decisions to the Agent core."""
 
-    seconds_per_question = 120
-
     def __init__(
         self,
         llm: StructuredLLM,
         *,
         repository: InMemoryInterviewRepository | None = None,
     ) -> None:
-        self.llm = llm
+        self.llm = TracedLLM(llm)
         self.repository = repository or InMemoryInterviewRepository()
-        self.agent_llm = ProviderLLMAdapter(llm)
-        self.evaluation = LLMEvaluationAdapter(llm, self.repository)
+        self.agent_llm = ProviderLLMAdapter(self.llm)
+        self.evaluation = LLMEvaluationAdapter(self.llm, self.repository)
 
     async def run(
         self,
         resume_text: str,
         *,
-        max_questions: int = 5,
-        max_follow_up_per_topic: int = 2,
+        duration_minutes: int = 30,
+        max_questions: int | None = None,
+        max_follow_up_per_topic: int | None = None,
+        max_questions_per_project: int | None = None,
+        max_questions_per_topic: int | None = None,
         job_title: str = "General AI / Software Engineer",
         read_answer: Callable[[str], str] = input,
         write: Callable[[str], None] = print,
     ) -> dict[str, Any]:
-        if max_questions < 1 or max_follow_up_per_topic < 0:
-            raise ValueError(
-                "max_questions must be positive and max_follow_up_per_topic nonnegative"
-            )
+        if duration_minutes < 1:
+            raise ValueError("duration_minutes must be positive")
+        if max_questions is not None and max_questions < 1:
+            raise ValueError("max_questions must be positive")
+        settings = interview_settings(
+            max_questions=max_questions,
+            max_questions_per_project=max_questions_per_project,
+            max_questions_per_topic=max_questions_per_topic,
+            max_follow_up_per_topic=max_follow_up_per_topic,
+        )
 
         interview_id = str(uuid4())
+        emit_trace(
+            "interview.started",
+            interview_id=interview_id,
+            duration_minutes=duration_minutes,
+            max_questions=settings.max_questions,
+            max_questions_per_project=settings.max_questions_per_project,
+            max_questions_per_topic=settings.max_questions_per_topic,
+            job_title=job_title,
+        )
         candidate_profile, candidate_name = await parse_resume_profile(
             resume_text,
             llm=self.llm,
@@ -75,16 +93,14 @@ class MVPInterviewApplication:
             title=job_title,
             competency_importance=DEFAULT_COMPETENCY_IMPORTANCE,
         )
-        settings = load_agent_settings().model_copy(
-            update={"max_consecutive_probes": max_follow_up_per_topic}
-        )
+        emit_trace("interview.settings", settings=settings.model_dump(mode="json"))
         service = InterviewAgentService(
             repository=self.repository,
             evaluation=self.evaluation,
             llm=self.agent_llm,
             settings=settings,
         )
-        duration_seconds = max_questions * self.seconds_per_question
+        duration_seconds = duration_minutes * 60
         initialized = await service.initialize_interview(
             InitializeInterviewRequest(
                 interview_id=interview_id,
@@ -92,10 +108,11 @@ class MVPInterviewApplication:
                 job_profile=job_profile,
                 duration_seconds=duration_seconds,
                 enabled_stages=[InterviewStage.PROJECT_DEEP_DIVE],
+                planning_enabled=True,
             )
         )
 
-        write("AI Interviewer started (local deterministic Agent core).")
+        write(f"AI Interviewer started (Plan and Execute, {duration_minutes} minutes).")
         history: list[dict[str, Any]] = []
         action = await self._advance_non_question_actions(
             service,
@@ -106,7 +123,7 @@ class MVPInterviewApplication:
             question = action.question
             if question is None or not question.text:
                 raise RuntimeError("Agent returned an ASK_QUESTION action without question text.")
-            write(f"\nQuestion {len(history) + 1} [{question.target_competency.value}]:")
+            write(f"\nQuestion {len(history) + 1} [{question.dialogue_action}]:")
             write(question.text)
             answer = read_answer("Your answer:\n> ").strip()
             while not answer:
@@ -125,31 +142,36 @@ class MVPInterviewApplication:
                 question=question,
                 answer=candidate_answer,
             )
+            emit_trace("answer.received", answer=candidate_answer.model_dump(mode="json"))
             feedback = await self.evaluation.evaluate(evaluation_request)
+            emit_trace("answer.evaluated", feedback=feedback.model_dump(mode="json"))
             history.append(
                 {
                     "question_id": question.question_id,
-                    "competency": question.target_competency.value,
+                    "dialogue_action": question.dialogue_action,
+                    "parent_question_id": question.parent_question_id,
+                    "thread_id": question.thread_id,
                     "project_id": question.project_id,
                     "topic": question.topic,
                     "difficulty": question.difficulty,
                     "question": question.text,
                     "answer": answer,
-                    "evaluation": {
-                        "answer_relevance": feedback.answer_relevance,
-                        "evidence_strength": feedback.evidence_strength,
-                        "evaluation_confidence": feedback.evaluation_confidence,
-                        "rubric_level": feedback.rubric_level,
-                        "needs_clarification": feedback.needs_clarification,
-                        "contradiction_detected": feedback.contradiction_detected,
-                        "evidence_ids": feedback.evidence_ids,
-                    },
+                    "evaluation": feedback.model_dump(
+                        mode="json",
+                        include={
+                            "analysis",
+                            "dimensions",
+                            "answer_relevance",
+                            "evidence_strength",
+                            "evidence_ids",
+                        },
+                    ),
                 }
             )
             action = await service.apply_evaluation_feedback(
                 interview_id,
                 feedback,
-                elapsed_seconds=self.seconds_per_question,
+                answer=candidate_answer,
             )
             action = await self._advance_non_question_actions(service, interview_id, action)
 
@@ -165,6 +187,11 @@ class MVPInterviewApplication:
             "topics": [project.name for project in candidate_profile.projects],
             "question_history": history,
             "interview_state": context.state.model_dump(mode="json"),
+            "interview_plan": context.plan.model_dump(mode="json"),
+            "plan_history": [item.model_dump(mode="json") for item in context.plan_history],
+            "topic_progress": {
+                key: value.model_dump(mode="json") for key, value in context.topic_progress.items()
+            },
             "decision_logs": [
                 log.model_dump(mode="json")
                 for log in self.repository.decision_logs_for(interview_id)

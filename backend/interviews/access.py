@@ -1,4 +1,7 @@
-"""HTTP 和 WebSocket 共用的本机访问策略。
+"""HTTP 和 WebSocket 共用的回环代理与同源访问策略。
+
+实现：连接对端始终必须为回环；Host 白名单来自 Django 设置，默认仍仅允许本机。
+关联：production 设置允许指定公网 Host，session_socket 验证会话身份；不直接信任外部客户端。
 
 目录：
 - is_loopback：
@@ -14,6 +17,9 @@
 
 from ipaddress import ip_address
 from urllib.parse import urlsplit
+
+from django.conf import settings
+from django.http.request import validate_host
 
 
 def is_loopback(address):
@@ -44,8 +50,10 @@ def same_origin(origin, host, scheme):
 def websocket_allowed(scope):
     """根据 ASGI scope 验证 WebSocket 的主机、连接地址及 Origin。
 
-    方法：同时检查显式本地主机白名单与客户端回环地址，再应用同源规则。
-    返回：可接受连接时为 True。Host 白名单防止任意 DNS 别名获得访问资格。
+    输入：ASGI scope 中的 headers、client 和 scheme；Host 白名单读取 Django 设置。
+    方法：检查配置的主机白名单与客户端回环地址，再应用同源规则。
+    返回：可接受连接时为 True。生产代理须清除客户端转发地址并覆写可信协议头。
+    约束：缺失 Host 明确拒绝；此函数不执行认证或 I/O，身份由上游 session_socket 负责。
     """
     headers = {
         key.decode("latin1").lower(): value.decode("latin1") for key, value in scope["headers"]
@@ -53,7 +61,8 @@ def websocket_allowed(scope):
     host = headers.get("host", "")
     hostname = urlsplit("http://" + host).hostname
     return (
-        hostname in ("localhost", "127.0.0.1", "::1")
+        bool(hostname)
+        and validate_host("[::1]" if hostname == "::1" else hostname, settings.ALLOWED_HOSTS)
         and is_loopback((scope.get("client") or ("", 0))[0])
         and same_origin(
             headers.get("origin"),

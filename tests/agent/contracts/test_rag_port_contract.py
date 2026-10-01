@@ -20,6 +20,6 @@ async def test_rag_adapter_contract() -> None:
 
     response = await adapter.retrieve(request)
 
-    assert response.contract_version == "1.0"
+    assert response.contract_version == "2.0"
     assert response.request_id == request.request_id
     assert isinstance(response.chunks, list)

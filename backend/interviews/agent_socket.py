@@ -2,13 +2,17 @@
 
 目录：
 - Command：
-  拒绝未知字段、隐式类型转换及非 UUID 请求标识。
+  校验 UUID 和可选阶段事件订阅，拒绝其他未知字段与隐式转换。
+- Prepare：
+  预解析简历，不启动题目预算；已开始的连接不可重新准备。
 - Start：
-  MVP 原有参数默认值；文本必须非空，题数及追问范围保持原有语义。
+  校验面试分钟时长及三层题数安全上限，默认时长为 30 分钟。
+- Start.exclusive_topic_budget：
+  拒绝同时指定旧追问上限与新话题总题数上限。
 - Answer：
   回答必须关联当前问题，旧问题或重复请求不能再次触发模型调用。
 - Cancel：
-  取消当前连接的整场面试，不保留可恢复的部分状态。
+  取消当前连接的整场面试，保留历史但不自动恢复。
 - parse_command：
   将单条 JSON 文本转换为 Start、Answer 或 Cancel 命令，不产生 I/O。
 - agent_socket：
@@ -17,6 +21,10 @@
   将响应字典编码为单条 JSON 并发送给本连接；编码或传输异常保持传播。
 - agent_socket.reject：
   发送稳定 error 结构并记录关联 ID；未知或无效请求用 null 标识。
+- agent_socket.progress：
+  为请求内阶段与先行评分事件绑定 request_id，再交给单连接 emit。
+- agent_socket.run：
+  调度已接收命令并在发送响应前保存结果；失败只保存固定错误状态。
 
 关键变量：
 - MAX_MESSAGE_BYTES：
@@ -26,8 +34,11 @@
 
 关键状态说明：
 agent_socket 内 session 属于当前连接；operation 为唯一业务任务，receiver 为接收任务。
+interview_started 区分资料已准备和已开始面试；progress_events 只控制事件交付，不影响策略。
 request_id 关联当前响应；seen 记录已接受执行的请求。Command.request_id 为 UUID。
-Start 保留 MVP 默认题数、追问和岗位参数；Answer 绑定当前问题。
+数据库请求主键提供跨连接去重；scope.user 来自会话认证，历史按创建用户隔离。
+Start 的题数参数为安全上限，不决定时间预算；Answer 绑定当前问题。
+ASGI 准入租约通过模型引用延长到实际同步调用结束；不把资源拒绝传入 Agent 触发备用出题。
 """
 
 import asyncio
@@ -36,9 +47,17 @@ import logging
 from typing import Literal
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from .access import websocket_allowed
+from .agent_records import (
+    DuplicateRequest,
+    PendingRequest,
+    complete_request,
+    fail_request,
+    interrupt_interview,
+    reserve_request,
+)
 from .agent_session import AgentSession
 
 logger = logging.getLogger(__name__)
@@ -46,20 +65,38 @@ MAX_MESSAGE_BYTES = 262144
 
 
 class Command(BaseModel):
-    """拒绝未知字段、隐式类型转换及非 UUID 请求标识。"""
+    """输入 UUID 和 progress_events（默认 False）；后者只订阅额外事件，旧客户端响应序列不变。"""
 
     model_config = ConfigDict(extra="forbid", strict=True, str_strip_whitespace=True)
     request_id: UUID
+    progress_events: bool = False
+
+
+class Prepare(Command):
+    """输入非空 resume_text；保存请求及成功资料响应，不创建计划、不保存原始简历。"""
+
+    type: Literal["prepare"]
+    resume_text: str = Field(min_length=1)
 
 
 class Start(Command):
-    """MVP 原有参数默认值；文本必须非空，题数及追问范围保持原有语义。"""
+    """输入分钟时长和可选题数安全上限；默认使用 30 分钟及 Agent 配置上限。"""
 
     type: Literal["start"]
     resume_text: str = Field(min_length=1)
-    max_questions: int = Field(default=5, ge=1)
-    max_follow_up_per_topic: int = Field(default=2, ge=0)
+    duration_minutes: int = Field(default=30, ge=1)
+    max_questions: int | None = Field(default=None, ge=1)
+    max_follow_up_per_topic: int | None = Field(default=None, ge=0)
+    max_questions_per_project: int | None = Field(default=None, ge=1)
+    max_questions_per_topic: int | None = Field(default=None, ge=1)
     job_title: str = Field(default="General AI / Software Engineer", min_length=1)
+
+    @model_validator(mode="after")
+    def exclusive_topic_budget(self):
+        """拒绝新旧话题上限同时出现；旧参数仅在配置入口转换一次。"""
+        if self.max_follow_up_per_topic is not None and self.max_questions_per_topic is not None:
+            raise ValueError("Use max_questions_per_topic OR max_follow_up_per_topic, not both")
+        return self
 
 
 class Answer(Command):
@@ -71,13 +108,13 @@ class Answer(Command):
 
 
 class Cancel(Command):
-    """取消当前连接的整场面试，不保留可恢复的部分状态。"""
+    """取消当前连接的整场面试，保留历史但不自动恢复或重放模型调用。"""
 
     type: Literal["cancel"]
 
 
 def parse_command(raw):
-    """将单条 JSON 文本转换为 Start、Answer 或 Cancel 命令，不产生 I/O。
+    """将单条 JSON 文本转换为 Prepare、Start、Answer 或 Cancel 命令，不产生 I/O。
 
     前置条件：调用方已检查消息为文本且未超过字节上限。
     逻辑：解析对象并选择类型，再用严格模型校验 UUID、必填字段、额外字段及参数范围。
@@ -87,7 +124,9 @@ def parse_command(raw):
     data = json.loads(raw)
     if not isinstance(data, dict):
         raise ValueError("Expected a JSON object.")
-    schema = {"start": Start, "answer": Answer, "cancel": Cancel}.get(data.get("type"))
+    schema = {"prepare": Prepare, "start": Start, "answer": Answer, "cancel": Cancel}.get(
+        data.get("type")
+    )
     if schema is None:
         raise ValueError("Unknown message type.")
     return schema.model_validate_json(raw)
@@ -96,10 +135,11 @@ def parse_command(raw):
 async def agent_socket(scope, receive, send):
     """管理一次本机同源文字面试的 ASGI 生命周期，不访问练习数据库。
 
-    输入：scope 提供连接地址和来源；receive/send 为 ASGI 异步事件回调。
+    输入：scope 提供连接地址、来源和上游验证的 user；receive/send 为 ASGI 异步事件回调。
     逻辑：握手校验→公告限制→并行等待接收与当前业务任务→校验命令→返回完整结果。
+    先发送 started，再调度业务协程，保证真实阶段事件不会早于请求接收确认。
     状态不变量：operation 至多一个；receiver 持续监听；seen 只收录已接受执行的请求 ID。
-    普通协议错误保留连接，配置/业务错误关闭 1011，大小超限关闭 1009，结束/取消关闭 1000。
+    普通协议错误保留连接，配置/业务/存储错误关闭 1011，大小超限关闭 1009，结束/取消关闭 1000。
     若接收与业务任务同时完成，先处理断线；其他命令在业务结果发布后按最新状态判断。
     退出时取消并等待本地任务，再提出客户端关闭请求；在途同步模型调用可能继续执行。
     返回 None；传输层或清理异常向 ASGI 服务器传播，本层不重连、不排队或重发计费请求。
@@ -116,6 +156,7 @@ async def agent_socket(scope, receive, send):
     receiver = None
     request_id = None
     seen = set()
+    interview_started = False
 
     async def emit(data):
         """将响应字典编码为单条 JSON 并发送给本连接；编码或传输异常保持传播。"""
@@ -132,6 +173,29 @@ async def agent_socket(scope, receive, send):
         )
         await emit({"type": "error", "request_id": rejected_id, "code": code, "detail": detail})
 
+    async def progress(data):
+        """输入服务端进度/评分事件，绑定当前 request_id；单业务任务确保请求不会交叉。
+
+        由 Session 的事件循环协程调用，不从 SDK 工作线程发送；关闭时先取消任务，
+        因此迟到的同步模型返回不能继续发送事件。发送失败原样传播。
+        """
+        await emit({**data, "request_id": request_id})
+
+    async def run(command):
+        """调度已接收命令并在发送响应前保存结果；失败只保存固定错误状态。
+
+        输入为已预留数据库请求的命令；读取本连接 session，返回业务结果。
+        不在数据库事务内等待模型。取消由最终清理标为 interrupted；存储失败不会返回成功。
+        """
+        try:
+            handler = {"prepare": session.prepare, "start": session.start, "answer": session.answer}
+            result = await handler[command.type](command)
+            await complete_request(session.interview_id, command.request_id, result)
+            return result
+        except Exception:
+            await fail_request(session.interview_id, command.request_id)
+            raise
+
     await send({"type": "websocket.accept"})
     await emit(
         {
@@ -139,6 +203,7 @@ async def agent_socket(scope, receive, send):
             "connection_id": connection_id,
             "max_message_bytes": MAX_MESSAGE_BYTES,
             "seconds_per_question": 120,
+            "capabilities": ["prepare", "progress", "assessment"],
         }
     )
     logger.info("Agent connected connection=%s", connection_id)
@@ -210,12 +275,15 @@ async def agent_socket(scope, receive, send):
             if operation is not None:
                 await reject("busy", "上一请求仍在处理中。", incoming_id)
                 continue
-            if isinstance(command, Start):
-                if session is not None:
+            if isinstance(command, (Prepare, Start)):
+                if interview_started:
                     await reject("already_started", "每个连接只能初始化一次面试。", incoming_id)
                     continue
                 try:
-                    session = AgentSession()
+                    if session is None:
+                        session = AgentSession()
+                        if hasattr(getattr(session, "llm", None), "capacity_lease"):
+                            session.llm.capacity_lease = scope.get("interview.capacity_lease")
                 except Exception as exc:
                     logger.error(
                         "Agent setup failed connection=%s exception=%s; "
@@ -235,7 +303,6 @@ async def agent_socket(scope, receive, send):
                     connection_id,
                     session.interview_id,
                 )
-                work = session.start(command)
             else:
                 if session is None or session.action is None:
                     await reject("not_started", "请先发送 start 并等待问题。", incoming_id)
@@ -246,11 +313,40 @@ async def agent_socket(scope, receive, send):
                 ):
                     await reject("stale_question", "请回答服务端返回的当前问题。", incoming_id)
                     continue
-                work = session.answer(command)
+            try:
+                await reserve_request(
+                    session.interview_id, command,
+                    owner_id=getattr(scope.get("user"), "pk", None),
+                )
+            except DuplicateRequest:
+                await reject("duplicate_request", "此 request_id 已接收，请勿重发。", incoming_id)
+                continue
+            except PendingRequest:
+                await reject("busy", "面试仍有未完成请求，不能开始下一请求。", incoming_id)
+                continue
+            except Exception as exc:
+                logger.error(
+                    "Agent storage unavailable connection=%s exception=%s; "
+                    "check migrations and database",
+                    connection_id,
+                    type(exc).__name__,
+                )
+                await reject("storage_unavailable", "请求未执行，请检查数据库与迁移。", incoming_id)
+                await send({"type": "websocket.close", "code": 1011})
+                return
+            if isinstance(command, Start):
+                interview_started = True
+            work = run(command)
             seen.add(incoming_id)
             request_id = incoming_id
+            session.emit_event = progress if command.progress_events else None
+            try:
+                await emit({"type": "started", "request_id": request_id, "operation": command.type})
+            except (Exception, asyncio.CancelledError):
+                # 尚未调度的协程没有机会进入 finally，必须显式关闭，防止发送失败时遗留。
+                work.close()
+                raise
             operation = asyncio.create_task(work)
-            await emit({"type": "started", "request_id": request_id, "operation": command.type})
     finally:
         # 先等待异步取消生效，再关闭模型入口，避免后续步骤继续使用将要释放的客户端。
         tasks = [task for task in (operation, receiver) if task is not None]
@@ -258,5 +354,16 @@ async def agent_socket(scope, receive, send):
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
         if session is not None:
-            session.close()
+            try:
+                await interrupt_interview(session.interview_id)
+            except Exception as exc:
+                logger.error(
+                    "Agent cleanup storage failed interview=%s exception=%s; "
+                    "pending requests require review",
+                    session.interview_id,
+                    type(exc).__name__,
+                )
+                raise
+            finally:
+                session.close()
         logger.info("Agent disconnected connection=%s", connection_id)

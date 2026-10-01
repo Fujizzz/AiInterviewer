@@ -183,8 +183,11 @@ export class InterviewVoice {
     this.abort = abort;
     const timeout = setTimeout(/** Abort only this TTS request when its deadline expires. */ () => abort.abort(), 50000);
     try {
+      const headers = { "Content-Type": "application/json" };
+      const csrf = document.getElementById("csrf-token")?.content;
+      if (csrf) headers["X-CSRFToken"] = csrf;
       const response = await fetch("/api/speech/tts/", {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST", headers,
         body: JSON.stringify({ text: this.question.text }), signal: this.abort.signal,
       });
       const result = await response.json();
@@ -240,6 +243,7 @@ export class InterviewVoice {
     this.player?.send({ type: "stop" });
     this.busy = false;
     this.setState("listening");
+    if (this.question) this.message(window.AppI18n?.t("voice_listening") ?? "朗读已停止，可开始回答或输入文字。");
     this.updateControls();
   }
 

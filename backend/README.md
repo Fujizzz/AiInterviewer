@@ -1,9 +1,26 @@
 # Backend 后端、MVP Agent 与流式传输测试
 
-Django + DRF 提供题库、练习场次、单题记录接口，SQLite 仅保存业务数据。流式测试的媒体与统计只在内存中处理，不写数据库或本地文件。
+Django + DRF 提供题库、练习场次、单题记录接口，默认 SQLite、生产 PostgreSQL 保存业务数据。流式测试的媒体与统计只在内存中处理，不写数据库或本地文件。
 同一 ASGI 服务提供 WebSocket 回传接口与浏览器测试页面，用于验证 ping/pong、二进制和音视频分片传输。
 本目录已接入根目录的 Agent MVP，通过 `/ws/agent/` 提供简历文本解析、逐题面试、评价与最终报告，测试页面位于 `/agent/`。
-Agent 沿用 MVP 的默认参数、策略和每题 120 秒逻辑预算；后端练习接口继续保留原有 10 秒准备和 90 秒回答配置，两条流程独立运行。
+Agent 与 CLI 共用 Plan and Execute：默认 30 分钟，Planner 规划目标和时间，Question Agent 生成问题。
+`start.duration_minutes` 指定分钟时长；三个 `max_questions*` 参数仅为安全上限。
+从首题准备完毕开始计时，包含后续输入和模型等待；题目提交后检查是否收尾，不强制中断输入。
+后端练习接口继续保留原有 10 秒准备和 90 秒回答配置，两条流程独立运行。
+`/agent/` 现采用面试工作台布局：题目在上方、数字人面试官在中央、自己的摄像头预览在右上角，下方保留文字回答与可展开的简历设置。
+摄像头需显式点击开启，只申请视频权限，仅本地预览，不录制、不上传；关闭、设备中断或离开页面时释放轨道。数字人通过 UE Pixel Streaming 接入；支持问题朗读、打断、麦克风回答和可编辑转录，确认后才提交。
+文字面试页支持提前解析简历、真实阶段进度、实际等待计时，以及评分先展示、报告文字随后补齐。
+预解析只在当前连接内复用完全相同的简历，不改变 Agent 决策或增加推测性出题。
+优化边界与需要 Agent 团队配合的事项见 [性能优化说明](docs/performance.md)。
+文字面试页现支持 PDF 上传：传统库提取后由独立视觉 Agent 校对；用户核对后采用文本。
+配置、数据流和限制见 [PDF 简历解析](docs/resume-pdf.md)。
+PDF 提取/渲染现运行于 Linux/WSL 沙箱；新增同机面试连接和 PDF 上传容量控制。
+首次使用 PDF 前请按 [隔离环境与资源限制](sandbox/README.md) 配置运行目录。
+
+已接入支持缺失资料的v4-B双向排序模型，提供`/api/recommendations/jobs/`与
+`/api/recommendations/candidates/`两个本地接口，权重随仓库发布，无需Kaggle或LLM密钥。
+这是未通过整体效果门槛的实验能力，不输出录用概率；输入契约、调用示例、
+安装依赖及实验限制见[缺失资料推荐说明](docs/recommendation.md)。
 
 ## Coding Agent 必须遵循的开发原则
 
@@ -25,13 +42,13 @@ Agent 沿用 MVP 的默认参数、策略和每题 120 秒逻辑预算；后端�
 | Django REST Framework | 3.18.1 | JSON 接口、序列化、参数校验 |
 | SQLite | 3.53.4（本机） | 默认存储，文件 `backend/db.sqlite3` |
 | Uvicorn | 0.52.4 | HTTP 与 WebSocket 的 ASGI 服务 |
-| DashScope | 1.27.7 | 百炼新加坡 Qwen realtime TTS / Qwen-Audio streaming STT |
 | websockets | 16.1.1 | WebSocket 协议支持，本次补充安装 |
-| 浏览器原生 API | WebSocket / MediaRecorder / Web Audio / Canvas | 诊断页面和 PCM 采集；数字人播放器另有 npm 构建 |
+| 浏览器原生 API | WebSocket / MediaRecorder / Web Audio / Canvas | 前端测试，无 npm 构建依赖 |
 
 后端 Python 直接依赖固定在本目录的 `requirements.txt`，使用 `python -m pip install -r requirements.txt` 安装即可，无需指定环境管理工具。可按个人习惯使用 Python 自带的 `venv` 或已有 Python 环境；以下命令中的 `python` 应指向你选择的解释器。
 本目录 `requirements.txt` 通过 `-r ../requirements.txt` 引用已有 MVP 依赖，安装一次即可运行后端与 Agent；保留完整仓库目录。根目录的 `pyproject.toml` 与 `uv.lock` 继续管理终端 MVP 环境。
-本次使用 SQLite，没有添加 MySQL 或 PostgreSQL 的备用连接配置。
+默认开发配置使用 SQLite；服务器通过独立的 `config.production` 显式使用 PostgreSQL，
+连接失败不会回退。HTTPS、用户账号认证、systemd 与维护命令见[部署说明](../deploy/README.md)。
 
 ## 启动
 
@@ -45,32 +62,26 @@ python manage.py migrate
 python -m uvicorn config.asgi:application --host 127.0.0.1 --port 8765 --ws websockets-sansio
 ```
 
-打开 [流式测试页面](http://127.0.0.1:8765/) 或 [健康检查](http://127.0.0.1:8765/api/health/)。
+打开 [统一主页](http://127.0.0.1:8765/)，选择文字面试或开发诊断。
+也可直接进入 [流式测试页面](http://127.0.0.1:8765/stream-demo/) 或 [健康检查](http://127.0.0.1:8765/api/health/)。
 测试 AI 面试请打开 [MVP Agent 测试页](http://127.0.0.1:8765/agent/)，并先按下节配置模型密钥。
 必须使用 ASGI 启动命令；`manage.py runserver` 不能提供这里的 WebSocket 路由。
 `DJANGO_SECRET_KEY` 必须在环境变量或仓库根目录 `.env` 中显式设置，上面的命令仅为当前开发 shell 生成随机值，源码不包含应用密钥。
 可显式设置 `INTERVIEW_DB_PATH` 指向其他 SQLite 文件；默认数据库及本地秘密文件已加入 `.gitignore`。
 迁移会创建数据表，并初始化原有两道通用练习题，已有题目不会被覆盖。
 
+## 界面语言
+
+主页 `/`、文字面试 `/agent/` 和传输诊断 `/stream-demo/` 均提供语言选择器：中文、English 和跟随系统。
+选择会保存在浏览器的 `localStorage` 中；跟随系统时，中文浏览器使用中文，其他浏览器使用 English，并响应浏览器的语言变化事件。
+语言层只翻译界面、状态和诊断提示，不改变 WebSocket 协议、API 字段、评分逻辑或模型请求内容。
+
 ## Agent 模型配置
 
-API key 存放在 **仓库根目录 `.env`**，与终端 MVP 共用配置。在 `backend/` 目录首次配置可执行 `Copy-Item ../.env.example ../.env`；已有文件请直接编辑，避免覆盖。
+API key 存放在 **仓库根目录 `.env`**。首次使用可在仓库根目录复制 `.env.example`；已有文件请直接编辑，避免覆盖。
 OpenAI 填写 `LLM_PROVIDER=openai`、`OPENAI_API_KEY`、`OPENAI_MODEL`；千问填写 `LLM_PROVIDER=dashscope`、`DASHSCOPE_API_KEY`、`DASHSCOPE_MODEL`。
 后端自动读取该文件，进程环境变量优先；修改后重启。`.env` 已被 Git 忽略，模板不含密钥。
 完整配置示例、网络协议与取消限制见 [MVP Agent 接入说明](docs/agent-integration.md)。
-
-## 数字人语音面试
-
-`/agent/` 已加入数字人播放器、TTS 朗读、按钮控制的英文 STT 和可修改转录。
-新增 `/api/speech/tts/`、`/api/speech/audio/<uuid>/`、`/ws/speech/stt/`；问题生成与评价仍沿用原 Agent。
-百炼语音默认关闭，配置项见根目录 [`.env.example`](../.env.example)。密钥只由服务端读取，语音使用新加坡业务空间的原生 SDK 地址。
-完整的 UE 角色组装、串流、启动和验收步骤见 [数字人操作说明](../docs/guides/DIGITAL_HUMAN_SETUP.md)。
-角色已经组装并在浏览器中显示，云端英文 TTS/STT 短句调用已实测通过。
-独立诊断页 `/stream-demo/digital-human-check.html` 可在不调用面试 LLM 的情况下检查数字人朗读和测试音频转录。
-当前前端修改统一放在 `backend/frontend/`，数字人播放器源码、构建配置和测试位于其 `digital-human/` 子目录。
-在仓库根目录执行 `pnpm --dir backend/frontend/digital-human run build` 构建播放器，
-执行 `pnpm --dir backend/frontend/digital-human test` 运行语音前端测试；首次使用先按前端维护说明安装依赖。
-目录与开发方式见 [前端维护说明](frontend/README.md)，后续由后端团队迁入根目录 `frontend/`。
 
 ## 流式测试
 
@@ -92,19 +103,22 @@ backend/
     models.py             三张业务表
     services.py           场次事务和状态转换
     agent_provider.py     后端模型配置、脱敏日志与客户端释放
-    agent_session.py      MVP 用例的逐轮网络适配，独立内存仓库
+    agent_session.py      MVP 用例的逐轮网络适配，注入数据库仓库
+    agent_models.py       Agent 面试、请求、题目、回答和提交日志 schema
+    agent_repository.py   单轮状态/评价/动作的原子提交与版本冲突检查
+    agent_records.py      请求持久化去重、结果提交和中断记录
     agent_socket.py       文字面试命令、并发限制与连接生命周期
+    resume_pdf.py         PDF 规则提取与有界页面渲染
+    resume_api.py         multipart 上传与 NDJSON 阶段流
+    resume_vision.py      独立异步视觉模型适配器
     access.py             HTTP/WebSocket 共用访问策略
     middleware.py         HTTP 请求拦截
     demo.py               测试页资源白名单
     api/                  REST 序列化、视图与路由
     streaming/            协议状态校验与 ASGI 连接管理
-    speech/               百炼 TTS/STT、临时 WAV 缓存与原始 PCM 协议
     migrations/           Schema 与初始题目
     tests/                Django / ASGI 测试
-  frontend/               app 调度、view 展示、media 采集、stream-client 协议
-    digital-human/        官方 Pixel Streaming SDK 包装、pnpm 构建与语音前端测试
-  diagnostics/            独立数字人语音验证页，不生成问题或评分
+  frontend/               app 调度、view 展示、media 采集、stream-client 协议、interview-camera 本地预览
   docs/                   Schema、协议与测试说明
   tests/                  Node 客户端测试、真实服务器联调
   tools/check_docs.py     声明注释、符号目录和模块变量索引检查
@@ -131,16 +145,17 @@ python -m unittest discover -s tools -p "test_*.py"
 # 需要 Node.js 22+；使用临时 SQLite 和临时端口，不写入开发数据库。
 python tests/run_e2e.py
 python tests/run_agent_e2e.py  # 真实 ASGI + 离线模型替身，不调用收费模型
+node --test tests/interview-camera.test.mjs  # 模拟权限、设备中断与媒体释放，不访问真实摄像头
 ```
 
 ## 当前边界
 
-- 本地单用户原型，HTTP 和 WebSocket 限制回环地址及同源访问，启动时只绑定 `127.0.0.1`。没有账号、权限隔离或公网部署。
+- 默认开发模式限制回环地址及同源访问，启动时只绑定 `127.0.0.1`。服务器模式经同机 Nginx 提供 HTTPS，应用仍只绑定回环；Django 会话保护网页、API 和 WebSocket，每个账号的面试与练习记录独立，题库共用，见[部署说明](../deploy/README.md)。
 - 音视频、字节数与校验统计只在内存中处理，不写数据库或媒体文件；不提供流式历史查询。
 - 每次连接使用临时 connection_id，断开后服务端不保留结果。页面日志仅保留最近 30 行；服务端日志输出到控制台，启动时不要重定向到文件。
 - 浏览器仅保留当前回放的临时 Blob URL，点击“清空结果与媒体缓存”、开始下一次测试或离开页面时释放。没有 localStorage、IndexedDB、下载或文件写入逻辑。
 - verified_chunks 是客户端报告的校验数量，属于诊断指标，不是对恶意客户端的可信证明。
-- Agent 已接入语音呈现；简历、答案和报告只保存在当前连接内存中。临时问题 WAV 最多保留十分钟，不写磁盘；用户音频不写数据库。UE WebRTC 串流由独立 Pixel Streaming 服务提供。文件上传、视频存储和 MySQL 适配尚未提供；评分与策略仍由根目录模块负责。
+- Agent 文字面试已接入数据库，保存解析后资料、题目、回答、状态、决策及成功响应；`/api/agent-interviews/` 提供本机只读历史。原始简历文本和 PDF 不新增持久化，Django 可能使用自动清理的临时上传文件。清空页面不删除历史，断线续接尚未提供。已提供百炼语音识别与合成、数字人 WebRTC 串流；尚未提供视频存储或 MySQL 适配；评分与策略仍由根目录模块负责。
 - Agent 当前返回完整问题和报告，没有逐 token 输出。沿用 MVP 的既有模型重试与问题/报告备用逻辑；断开连接不能保证已发送的同步模型请求在供应商处停止。
 
 ## 协议参考
@@ -148,3 +163,19 @@ python tests/run_agent_e2e.py  # 真实 ASGI + 离线模型替身，不调用收
 - [MDN：MediaRecorder dataavailable](https://developer.mozilla.org/en-US/docs/Web/API/MediaRecorder/dataavailable_event)：分片事件与末尾数据处理。
 - [MDN：WebSocket binaryType](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket/binaryType)：浏览器接收 ArrayBuffer。
 - [Django：SQLite notes](https://docs.djangoproject.com/en/5.2/ref/databases/#sqlite-notes)：SQLite 并发与事务限制。
+
+## 注册与登录
+
+生产入口 `/register/` 和 `/login/` 只填写用户名与密码，注册后直接登录；不要求邮箱、验证码或密码组合。用户名最多 150 字符、密码最多 128 字符，均不能为空。密码使用 Django 默认哈希，退出为带 CSRF token 的 POST `/logout/`。
+
+生产配置强制登录；默认回环开发模式保留匿名访问。网页未登录时跳转登录页，API 返回 401，WebSocket 从 session Cookie 校验账号并在后续消息时重新检查会话有效性。写接口使用 session 与 CSRF token；PDF 客户端从页面读取 token 并随请求发送。用户只能查询或修改自己的面试、子请求和练习，跨账号 ID 返回 404。迁移前没有归属的记录保持空归属，不自动分配给新账号。
+
+## 后台 PDF 任务
+
+生产 PDF 通过 Redis/Celery 在独立 worker 执行；前端沿用上传 NDJSON、真实进度与取消。默认开发模式 inline 不要求 Redis；显式 celery 模式无故障回退或任务重试。Redis 短期键只向后端开放，账号验证与 CSRF 在入队前执行，客户端不能提供任务 ID。部署及 main 自动发布见 [部署说明](../deploy/README.md)。
+
+## 数字人语音面试
+
+当前数字人播放器与语音交互代码位于 `backend/frontend/`，TTS/STT 位于 `interviews/speech/`。
+配置统一使用仓库根目录 `.env`，角色、场景和本机串流工具位于 `DigitalHuman/`。
+本机准备与启动见 [数字人操作说明](../docs/guides/DIGITAL_HUMAN_SETUP.md)。

@@ -10,7 +10,7 @@
 - ApiTests.update：
   根据场次快照构造单题 PATCH 地址，供各状态测试复用。
 - ApiTests.test_health_and_question_crud：
-  验证健康检查、分页数量、空白拒绝和题目新增/停用，覆盖基本写契约。
+  验证健康检查报告实际数据库引擎、分页数量、空白拒绝和题目新增/停用。
 - ApiTests.test_snapshot_and_defaults_survive_question_edit：
   编辑或删除源题后查询场次，验证历史快照及固定 10/90 秒时长未改变。
 - ApiTests.test_question_selection_order_validation：
@@ -30,7 +30,7 @@
 - ApiTests.test_database_rejects_duplicate_position：
   直接构造重复场次顺序，验证数据库唯一约束独立于 API 仍然有效。
 - ApiTests.test_demo_assets_and_missing_resource：
-  检查资源白名单与缺失场次响应，防止测试页暴露任意文件。
+  检查内存资源响应白名单与缺失场次；沿用测试客户端的请求清理，保护测试事务。
 
 关键变量：
 （无模块级变量。）
@@ -38,7 +38,7 @@
 
 import uuid
 
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.test import TestCase
 from rest_framework.test import APIClient
 
@@ -70,9 +70,9 @@ class ApiTests(TestCase):
         )
 
     def test_health_and_question_crud(self):
-        """验证健康检查、分页数量、空白拒绝和题目新增/停用，覆盖基本写契约。"""
+        """验证当前隔离测试库的引擎标识与题库写契约，兼容 SQLite 和 PostgreSQL。"""
         self.assertEqual(
-            self.client.get("/api/health/").data, {"status": "ok", "database": "sqlite"}
+            self.client.get("/api/health/").data, {"status": "ok", "database": connection.vendor}
         )
         self.assertEqual(self.client.get("/api/questions/").data["count"], 2)
         invalid = self.client.post("/api/questions/", {"text": "   "}, format="json")
@@ -205,15 +205,17 @@ class ApiTests(TestCase):
             )
 
     def test_demo_assets_and_missing_resource(self):
-        """检查资源白名单与缺失场次响应，防止测试页暴露任意文件。"""
+        """检查资源白名单与缺失场次响应，防止测试页暴露任意文件。
+
+        demo 返回已读入内存的 HttpResponse，无待关闭的文件句柄；客户端负责请求结束。
+        不额外调用 response.close()，避免重复 request_finished 信号关闭 PostgreSQL 测试事务。
+        """
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
-        response.close()
         for name in ["app.js", "view.js", "media.js", "stream-client.js"]:
             response = self.client.get(f"/stream-demo/{name}")
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response["Cache-Control"], "no-store")
-            response.close()
         self.assertEqual(self.client.get("/stream-demo/settings.py").status_code, 404)
         self.assertEqual(self.client.get(f"/api/sessions/{uuid.uuid4()}/").status_code, 404)
         self.assertEqual(self.client.get("/api/sessions/not-a-uuid/").status_code, 404)

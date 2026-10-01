@@ -2,7 +2,7 @@
 
 目录：
 - create_session：
-  功能：按启用题库或指定 ID 顺序创建场次及文字快照。
+  功能：按启用题库或指定 ID 顺序创建归属于调用用户的场次及文字快照。
 - claim_session：
   功能：为指定版本的 active 场次取得本次事务的写入资格。
 - update_item：
@@ -30,9 +30,9 @@ logger = logging.getLogger(__name__)
 
 
 @transaction.atomic
-def create_session(question_ids=None):
+def create_session(question_ids=None, *, owner=None):
     """功能：按启用题库或指定 ID 顺序创建场次及文字快照。
-    输入：可选 question_ids；返回：PracticeSession。
+    输入：可选 question_ids 和已认证 owner；None 仅供未登录的本地开发记录；返回场次。
     方法：检查 1–100 题边界后，在同一事务中创建场次并批量写入单题。
     异常：缺失、停用或空选择抛出 ValidationError，事务整体回滚。"""
     available = Question.objects.filter(enabled=True)
@@ -47,7 +47,7 @@ def create_session(question_ids=None):
         questions = list(available[:101])
     if not questions or len(questions) > 100:
         raise ValidationError({"question_ids": "Select between 1 and 100 enabled questions."})
-    session = PracticeSession.objects.create()
+    session = PracticeSession.objects.create(owner=owner)
     SessionQuestion.objects.bulk_create(
         [
             SessionQuestion(session=session, question=q, question_text=q.text, position=index)

@@ -27,6 +27,10 @@
   A synthesis response resolves through the public UUID route and is not cached.
 - SpeechHTTPTests.test_invalid_text_disabled_voice_and_static_allowlist：
   Bad text never reaches the provider and disabled service offers explicit errors.
+- SpeechAccountTests：
+  Ensure the integrated speech route retains account authentication and CSRF protection.
+- SpeechAccountTests.test_login_and_csrf_precede_tts：
+  Reject anonymous and tokenless writes before calling the offline synthesis provider.
 - FixtureRecognition：
   Explicit offline provider used only by protocol tests.
 - FixtureRecognition.__init__：
@@ -49,6 +53,8 @@
   PCM byte alignment and browser origins are checked on the server.
 - SpeechSocketTests.test_disconnect_stops_provider：
   Closing the page releases the recognition task rather than keeping its stream open.
+- SpeechSocketTests.test_production_stt_rejects_anonymous_before_provider：
+  Exercise the complete ASGI wrapper and reject anonymous speech without starting ASR.
 
 关键变量：
 （无模块级变量。）
@@ -63,7 +69,8 @@ import wave
 from unittest.mock import Mock, patch
 
 from asgiref.testing import ApplicationCommunicator
-from django.test import SimpleTestCase
+from django.contrib.auth import get_user_model
+from django.test import Client, SimpleTestCase, TestCase, override_settings
 
 from interviews.speech.service import (
     AudioStore,
@@ -318,6 +325,41 @@ class SpeechHTTPTests(SimpleTestCase):
         self.assertEqual(self.client.get("/stream-demo/.env").status_code, 404)
 
 
+@override_settings(INTERVIEW_REQUIRE_LOGIN=True)
+class SpeechAccountTests(TestCase):
+    """Verify authenticated speech using an isolated test database and a local provider double."""
+
+    def test_login_and_csrf_precede_tts(self):
+        """A logged-in page supplies CSRF; missing login or token never calls synthesis."""
+        client = Client(enforce_csrf_checks=True)
+        with patch("interviews.speech.views.synthesize", return_value=b"fixture WAV") as provider:
+            response = client.post(
+                "/api/speech/tts/", {"text": "Describe one contribution."},
+                content_type="application/json",
+            )
+            self.assertEqual(response.status_code, 401)
+            user = get_user_model().objects.create_user(
+                "speech-fixture", password="local-test-only"
+            )
+            client.force_login(user)
+            response = client.post(
+                "/api/speech/tts/", {"text": "Describe one contribution."},
+                content_type="application/json",
+            )
+            self.assertEqual(response.status_code, 403)
+            provider.assert_not_called()
+            page = client.get("/agent/")
+            self.assertEqual(page.status_code, 200)
+            self.assertContains(page, 'id="start-recording"')
+            response = client.post(
+                "/api/speech/tts/", {"text": "Describe one contribution."},
+                content_type="application/json",
+                HTTP_X_CSRFTOKEN=client.cookies["csrftoken"].value,
+            )
+            self.assertEqual(response.status_code, 200)
+            provider.assert_called_once_with("Describe one contribution.")
+
+
 class FixtureRecognition:
     """Explicit offline provider used only by protocol tests."""
 
@@ -414,3 +456,20 @@ class SpeechSocketTests(SimpleTestCase):
             await comm.send_input({"type": "websocket.disconnect"})
             await asyncio.wait_for(comm.wait(), 3)
             session.stop.assert_called_once()
+
+    async def test_production_stt_rejects_anonymous_before_provider(self):
+        """Production session validation runs before the new speech WebSocket handler."""
+        from config.asgi import application
+
+        with override_settings(INTERVIEW_REQUIRE_LOGIN=True), patch(
+            "interviews.speech.socket.RecognitionSession"
+        ) as provider:
+            comm = ApplicationCommunicator(application, {
+                "type": "websocket", "path": "/ws/speech/stt/", "scheme": "ws",
+                "client": ("127.0.0.1", 123),
+                "headers": [(b"host", b"localhost"), (b"origin", b"http://localhost")],
+            })
+            await comm.send_input({"type": "websocket.connect"})
+            self.assertEqual((await comm.receive_output())["code"], 1008)
+            await comm.wait(timeout=3)
+            provider.assert_not_called()

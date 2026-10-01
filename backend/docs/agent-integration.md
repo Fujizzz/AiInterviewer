@@ -1,8 +1,11 @@
 # MVP Agent 接入与测试
 
 已实现 `ws://127.0.0.1:8765/ws/agent/`。浏览器测试页为 `http://127.0.0.1:8765/agent/`。
-后端复用根目录 `InterviewAgentService`、MVP 模型/评价适配器、内存仓库及报告生成器。
-本次源码修改仅位于 `backend/`；`/api/sessions/` 练习流程与 `/ws/echo/` 诊断接口继续独立运行。
+后端复用根目录 `InterviewAgentService`、MVP 模型/评价适配器和报告生成器，
+通过 `DjangoInterviewRepository` 实现 Agent v1.1 单轮提交；终端 MVP 仍使用其原有内存仓库。
+面试适配位于 `backend/`；新增独立的 `agents/resume_cleanup.py` 支持 PDF 视觉转写。
+PDF 经 HTTP 上传、规则提取后视觉校对，用户采用后仍作为简历文本进入现有面试协议。
+详见 [PDF 简历解析](resume-pdf.md)。`/api/sessions/` 练习流程与 `/ws/echo/` 诊断接口继续独立运行。
 
 ## API key 存放位置
 
@@ -45,22 +48,33 @@ python manage.py migrate
 python -m uvicorn config.asgi:application --host 127.0.0.1 --port 8765 --ws websockets-sansio
 ```
 
-打开测试页，粘贴简历文本并开始面试。输入逐题回答，结束后查看评分、报告、完整问答和决策记录。
-当前输入为简历文本，尚未提供文件上传、语音识别或语音输出。
+打开测试页，粘贴简历文本；可先点击“提前解析简历”，在等待时填写岗位与预算。
+解析完成后开始面试会复用同连接内完全相同的简历，直接进入首题生成。
+也可直接开始面试，按原流程完成解析和出题。修改简历、刷新、断线或取消后不可依赖旧预解析。
+逐题回答时显示真实处理阶段与实际等待秒数；最后一轮先展示数值评分，再补齐报告文字。
+面试协议输入仍为简历文本；页面支持 PDF 上传、传统提取后视觉校对，人工采用后填入该文本。
+尚未提供语音识别或语音输出。
 
 ## 会话与参数
 
-- 每个 WebSocket 独占一个内存 Agent 会话，断开、取消或完成后释放，不支持恢复或历史查询。
-- 简历、回答与报告不写业务数据库、文件或浏览器持久存储；模型调用会将相应内容发送给配置的供应商。
+- 每个 WebSocket 独占一个运行中的 Agent 会话。资料、问题、回答、上下文、决策和成功响应保存到数据库；断开或取消后可查询历史，但尚不能恢复继续面试。
+- 原始简历文本及 PDF 文件不新增持久化；解析后的资料、回答和报告会保存。浏览器不使用持久存储，清空页面不会删除数据库历史；模型调用会将相应内容发送给配置的供应商。
 - 默认 `max_questions=5`、`max_follow_up_per_topic=2`、岗位 `General AI / Software Engineer`，沿用 MVP 能力权重与 `project_deep_dive` 阶段。
 - 沿用 MVP 逻辑预算：题数 × 120 秒，每次回答扣除 120 秒。这不是实际计时；不改动练习接口的准备 10 秒和回答 90 秒。
 - 消息最大 256 KiB，未知字段、空文本、非整数参数等明确报错。
-- 同时只执行一个命令。处理中返回 `busy`；重复 UUID 返回 `duplicate_request`；旧问题返回 `stale_question`。不排队或自动重发。
+- 同时只执行一个命令。处理中返回 `busy`；重复 UUID 返回 `duplicate_request`；旧问题返回 `stale_question`。请求 UUID 全库唯一，每场最多一个 running 请求，重连后也不会重复执行。不排队或自动重发。
+- 请求记录在 `started` 前写入，成功响应在网络发送前保存。存储不可用时返回明确错误，不回退内存或启动收费请求。正常退出标记未完成请求为 interrupted；进程骤停可能留下 running，必须人工确认，不自动重放。
+- 回答在评价前保存为未评分；评价、Agent 状态、下一动作和决策日志在同一事务提交。若事务失败，原回答保留但评价为空，不作为已评分证据。
+- 历史 API 为 `/api/agent-interviews/`，支持列表、详情及请求状态/结果查询，见 [API 文档](api.md)。仍仅允许本机访问，没有用户账户隔离，不应直接放宽来源限制用于共享服务。
 
 ## 实际协议
 
-连接后收到 `hello`，包含 `connection_id`、`max_message_bytes` 和 `seconds_per_question`。
+连接后收到 `hello`，包含 `connection_id`、`max_message_bytes`、`seconds_per_question`
+和 `capabilities: ["prepare", "progress", "assessment"]`。
 每条客户端命令必须携带唯一 UUID `request_id`。以下 `<UUID>` 是占位符，测试时须替换为实际 UUID。
+
+以下旧客户端示例省略 `progress_events`，仍只收到 started 和原有结果事件。
+新版网页在每条命令中显式设置 `progress_events: true`，接收下述扩展。
 
 初始化：
 
@@ -90,6 +104,52 @@ python -m uvicorn config.asgi:application --host 127.0.0.1 --port 8765 --ws webs
 实际 `result` 与终端 MVP 输出字段一致，包含候选人资料和岗位资料。完成后以 1000 关闭连接。
 MVP 使用结构化完整输出，当前没有 token `delta` 协议，不把整段文本拆开伪装为模型流式输出。
 
+### 预解析与真实阶段事件（2026-09-12）
+
+开始面试前可发送：
+
+```json
+{"type":"prepare","request_id":"<新的UUID>","resume_text":"简历文本","progress_events":true}
+```
+
+依次收到 `started`、解析阶段进度和 `prepared`（含 `candidate_profile`）。这一步不调用
+Agent 初始化、不生成问题、不消耗逻辑预算。返回后连接保持开放，可发送带原始文本的 `start`。
+精确相同文本只在本连接内复用；修改后重新解析；已开始面试的连接拒绝 `prepare/start`。
+不按输入或编辑事件自动发付费请求，不共享跨用户缓存，不设置隐式过期或自动恢复。
+
+设置 `progress_events: true` 的命令会收到绑定同一 `request_id` 的事件：
+
+```json
+{"type":"progress","request_id":"<同一UUID>","stage":"resume_parsing","state":"running"}
+{"type":"progress","request_id":"<同一UUID>","stage":"resume_parsing","state":"completed","duration_ms":32000}
+```
+
+阶段名为 `resume_parsing`、`question_generation`、`answer_evaluation`、`next_action`、
+`report_generation`。`next_action` 包含真实 Agent 决策及其可能的出题操作；如果决定结束，
+不会伪称生成了下一题。失败或取消阶段不会发送 completed。示例耗时仅说明格式。
+网页计时使用实际单调时钟，完全独立于每题 120 秒的逻辑预算；没有虚构百分比或新增请求超时。
+
+最后一轮，在最终状态已提交后、报告模型调用前发送：
+
+```json
+{"type":"assessment","request_id":"<同一UUID>","assessment":{"overall_score":3.0,"competencies":{}}}
+```
+
+数值由现有报告函数无模型路径计算；这里只提取分数与能力状态，不展示其临时叙述。
+随后开始 `report_generation`，最后仍由 `finished.result` 提供完整报告并关闭连接。
+assessment 不代表文字报告已成功，也不保证断线恢复；取消/失败时网页保留已返回数值并标记报告未完成。
+原 MVP 的文字生成失败回退保持不变。后端观察原始模型调用，新增
+`finished.result.report_narrative_status`（`completed` 或 `fallback`）；网页在 fallback 时明确说明
+模型文字失败、当前展示既有确定性摘要，数值评分不变。
+
+### 耗时诊断
+
+Session 日志包含真实阶段、耗时及失败/取消类型；模型日志包含 schema、模型名、耗时和已知
+`repair_codes`，出题完成日志包含 Agent 返回的生成原因和规划/检索/生成耗时。
+`TOO_SHORT` 等代码可以识别为何要求再次生成；日志中的 words 仅复现当前按空格计数的规则，
+不把它解释为中文实际词数。没有改变长度阈值、模型、提示词、重试或降级策略。
+详细优化边界与跨团队事项见 [性能优化与协作事项](performance.md)。
+
 取消：`{"type":"cancel","request_id":"<新的UUID>"}`，返回 `cancelled` 后关闭连接；直接断开也会取消本地任务。
 MVP 的模型适配器在工作线程中调用同步 SDK，所以已经发出的请求可能继续执行至返回或既有超时；不能保证供应商取消计费。
 客户端在在途请求结束后释放，不在连接关闭后开始新的一轮模型调用。
@@ -112,7 +172,7 @@ python tests/run_agent_e2e.py
 ```
 
 离线测试通过显式测试入口注入固定模型输出，真实 Agent 核心仍参与决策，并与终端 MVP 结果比较。
-实际 ASGI 联调完成两题面试及报告，并检查业务数据库保持不变；测试进程使用临时数据库，结束后清理。
+实际 ASGI 联调完成两题面试、持久化报告及历史查询；只有独立的 WAV/echo 流式诊断阶段检查数据库字节不变。测试进程使用临时数据库，结束后清理。
 这些测试不代表真实模型通过。填好 key 后，使用生产入口 `config.asgi:application` 和 `/agent/` 页面测试实际供应商；不要用测试专用入口测试 key。
 
 2026-09-11 已使用本地配置的千问服务完成一次真实单题 WebSocket 面试，简历解析、出题、评价及报告生成均成功，全程约 20.1 秒。使用虚构测试内容；原始输入、输出和密钥未写入测试记录。详细范围见 `testing.md`。

@@ -1,5 +1,6 @@
 """Verify Qwen JSON validation and text/PDF resume loading without API calls."""
 
+import asyncio
 import json
 import unittest
 from pathlib import Path
@@ -11,6 +12,7 @@ from pypdf import PdfWriter
 
 from app.adapters.llm import GeneratedText
 from app.parsing.files import read_resume
+from app.parsing.resume import parse_resume_profile
 from app.providers.llm import LLMError, OpenAILLM
 
 
@@ -38,6 +40,38 @@ def response(content, reason="stop"):
 )
 @patch("app.providers.llm.OpenAI")
 class QwenTests(unittest.TestCase):
+    def test_resume_array_repair_and_scoped_timeout(self, client, dotenv):
+        create = client.return_value.chat.completions.create
+        invalid = json.dumps(
+            {"projects": [{"name": "API", "technologies": "Python", "claims": None, "metrics": ""}]}
+        )
+        valid = json.dumps(
+            {
+                "projects": [
+                    {
+                        "name": "API",
+                        "technologies": ["Python"],
+                        "claims": ["Built an API"],
+                        "metrics": [],
+                    }
+                ]
+            }
+        )
+        create.side_effect = [response(invalid), response(valid), response('{"text":"OK"}')]
+        model = OpenAILLM()
+        profile, _ = asyncio.run(parse_resume_profile("Built an API using Python", llm=model))
+        self.assertEqual(profile.projects[0].technologies, ["Python"])
+        self.assertEqual(profile.projects[0].metrics, [])
+        first, second = create.call_args_list
+        self.assertGreater(first.kwargs["timeout"], 30)
+        self.assertLessEqual(first.kwargs["timeout"], 90)
+        self.assertLessEqual(second.kwargs["timeout"], first.kwargs["timeout"])
+        messages = second.kwargs["messages"]
+        self.assertIn("list_type means", messages[0]["content"])
+        self.assertEqual(messages[-2], {"role": "assistant", "content": invalid})
+        model("Reply", {}, GeneratedText)
+        self.assertEqual(create.call_args.kwargs["timeout"], 30)
+
     def test_json_validation_and_retry(self, client, dotenv):
         """Check Qwen configuration and recovery from one schema-invalid JSON response."""
         create = client.return_value.chat.completions.create

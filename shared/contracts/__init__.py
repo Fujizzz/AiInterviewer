@@ -2,13 +2,16 @@
 
 from shared.contracts.agent_contracts import (
     CONTRACT_VERSION,
+    AnswerAnalysis,
     CandidateAnswer,
     CandidateClaim,
     CandidateProfile,
     CandidateProject,
     Competency,
     CompetencyState,
+    ContradictionEvidence,
     DecisionTrace,
+    DimensionEvidence,
     EvaluationFeedback,
     EvaluationRequest,
     InitializeInterviewRequest,
@@ -30,12 +33,15 @@ from shared.contracts.agent_contracts import (
 
 __all__ = [
     "CONTRACT_VERSION",
+    "AnswerAnalysis",
+    "DimensionEvidence",
     "CandidateAnswer",
     "CandidateClaim",
     "CandidateProfile",
     "CandidateProject",
     "Competency",
     "CompetencyState",
+    "ContradictionEvidence",
     "DecisionTrace",
     "EvaluationFeedback",
     "EvaluationRequest",

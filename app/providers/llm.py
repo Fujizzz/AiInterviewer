@@ -3,11 +3,15 @@
 import json
 import os
 from pathlib import Path
+from time import perf_counter
 from typing import Protocol, TypeVar
 
 from dotenv import load_dotenv
 from openai import OpenAI, OpenAIError
 from pydantic import BaseModel, ConfigDict, ValidationError
+
+from agents.config import load_agent_settings
+from agents.model_calls import current_model_call, validation_issues
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -23,7 +27,10 @@ class StructuredLLM(Protocol):
 
 
 class LLMError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, code: str = "model_error", issues=()):
+        super().__init__(message)
+        self.code = code
+        self.validation_issues = list(issues)
 
 
 class OpenAILLM:
@@ -48,7 +55,12 @@ class OpenAILLM:
             client_options["base_url"] = os.getenv(
                 "DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"
             ).strip()
-        self.client = OpenAI(api_key=key, timeout=60.0, max_retries=2, **client_options)
+        timeouts = load_agent_settings().timeouts
+        self.request_timeout = timeouts.llm_generation_seconds
+        self.resume_timeout = timeouts.resume_extraction_seconds
+        self.client = OpenAI(
+            api_key=key, timeout=self.request_timeout, max_retries=0, **client_options
+        )
 
     def __call__(self, prompt: str, data: dict, schema: type[T]) -> T:
         """Return schema-validated model output for the supplied prompt and data."""
@@ -70,8 +82,15 @@ class OpenAILLM:
                 ],
                 text_format=schema,
                 store=False,
+                timeout=self._remaining_timeout(),
                 **self.options,
             )
+        except ValidationError as exc:
+            raise LLMError(
+                "The model returned invalid structured output.",
+                code="invalid_json",
+                issues=validation_issues(exc, schema),
+            ) from exc
         except OpenAIError as exc:
             # Avoid printing request bodies or potentially sensitive provider errors.
             raise LLMError(
@@ -80,8 +99,23 @@ class OpenAILLM:
                 "network, quota, and model/temperature compatibility."
             ) from exc
         if response.output_parsed is None:
-            raise LLMError("The model refused or returned no complete structured output.")
+            raise LLMError(
+                "The model refused or returned no complete structured output.",
+                code="incomplete_output",
+            )
         return response.output_parsed
+
+    def _remaining_timeout(self):
+        call = current_model_call.get()
+        if call is None:
+            return self.request_timeout
+        remaining = call.deadline - perf_counter()
+        if call.abandoned or remaining <= 0:
+            raise LLMError("The model call deadline has elapsed.", code="timeout")
+        request_timeout = (
+            self.resume_timeout if call.operation == "resume_extraction" else self.request_timeout
+        )
+        return min(request_timeout, remaining)
 
     def _qwen(self, prompt: str, data: dict, schema: type[T]) -> T:
         """Request JSON output, validate it, and retry invalid structure once."""
@@ -97,30 +131,66 @@ class OpenAILLM:
             },
             {"role": "user", "content": json.dumps(data, ensure_ascii=False)},
         ]
-        for attempt in range(2):
+        call = current_model_call.get()
+        # The ReAct executor owns question repair; avoid nested provider repairs.
+        attempts = 1 if call and call.operation in {"question", "question_quality"} else 2
+        for attempt in range(attempts):
             completion = self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
                 response_format={"type": "json_object"},
                 extra_body={"enable_thinking": False},
+                timeout=self._remaining_timeout(),
                 **self.options,
             )
             if not completion.choices:
-                raise LLMError("The model returned no choices.")
+                raise LLMError("The model returned no choices.", code="empty_output")
             choice = completion.choices[0]
             if (
                 choice.finish_reason != "stop"
                 or choice.message.refusal
                 or not choice.message.content
             ):
-                raise LLMError("The model refused or returned incomplete JSON output.")
+                raise LLMError(
+                    "The model refused or returned incomplete JSON output.",
+                    code="refusal" if choice.message.refusal else "incomplete_output",
+                )
             try:
                 return schema.model_validate_json(choice.message.content)
-            except ValidationError:
-                if attempt:
-                    raise LLMError("The model returned invalid structured JSON twice.") from None
+            except ValidationError as exc:
+                issues = validation_issues(exc, schema)
+                if attempt == attempts - 1:
+                    message = (
+                        "The model returned invalid structured JSON twice."
+                        if attempts == 2
+                        else "The model returned invalid structured JSON."
+                    )
+                    raise LLMError(message, code="invalid_json", issues=issues) from None
                 messages[0]["content"] += (
-                    " Previous output failed validation. Check all required keys, types "
-                    "and constraints."
+                    " Previous output failed validation at these schema locations: "
+                    + ", ".join(issues)
+                    + ". Correct those fields and return the complete JSON object."
+                )
+                if any(issue.endswith(":list_type") for issue in issues):
+                    messages[0]["content"] += (
+                        " list_type means the field must be a JSON array. For string arrays, "
+                        'use ["one item"] for a single item and [] when no facts are present; '
+                        "never use null, a bare string or an object. Do not invent missing facts."
+                    )
+                if any(issue.endswith(":duplicate_competency") for issue in issues):
+                    messages[0]["content"] += (
+                        " Each competency may occur at most once in dimensions. Select one "
+                        "representative exact answer quote for each competency; do not "
+                        "return multiple entries for different quotes of the same competency."
+                    )
+                messages.extend(
+                    [
+                        {"role": "assistant", "content": choice.message.content},
+                        {
+                            "role": "user",
+                            "content": "Repair the preceding output according to the schema and "
+                            "validation feedback. Return the entire corrected JSON object.",
+                        },
+                    ]
                 )
         raise LLMError("No valid structured output.")
