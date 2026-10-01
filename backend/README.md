@@ -7,8 +7,8 @@ Agent 与 CLI 共用 Plan and Execute：默认 30 分钟，Planner 规划目标�
 `start.duration_minutes` 指定分钟时长；三个 `max_questions*` 参数仅为安全上限。
 从首题准备完毕开始计时，包含后续输入和模型等待；题目提交后检查是否收尾，不强制中断输入。
 后端练习接口继续保留原有 10 秒准备和 90 秒回答配置，两条流程独立运行。
-`/agent/` 现采用面试工作台布局：题目在上方、面试官插画占位在中央、自己的摄像头预览在右上角，下方保留文字回答与可展开的简历设置。
-摄像头需显式点击开启，只申请视频权限，仅本地预览，不录制、不上传；关闭、设备中断或离开页面时释放轨道。尚未接入真实数字人或语音作答。
+`/agent/` 现采用面试工作台布局：题目在上方、数字人面试官在中央、自己的摄像头预览在右上角，下方保留文字回答与可展开的简历设置。
+摄像头需显式点击开启，只申请视频权限，仅本地预览，不录制、不上传；关闭、设备中断或离开页面时释放轨道。数字人通过 UE Pixel Streaming 接入；支持问题朗读、打断、麦克风回答和可编辑转录，确认后才提交。
 文字面试页支持提前解析简历、真实阶段进度、实际等待计时，以及评分先展示、报告文字随后补齐。
 预解析只在当前连接内复用完全相同的简历，不改变 Agent 决策或增加推测性出题。
 优化边界与需要 Agent 团队配合的事项见 [性能优化说明](docs/performance.md)。
@@ -66,7 +66,7 @@ python -m uvicorn config.asgi:application --host 127.0.0.1 --port 8765 --ws webs
 也可直接进入 [流式测试页面](http://127.0.0.1:8765/stream-demo/) 或 [健康检查](http://127.0.0.1:8765/api/health/)。
 测试 AI 面试请打开 [MVP Agent 测试页](http://127.0.0.1:8765/agent/)，并先按下节配置模型密钥。
 必须使用 ASGI 启动命令；`manage.py runserver` 不能提供这里的 WebSocket 路由。
-`DJANGO_SECRET_KEY` 必须在环境变量或 `backend/.env` 中显式设置，上面的命令仅为当前开发 shell 生成随机值，源码不包含应用密钥。
+`DJANGO_SECRET_KEY` 必须在环境变量或仓库根目录 `.env` 中显式设置，上面的命令仅为当前开发 shell 生成随机值，源码不包含应用密钥。
 可显式设置 `INTERVIEW_DB_PATH` 指向其他 SQLite 文件；默认数据库及本地秘密文件已加入 `.gitignore`。
 迁移会创建数据表，并初始化原有两道通用练习题，已有题目不会被覆盖。
 
@@ -78,7 +78,7 @@ python -m uvicorn config.asgi:application --host 127.0.0.1 --port 8765 --ws webs
 
 ## Agent 模型配置
 
-API key 存放在 **`backend/.env`**。首次使用可复制 `.env.example`；已有文件请直接编辑，避免覆盖。
+API key 存放在 **仓库根目录 `.env`**。首次使用可在仓库根目录复制 `.env.example`；已有文件请直接编辑，避免覆盖。
 OpenAI 填写 `LLM_PROVIDER=openai`、`OPENAI_API_KEY`、`OPENAI_MODEL`；千问填写 `LLM_PROVIDER=dashscope`、`DASHSCOPE_API_KEY`、`DASHSCOPE_MODEL`。
 后端自动读取该文件，进程环境变量优先；修改后重启。`.env` 已被 Git 忽略，模板不含密钥。
 完整配置示例、网络协议与取消限制见 [MVP Agent 接入说明](docs/agent-integration.md)。
@@ -155,7 +155,7 @@ node --test tests/interview-camera.test.mjs  # 模拟权限、设备中断与媒
 - 每次连接使用临时 connection_id，断开后服务端不保留结果。页面日志仅保留最近 30 行；服务端日志输出到控制台，启动时不要重定向到文件。
 - 浏览器仅保留当前回放的临时 Blob URL，点击“清空结果与媒体缓存”、开始下一次测试或离开页面时释放。没有 localStorage、IndexedDB、下载或文件写入逻辑。
 - verified_chunks 是客户端报告的校验数量，属于诊断指标，不是对恶意客户端的可信证明。
-- Agent 文字面试已接入数据库，保存解析后资料、题目、回答、状态、决策及成功响应；`/api/agent-interviews/` 提供本机只读历史。原始简历文本和 PDF 不新增持久化，Django 可能使用自动清理的临时上传文件。清空页面不删除历史，断线续接尚未提供。尚未提供语音识别、视频存储、WebRTC 或 MySQL 适配；评分与策略仍由根目录模块负责。
+- Agent 文字面试已接入数据库，保存解析后资料、题目、回答、状态、决策及成功响应；`/api/agent-interviews/` 提供本机只读历史。原始简历文本和 PDF 不新增持久化，Django 可能使用自动清理的临时上传文件。清空页面不删除历史，断线续接尚未提供。已提供百炼语音识别与合成、数字人 WebRTC 串流；尚未提供视频存储或 MySQL 适配；评分与策略仍由根目录模块负责。
 - Agent 当前返回完整问题和报告，没有逐 token 输出。沿用 MVP 的既有模型重试与问题/报告备用逻辑；断开连接不能保证已发送的同步模型请求在供应商处停止。
 
 ## 协议参考
@@ -173,3 +173,9 @@ node --test tests/interview-camera.test.mjs  # 模拟权限、设备中断与媒
 ## 后台 PDF 任务
 
 生产 PDF 通过 Redis/Celery 在独立 worker 执行；前端沿用上传 NDJSON、真实进度与取消。默认开发模式 inline 不要求 Redis；显式 celery 模式无故障回退或任务重试。Redis 短期键只向后端开放，账号验证与 CSRF 在入队前执行，客户端不能提供任务 ID。部署及 main 自动发布见 [部署说明](../deploy/README.md)。
+
+## 数字人语音面试
+
+当前数字人播放器与语音交互代码位于 `backend/frontend/`，TTS/STT 位于 `interviews/speech/`。
+配置统一使用仓库根目录 `.env`，角色、场景和本机串流工具位于 `DigitalHuman/`。
+本机准备与启动见 [数字人操作说明](../docs/guides/DIGITAL_HUMAN_SETUP.md)。

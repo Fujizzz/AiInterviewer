@@ -13,6 +13,7 @@
 - 原子提交状态、问题、反馈和决策日志，重复反馈保持幂等；
 - 按岗位能力权重在代码中计算最终分数，LLM 仅负责报告文字；
 - 支持 OpenAI 和千问 DashScope；
+- 支持网页数字人面试、英文问题朗读、语音转录和可编辑回答确认；
 - 输出问题历史、能力状态、决策日志和 JSON 报告。
 
 后端另提供支持缺失资料的实验性人岗双向排序接口，使用仓库附带的v4-B树模型，
@@ -47,7 +48,9 @@ ReAct 实现、Windows 启动命令和执行轨迹查看方法见
 agents/      Agent 决策核心
 app/         当前终端 MVP 与临时适配器
 shared/      跨模块版本化契约
-backend/     Django/DRF API 与流式诊断后端
+backend/     Django/DRF API、Agent 接入及数字人语音服务
+  frontend/  当前面试网页、语音交互与 Pixel Streaming 播放器
+DigitalHuman/ UE 5.8 MetaHuman 工程、原生运行插件及本机启动工具
 frontend/    产品前端团队预留目录
 evaluation/  生产 Evaluation 模块预留目录
 rag/         生产 RAG 模块预留目录
@@ -75,6 +78,11 @@ python -m pip install -r requirements.txt
 ```
 
 ## 模型配置
+
+终端 MVP 与 Django 后端统一读取仓库根目录的 `.env`，配置模板也统一为根目录 `.env.example`。
+首次配置可在根目录执行 `Copy-Item .env.example .env`；已有文件请直接编辑，避免覆盖。
+进程环境变量优先；修改 `.env` 后重启后端。后端启动还需填写独立生成的 `DJANGO_SECRET_KEY`，
+语音开关和 TTS/STT 配置也位于同一模板中。
 
 千问：
 
@@ -118,10 +126,63 @@ uv run python main.py resume.pdf \
 
 `backend/` 提供 Django/DRF 练习接口、SQLite 业务存储和只在内存中处理的 WebSocket 音视频回传测试。
 其中 `/ws/agent/` 已接入上面的 Agent 决策流程，并通过 Django/SQLite 保存面试数据；练习接口与音视频回传诊断仍独立运行。
-其浏览器诊断页位于 `backend/frontend/`，与未来根目录 `frontend/` 产品代码分开。
+当前面试网页、语音交互和数字人播放器统一维护在 `backend/frontend/`；后续由后端团队迁入根目录 `frontend/`。
 安装与启动见 [后端说明](backend/README.md)，模块职责和函数注释规范见 [代码阅读指南](backend/docs/code-guide.md)。
 
 三个浏览器页面均支持中文、English 和跟随系统；语言选择保存在浏览器中，只影响界面和诊断文案，不改变面试协议或评分逻辑。
+
+## 数字人面试官
+
+使用 UE 5.8 与 MetaHuman 构建面试官角色和固定面试场景，通过 Pixel Streaming 将画面和声音传输到网页。
+数字人负责面试呈现和语音交互；问题、追问、回答评价和报告继续由既有 Agent 流程处理。
+
+网页支持自动朗读英文问题、重新朗读、打断朗读、麦克风回答和实时转录。
+用户点击“开始回答”录音，点击“结束回答”后检查或修改转录，再点击“确认提交回答”进入下一轮。
+控制器提供 Idle、Listening、Thinking、Speaking、Interrupted 状态，供角色动画扩展使用。
+
+| 目录 | 职责 |
+| --- | --- |
+| `DigitalHuman/` | MetaHuman 角色、`L_Interview` 场景、原生音频播放与音频驱动接口 |
+| `DigitalHuman/Tools/` | 本机信令、串流依赖安装、UE 启动和 Windows 打包 |
+| `backend/interviews/speech/` | 百炼 TTS/STT、临时 WAV 与语音 WebSocket |
+| `backend/frontend/` | 面试页面、语音交互、PCM 采集与可编辑转录 |
+| `backend/frontend/digital-human/` | UE 5.8 官方 Pixel Streaming SDK 包装、构建配置与前端测试 |
+
+语音配置与模型密钥统一放在根目录 `.env`：
+
+```dotenv
+SPEECH_ENABLED=true
+SPEECH_TTS_MODEL=qwen3-tts-flash-realtime
+SPEECH_TTS_VOICE=Cherry
+SPEECH_STT_MODEL=qwen-audio-3.1-asr-flash-streaming
+```
+
+使用新加坡业务空间的 `DASHSCOPE_API_KEY`；语音 WebSocket 地址与文本模型的 `DASHSCOPE_BASE_URL` 分别管理。
+配置模板见 [`.env.example`](.env.example)，密钥只由服务端读取。
+
+首次准备依赖，在仓库根目录执行：
+
+```powershell
+python -m pip install -r backend/requirements.txt
+python backend/manage.py migrate
+.\DigitalHuman\Tools\setup-streaming.ps1
+```
+
+在三个终端分别启动后端、信令和数字人：
+
+```powershell
+# 终端 1：后端语音与面试接口。
+python -m uvicorn config.asgi:application --app-dir backend --host 127.0.0.1 --port 8765 --ws websockets-sansio
+
+# 终端 2：本机 Pixel Streaming 信令。
+.\DigitalHuman\Tools\start-signalling.ps1
+
+# 终端 3：已打包数字人程序；开发时可追加 -EditorGame。
+.\DigitalHuman\Tools\start-digital-human.ps1
+```
+
+打开 [数字人面试页面](http://127.0.0.1:8765/agent/)，点击“连接／播放数字人”，填写简历后开始面试。
+角色组装、场景配置与打包步骤见 [数字人操作说明](docs/guides/DIGITAL_HUMAN_SETUP.md)，
 
 ## 测试
 

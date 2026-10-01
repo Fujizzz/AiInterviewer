@@ -4,6 +4,8 @@
  * 实现：显式点击后申请视频流；关闭、设备终止或 pagehide 时释放轨道，序号隔离迟到的授权结果；提示由 i18n.js 解析。
  * 关联：agent.html 提供 video、占位及按钮，i18n.js 提供语言服务；与 agent.js 的业务连接和题目预算独立。
  * 目录：
+ * - cameraText：读取摄像头状态文案并执行命名参数插值。
+ * - cameraText.callback1：将错误类型等参数转换为显示文本。
  * - releaseCamera：使待决申请失效，停止已有轨道并重置预览。
  * - onCameraEnded：设备意外终止时释放其余资源并报告状态。
  * - toggleCamera：根据状态开启、取消申请或关闭摄像头，失败明确显示且不重试。
@@ -16,7 +18,8 @@
  * - cameraStream：本模块当前持有的流，空值表示无活动流。
  * - cameraPending：当前是否等待授权或 video.play 完成。
  * - cameraGeneration：申请序号，关闭或离开时递增以拒绝迟到结果。
- * - CAMERA_FALLBACK / cameraText：为独立客户端测试提供中文回退并生成当前语言提示。
+ * - CAMERA_FALLBACK：独立客户端测试所用的中文状态文案。
+ * - cameraText：生成当前语言的摄像头状态提示。
  * 约束：
  * 浏览器设备授权可能晚于关闭请求返回；迟到流必须立即停止，不能重新激活预览。
  */
@@ -36,7 +39,7 @@ const CAMERA_FALLBACK = {
 /** 返回摄像头状态文案；独立测试上下文没有 i18n 模块时使用中文兼容回退。 */
 const cameraText = (key, values = {}) => {
   const template = window.AppI18n?.t(key, values) ?? CAMERA_FALLBACK[key] ?? key;
-  return template.replace(/\{(\w+)\}/g, (_, name) => String(values[name] ?? `{${name}}`));
+  return template.replace(/\{(\w+)\}/g, /** 将错误参数转换为显示文本。 */ (_, name) => String(values[name] ?? `{${name}}`));
 };
 
 /**

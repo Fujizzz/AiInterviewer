@@ -8,3 +8,9 @@ deploy/*.timer text eol=lf
 deploy/*.conf text eol=lf
 deploy/*.example text eol=lf
 .github/workflows/*.yml text eol=lf
+
+# Unreal source assets are stored in Git LFS; generated builds stay ignored.
+DigitalHuman/**/*.uasset filter=lfs diff=lfs merge=lfs -text
+DigitalHuman/**/*.umap filter=lfs diff=lfs merge=lfs -text
+DigitalHuman/**/*.ubulk filter=lfs diff=lfs merge=lfs -text
+DigitalHuman/**/*.uexp filter=lfs diff=lfs merge=lfs -text

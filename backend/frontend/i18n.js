@@ -29,6 +29,19 @@ const STORAGE_KEY = "ai-interviewer-language";
 
 const MESSAGES = {
   zh: {
+    avatar_label: "数字人面试官画面",
+    avatar_connect: "连接／播放数字人",
+    avatar_settings: "数字人连接设置",
+    avatar_signalling: "本机数字人信令地址",
+    voice_controls_label: "语音面试控制",
+    voice_replay: "重新朗读",
+    voice_interrupt: "打断朗读",
+    voice_start: "开始回答",
+    voice_stop: "结束回答",
+    voice_auto: "自动朗读英文问题",
+    voice_ready: "数字人未连接，可使用语音或文字回答。",
+    voice_listening: "朗读已停止，可开始回答或输入文字。",
+    voice_confirm: "确认提交回答 ↗",
     auth_title: "AI Interviewer · 登录与注册",
     auth_home: "返回主页 ↗",
     auth_heading: "每一次练习，\n离从容表达更近一步。",
@@ -108,7 +121,7 @@ const MESSAGES = {
     agent_home_link: "返回主页 ↗",
     agent_eyebrow: "YOUR INTERVIEW SPACE",
     agent_heading: "专注当下，从容表达。",
-    agent_type: "面试练习 · 文字作答",
+    agent_type: "面试练习 · 语音或文字作答",
     agent_ready: "就绪",
     agent_current_question: "当前题目",
     agent_question_placeholder: "开始面试后，问题会显示在这里。",
@@ -262,6 +275,19 @@ const MESSAGES = {
     camera_failed: "摄像头开启失败（{error}），请检查浏览器和设备。",
   },
   en: {
+    avatar_label: "Digital-human interviewer video",
+    avatar_connect: "Connect / play interviewer",
+    avatar_settings: "Interviewer connection settings",
+    avatar_signalling: "Local interviewer signalling URL",
+    voice_controls_label: "Voice interview controls",
+    voice_replay: "Replay question",
+    voice_interrupt: "Interrupt speech",
+    voice_start: "Start answering",
+    voice_stop: "Finish answering",
+    voice_auto: "Read English questions aloud",
+    voice_ready: "Interviewer disconnected; voice or text answers are available.",
+    voice_listening: "Speech has stopped. Start answering or type your answer.",
+    voice_confirm: "Confirm and submit answer ↗",
     auth_title: "AI Interviewer · Sign in",
     auth_home: "Back to home ↗",
     auth_heading: "A little practice.\nA more confident you.",
@@ -341,7 +367,7 @@ const MESSAGES = {
     agent_home_link: "Back to home ↗",
     agent_eyebrow: "YOUR INTERVIEW SPACE",
     agent_heading: "Stay present and express yourself clearly.",
-    agent_type: "Practice interview · Text answers",
+    agent_type: "Practice interview · Voice or text answers",
     agent_ready: "Ready",
     agent_current_question: "Current question",
     agent_question_placeholder: "Your question will appear here once the interview starts.",
@@ -569,5 +595,11 @@ function setText(id, key, values = {}) {
   element.textContent = t(key, values);
 }
 
-window.AppI18n = { applyLanguage, language: /** 读取当前实际语言，不修改状态。 */ () => language, setText, t };
+window.AppI18n = {
+  applyLanguage,
+  /** 读取当前实际语言，不修改状态。 */
+  language: () => language,
+  setText,
+  t,
+};
 init();

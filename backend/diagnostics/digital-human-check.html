@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta id="csrf-token" name="csrf-token" content="{{ csrf_token }}">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Digital human speech check</title>
+<style>
+body { margin:0; padding:20px; background:#f2f5f5; color:#19332e; font:15px system-ui,sans-serif; }
+main { max-width:900px; margin:auto; }
+h1 { font-size:24px; margin:0 0 8px; }
+p { line-height:1.5; }
+#avatar { position:relative; width:100%; aspect-ratio:16/9; background:#242927; overflow:hidden; border-radius:12px; }
+#avatar video { width:100%; height:100%; object-fit:contain; }
+textarea { box-sizing:border-box; width:100%; min-height:100px; padding:10px; font:inherit; }
+button { padding:10px 14px; border:0; border-radius:6px; background:#175f51; color:white; cursor:pointer; margin:6px 4px 6px 0; }
+button:disabled { opacity:.45; cursor:default; }
+pre { padding:12px; background:white; border-radius:8px; overflow-wrap:anywhere; white-space:pre-wrap; }
+.muted { color:#657a73; }
+</style>
+<main>
+<h1>Digital human speech check</h1>
+<p class="muted">Diagnostic only: this page tests avatar speech and transcription. It does not generate interview questions, score answers or produce an interview report.</p>
+<div id="avatar" aria-label="Digital human video"></div>
+<button id="connect">Connect avatar</button>
+<span id="connection">Not connected</span> · <span id="fps">— FPS</span>
+<p><label for="text">English test question</label></p>
+<textarea id="text" maxlength="1200">Could you describe your main contribution to this project, explain one technical decision you made, and tell me how you verified that the implementation worked correctly?</textarea>
+<button id="speak" disabled>Speak test question</button>
+<button id="replay" disabled>Replay cached audio</button>
+<button id="stop" disabled>Stop speaking</button>
+<button id="transcribe" disabled>Transcribe cached test audio</button>
+<p id="status" role="status">Connect the avatar to begin.</p>
+<p class="muted">Transcription sends the generated test audio to the configured ASR model. It does not open your microphone.</p>
+<pre id="transcript" aria-label="Test transcription"></pre>
+<pre id="events" aria-label="Validation events"></pre>
+<p><a href="/agent/">Return to interview</a></p>
+</main>
+<script type="module" src="/stream-demo/digital-human-check.js"></script>
+</html>

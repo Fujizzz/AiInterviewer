@@ -23,6 +23,10 @@
  * - makePage.clearTimer：移除显示计时器。
  * - makePage.uuid：生成测试唯一请求标识。
  * - makePage.ignoreEvent：接收 pagehide 注册但不操作窗口。
+ * - makePage.addPageListener：保存页面事件处理器，连接面试和语音控件。
+ * - makePage.dispatchPageEvent：将面试控件状态交给真实语音协调器。
+ * - PageEvent：仅提供 CustomEvent 的 type 与 detail 字段。
+ * - PageEvent.constructor：创建测试页面事件，不接触浏览器。
  * - makePage.tick：推进测试时间并执行已登记显示回调。
  * - hello：完成协议公告并返回已发送命令的 UUID。
  * - callback1：预解析期间岗位可编辑，计时只显示实际经过时间，完成后不重复请求。
@@ -33,9 +37,14 @@
  * - callback6：超限输入在发请求前被拒绝，避免多余模型调用。
  * - callback7：报告模型失败回退时明确提示，不把确定性摘要标记为模型成功。
  * - callback8：错误请求 ID 的阶段事件被拒绝并停止计时。
+ * - callback9：当前问题启用语音控件，播放期间禁止确认提交，结束后恢复。
+ * - callback10：录音期间禁止确认提交，取消时释放录音并恢复开始按钮。
+ * - callback10.page.voice.capture.close：记录被取消的录音资源释放。
  * 关键变量：
  * - SCRIPT：待验证的真实客户端源码。
  * - HTML：实际面试模板，用于核验客户端元素引用。
+ * - VOICE_SCRIPT：真实语音协调器源码，在隔离 VM 中执行。
+ * - CAPTURE_SCRIPT：真实录音管理器源码，不打开设备或供应商连接。
  * 关键状态说明：
  * Socket.OPEN 为连接就绪值，Socket.instances 供测试定位连接；每例创建独立页面。
  * makePage 的 timers/time 仅为测试时钟，未修改生产显示周期、模型超时或面试预算。
@@ -47,6 +56,14 @@ import vm from "node:vm";
 
 const SCRIPT = readFileSync(new URL("../frontend/agent.js", import.meta.url), "utf8");
 const HTML = readFileSync(new URL("../frontend/agent.html", import.meta.url), "utf8");
+const VOICE_SCRIPT = readFileSync(new URL("../frontend/interview-voice.js", import.meta.url), "utf8");
+const CAPTURE_SCRIPT = readFileSync(new URL("../frontend/speech-capture.js", import.meta.url), "utf8");
+
+/** 提供真实客户端所需的 CustomEvent 数据字段；不模拟原生事件权限。 */
+class PageEvent {
+  /** 保存事件名和 detail，供页面状态协调器分派。 */
+  constructor(type, options) { this.type = type; this.detail = options.detail; }
+}
 
 /** 最小 DOM 替身，仅维护测试需要的文本、禁用状态和事件，不模拟真实浏览器布局。 */
 class Element {
@@ -89,6 +106,11 @@ function makePage() {
   let time = 0;
   let timerId = 0;
   let serial = 0;
+  const pageListeners = new Map();
+  /** 保存事件名与回调，让真实语音协调器接收客户端 eligibility。 */
+  function addPageListener(name, handler) { pageListeners.set(name, handler); }
+  /** 交付测试 CustomEvent；不发送网络或采集媒体。 */
+  function dispatchPageEvent(event) { pageListeners.get(event.type)?.(event); }
   /** 输入模板 ID，返回对应元素；客户端引用不存在的元素即失败。 */
   function getElement(id) { assert.ok(elements.has(id), id); return elements.get(id); }
   /** 返回可控单调时钟，不读取真实时间。 */
@@ -108,13 +130,16 @@ function makePage() {
   getElement("limit").value = "5";
   getElement("duration").value = "30";
   getElement("probes").value = "2";
-  vm.runInNewContext(SCRIPT, {
-    document: { getElementById: getElement }, window: { addEventListener: ignoreEvent },
+  const clientScript = CAPTURE_SCRIPT.replace("export class SpeechCapture", "class SpeechCapture")
+    + VOICE_SCRIPT.replace('import { SpeechCapture } from "./speech-capture.js";', "").replace("export class InterviewVoice", "class InterviewVoice")
+    + SCRIPT.replace('import { InterviewVoice } from "./interview-voice.js";', "") + "\n;voice;";
+  const voice = vm.runInNewContext(clientScript, {
+    document: { getElementById: getElement }, window: { addEventListener: addPageListener, dispatchEvent: dispatchPageEvent },
     performance: { now }, crypto: { randomUUID: uuid },
     location: { protocol: "http:", host: "localhost" }, WebSocket: Socket, TextEncoder,
-    setInterval: setTimer, clearInterval: clearTimer,
+    setInterval: setTimer, clearInterval: clearTimer, clearTimeout, CustomEvent: PageEvent,
   });
-  return { el: getElement, tick, timers };
+  return { el: getElement, tick, timers, voice };
 }
 
 /** 输入连接及可选测试消息上限，模拟 hello，返回被客户端发送的命令 ID 或 undefined。 */
@@ -242,4 +267,54 @@ test("foreign request progress is rejected", () => {
   ws.emit({ type: "progress", request_id: "foreign", stage: "resume_parsing", state: "running" });
   assert.match(page.el("agent-status").textContent, /请求不匹配/);
   assert.equal(page.timers.size, 0);
+});
+
+/** 新版客户端与真实语音协调器共享当前问题和回答边界。 */
+test("voice playback blocks answer submission and releases it on completion", () => {
+  const page = makePage();
+  page.el("start-form").fire("submit");
+  const ws = Socket.instances.at(-1);
+  const id = hello(ws);
+  assert.equal(page.el("start-recording").disabled, true);
+  ws.emit({ type: "question", request_id: id, question_index: 1,
+    question: { question_id: "voice-q", text: "Describe one contribution.", difficulty: 1, dialogue_action: "project" } });
+  assert.equal(page.el("start-recording").disabled, false);
+  page.el("answer").value = "Public fixture answer.";
+  page.voice.busy = true;
+  page.voice.utteranceId = "voice-u";
+  page.voice.updateControls();
+  page.el("answer-form").fire("submit");
+  assert.equal(ws.sent.length, 1);
+  assert.equal(page.el("submit-answer").disabled, true);
+  page.voice.avatarEvent({ type: "playback_finished", utterance_id: "voice-u" });
+  assert.equal(page.el("submit-answer").disabled, false);
+  assert.match(page.el("voice-status").textContent, /朗读已停止/);
+  page.el("answer-form").fire("submit");
+  assert.equal(ws.sent.at(-1).type, "answer");
+  assert.equal(page.el("start-recording").disabled, true);
+});
+
+/** 录音草稿不自动提交；取消旧会话必须停止设备并释放控件。 */
+test("recording blocks confirmation and cancellation releases capture", () => {
+  const page = makePage();
+  page.el("start-form").fire("submit");
+  const ws = Socket.instances.at(-1);
+  const id = hello(ws);
+  ws.emit({ type: "question", request_id: id, question_index: 1,
+    question: { question_id: "mic-q", text: "Describe one contribution.", difficulty: 1, dialogue_action: "project" } });
+  let closed = false;
+  page.voice.capture = { recording: true,
+    /** 记录测试录音被取消，不能留下继续上传的采集对象。 */
+    close() { closed = true; },
+  };
+  page.voice.updateControls();
+  page.el("answer").value = "Unconfirmed fixture draft.";
+  page.el("answer-form").fire("submit");
+  assert.equal(ws.sent.length, 1);
+  assert.equal(page.el("stop-recording").disabled, false);
+  page.el("cancel-agent").fire("click");
+  assert.equal(closed, true);
+  assert.equal(page.el("start-agent").disabled, false);
+  assert.equal(page.el("start-recording").disabled, true);
+  assert.equal(page.voice.capture, null);
 });

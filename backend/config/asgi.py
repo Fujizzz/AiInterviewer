@@ -1,4 +1,4 @@
-"""服务启动与协议分派。HTTP 交给 Django，WebSocket 提供流式诊断和 Agent 面试。
+"""服务启动与协议分派。HTTP 交给 Django，WebSocket 提供诊断、Agent 面试和语音识别。
 
 目录：
 - handle_lifespan：
@@ -50,7 +50,8 @@ async def capacity_application(scope, receive, send):
 
 async def route_application(scope, receive, send):
     """功能：按 ASGI scope 类型选择处理器。
-    方法：/ws/echo/ 传输诊断、/ws/agent/ 文字面试；未知路径明确关闭。
+    方法：/ws/echo/ 传输诊断、/ws/agent/ 面试、/ws/speech/stt/ PCM 识别。
+    未知 WebSocket 路径明确关闭。
     返回：异步任务结束；HTTP/流式错误由所属处理层保持既定语义。"""
     if scope["type"] == "http":
         await django_application(scope, receive, send)
@@ -61,6 +62,10 @@ async def route_application(scope, receive, send):
             from interviews.agent_socket import agent_socket
 
             await agent_socket(scope, receive, send)
+        elif scope["path"] == "/ws/speech/stt/":
+            from interviews.speech.socket import stt_socket
+
+            await stt_socket(scope, receive, send)
         else:
             await send({"type": "websocket.close", "code": 1008})
     elif scope["type"] == "lifespan":

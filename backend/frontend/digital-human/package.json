@@ -1,0 +1,11 @@
+{
+  "name": "interview-digital-human-player",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/pixel-player.js --bundle --format=esm --outfile=dist/pixel-player.js --sourcemap",
+    "test": "node --test tests/*.test.mjs"
+  },
+  "dependencies": {"@epicgames-ps/lib-pixelstreamingfrontend-ue5.8": "0.1.2"},
+  "devDependencies": {"esbuild": "^0.25.0"}
+}

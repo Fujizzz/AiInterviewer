@@ -25,7 +25,7 @@ CLI 的既有 `read_resume` 文本 PDF 路径未替换；此新增流程由后�
 
 安装 `backend/requirements.txt`（新增 PDFium/Pillow；根目录 CLI 环境无需这两项）。
 还须按 [隔离运行说明](../sandbox/README.md) 配置 PDF 沙箱；缺少环境会明确失败。
-整个流程需要视觉模型，在 `backend/.env` 显式设置独立供应商和模型，例如：
+整个流程需要视觉模型，在仓库根目录 `.env` 显式设置独立供应商和模型，例如：
 
 ```dotenv
 RESUME_VISION_PROVIDER=dashscope

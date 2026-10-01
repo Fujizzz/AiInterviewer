@@ -287,13 +287,13 @@ async def agent_socket(scope, receive, send):
                 except Exception as exc:
                     logger.error(
                         "Agent setup failed connection=%s exception=%s; "
-                        "check backend/.env provider, model, key and temperature",
+                        "check repository-root .env provider, model, key and temperature",
                         connection_id,
                         type(exc).__name__,
                     )
                     await reject(
                         "configuration_error",
-                        "请在 backend/.env 配置供应商、模型与 API key，并重启后端。",
+                        "请在项目根目录 .env 配置供应商、模型与 API key，并重启后端。",
                         incoming_id,
                     )
                     await send({"type": "websocket.close", "code": 1011})

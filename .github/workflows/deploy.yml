@@ -38,7 +38,7 @@ jobs:
         working-directory: backend
         run: python manage.py test interviews --noinput
       - name: Browser client tests
-        run: node --test backend/tests/*.test.mjs
+        run: node --test backend/tests/*.test.mjs backend/frontend/digital-human/tests/*.test.mjs
   deploy:
     needs: verify
     if: github.ref == 'refs/heads/main'

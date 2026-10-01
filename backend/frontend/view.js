@@ -3,6 +3,9 @@
  * 功能：封装诊断页 DOM、回放资源管理和当前语言结果文案，不执行网络请求或设备采集。
  *
  * 目录：
+ * - DemoView.success.t：读取成功结果的当前语言文案。
+ * - DemoView.failure.t：读取错误结果的当前语言文案。
+ * - DemoView.clear.t：读取清空状态的当前语言文案。
  * - DemoView：
  *   管理诊断页面的 DOM 展示、忙碌状态与回放 URL 生命周期。
  * - DemoView.constructor：
@@ -116,6 +119,7 @@ export class DemoView {
 
   /** 展示服务端完成确认；ping 与媒体校验使用不同文字以避免零分片误导。 */
   success(mode, summary) {
+    /** 返回当前语言的成功结果文案。 */
     const t = (key, values = {}) => window.AppI18n?.t(key, values) ?? key;
     this.status(t("stream_pass"));
     this.element("summary").textContent = mode === "ping"
@@ -126,6 +130,7 @@ export class DemoView {
 
   /** 展示失败并撤销可能尚未获最终确认的回放；不触发重连或重试。 */
   failure(error) {
+    /** 返回当前语言的错误结果文案。 */
     const t = (key, values = {}) => window.AppI18n?.t(key, values) ?? key;
     this.status(t("stream_failed"), true);
     this.element("summary").textContent = t("stream_fail_summary", { message: error.message });
@@ -138,6 +143,7 @@ export class DemoView {
     this.reset();
     this.element("source").getContext("2d").clearRect(0, 0, 640, 360);
     this.element("log").textContent = "";
+    /** 返回当前语言的清空状态文案。 */
     const t = (key) => window.AppI18n?.t(key) ?? key;
     this.element("summary").textContent = t("stream_cleared");
     this.status(t("status_ready"));

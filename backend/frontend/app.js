@@ -3,6 +3,7 @@
  * 功能：流式诊断页面入口：协调 StreamClient、媒体采集模块和 DemoView，处理整次测试的生命周期及多语言状态文案。
  *
  * 目录：
+ * - appText：读取当前语言诊断文案，不改变测试协议。
  * - registerControls：
  *   保存当前媒体采集的停止与清理回调。
  * - runTest：

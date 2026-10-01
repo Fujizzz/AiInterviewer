@@ -5,6 +5,8 @@
  * 关联：agent.html 提供 DOM，i18n.js 提供语言服务，/ws/agent/ 提供 prepare/progress/assessment 事件。
  * 目录：
  * - el：按 ID 查询元素。
+ * - uiText：读取当前语言文案并执行命名参数插值。
+ * - uiText.callback1：将命名参数转换为显示文本，不执行模型内容。
  * - controls：按请求与面试状态切换表单；预解析时允许填写岗位设置。
  * - status：以纯文本显示状态。
  * - updateClock：显示实际等待与阶段秒数，不参与逻辑预算。
@@ -28,6 +30,7 @@
  * - onPageHide：离开时清理连接与计时，不持久化。
  * 关键变量：
  * - el：DOM 查询函数引用。
+ * - voice：数字人呈现和语音交互协调器，不参与面试评分。
  * - STAGES：固定服务端阶段名到显示文字的映射。
  * - socket：唯一有效 WebSocket，旧连接事件不能更新界面。
  * - questionId：当前问题 ID。
@@ -48,8 +51,11 @@
  * 不推测进度百分比、不重发模型请求、不改变评分或题目预算；
  * 模型内容只经 textContent 展示，取消不能保证供应商已发请求停止。
  */
+import { InterviewVoice } from "./interview-voice.js";
+
 /** 输入模板唯一 ID，返回 DOM 节点；模板缺失由调用位置显式失败。 */
 const el = (id) => document.getElementById(id);
+const voice = new InterviewVoice();
 const STAGES = {
   resume_parsing: "agent_stage_resume", question_generation: "agent_stage_question", answer_evaluation: "agent_stage_evaluation",
   next_action: "agent_stage_next", report_generation: "agent_stage_report",
@@ -75,7 +81,7 @@ const FALLBACK_TEXT = {
 /** 返回翻译文案；独立运行测试只加载本模块时使用中文兼容回退。 */
 const uiText = (key, values = {}) => {
   const template = window.AppI18n?.t(key, values) ?? (FALLBACK_TEXT[key] ?? key);
-  return template.replace(/\{(\w+)\}/g, (_, name) => String(values[name] ?? `{${name}}`));
+  return template.replace(/\{(\w+)\}/g, /** 将命名插值替换为显示文本。 */ (_, name) => String(values[name] ?? `{${name}}`));
 };
 let socket = null;
 let questionId = null;
@@ -100,6 +106,7 @@ function controls() {
   el("answer").disabled = !answering;
   el("submit-answer").disabled = !answering;
   el("cancel-agent").disabled = socket === null;
+  window.dispatchEvent(new CustomEvent("interview-controls", { detail: { active: interviewActive, answering } }));
 }
 /** 输入状态文字，用 textContent 展示，不执行 HTML，输出无。 */
 function status(text) { el("agent-status").textContent = text; }
@@ -140,6 +147,8 @@ function clearPrepared() {
 }
 /** 清空旧问答、报告与时间显示，保留简历、岗位和预解析，不操作网络。 */
 function clearResults() {
+  voice.reset();
+  voice.setState("idle");
   questionId = null;
   el("question").textContent = uiText("agent_question_placeholder");
   for (const id of ["question-meta", "evaluation", "report", "score", "report-summary", "assessment", "stage-log", "wait-time"]) el(id).textContent = "";
@@ -158,6 +167,8 @@ function send(command) {
 }
 /** 输入终态提示；关闭连接、待发命令、计时与缓存，保留已展示问题和数值评分。 */
 function stop(message) {
+  voice.reset();
+  voice.setState("idle");
   terminal = true;
   const old = socket;
   socket = null;
@@ -230,7 +241,9 @@ function onMessage(event) {
       el("answer").value = "";
       el("evaluation-panel").hidden = !message.last_evaluation;
       el("evaluation").textContent = message.last_evaluation ? JSON.stringify(message.last_evaluation, null, 2) : "";
+      const backendWaitMs = waitStarted === null ? null : performance.now() - waitStarted;
       endWait(); controls(); status(uiText("agent_question_answer")); el("answer").focus();
+      voice.setQuestion(message.question, backendWaitMs);
     } else if (message.type === "finished") {
       const report = message.result.final_report;
       displayAssessment(report);
@@ -251,6 +264,7 @@ function onClose(event) {
 /** 输入业务命令，使用空闲连接或创建同源连接等待 hello，不排队或自动重试。 */
 function dispatch(command) {
   if (pendingId !== null || pendingCommand !== null) return;
+  voice.setState("thinking");
   beginWait(); terminal = false;
   try {
     if (socket && socket.readyState === WebSocket.OPEN) send(command);
@@ -294,7 +308,8 @@ function onResumeInput() {
 function onAnswer(event) {
   event.preventDefault();
   const answer = el("answer").value.trim();
-  if (!answer || !questionId || pendingId || pendingCommand) return;
+  if (!answer || !questionId || pendingId || pendingCommand || voice.busy || voice.capture) return;
+  voice.reset();
   status(uiText("agent_submit"));
   dispatch({ type: "answer", question_id: questionId, answer_text: answer });
 }
@@ -303,7 +318,7 @@ function onCancel() { stop(uiText("agent_cancel_message")); }
 /** 清空连接、问答及所有候选人文本，岗位和题数参数保持原值。 */
 function onClear() { stop(uiText("agent_cleared")); clearResults(); el("resume").value = ""; submittedResume = null; }
 /** 页面离开后停止连接与 interval，不使用浏览器持久存储恢复会话。 */
-function onPageHide() { stop(uiText("agent_page_left")); }
+function onPageHide() { stop(uiText("agent_page_left")); voice.close(); }
 
 el("start-form").addEventListener("submit", onStart);
 el("prepare-resume").addEventListener("click", onPrepare);
