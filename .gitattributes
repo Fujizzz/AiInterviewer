@@ -1,5 +1,5 @@
 # 职责：让 Git 归档及 Windows 检出保持 Linux 部署文件的 LF 换行。
-# 实现：仅约束部署脚本、服务和 workflow；不转换数据文件。
+# 实现：部署文件保持 LF；后端发布归档排除独立运行的 UE 工程，不转换数据文件。
 # 目录：无函数/类。变量索引：text/eol 为 Git 文件属性。
 deploy/*.sh text eol=lf
 deploy/*.py text eol=lf
@@ -10,6 +10,7 @@ deploy/*.example text eol=lf
 .github/workflows/*.yml text eol=lf
 
 # Unreal source assets are stored in Git LFS; generated builds stay ignored.
+/DigitalHuman export-ignore
 DigitalHuman/**/*.uasset filter=lfs diff=lfs merge=lfs -text
 DigitalHuman/**/*.umap filter=lfs diff=lfs merge=lfs -text
 DigitalHuman/**/*.ubulk filter=lfs diff=lfs merge=lfs -text

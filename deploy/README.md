@@ -24,6 +24,9 @@
 
 服务器使用新建数据库，只由既有迁移初始化两道练习题；未导入本地 SQLite 历史。
 部署使用 Git 提交的源码归档；未上传 `.git`、本地数据库、日志、缓存或虚拟环境。
+`.gitattributes` 的 `export-ignore` 将 `DigitalHuman/` 排除在后端发布归档之外；
+UE 工程与 MetaHuman 资源仍保存在 Git/Git LFS，通过克隆仓库获取，在 GPU 机器上单独打包运行。
+后端归档保留网页、语音服务及面试模块，并遵守压缩包 128 MiB、解压后 256 MiB 的发布上限。
 Redis/Celery 接入不修改模型、采样参数、评分策略、推荐权重、PDF 参数或容量限制。
 本次同时合并远程 main 的 Plan and Execute 版本；面试时长和题数安全上限沿用该远程版本。
 生产配置通过 `DJANGO_SETTINGS_MODULE=config.production` 显式启用；默认开发启动仍使用 SQLite。
