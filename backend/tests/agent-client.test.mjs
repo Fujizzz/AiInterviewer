@@ -8,6 +8,11 @@
  * - Element.constructor：初始化可见状态与监听器。
  * - Element.addEventListener：保存命名事件处理器。
  * - Element.focus：记录焦点，无窗口副作用。
+ * - Element.showModal：模拟原生 open 状态，不模拟焦点陷阱或背景 inert。
+ * - Element.close：清除 open 并派发 close，以验证确认和取消的状态转换。
+ * - startPrepared：通过开始入口打开弹窗，再显式提交准备表单。
+ * - preparationInteraction：弹窗打开/关闭不建立连接；输入保留、确认后关闭且进行中禁改。
+ * - preparationBoundaries：隐藏表单、无效岗位和来源失败不能开始面试。
  * - Element.fire：向监听器派发当前目标与表单取消函数。
  * - Element.fire.object1.preventDefault：模拟阻止默认表单导航。
  * - Socket：记录发送消息且允许测试显式交付事件。
@@ -77,7 +82,7 @@ class PageEvent {
 /** 最小 DOM 替身，仅维护测试需要的文本、禁用状态和事件，不模拟真实浏览器布局。 */
 class Element {
   /** 输入无；所有字段初始为空，hidden 为 true 以模拟尚未出现的结果区。 */
-  constructor() { this.value = ""; this.textContent = ""; this.hidden = true; this.disabled = false; this.listeners = {}; this.children = []; }
+  constructor() { this.value = ""; this.textContent = ""; this.hidden = true; this.disabled = false; this.listeners = {}; this.children = []; this.open = false; }
   /** 输入事件名和处理器，保存引用，返回无。 */
   addEventListener(name, handler) { this.listeners[name] = handler; }
   /** 输入节点列表；保存版本选项，无布局或解析 HTML 副作用。 */
@@ -86,6 +91,10 @@ class Element {
   replaceChildren() { this.children = []; }
   /** 记录客户端要求聚焦，不操作真实窗口。 */
   focus() { this.focused = true; }
+  /** 无参数；只模拟 dialog.open，不证明真实浏览器焦点范围或原生表单校验。 */
+  showModal() { this.open = true; }
+  /** 无参数；模拟原生 close 事件，不执行模型或设备请求。 */
+  close() { if (!this.open) return; this.open = false; this.fire("close"); }
   /** 输入事件名称，构造 currentTarget 并调用已注册处理器，缺失监听器立即失败。 */
   fire(name) {
     this.listeners[name]({ currentTarget: this,
@@ -180,11 +189,72 @@ function hello(ws, limit = 262144) {
   return ws.sent.at(-1)?.request_id;
 }
 
+/** 输入已加载页面，显式打开准备并确认；不替代业务处理器或创建额外连接。 */
+function startPrepared(page) {
+  page.el("open-preparation").fire("click");
+  page.el("start-form").fire("submit");
+}
+
+/** 真实脚本配合原生 dialog 替身；开关保留设置，无网络，确认一次后关闭并禁用所有准备入口。 */
+async function preparationInteraction() {
+  const page = await makePage();
+  const count = Socket.instances.length;
+  assert.equal(page.el("preparation-dialog").open, false);
+  page.el("open-preparation").fire("click");
+  assert.equal(page.el("preparation-dialog").open, true);
+  assert.equal(page.el("resume-select").focused, true);
+  page.el("job").value = "Edited target role";
+  page.el("cancel-preparation").fire("click");
+  assert.equal(page.el("preparation-dialog").open, false);
+  assert.equal(page.el("open-preparation").focused, true);
+  assert.equal(Socket.instances.length, count);
+  page.el("interview-settings").fire("click");
+  assert.equal(page.el("job").value, "Edited target role");
+  page.el("preparation-dialog").close(); // 模拟原生 Esc 的 close，键盘陷阱另由浏览器验证。
+  assert.equal(page.el("interview-settings").focused, true);
+  startPrepared(page);
+  const ws = Socket.instances.at(-1); hello(ws);
+  assert.equal(page.el("preparation-dialog").open, false);
+  assert.equal(page.el("agent-status").focused, true);
+  assert.equal(ws.sent[0].job_title, "Edited target role");
+  assert.equal(page.el("open-preparation").disabled, true);
+  assert.equal(page.el("interview-settings").disabled, true);
+  startPrepared(page);
+  assert.equal(Socket.instances.length, count + 1);
+  assert.equal(ws.sent.length, 1);
+  page.el("cancel-agent").fire("click");
+  assert.equal(page.el("open-preparation").disabled, false);
+  assert.equal(page.el("resume-select").value, "version-a");
+}
+test("preparation opens before start, preserves edits on dismiss, and locks during interview", preparationInteraction);
+
+/** 不在弹窗内的提交不能连接；无效输入留在弹窗；来源故障仍允许打开并看到明确指引。 */
+async function preparationBoundaries() {
+  const page = await makePage();
+  const count = Socket.instances.length;
+  page.el("start-form").fire("submit");
+  assert.equal(Socket.instances.length, count);
+  page.el("open-preparation").fire("click");
+  page.el("job").value = "  ";
+  page.el("start-form").fire("submit");
+  assert.equal(page.el("preparation-dialog").open, true);
+  assert.match(page.el("preparation-error").textContent, /岗位/);
+  assert.equal(Socket.instances.length, count);
+  const empty = await makePage({failure:403});
+  assert.equal(empty.el("open-preparation").disabled, false);
+  empty.el("open-preparation").fire("click");
+  assert.equal(empty.el("preparation-dialog").open, true);
+  assert.match(empty.el("resume-selection-status").textContent, /登录/);
+  assert.equal(empty.el("start-agent").disabled, true);
+  assert.equal(Socket.instances.length, count);
+}
+test("preparation rejects hidden submissions and keeps invalid or unavailable input visible", preparationBoundaries);
+
 /** 元数据就绪后 start 只发送版本 ID；保持阶段计时与原有预算，不发送姓名/邮箱/正文。 */
 test("selected ready version starts once with original budget and real timing", async () => {
   const page = await makePage();
   assert.equal(page.el("resume-select").value, "version-a");
-  page.el("start-form").fire("submit");
+  startPrepared(page);
   const ws = Socket.instances.at(-1); const id = hello(ws);
   assert.equal(ws.sent[0].type, "start");
   assert.equal(ws.sent[0].resume_version_id, "version-a");
@@ -195,7 +265,7 @@ test("selected ready version starts once with original budget and real timing", 
   assert.equal(page.el("resume-select").disabled, true);
   ws.emit({type:"progress", request_id:id,stage:"resume_parsing",state:"running"});
   page.tick(32000); assert.match(page.el("wait-time").textContent,/32 秒/);
-  page.el("start-form").fire("submit"); assert.equal(ws.sent.length,1);
+  startPrepared(page); assert.equal(ws.sent.length,1);
 });
 
 /** current 可以位于后续页；未 ready 版本不进入选项，明确指定不可用版本不自动选择其他版本。 */
@@ -210,7 +280,7 @@ test("selection includes later pages and rejects an unavailable explicit version
 
 /** 取消后迟到事件不恢复面试，已选版本仍保留，计时清理。 */
 test("cancel clears timers and ignores late events while retaining the selected version", async () => {
-  const page = await makePage();page.el("start-form").fire("submit");
+  const page = await makePage();startPrepared(page);
   const ws = Socket.instances.at(-1);const id=hello(ws);
   page.el("cancel-agent").fire("click");
   ws.emit({type:"progress",request_id:id,stage:"resume_parsing",state:"running"});ws.emit({},"close");
@@ -221,7 +291,7 @@ test("cancel clears timers and ignores late events while retaining the selected 
 /** 先行评分尚无文字报告时断线，保留分数并明确未完成，停止计时。 */
 test("early assessment stays visible if report connection fails", async () => {
   const page = await makePage();
-  page.el("start-form").fire("submit");
+  startPrepared(page);
   const ws = Socket.instances.at(-1);
   const id = hello(ws);
   ws.emit({ type: "assessment", request_id: id, assessment: { overall_score: 3, competencies: {} } });
@@ -235,7 +305,7 @@ test("early assessment stays visible if report connection fails", async () => {
 /** 首题允许回答并停止计时，最后一轮报告成功后保留真实总结并恢复开始按钮。 */
 test("question and finished response release pending UI state", async () => {
   const page = await makePage();
-  page.el("start-form").fire("submit");
+  startPrepared(page);
   const ws = Socket.instances.at(-1);
   let id = hello(ws);
   ws.emit({ type: "question", request_id: id, question_index: 1,
@@ -256,7 +326,7 @@ test("question and finished response release pending UI state", async () => {
 /** 模拟服务端公告低上限，仅验证客户端边界；不得发送超限内容或遗留计时器。 */
 test("oversized command is rejected before send", async () => {
   const page = await makePage();
-  page.el("start-form").fire("submit");
+  startPrepared(page);
   const ws = Socket.instances.at(-1);
   hello(ws, 5);
   assert.equal(ws.sent.length, 0);
@@ -267,7 +337,7 @@ test("oversized command is rejected before send", async () => {
 /** 原有报告回退被服务端标记时，前端必须明确告知来源，不改变有效分数。 */
 test("report fallback is explicitly labeled", async () => {
   const page = await makePage();
-  page.el("start-form").fire("submit");
+  startPrepared(page);
   const ws = Socket.instances.at(-1);
   const id = hello(ws);
   ws.emit({ type: "finished", request_id: id, result: {
@@ -281,7 +351,7 @@ test("report fallback is explicitly labeled", async () => {
 /** 同连接内错误 request_id 不得误改当前阶段，应明确失败并清理计时器。 */
 test("foreign request progress is rejected", async () => {
   const page = await makePage();
-  page.el("start-form").fire("submit");
+  startPrepared(page);
   const ws = Socket.instances.at(-1);
   hello(ws);
   ws.emit({ type: "progress", request_id: "foreign", stage: "resume_parsing", state: "running" });
@@ -292,7 +362,7 @@ test("foreign request progress is rejected", async () => {
 /** 新版客户端与真实语音协调器共享当前问题和回答边界。 */
 test("voice playback blocks answer submission and releases it on completion", async () => {
   const page = await makePage();
-  page.el("start-form").fire("submit");
+  startPrepared(page);
   const ws = Socket.instances.at(-1);
   const id = hello(ws);
   assert.equal(page.el("start-recording").disabled, true);
@@ -317,7 +387,7 @@ test("voice playback blocks answer submission and releases it on completion", as
 /** 录音草稿不自动提交；取消旧会话必须停止设备并释放控件。 */
 test("recording blocks confirmation and cancellation releases capture", async () => {
   const page = await makePage();
-  page.el("start-form").fire("submit");
+  startPrepared(page);
   const ws = Socket.instances.at(-1);
   const id = hello(ws);
   ws.emit({ type: "question", request_id: id, question_index: 1,
@@ -350,7 +420,7 @@ async function blockedResumeSelection() {
   ]) {
     const page = await makePage(options);
     assert.equal(page.el("start-agent").disabled, true);
-    page.el("start-form").fire("submit");
+    startPrepared(page);
     assert.equal(Socket.instances.length, before);
   }
 }

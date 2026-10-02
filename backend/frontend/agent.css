@@ -1,13 +1,13 @@
 /*
  * 文件职责：为 agent.html 面试工作台提供布局与可读性样式，叠加在 style.css 之后。
- * 实现：题目位于舞台上方，面试官居中，本地视频绝对定位于舞台右上角；窄屏缩小预览并保持回答区可用。
+ * 实现：题目位于舞台上方，面试官居中，本地视频绝对定位于舞台右上角；窄屏保持回答可用；原生准备弹窗独立滚动并固定标题/确认操作。
  * 关联：agent.js 决定业务状态，interview-camera.js 决定本地预览状态；样式不创建或改变媒体流。
  * 目录：label/input/textarea（表单）；.settings-grid（预算参数）；#question/#report-summary（长文本）；
  * details/pre（展开结果）；#stage-log/#wait-time（真实阶段与计时）；已保存版本选择；
  * [hidden]（显示状态）；.studio-header/.studio-heading（导航）；.question-card（题目）；
  * .interviewer-stage/.interviewer-placeholder（中央形象）；.self-preview（右上角本地视频）；
- * .camera-toolbar/.answer-panel/.setup-panel（操作和设置）；@media（窄屏排列）。本文件无函数或 CSS 自定义变量。
- * 关键选择器：#start-agent 与 #answer-form .actions 控制操作区间距；不改变 disabled 或网络状态。
+ * .camera-toolbar/.answer-panel/.preparation-dialog（操作和模态设置）；@media（窄屏排列）。本文件无函数或 CSS 自定义变量。
+ * 关键选择器：.preparation-footer 与 #answer-form .actions 控制确认/回答操作区；不改变 disabled 或网络状态。
  * 约束：仅调整外观和布局；预算、评分及协议状态由脚本与后端决定。
  */
 label { display: block; margin: 12px 0 6px; font-weight: 600; }
@@ -17,7 +17,7 @@ textarea { resize: vertical; }
 .settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 #question, #report-summary { white-space: pre-wrap; overflow-wrap: anywhere; }
 #question { font-size: 1.15rem; line-height: 1.7; }
-#start-agent, #answer-form .actions, details { margin-top: 16px; }
+#answer-form .actions, details { margin-top: 16px; }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 480px; overflow: auto; }
 [hidden] { display: none !important; }
 #stage-log { flex-basis: 100%; margin: 0; }
@@ -70,13 +70,9 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 480px; overflo
 .answer-heading .hint { margin: 0; }
 #answer { background: #fafbf8; border-color: #dce4d9; font-size: 14px; line-height: 1.7; }
 #answer:disabled { color: #728074; }
-input:focus-visible, textarea:focus-visible, summary:focus-visible, a:focus-visible { outline: 3px solid #6c947d; outline-offset: 3px; }
+input:focus-visible, textarea:focus-visible, #resume-select:focus-visible, summary:focus-visible, a:focus-visible { outline: 3px solid #6c947d; outline-offset: 3px; }
 #answer-form .actions { justify-content: flex-end; }
 #submit-answer { order: 3; }
-.setup-panel { margin: 22px 0; border: 1px solid #dde4d9; border-radius: 12px; background: #fff; scroll-margin-top: 24px; }
-.setup-panel > summary { padding: 18px 22px; cursor: pointer; font-weight: 600; font-size: 14px; }
-.setup-panel > summary .hint { margin-left: 14px; font-weight: 400; }
-.setup-panel .panel { margin: 0; border: 0; border-top: 1px solid #e3e9df; border-radius: 0 0 12px 12px; }
 .privacy-note { color: #718073; font-size: 11px; line-height: 1.9; max-width: 900px; }
 @media (max-width: 650px) {
   .interview-page main { padding: 0 16px 24px; }
@@ -96,7 +92,6 @@ input:focus-visible, textarea:focus-visible, summary:focus-visible, a:focus-visi
   .stage-bottom { left: 16px; right: 16px; bottom: 13px; font-size: 10px; }
   .answer-panel { padding: 17px; }
   .answer-heading .hint { font-size: 10px; }
-  .setup-panel > summary .hint { display: block; margin: 6px 0 0 16px; }
 }
 
 /* Digital-human video occupies the existing interviewer stage; camera stays local. */
@@ -113,3 +108,29 @@ input:focus-visible, textarea:focus-visible, summary:focus-visible, a:focus-visi
 
 #resume-selection-status { white-space: pre-wrap; }
 #start-form .actions a { align-self: center; color: #236b5d; font-size: 13px; }
+
+/* 原生 dialog 控制背景不可交互和焦点范围；打开期间阻止背景滚动，关闭恢复原布局。
+ * 仅 [open] 设置弹窗布局，不覆盖原生关闭隐藏；短屏由 body 内容区滚动，确认栏保持可见。 */
+.interview-page:has(.preparation-dialog[open]) { overflow: hidden; }
+.studio-session-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.studio-header nav { align-items: center; flex-wrap: wrap; }
+.studio-header .settings-link { padding: 0; border: 0; background: transparent; color: #4c6358; font-size: inherit; }
+.studio-header .settings-link:hover:not(:disabled) { text-decoration: underline; color: #203e33; }
+.preparation-dialog { width: min(640px, calc(100% - 32px)); max-height: calc(100dvh - 48px); padding: 0; border: 1px solid #dce6df; border-radius: 18px; background: #fff; color: #263d36; box-shadow: 0 24px 80px #10251c33; }
+.preparation-dialog[open] { display: flex; flex-direction: column; }
+.preparation-dialog::backdrop { background: #15281fd1; }
+.preparation-heading { flex-shrink: 0; display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding: 24px 26px 18px; border-bottom: 1px solid #e3eae5; }
+.preparation-heading h2 { margin: 0; font-size: 22px; line-height: 1.4; }
+.preparation-heading .hint { margin: 7px 0 0; font-size: 13px; }
+.preparation-close { padding: 2px; width: 34px; height: 34px; flex-shrink: 0; font-size: 24px; line-height: 1; }
+.preparation-dialog form { display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
+.preparation-body { min-height: 0; padding: 8px 26px 10px; overflow-y: auto; overscroll-behavior-y: contain; }
+.preparation-body label { font-size: 14px; line-height: 1.6; }
+.preparation-body .settings-grid { gap: 4px 16px; }
+.preparation-body .hint { margin: 10px 0 14px; }
+.preparation-footer { flex-shrink: 0; display: flex; justify-content: flex-end; gap: 12px; padding: 18px 26px; border-top: 1px solid #e3eae5; background: #f8faf8; }
+.preparation-error { color: #a4382d; font-size: 14px; line-height: 1.7; }
+.preparation-error:empty { display: none; }
+.preparation-body .privacy-note { margin: 12px 0; font-size: 12px; line-height: 1.7; }
+@media (max-width: 650px) { .studio-header { flex-wrap: wrap; padding: 16px 0; } .studio-session-actions { width: 100%; justify-content: space-between; } }
+@media (max-width: 520px) { .preparation-dialog { max-height: calc(100dvh - 24px); width: calc(100% - 24px); border-radius: 14px; } .preparation-heading { padding: 18px; } .preparation-body { min-height: 0; padding: 4px 18px 8px; } .preparation-footer { padding: 14px 18px; flex-wrap: wrap; } .preparation-footer button { flex: 1; } }

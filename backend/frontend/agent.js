@@ -1,7 +1,7 @@
 /**
  * @module agent
  * 职责：选择个人中心已就绪简历并进行语音/文字面试，提供真实阶段、计时、评分和报告。
- * 实现：读取本人分页版本元数据，优先当前版本或显式 URL 指定版本；仅通过 UUID 发送 start。
+ * 实现：读取本人分页元数据；开始入口打开原生准备弹窗，确认后才通过 UUID 发送 start。
  * 关联：agent.html、i18n.js、/api/resume-versions/、/ws/agent/；资料维护集中在 /resumes/。
  * 目录：
  * - el：按 ID 查询元素。
@@ -23,6 +23,11 @@
  * - onClose：意外断线停止计时，不重连。
  * - dispatch：创建或复用连接，等待 hello 后发送一次命令。
  * - onStart：使用已加载 ready 版本 UUID 和原有参数开始面试。
+ * - onOpenPreparation：空闲时打开准备弹窗，保留输入并聚焦版本选择，不连接后端。
+ * - onClosePreparation：显式关闭准备弹窗，不清空输入或发起面试。
+ * - onPreparationClosed：关闭后将焦点交还入口或正在准备首题的状态区域。
+ * - onPreparationKeydown：在弹窗首尾循环 Tab 焦点；Esc 继续由原生 dialog 处理。
+ * - onPreparationLanguage：重绘版本标签和已知选择状态，不请求网络或改变已选版本。
  * - onAnswer：仅在未朗读/录音且请求空闲时提交确认答案。
  * - onCancel：取消当前面试连接。
  * - onClear：清空面试问答，保留版本与岗位设置。
@@ -46,6 +51,8 @@
  * - stageStarted：当前阶段起点。
  * - clockTimer：显示用 interval ID。
  * - completedStages：已完成阶段实际耗时文案。
+ * - preparationInvoker：打开准备弹窗的按钮，关闭后恢复焦点；不保存用户资料。
+ * - resumeSelectionMessage：选择区动态文案 key；未知异常正文保持原错误，不按语言伪造状态。
  * 约束：
  * 不上传或编辑简历，不改变预算/评分；无重发、自动选择其他版本或模型调用降级。
  */
@@ -122,10 +129,13 @@ let waitStarted = null;
 let stageStarted = null;
 let clockTimer = null;
 let completedStages = [];
+let preparationInvoker = null;
+let resumeSelectionMessage = null;
 
 /** 读取请求与面试状态更新 disabled；版本加载及会话期间保护版本选择，无网络副作用。 */
 function controls() {
   const busy = pendingId !== null || pendingCommand !== null;
+  for (const id of ["open-preparation", "interview-settings"]) el(id).disabled = busy || interviewActive;
   el("start-agent").disabled = busy || interviewActive || resumesLoading || !el("resume-select").value;
   for (const id of ["resume-select", "refresh-resumes"]) el(id).disabled = busy || interviewActive || resumesLoading;
   for (const id of ["job", "duration", "limit", "probes"]) el(id).disabled = interviewActive;
@@ -146,13 +156,17 @@ async function loadResumeVersions() {
   const previous = el("resume-select").value;
   const requested = new URLSearchParams(location.search).get("resume_version_id");
   resumesLoading = true; controls();
+  resumeSelectionMessage = "agent_resumes_loading";
   el("resume-selection-status").textContent = uiText("agent_resumes_loading");
   try {
     const versions = [];
     let page = 1;
     while (true) {
       const response = await fetch(`/api/resume-versions/?page=${page}`, { credentials: "same-origin" });
-      if (!response.ok) throw new Error(uiText(response.status === 401 || response.status === 403 ? "rm_auth_error" : "agent_resumes_failed"));
+      if (!response.ok) {
+        resumeSelectionMessage = response.status === 401 || response.status === 403 ? "rm_auth_error" : "agent_resumes_failed";
+        throw new Error(uiText(resumeSelectionMessage));
+      }
       const data = await response.json();
       for (const version of data.results) if (version.status === "ready") versions.push(version);
       if (!data.next) break;
@@ -174,17 +188,19 @@ async function loadResumeVersions() {
     let found = false;
     for (const version of versions) if (version.id === selected) found = true;
     select.value = found ? selected : "";
-    el("resume-selection-status").textContent = selected && !found ? uiText("agent_resume_unavailable") : versions.length ? uiText("agent_resumes_ready") : uiText("agent_resumes_empty");
+    resumeSelectionMessage = selected && !found ? "agent_resume_unavailable" : versions.length ? "agent_resumes_ready" : "agent_resumes_empty";
+    el("resume-selection-status").textContent = uiText(resumeSelectionMessage);
   } catch (error) {
     availableResumes = [];
     el("resume-select").replaceChildren();
     el("resume-select").value = "";
     console.error("Interview resume list failed", error.name);
+    if (resumeSelectionMessage === "agent_resumes_loading") resumeSelectionMessage = null;
     el("resume-selection-status").textContent = error.message;
   } finally { resumesLoading = false; controls(); }
 }
 /** 手动选择仅更新本次面试输入并清除旧展示，不修改后端当前版本或调用模型。 */
-function onResumeSelect() { clearResults(); controls(); }
+function onResumeSelect() { el("preparation-error").textContent = ""; clearResults(); controls(); }
 /** 读取单调时钟更新实际秒数；不作为预算、超时、完成或重试条件。 */
 function updateClock() {
   if (waitStarted === null) return;
@@ -338,19 +354,71 @@ function dispatch(command) {
     }
   } catch (error) { stop(error.message); }
 }
-/** 输入开始表单事件；只发送已加载 ready 版本 ID，后端再次校验归属与状态，不发送正文。 */
+/** 输入开始表单事件；弹窗内显式确认才发送 ready 版本 ID，不发送正文。
+ * 原生 required/min/step 校验沿用表单；客户端再检查已载元数据和岗位，失败留在弹窗。
+ * 确认后关闭弹窗并进入原调度器，后端再次校验归属与状态；预算和错误语义保持原值。
+ */
 function onStart(event) {
   event.preventDefault();
-  if (pendingId || pendingCommand || interviewActive || resumesLoading) return;
+  if (!el("preparation-dialog").open || pendingId || pendingCommand || interviewActive || resumesLoading) return;
   const id = el("resume-select").value;
   const job = el("job").value.trim();
   let ready = false;
   for (const version of availableResumes) if (version.id === id) ready = true;
-  if (!ready || !job) { status(uiText("agent_resume_required")); return; }
+  if (!ready || !job) {
+    el("preparation-error").textContent = uiText("agent_resume_required");
+    return;
+  }
   clearResults(); interviewActive = true;
+  el("preparation-dialog").close();
   dispatch({ type: "start", resume_version_id: id, job_title: job,
     duration_minutes: Number(el("duration").value),
     max_questions: Number(el("limit").value), max_follow_up_per_topic: Number(el("probes").value) });
+}
+/** 输入开始/设置按钮点击事件；空闲时打开原生模态框，不请求模型、设备或修改版本。
+ * 保存调用按钮以恢复焦点；元数据加载中先聚焦标题，否则聚焦简历选择，原生 dialog 限制焦点。
+ */
+function onOpenPreparation(event) {
+  if (interviewActive || pendingId || pendingCommand || el("preparation-dialog").open) return;
+  preparationInvoker = event.currentTarget;
+  onPreparationLanguage();
+  el("preparation-error").textContent = "";
+  el("preparation-dialog").showModal();
+  el(resumesLoading ? "preparation-title" : "resume-select").focus();
+}
+/** 用户点击关闭或稍后开始；原生 Esc 也走同一 close 事件，保留表单输入，不操作连接。 */
+function onClosePreparation() { el("preparation-dialog").close(); }
+/** 原生 close 事件后恢复焦点；面试已确认时定位准备进度，否则返回打开弹窗的按钮。 */
+function onPreparationClosed() {
+  if (interviewActive) el("agent-status").focus();
+  else preparationInvoker?.focus();
+}
+/** 输入原生键盘事件；首尾 Tab 循环在可见且启用的控件间，防止焦点离开弹窗。
+ * 仅处理 Tab，不拦截 Esc；元素集按当前 disabled/布局读取，不保存或重排表单状态。
+ */
+function onPreparationKeydown(event) {
+  if (event.key !== "Tab") return;
+  const focusable = [];
+  for (const node of el("preparation-dialog").querySelectorAll("button, input, select, a[href]")) {
+    if (!node.disabled && node.tabIndex >= 0 && node.getClientRects().length) focusable.push(node);
+  }
+  if (!focusable.length) return;
+  const first = focusable[0], last = focusable[focusable.length - 1];
+  if (event.shiftKey && event.target === first) { event.preventDefault(); last.focus(); }
+  else if (!event.shiftKey && event.target === last) { event.preventDefault(); first.focus(); }
+}
+/** 语言切换仅更新当前版本选项、已知状态和可见确认错误，不改变选择、参数或请求。
+ * 原始版本名保持原样；已知状态使用稳定 key，非预期解析异常保留现有错误文本。
+ */
+function onPreparationLanguage() {
+  for (const option of el("resume-select").children) {
+    if (!option.value) option.textContent = uiText("agent_resume_select");
+    else for (const version of availableResumes) if (version.id === option.value) {
+      option.textContent = (version.label || version.original_name || uiText("rm_unnamed")) + (version.is_current ? " · " + uiText("rm_current") : "");
+    }
+  }
+  if (resumeSelectionMessage) el("resume-selection-status").textContent = uiText(resumeSelectionMessage);
+  if (el("preparation-error").textContent) el("preparation-error").textContent = uiText("agent_resume_required");
 }
 /** 输入回答表单事件，仅在当前题且无在途请求时提交；评价与下一题仍由后端顺序处理。 */
 function onAnswer(event) {
@@ -369,11 +437,19 @@ function onClear() { stop(uiText("agent_cleared")); clearResults(); }
 function onPageHide() { stop(uiText("agent_page_left")); voice.close(); }
 
 el("start-form").addEventListener("submit", onStart);
+el("open-preparation").addEventListener("click", onOpenPreparation);
+el("interview-settings").addEventListener("click", onOpenPreparation);
+el("close-preparation").addEventListener("click", onClosePreparation);
+el("cancel-preparation").addEventListener("click", onClosePreparation);
+el("preparation-dialog").addEventListener("close", onPreparationClosed);
+el("preparation-dialog").addEventListener("keydown", onPreparationKeydown);
+el("interview-language").addEventListener("change", onPreparationLanguage);
 el("resume-select").addEventListener("change", onResumeSelect);
 el("refresh-resumes").addEventListener("click", loadResumeVersions);
 el("answer-form").addEventListener("submit", onAnswer);
 el("cancel-agent").addEventListener("click", onCancel);
 el("clear-agent").addEventListener("click", onClear);
 window.addEventListener("pagehide", onPageHide);
+window.addEventListener("languagechange", onPreparationLanguage);
 
 loadResumeVersions();

@@ -17,7 +17,7 @@
  * - t：返回当前语言的动态文案。
  * - setText：以当前语言更新指定元素。
  * 关键变量：
- * - MESSAGES：主页、账号、简历上传/编辑、推荐版本选择与解析/核对/保存指引、面试和诊断的中英文资源。
+ * - MESSAGES：主页、账号、简历上传/编辑、推荐指引、面试准备弹窗/会话和诊断的中英文资源。
  * - STORAGE_KEY：浏览器偏好键名；只保存 language preference，不保存简历或面试内容。
  * - preference：当前偏好，可为 zh、en 或 system。
  * - language：当前实际语言，只能为 zh 或 en。
@@ -339,8 +339,10 @@ const MESSAGES = {
     clear_content: "清空面试内容",
     previous_evaluation: "上一题评价",
     preparation: "面试准备",
-    preparation_hint: "选择简历 · 设置岗位与题目",
-    settings_title: "面试设置",
+    preparation_hint: "选择简历，确认岗位和时长后开始。",
+    preparation_cancel: "稍后开始",
+    preparation_confirm: "确认并开始面试",
+    preparation_close: "关闭面试准备",
     job_label: "目标岗位",
     duration_label: "面试时长（分钟）",
     limit_label: "总题数安全上限",
@@ -750,8 +752,10 @@ const MESSAGES = {
     clear_content: "Clear interview content",
     previous_evaluation: "Previous evaluation",
     preparation: "Interview preparation",
-    preparation_hint: "Choose resume · Set role and question budget",
-    settings_title: "Interview settings",
+    preparation_hint: "Choose a resume, then confirm your role and duration.",
+    preparation_cancel: "Not now",
+    preparation_confirm: "Confirm and start interview",
+    preparation_close: "Close interview preparation",
     job_label: "Target role",
     duration_label: "Interview duration (minutes)",
     limit_label: "Question safety limit",
