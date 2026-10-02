@@ -1,6 +1,7 @@
-"""职责：验证公网 Host 配置不会取消回环对端和同源边界。
+"""职责：验证生产访问边界及实际岗位推荐部署探针的成功、失败和清理契约。
 
-实现：构造代理 ASGI scope，并用 Django 请求验证 HTTPS 代理协议；不调用外部服务。
+实现：构造代理 ASGI scope，验证 HTTPS 代理协议；本机 LiveServer 与真实冻结模型
+验证部署岗位探针的 Session/CSRF 请求和成功/失败清理，不访问生产数据库或外部服务。
 关联：access.websocket_allowed、LocalOnlyMiddleware 和 config.production 的部署契约。
 
 目录：
@@ -9,16 +10,26 @@
 - DeploymentAccessTests.test_proxy_origin_and_peer：允许指定同源代理，拒绝外站、远端与伪造 Host。
 - DeploymentAccessTests.test_http_proxy_origin：HTTP 应用保留同源与回环限制。
 - DeploymentAccessTests.test_local_defaults：默认开发配置继续拒绝公网 Host。
+- DeploymentRecommendationTests：以隔离数据库和本机 HTTP 服务验证发布岗位验收。
+- DeploymentRecommendationTests.test_live_catalog_and_cleanup：真实 100 岗排序成功且清理探针记录。
+- DeploymentRecommendationTests.test_missing_catalog_fails_and_cleans_up：来源缺失明确失败仍清理。
 
 关键变量：
 （无模块级变量。）
 """
 
-from django.http import HttpResponse
-from django.test import RequestFactory, SimpleTestCase, override_settings
+from pathlib import Path
+from urllib.error import HTTPError
 
+from django.contrib.auth import get_user_model
+from django.contrib.sessions.models import Session
+from django.http import HttpResponse
+from django.test import LiveServerTestCase, RequestFactory, SimpleTestCase, override_settings
+
+from deploy.smoke import verify_recommendations
 from interviews.access import websocket_allowed
 from interviews.middleware import LocalOnlyMiddleware
+from interviews.resume_models import ResumeVersion
 
 
 class DeploymentAccessTests(SimpleTestCase):
@@ -82,3 +93,38 @@ class DeploymentAccessTests(SimpleTestCase):
         self.assertTrue(
             websocket_allowed(self.scope(host="localhost", origin="http://localhost", scheme="ws"))
         )
+
+
+@override_settings(
+    INTERVIEW_REQUIRE_LOGIN=True,
+    ALLOWED_HOSTS=["47.239.50.129", "localhost"],
+    SECURE_PROXY_SSL_HEADER=("HTTP_X_FORWARDED_PROTO", "https"),
+    STATIC_URL="/static/",
+    MEDIA_URL="/media/",
+)
+class DeploymentRecommendationTests(LiveServerTestCase):
+    """功能：验证发布验收真实 HTTP 行为与清理；逻辑：使用隔离库及本机线程服务。
+
+    前提：只为 LiveServer 文件处理器提供静态/媒体 URL，不改生产路由或配置。
+    约束：沿用 Session、CSRF 和原冻结模型，无认证/模型替身；此本机 WSGI 验证不代表
+    生产 ASGI 或 Nginx 成功，真实发布另由相同探针检查运行中的服务。
+    """
+
+    def test_live_catalog_and_cleanup(self):
+        """输入隔离用户库与完整实验目录；验证真实排序通过，账号/简历/会话均不残留。"""
+        path = Path(__file__).resolve().parents[1] / "recommendation/data/experience-jobs.json"
+        with override_settings(RECOMMENDATION_JOB_CATALOG=str(path)):
+            verify_recommendations(self.live_server_url)
+        self.assertEqual(get_user_model().objects.count(), 0)
+        self.assertEqual(ResumeVersion.objects.count(), 0)
+        self.assertEqual(Session.objects.count(), 0)
+
+    @override_settings(RECOMMENDATION_JOB_CATALOG="")
+    def test_missing_catalog_fails_and_cleans_up(self):
+        """输入明确空目录配置；验证 HTTP 503 传播，失败路径仍删除所有探针记录，不回退。"""
+        with self.assertRaises(HTTPError) as error:
+            verify_recommendations(self.live_server_url)
+        self.assertEqual(error.exception.code, 503)
+        self.assertEqual(get_user_model().objects.count(), 0)
+        self.assertEqual(ResumeVersion.objects.count(), 0)
+        self.assertEqual(Session.objects.count(), 0)

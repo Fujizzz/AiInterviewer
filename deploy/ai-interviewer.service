@@ -1,7 +1,8 @@
 # 职责：以低权限用户启动 ASGI；Django 提供 session 认证，Nginx 提供 HTTPS。
 # 实现：仅监听回环，信任同机代理协议；退出保持 failed 状态，不自动重放请求。
 # 关联：backend/config/production.py 与 nginx.conf；PDF 沙箱需要 user namespace。
-# 目录：无函数/类。变量索引：EnvironmentFile 提供凭据，StateDirectory 保存容量锁。
+# 目录：无函数/类。变量索引：EnvironmentFile 先提供私有配置，再明确选择发布岗位库；
+# recommendation.env 仅覆盖岗位目录，StateDirectory 保存容量锁。
 [Unit]
 Description=AI Interviewer ASGI service
 After=network.target postgresql.service redis-server.service ai-interviewer-celery.service
@@ -13,6 +14,7 @@ User=aiinterviewer
 Group=aiinterviewer
 WorkingDirectory=/opt/ai-interviewer/current/backend
 EnvironmentFile=/etc/ai-interviewer/app.env
+EnvironmentFile=/opt/ai-interviewer/current/deploy/recommendation.env
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PYTHONUNBUFFERED=1
 ExecStart=/opt/ai-interviewer/current/.venv/bin/python -m uvicorn config.asgi:application --host 127.0.0.1 --port 8765 --ws websockets-sansio --proxy-headers --forwarded-allow-ips=127.0.0.1 --no-access-log

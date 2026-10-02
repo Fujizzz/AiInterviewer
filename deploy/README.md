@@ -49,6 +49,23 @@ bash /opt/ai-interviewer/current/deploy/backup-postgresql.sh
 应用退出后保留失败状态和日志，不自动重放面试或模型请求；排查后显式重启。
 数据库备份尚未配置周期任务或异机保存；磁盘上既有归档不会自动删除。
 
+### 个人岗位推荐来源
+
+本次生产部署明确选用训练数据同源的 100 个实验岗位。ASGI 的 systemd 服务在私有
+`app.env` 之后读取当前发布的 `deploy/recommendation.env`，仅覆盖
+`RECOMMENDATION_JOB_CATALOG`，指向
+`/opt/ai-interviewer/current/backend/interviews/recommendation/data/experience-jobs.json`。
+此文件不含密钥，随发布记录并审查岗位来源；`current` 切换后路径自动对应新版本。
+开发配置仍须显式选择来源，未配置/文件无效仍报错，不切换备用目录。
+
+界面保留“非实时招聘职位”与实验模型标记；不更改排序权重、特征单位、缺失处理或训练条件。
+来源及转换记录见 [体验岗位说明](../backend/interviews/recommendation/data/README.md)。
+
+发布验收使用临时账号、保存简历及数据库会话，向实际运行的 ASGI 发送带 Session/CSRF 的
+推荐请求，要求返回全部 `J0001` 至 `J0100` 及体验/实验标记，并在成功或异常后清理
+临时账号、简历和会话；仅运行本地冻结模型，不调用 LLM。HTTP/数据库/Redis/Celery
+与岗位验收全部通过才记为部署成功。此检查验证功能接通，不证明真实招聘效果。
+
 更新应用前先备份。把新源码解压到新的发布目录，在独立环境中验证锁定依赖与迁移，
 停止应用后切换 `current` 并执行迁移，再启动和检查健康接口。
 数据库 schema 变更的回滚必须单独审查迁移或恢复备份，不能仅靠切回源码。

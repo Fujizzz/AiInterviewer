@@ -75,7 +75,10 @@ python -m uvicorn config.asgi:application --host 127.0.0.1 --port 8765 --ws webs
 本机已按用户明确选择，将 `RECOMMENDATION_JOB_CATALOG` 配置为
 `interviews/recommendation/data/experience-jobs.json` 的绝对路径。
 它包含与冻结模型同源的 100 个实验岗位，来源、哈希和无损字段转换见该目录的 README。
-未配置该环境项的新部署仍保持明确的“来源未配置”状态。
+普通启动未配置该环境项仍保持明确的“来源未配置”状态。本项目的生产 systemd 部署已明确
+通过 `deploy/recommendation.env` 选用同一份 100 岗体验目录；该文件在私有配置之后加载，
+只覆盖岗位来源，不包含凭据。真实 Session/CSRF 推荐请求及探针清理纳入发布验收，
+见 [生产岗位来源](../../deploy/README.md#个人岗位推荐来源)。
 
 用户只填写技能，也可以发起请求；此例没有GPA、经验和时间信息：
 
