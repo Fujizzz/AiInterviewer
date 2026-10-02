@@ -1,4 +1,8 @@
-"""Bailian Singapore adapters and bounded, temporary in-memory WAV storage.
+"""Bailian regional adapters and bounded, temporary in-memory WAV storage.
+
+Resolve explicit speech geography independently of the LLM HTTP endpoint, reusing
+the existing key. Missing SPEECH_REGION preserves Singapore; invalid values fail
+before SDK construction. Model, voice, audio and timeout defaults remain unchanged.
 
 目录：
 - SpeechError：
@@ -6,7 +10,7 @@
 - SpeechError.__init__：
   Save the public error contract.
 - SpeechConfig：
-  Explicit Singapore credentials and model configuration.
+  Shared credentials and region-selected inference/realtime model configuration.
 - SpeechConfig.load：
   Validate settings before any paid or network operation can start.
 - provider_error：
@@ -55,6 +59,10 @@
   Signal end-of-input once and wait for provider completion.
 
 关键变量：
+- logger：
+  Record resolved geography and model names without credentials or question text.
+- SPEECH_REGION_ENDPOINTS：
+  Supported regions mapped to public hosts and ASR workspace domain regions.
 - MAX_AUDIO_BYTES：
   Maximum PCM bytes for a 120-second TTS utterance.
 - TTS_TIMEOUT_SECONDS：
@@ -66,6 +74,7 @@
 import base64
 import binascii
 import io
+import logging
 import os
 import re
 import threading
@@ -75,6 +84,11 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from uuid import uuid4
 
+logger = logging.getLogger(__name__)
+SPEECH_REGION_ENDPOINTS = {
+    "singapore": ("dashscope-intl.aliyuncs.com", "ap-southeast-1"),
+    "beijing": ("dashscope.aliyuncs.com", "cn-beijing"),
+}
 MAX_AUDIO_BYTES = 24000 * 2 * 120
 TTS_TIMEOUT_SECONDS = 45
 
@@ -90,7 +104,11 @@ class SpeechError(Exception):
 
 @dataclass(frozen=True)
 class SpeechConfig:
-    """Singapore credentials with distinct inference and Qwen realtime endpoints."""
+    """Resolve shared credentials and separate ASR/TTS URLs for an explicit region.
+
+    Frozen configuration carries SDK inputs; it neither authenticates the key nor
+    alters the LLM endpoint. A workspace changes ASR routing only, in the same region.
+    """
 
     api_key: str
     endpoint: str
@@ -101,17 +119,28 @@ class SpeechConfig:
 
     @classmethod
     def load(cls):
-        """Validate settings before any paid or network operation can start."""
+        """Read process speech/key settings and return validated SDK configuration.
+
+        Disabled speech fails first. An absent region means Singapore for existing
+        collaborators; blank/unknown regions fail without inference or retry. Key,
+        workspace and model constraints retain their existing checks. Only resolved
+        geography/model names are logged; no settings or credentials are written.
+        """
         if os.getenv("SPEECH_ENABLED", "false").lower() != "true":
             raise SpeechError(
                 "speech_disabled", "Set SPEECH_ENABLED=true in the repository-root .env."
             )
+        region = os.getenv("SPEECH_REGION", "singapore").strip().lower()
+        if region not in SPEECH_REGION_ENDPOINTS:
+            logger.warning("Speech configuration rejected: unsupported SPEECH_REGION")
+            raise SpeechError("speech_not_configured", "Set SPEECH_REGION to singapore or beijing.")
+        host, workspace_region = SPEECH_REGION_ENDPOINTS[region]
         key = os.getenv("DASHSCOPE_API_KEY", "")
         workspace = os.getenv("DASHSCOPE_SPEECH_WORKSPACE_ID", "").strip()
         if not key or (workspace and not re.fullmatch(r"[A-Za-z0-9_-]+", workspace)):
             raise SpeechError(
                 "speech_not_configured",
-                "Configure a Singapore DASHSCOPE_API_KEY and a valid optional speech workspace.",
+                "Configure DASHSCOPE_API_KEY for SPEECH_REGION and a valid optional workspace.",
             )
         tts_model = os.getenv("SPEECH_TTS_MODEL", "qwen3-tts-flash-realtime")
         stt_model = os.getenv("SPEECH_STT_MODEL", "qwen-audio-3.1-asr-flash-streaming")
@@ -123,12 +152,19 @@ class SpeechConfig:
                 "unsupported_speech_model",
                 "Use Qwen3-TTS-Flash-Realtime and Qwen-Audio-3.x-ASR-Flash-Streaming.",
             )
+        logger.info(
+            "Speech configuration resolved region=%s tts_model=%s stt_model=%s workspace=%s",
+            region,
+            tts_model,
+            stt_model,
+            bool(workspace),
+        )
         return cls(
             key,
-            f"wss://{workspace}.ap-southeast-1.maas.aliyuncs.com/api-ws/v1/inference"
+            f"wss://{workspace}.{workspace_region}.maas.aliyuncs.com/api-ws/v1/inference"
             if workspace
-            else "wss://dashscope-intl.aliyuncs.com/api-ws/v1/inference",
-            "wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime",
+            else f"wss://{host}/api-ws/v1/inference",
+            f"wss://{host}/api-ws/v1/realtime",
             tts_model,
             os.getenv("SPEECH_TTS_VOICE", "Cherry"),
             stt_model,

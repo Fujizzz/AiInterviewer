@@ -9,6 +9,12 @@
   The real adapter requests mono PCM and wraps it in a correctly labelled WAV.
 - SpeechServiceTests.test_public_endpoints_and_incompatible_models：
   Singapore defaults require no workspace; unsupported protocols fail before SDK use.
+- SpeechServiceTests.test_regional_endpoints_preserve_llm_configuration：
+  Check both public/workspace regions and shared-key use without changing LLM HTTP settings.
+- SpeechServiceTests.test_invalid_region_precedes_provider_construction：
+  Reject blank/unknown regions before any provider call, without echoing configuration.
+- SpeechServiceTests.test_beijing_synthesis_uses_existing_key：
+  Verify Beijing URL, original key and unchanged audio/options through an offline SDK double.
 - SpeechServiceTests.test_quota_error_survives_connection_close：
   Preserve a server quota error when sending input races with its disconnect.
 - SpeechServiceTests.test_quota_error_survives_connection_close.reject：
@@ -77,6 +83,7 @@ from interviews.speech.service import (
     RecognitionSession,
     SpeechConfig,
     SpeechError,
+    configure_sdk,
     synthesize,
 )
 from interviews.speech.socket import stt_socket
@@ -105,6 +112,7 @@ class SpeechServiceTests(SimpleTestCase):
             "SPEECH_ENABLED": "true",
             "DASHSCOPE_API_KEY": "test-key",
             "DASHSCOPE_SPEECH_WORKSPACE_ID": "test-space",
+            "SPEECH_REGION": "singapore",
         }
         sdk = Mock()
         events = [
@@ -164,6 +172,122 @@ class SpeechServiceTests(SimpleTestCase):
             with patch.dict(os.environ, {"DASHSCOPE_SPEECH_WORKSPACE_ID": "invalid/path"}):
                 with self.assertRaises(SpeechError):
                     SpeechConfig.load()
+
+    def test_regional_endpoints_preserve_llm_configuration(self):
+        """Verify public/workspace routes and SDK isolation with fake shared credentials.
+
+        Explicit expected regional domains cover both ASR and TTS. SDK globals are
+        restored after each subtest; the HTTP endpoint and environment must not change.
+        No remote connection or model request is constructed.
+        """
+        import dashscope
+
+        cases = [
+            ("singapore", "dashscope-intl.aliyuncs.com", "ap-southeast-1"),
+            ("beijing", "dashscope.aliyuncs.com", "cn-beijing"),
+        ]
+        for region, host, workspace_region in cases:
+            for workspace in ("", "test-space"):
+                with (
+                    self.subTest(region=region, workspace=workspace),
+                    patch.dict(
+                        os.environ,
+                        {
+                            "SPEECH_ENABLED": "true",
+                            "SPEECH_REGION": region,
+                            "DASHSCOPE_API_KEY": "shared-test-key",
+                            "DASHSCOPE_SPEECH_WORKSPACE_ID": workspace,
+                            "DASHSCOPE_BASE_URL": "https://llm.invalid/compatible-mode/v1",
+                        },
+                        clear=True,
+                    ),
+                    patch.object(dashscope, "api_key", "prior-key"),
+                    patch.object(dashscope, "base_websocket_api_url", "prior-url"),
+                    patch.object(dashscope, "base_http_api_url", "https://llm.invalid/api/v1"),
+                ):
+                    before = dict(os.environ)
+                    config = SpeechConfig.load()
+                    self.assertEqual(config.api_key, "shared-test-key")
+                    self.assertEqual(config.tts_endpoint, f"wss://{host}/api-ws/v1/realtime")
+                    expected_host = (
+                        f"test-space.{workspace_region}.maas.aliyuncs.com" if workspace else host
+                    )
+                    self.assertEqual(config.endpoint, f"wss://{expected_host}/api-ws/v1/inference")
+                    configure_sdk(config)
+                    self.assertEqual(dashscope.api_key, "shared-test-key")
+                    self.assertEqual(dashscope.base_websocket_api_url, config.endpoint)
+                    self.assertEqual(dashscope.base_http_api_url, "https://llm.invalid/api/v1")
+                    self.assertEqual(dict(os.environ), before)
+
+    def test_invalid_region_precedes_provider_construction(self):
+        """Reject empty/unknown geography using fake settings before SDK construction.
+
+        The same visible configuration error is used without automatic region
+        selection; logs and public errors must not echo the untrusted region string.
+        """
+        for region in ("", "SECRET-unsupported-region"):
+            with (
+                self.subTest(region=region),
+                patch.dict(
+                    os.environ,
+                    {
+                        "SPEECH_ENABLED": "true",
+                        "SPEECH_REGION": region,
+                        "DASHSCOPE_API_KEY": "test-key",
+                    },
+                    clear=True,
+                ),
+                patch("dashscope.audio.qwen_tts_realtime.QwenTtsRealtime") as sdk,
+                self.assertLogs("interviews.speech.service", level="WARNING") as logs,
+            ):
+                with self.assertRaises(SpeechError) as error:
+                    synthesize("Describe your contribution.")
+                self.assertEqual(error.exception.code, "speech_not_configured")
+                self.assertNotIn("SECRET", str(error.exception) + " ".join(logs.output))
+                sdk.assert_not_called()
+
+    def test_beijing_synthesis_uses_existing_key(self):
+        """Exercise Beijing synthesis through an explicit offline SDK double.
+
+        Generated PCM must retain 24 kHz mono WAV wrapping, the original model/voice
+        defaults and English language; the shared key is passed through SDK configuration.
+        Mock success verifies adapter behavior only, not actual provider access.
+        """
+        import dashscope
+
+        events = [
+            {"type": "response.audio.delta", "delta": base64.b64encode(b"\x00\x01" * 240).decode()},
+            {"type": "session.finished"},
+        ]
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "SPEECH_ENABLED": "true",
+                    "SPEECH_REGION": "beijing",
+                    "DASHSCOPE_API_KEY": "existing-test-key",
+                },
+                clear=True,
+            ),
+            patch.object(dashscope, "api_key", "prior-key"),
+            patch.object(dashscope, "base_websocket_api_url", "prior-url"),
+            patch("dashscope.audio.qwen_tts_realtime.QwenTtsRealtime") as sdk,
+        ):
+            sdk.return_value.finish.side_effect = lambda: [
+                sdk.call_args.kwargs["callback"].on_event(event) for event in events
+            ]
+            wav = synthesize("Please introduce yourself briefly.")
+            self.assertEqual(dashscope.api_key, "existing-test-key")
+            self.assertEqual(
+                sdk.call_args.kwargs["url"], "wss://dashscope.aliyuncs.com/api-ws/v1/realtime"
+            )
+            self.assertEqual(sdk.call_args.kwargs["model"], "qwen3-tts-flash-realtime")
+            options = sdk.return_value.update_session.call_args.kwargs
+            self.assertEqual(options["voice"], "Cherry")
+            self.assertEqual(options["language_type"], "English")
+            with wave.open(io.BytesIO(wav)) as audio:
+                self.assertEqual((audio.getframerate(), audio.getnchannels()), (24000, 1))
+            sdk.return_value.close.assert_called_once()
 
     def test_quota_error_survives_connection_close(self):
         """Preserve a server quota error when sending input races with its disconnect."""
@@ -251,6 +375,7 @@ class SpeechServiceTests(SimpleTestCase):
             "SPEECH_ENABLED": "true",
             "DASHSCOPE_API_KEY": "test-key",
             "DASHSCOPE_SPEECH_WORKSPACE_ID": "test-space",
+            "SPEECH_REGION": "singapore",
         }
         emit = Mock()
         with patch.dict(os.environ, settings), patch("dashscope.audio.asr.Recognition") as sdk:
@@ -334,7 +459,8 @@ class SpeechAccountTests(TestCase):
         client = Client(enforce_csrf_checks=True)
         with patch("interviews.speech.views.synthesize", return_value=b"fixture WAV") as provider:
             response = client.post(
-                "/api/speech/tts/", {"text": "Describe one contribution."},
+                "/api/speech/tts/",
+                {"text": "Describe one contribution."},
                 content_type="application/json",
             )
             self.assertEqual(response.status_code, 401)
@@ -343,7 +469,8 @@ class SpeechAccountTests(TestCase):
             )
             client.force_login(user)
             response = client.post(
-                "/api/speech/tts/", {"text": "Describe one contribution."},
+                "/api/speech/tts/",
+                {"text": "Describe one contribution."},
                 content_type="application/json",
             )
             self.assertEqual(response.status_code, 403)
@@ -352,7 +479,8 @@ class SpeechAccountTests(TestCase):
             self.assertEqual(page.status_code, 200)
             self.assertContains(page, 'id="start-recording"')
             response = client.post(
-                "/api/speech/tts/", {"text": "Describe one contribution."},
+                "/api/speech/tts/",
+                {"text": "Describe one contribution."},
                 content_type="application/json",
                 HTTP_X_CSRFTOKEN=client.cookies["csrftoken"].value,
             )
@@ -461,14 +589,20 @@ class SpeechSocketTests(SimpleTestCase):
         """Production session validation runs before the new speech WebSocket handler."""
         from config.asgi import application
 
-        with override_settings(INTERVIEW_REQUIRE_LOGIN=True), patch(
-            "interviews.speech.socket.RecognitionSession"
-        ) as provider:
-            comm = ApplicationCommunicator(application, {
-                "type": "websocket", "path": "/ws/speech/stt/", "scheme": "ws",
-                "client": ("127.0.0.1", 123),
-                "headers": [(b"host", b"localhost"), (b"origin", b"http://localhost")],
-            })
+        with (
+            override_settings(INTERVIEW_REQUIRE_LOGIN=True),
+            patch("interviews.speech.socket.RecognitionSession") as provider,
+        ):
+            comm = ApplicationCommunicator(
+                application,
+                {
+                    "type": "websocket",
+                    "path": "/ws/speech/stt/",
+                    "scheme": "ws",
+                    "client": ("127.0.0.1", 123),
+                    "headers": [(b"host", b"localhost"), (b"origin", b"http://localhost")],
+                },
+            )
             await comm.send_input({"type": "websocket.connect"})
             self.assertEqual((await comm.receive_output())["code"], 1008)
             await comm.wait(timeout=3)

@@ -77,7 +77,8 @@ exec(open(r"D:\_Project\AiInterviewer\DigitalHuman\Tools\setup_scene.py", encodi
 
 ```dotenv
 SPEECH_ENABLED=true
-DASHSCOPE_API_KEY=<新加坡业务空间的 key>
+SPEECH_REGION=singapore
+DASHSCOPE_API_KEY=<与 SPEECH_REGION 对应地域的 key>
 DASHSCOPE_SPEECH_WORKSPACE_ID=
 SPEECH_TTS_MODEL=qwen3-tts-flash-realtime
 SPEECH_TTS_VOICE=Cherry
@@ -85,25 +86,34 @@ SPEECH_STT_MODEL=qwen-audio-3.1-asr-flash-streaming
 DJANGO_SECRET_KEY=<独立生成的 Django secret>
 ```
 
-语音服务默认 `SPEECH_ENABLED=false`。启用前，在百炼控制台确认两个模型的权限、免费额度有效期和余量；对支持的模型启用 **Free Quota Only**。
+语音服务默认 `SPEECH_ENABLED=false`、`SPEECH_REGION=singapore`；未设置地域的协作者保持原有新加坡行为。
+如复用北京地域的现有 Key，仅在自己的根目录 `.env` 设置 `SPEECH_REGION=beijing`，不替换 Key、不改文字模型配置。
+仅支持 `singapore` 和 `beijing`，空值或其他地域明确报配置错误，不从文字模型地址推断地域、不自动跨地域重试。
+启用前，在百炼控制台确认两个模型的权限、免费额度有效期和余量；对支持的模型启用 **Free Quota Only**。
 代码不能替你开通控制台的免费额度限制；额度错误会显示 `quota_exhausted` 并保留文字操作。
 不能从现有 LLM 的额度推断语音模型也有免费额度。
 
-默认使用已实测的新加坡官方语音地址：
+语音合成和识别同时按地域选择各自的官方地址：
 
 ```text
-# STT
+# SPEECH_REGION=singapore（默认）：STT / TTS
 wss://dashscope-intl.aliyuncs.com/api-ws/v1/inference
-# Qwen realtime TTS
 wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime
+# SPEECH_REGION=beijing：STT / TTS
+wss://dashscope.aliyuncs.com/api-ws/v1/inference
+wss://dashscope.aliyuncs.com/api-ws/v1/realtime
 ```
 
-它们独立于 LLM 的 OpenAI-compatible `DASHSCOPE_BASE_URL`。不要把北京 key 或 LLM HTTP 地址用于语音 WebSocket。
-`DASHSCOPE_SPEECH_WORKSPACE_ID` 可留空；如显式配置，它仅将 STT 切换到该新加坡工作空间的 inference 域名，TTS 仍使用上面的 realtime 地址。
+它们独立于 LLM 的 OpenAI-compatible `DASHSCOPE_BASE_URL`。Key 必须与语音地域一致，不能跨地域混用。
+`DASHSCOPE_SPEECH_WORKSPACE_ID` 可留空；如显式配置，STT 使用该地域的工作空间域名：
+新加坡为 `{workspace}.ap-southeast-1.maas.aliyuncs.com`，北京为 `{workspace}.cn-beijing.maas.aliyuncs.com`。
+TTS 保持所选地域的公开 realtime 地址。设置地域不改变模型、音色、音频格式和超时默认值。
+地址契约见 [TTS SDK](https://www.alibabacloud.com/help/zh/model-studio/qwen-tts-realtime-python-sdk) 和
+[ASR WebSocket](https://help.aliyun.com/zh/model-studio/qwen-audio-asr-streaming-websocket-api)。
 
-本机根目录 `.env` 已参考 `D:/_Project/SalesMate/.env` 配置新加坡凭据并开启语音。密钥仅保存在被 Git 忽略的本机配置中。SalesMate 文件保持原样。
-文本模型已按用户选择切换到 `qwen3.7-plus`；原先 `qwen3.6-max-preview` 返回 `insufficient_quota`，未关闭其免费额度限制。
-STT 使用用户有 1M 额度的 `qwen-audio-3.1-asr-flash-streaming`；TTS 使用单独的 `qwen3-tts-flash-realtime` 额度。ASR 额度不能用于文字转语音。
+原始数字人集成验收使用新加坡凭据、`qwen3.7-plus` 文字模型及 `qwen-audio-3.1-asr-flash-streaming`。
+该记录不代表其他机器的本地配置或模型额度；每位协作者维护自己的被 Git 忽略的 `.env`。
+TTS 的 `qwen3-tts-flash-realtime` 与 ASR 单独计费和核算额度，ASR 额度不能用于文字转语音。
 Qwen TTS 使用新的专用 SDK 适配；把 CosyVoice 的 model 字符串换成 Qwen 名称不足以兼容协议。
 当前适配支持 Qwen3-TTS-Flash-Realtime 系列与 Qwen-Audio-3.0/3.1-ASR-Flash-Streaming；HTTP TTS、Voice Design、声音注册和 Fun-ASR 文件识别不能直接填入这些实时模型配置。
 默认音色 `Cherry` 支持英文；可按 [官方音色列表](https://help.aliyun.com/en/model-studio/qwen-tts-voice-list) 选择匹配的预设音色。

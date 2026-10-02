@@ -183,6 +183,8 @@ node --test tests/interview-camera.test.mjs  # 模拟权限、设备中断与媒
 
 当前数字人播放器与语音交互代码位于 `backend/frontend/`，TTS/STT 位于 `interviews/speech/`。
 配置统一使用仓库根目录 `.env`，角色、场景和本机串流工具位于 `DigitalHuman/`。
+语音复用现有 `DASHSCOPE_API_KEY`；`SPEECH_REGION=singapore` 保持原有默认，使用北京 Key 时在本地设置 `beijing`。
+TTS/STT 地址一起随地域切换，不从文字模型 HTTP 地址推断，不改变文字模型配置。
 本机准备与启动见 [数字人操作说明](../docs/guides/DIGITAL_HUMAN_SETUP.md)。
 
 个人中心现支持独立在线编辑稿、九个文本单元及用户确认的推荐槽位；接口与单位约束见 [简历版本说明](docs/resume-versions.md#在线编辑稿与推荐资料)。原 PDF 与旧稿保留，每次保存创建新版本。
