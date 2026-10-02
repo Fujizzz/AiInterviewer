@@ -1,6 +1,7 @@
 # 缺失资料双向推荐：v4-B 实验接入
 
-本模块将已训练的 **JobRec v4-B** 两个LightGBM模型接入Django/DRF。省略或为`null`的资料保留为未知，转换为模型输入`NaN`；不补零、不调用LLM、不重新训练、不联网下载模型，也不保存请求资料。
+本模块将已训练的 **JobRec v4-B** 两个LightGBM模型接入Django/DRF。省略或为`null`的资料保留为未知，转换为模型输入`NaN`；不补零、不重新训练、不联网下载模型，也不保存请求资料。两种底层排序接口不调用 LLM；
+个人中心采用下文的模型粗排 + LLM API 精排流程。
 
 这是可调用的实验接口。**v4-B没有通过预先设定的整体效果门槛**，尤其岗位侧存在退步。接口始终返回`experimental: true`和`release_gate_passed: false`。它不提供录用概率、资格判定或自动招聘决策；资料完整度也不是预测置信度。
 
@@ -14,7 +15,8 @@ python -m pip check
 python -m uvicorn config.asgi:application --host 127.0.0.1 --port 8765 --ws websockets-sansio
 ```
 
-沿用项目的`DJANGO_SECRET_KEY`与本机访问配置。推荐接口本身不需要OpenAI、Kaggle或其他服务密钥，不涉及数据库迁移。后端清单固定LightGBM 4.6.0、NumPy 2.0.2和SciPy 1.14.1；根目录终端MVP依赖不因此改变。
+沿用项目的`DJANGO_SECRET_KEY`与本机访问配置。两个底层排序接口不需要模型 API 或 Kaggle 密钥；个人中心精排复用已配置文字模型 API。
+均不涉及数据库迁移。后端清单固定LightGBM 4.6.0、NumPy 2.0.2和SciPy 1.14.1；根目录终端MVP依赖不因此改变。
 
 | 方法 | 路径 | 排序方向 |
 |---|---|---|
@@ -32,12 +34,12 @@ python -m uvicorn config.asgi:application --host 127.0.0.1 --port 8765 --ws webs
 `/resumes/` 的“在线简历”下方提供“为你推荐的岗位”，侧栏也可直达。
 用户核对 11 项推荐槽位、保存编辑稿后，显式点击“推荐岗位”；修改或切换简历会清空旧结果。
 接口 `POST /api/resume-versions/{id}/recommendations/` 只接受空请求体，读取本人 ready
-版本的已保存槽位，使用相同 `rank_pairs` 与冻结模型。自动提取建议、未保存文本和账号联系方式
-不参与调用。接口强制登录、本人归属、Session CSRF，并禁止缓存响应。
+版本的已保存槽位，使用相同 `rank_pairs` 与冻结模型粗排，再调用一次 LLM 精排。自动提取建议、
+未保存文本和账号联系方式不参与调用。接口强制登录、本人归属、Session CSRF，并禁止缓存响应。
 
 维护者在 仓库根目录 `.env` 显式设置 `RECOMMENDATION_JOB_CATALOG` 为岗位 JSON 的绝对路径；
 默认未配置，返回 `503/job_catalog_not_configured`，不自动启用研究数据或生成岗位。
-目录必须明确来源，`source_kind` 为 `live` 或 `experience`；体验数据在界面标注“非实时招聘职位”。
+目录必须明确来源，`source_kind` 为 `live` 或 `experience`；实验数据在界面标注“非实时招聘职位”。
 示例仅说明格式，不会自动装入系统：
 
 ```json
@@ -62,13 +64,15 @@ python -m uvicorn config.asgi:application --host 127.0.0.1 --port 8765 --ws webs
 
 `requirements` 遵循下面的 JobInput 契约；技能大小写及 GPA 等单位须与用户特征一致。
 目录支持 1 至 100 个唯一岗位，超过既有请求上限、重复 ID、非法字段或读失败均明确报错，
-不静默抽样或截断。展示信息不参与评分。当前仅接入文件目录，不包含抓取、岗位 CRUD 或训练。
-响应额外提供 `resume_version_id/source_name/source_kind` 以及每个结果的 `job/matched_skills`；
-技能交集仅用于展示，模型公式、排序、分数和缺失语义保持不变。
+不静默抽样或截断。展示信息不参与粗排评分；候选岗位介绍作为 LLM 精排上下文，结构化要求优先。当前仅接入文件目录，不包含抓取、岗位 CRUD 或训练。
+响应额外提供 `resume_version_id/source_name/source_kind/pipeline`，每个结果的
+`job/matched_skills/recommendation_reason/coarse_rank`；技能交集仅用于展示，
+粗排公式、分数和缺失语义保持不变，最终次序由 LLM 决定。
 全未知保存槽位返回 `422/recommendation_profile_empty`；未 ready 返回 `409/resume_not_ready`；
 非法来源和模型故障分别返回 `503/job_catalog_invalid`、`503/recommendation_model_unavailable`。
-卡片展示推荐顺序和可用特征数，不将原始模型分数当概率或百分比。
-完整岗位池全部排序并返回，界面每次展开 10 张卡，岗位介绍按需展开，展示分页不改变评分。
+卡片展示最终推荐顺序、双语理由和可用特征数，不将原始模型分数当概率或百分比。
+完整池仍全部粗排，API 仅返回精排后的前 5 岗；不足 5 岗时返回实际数量。
+卡片放在可键盘聚焦的独立滚动区，长介绍按需展开，不再分组“显示更多”。
 保存槽位非法和数值特征越界分别返回 `503/recommendation_profile_invalid`、
 `422/recommendation_features_invalid`，不生成替代结果。
 
@@ -79,6 +83,39 @@ python -m uvicorn config.asgi:application --host 127.0.0.1 --port 8765 --ws webs
 通过 `deploy/recommendation.env` 选用同一份 100 岗体验目录；该文件在私有配置之后加载，
 只覆盖岗位来源，不包含凭据。真实 Session/CSRF 推荐请求及探针清理纳入发布验收，
 见 [生产岗位来源](../../deploy/README.md#个人岗位推荐来源)。
+
+#### 两阶段推荐与提示词（2026-10-03）
+
+用户指定 `topk1=20`、`topk2=5`。个人中心先按冻结模型 `pref_score` 对完整目录稳定降序，
+将前 `min(20,目录数)` 岗送入文字模型 API，再返回 `min(5,候选数)` 岗。
+最终 `rank` 为 LLM 列表位置，`coarse_rank` 保留原模型名次；`status`、原始分数、
+缺失特征仍表示粗排证据。`sorted_by=llm_order`、`coarse_sorted_by=pref_score` 明确区分两阶段。
+底层 `/api/recommendations/jobs/` 与 `/candidates/` 继续原完整排序契约。
+
+固定提示词在 `interviews/recommendation/rerank.py` 的 `RERANK_PROMPT`，版本为
+`job-rerank-v1`；响应 `pipeline` 记录 K1/K2、完整池/候选/最终数量、文字模型和提示词版本。
+指令与用户 JSON 分离，限制从候选池选唯一 ID；要求按已知技能、兴趣、专业、经验、
+时间与岗位要求判断，区别 `null/[]/0/false`，不编造资格、单位、公司、招聘状态或匹配概率。
+介绍与结构化要求冲突时以要求为准；原分数仅是排序先验；显式传递技能交集和未知字段清单，提示词含未知工作方式的正反例。理由各为 1–2 句、最多 240 字符，
+分别存为 `recommendation_reason.zh/en`；界面按当前语言显示，不因语言切换再次调用 API。
+结构校验无法证明理由完全忠实或推荐效果提高，LLM 精排尚无离线效果评估。
+
+只发送本人版本中**已确认的 11 项推荐字段**及 20 岗元数据/要求/粗排分数。
+不发送版本 UUID、简历全文、账号联系方式或未保存值；不保存精排结果；私有响应禁止缓存。
+复用现有 `LLM_PROVIDER`、`DASHSCOPE_API_KEY/MODEL/BASE_URL` 或 `OPENAI_API_KEY/MODEL`、
+`OPENAI_TEMPERATURE` 和既有生成请求超时，不新增凭据到 Git、不改变配置默认值。
+DashScope 使用兼容 API JSON object（关闭思考），OpenAI 使用 Responses parse（`store=False`）。
+SDK 重试为零，单次调用后关闭客户端，不继承旧业务的 JSON 修复循环。
+
+API 缺配置为 `503/recommendation_llm_not_configured`；远端调用失败为
+`503/recommendation_llm_unavailable`；拒绝、截断、非法结构、重复/越界 ID 或错误数量为
+`502/recommendation_llm_invalid_output`。不自动重试、不补齐、不用粗排结果代替失败精排。
+日志只包含阶段、供应商、模型、数量、耗时和异常类型/HTTP 状态，不记录正文或密钥。
+每次显式推荐产生一次 API 用量，界面提示发送范围。
+
+源 CSV 未提供职位标题，卡片标题只是“行业 · 编号”。“体验岗位”原本用于提示实验来源，
+现按用户要求从 100 个标题中删除；如 `Reinforcement Learning · J0037`，完整 ID、要求和介绍保持不变。
+来源说明继续标记“实验数据，非实时招聘职位”，不能当作实时在招列表。
 
 用户只填写技能，也可以发起请求；此例没有GPA、经验和时间信息：
 

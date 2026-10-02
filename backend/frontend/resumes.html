@@ -9,7 +9,7 @@ upload-form/choose-file 保存原件，attachment-toolbar 仅待解析时显示�
 edition-form 保存各 unit-* 与 slot-*，
 recommendation-resume 直接选择所有版本，recommendation-review 定位推荐字段，recommendation-save
 沿用 edition-form 的校验保存，recommendation-parse 显式解析，recommendation-upload 定位上传；
-recommend-jobs 显式读取已保存版本排序，recommendation-results 展示岗位，recommendation-more 展开完整结果；
+recommend-jobs 显式读取已保存版本排序，recommendation-results 为可键盘聚焦的滚动区域，展示精排岗位和纯文本双语理由；
 preview-text 显示不可改写原文，versions-list 交付安全 DOM 卡片。
 约束：不在浏览器持久化简历；保存独立稿，不覆盖原文件；空白推荐字段表示未知，不自动填值。
 -->
@@ -48,6 +48,6 @@ preview-text 显示不可改写原文，versions-list 交付安全 DOM 卡片。
 <div class="recommendation-picker"><label for="recommendation-resume" data-i18n="rj_resume_label">用于推荐的简历</label><select id="recommendation-resume" aria-describedby="recommendation-state" disabled><option value="" data-i18n="rj_choose_resume">请选择简历…</option></select></div>
 <p id="recommendation-state" class="recommendation-state" role="status" aria-live="polite"></p>
 <div class="actions recommendation-actions"><button id="recommendation-review" type="button" class="secondary" hidden data-i18n="rj_review">核对技能与推荐信息</button><button id="recommendation-save" type="submit" form="edition-form" hidden data-i18n="re_save">保存编辑稿</button><button id="recommendation-parse" type="button" hidden data-i18n="re_parse_now">解析简历</button><a id="recommendation-upload" href="#resume-files" class="nav-link" data-i18n="rj_upload">上传或添加简历</a><button id="recommend-jobs" type="button" disabled data-i18n="rj_button">推荐岗位</button></div>
-<div id="recommendation-results" aria-busy="false"></div><button id="recommendation-more" type="button" class="secondary" hidden></button></section>
+<div id="recommendation-results" class="recommendation-results" role="region" aria-label="推荐岗位列表" data-i18n-attr="aria-label:rj_results" tabindex="0" aria-busy="false" hidden></div></section>
 <section id="version-history" class="panel" aria-labelledby="versions-title"><div class="section-heading"><h2 id="versions-title" data-i18n="re_history_heading">原件与编辑稿历史</h2><button id="refresh-versions" class="secondary" type="button" data-i18n="rm_refresh">刷新</button></div><p class="hint" data-i18n="re_history_hint">原件和每次保存的编辑稿分别列出；选定版本后，可继续编辑或用于面试。</p><div id="versions-list" aria-busy="true"></div><div class="pagination"><button id="previous-page" type="button" class="secondary" disabled data-i18n="rm_previous">上一页</button><span id="page-number"></span><button id="next-page" type="button" class="secondary" disabled data-i18n="rm_next">下一页</button></div></section>
 </div></div></main><footer class="home-footer"><span>AI Interviewer</span><span data-i18n="re_footer">原件留存 / 单元编辑 / 版本可追溯</span></footer></div></body></html>

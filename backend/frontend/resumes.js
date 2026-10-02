@@ -10,14 +10,13 @@
  * - rmStatus：显示纯文本操作状态。
  * - rmControls：根据操作与分页状态切换控件。
  * - rmRecommend：仅显式使用所选已保存版本请求岗位推荐，不提交未保存简历。
- * - rmRecommend.recommend：调用本人推荐动作，失败保留明确来源/模型故障提示。
- * - rmRenderRecommendations：安全展示真实排序、岗位来源和技能交集，不把分数转换成概率。
+ * - rmRecommend.recommend：调用本人推荐动作，失败保留明确来源/粗排/精排故障提示。
+ * - rmRenderRecommendations：安全展示 LLM 顺序、双语理由、岗位来源和技能交集，不把分数转换成概率。
  * - rmRenderResumePicker：按已读取的完整版本元数据重绘推荐选择器，标注状态和当前版本。
  * - rmChooseResume：用户明确切换推荐版本，沿用未保存确认和详情读取，不修改 current。
  * - rmChooseResume.choose：在操作锁内加载所选持久化版本。
  * - rmReviewRecommendation：展开技能及推荐字段并移动焦点，不修改或保存资料。
  * - rmHasRecommendationDetails：检查已加载槽位是否至少有一项已知，不填补未知值。
- * - rmMoreJobs：展开下一组已返回岗位，不重新打分或改变排序。
  * - rmSource：切换互斥上传表单。
  * - rmChooseFile：打开原生选择器，允许重新选择相同文件，不发送请求。
  * - rmFileSelected：有明确文件选择时保存原件，取消选择不创建版本。
@@ -80,8 +79,6 @@
  * - rmRecommendations：所选已保存版本的排序响应；编辑或切换后清空。
  * - rmRecommendationError：推荐区当前故障文案 key；成功或切换时清空。
  * - RM_RECOMMENDATION_ERRORS：稳定服务故障码到中英文文案的允许列表。
- * - RM_JOB_PAGE_SIZE：每次展开 10 张卡，仅为显示步长，后台仍排序并返回全部岗位。
- * - rmVisibleJobs：当前展开卡片数量，编辑、切换或新请求时重置。
  * 约束：
  * 用户文本仅经 value/textContent 显示；每次保存生成新版本，不覆盖原件或改变失败语义。
  */
@@ -114,10 +111,10 @@ const RM_RECOMMENDATION_ERRORS = {
   job_catalog_not_configured: "rj_no_catalog", job_catalog_invalid: "rj_bad_catalog",
   recommendation_profile_empty: "rj_empty_profile", recommendation_model_unavailable: "rj_model_error",
   recommendation_profile_invalid: "rj_profile_error", recommendation_features_invalid: "rj_feature_error",
+  recommendation_llm_not_configured: "rj_llm_config", recommendation_llm_unavailable: "rj_llm_error",
+  recommendation_llm_invalid_output: "rj_llm_output",
   resume_not_ready: "rm_unready",
 };
-const RM_JOB_PAGE_SIZE = 10;
-let rmVisibleJobs = RM_JOB_PAGE_SIZE;
 
 /** 输入翻译 key 与参数，返回当前语言纯文本；i18n.js 是模板显式先加载的依赖。 */
 function rmText(key, values = {}) { return window.AppI18n.t(key, values); }
@@ -327,7 +324,6 @@ async function rmPreview(id, discardConfirmed = false) {
 }
 /** 清空未保存状态和下载指针，禁用编辑；调用前由动作入口确认丢弃，不删除服务端数据。 */
 function rmClearEditor() {
-  rmVisibleJobs = RM_JOB_PAGE_SIZE;
   rmRecommendations = null; rmRecommendationError = null;
   rmEditorBase = null; rmEditorDirty = false; rmInitialSlots = {}; rmSlotTouched.clear(); rmSuggestedCount = 0;
   for (const key of RM_UNITS) rmEl("unit-" + key).value = "";
@@ -389,7 +385,6 @@ function rmFillEditor(editor) {
 function rmDirty(event) {
   if (!rmEditorBase) return;
   rmRecommendations = null; rmRecommendationError = null;
-  rmVisibleJobs = RM_JOB_PAGE_SIZE;
   rmEditorDirty = true;
   rmSuggestedCount = 0;
   if (event.currentTarget.dataset.slot) rmSlotTouched.add(event.currentTarget.dataset.slot);
@@ -477,7 +472,6 @@ async function rmRecommend() {
   if (rmBusy || !rmEditorBase || rmEditorDirty || !rmHasRecommendationDetails()) return;
   const id = rmEditorBase;
   rmRecommendations = null; rmRecommendationError = null;
-  rmVisibleJobs = RM_JOB_PAGE_SIZE;
   /** 读取保存快照的真实排序；异常展示稳定文案并交给操作锁记录，不重试或保留过期结果。 */
   async function recommend() {
     rmEl("recommendation-state").textContent = rmText("rj_loading");
@@ -535,7 +529,8 @@ function rmReviewRecommendation() {
   rmEl("slot-skills").focus({ preventScroll: true });
 }
 /** 读取当前选择、保存状态和服务响应，输出下一步动作和纯 DOM 岗位卡。
- * messageKey 按故障、待保存、未就绪、未知资料、可推荐顺序决定提示；保留原排序与缺失语义。
+ * messageKey 按故障、待保存、未就绪、未知资料、可推荐顺序决定提示；最终名次来自 LLM。
+ * 原分数不作概率；理由按当前语言以 textContent 输出，语言切换不发 API 请求。
  */
 function rmRenderRecommendations() {
   rmEl("recommendation-review").hidden = !rmEditorBase;
@@ -543,10 +538,6 @@ function rmRenderRecommendations() {
   rmEl("recommendation-parse").hidden = Boolean(rmEditorBase) || rmAttachment?.status !== "uploaded";
   rmEl("recommendation-upload").hidden = Boolean(rmEditorBase) || rmAttachment?.status === "uploaded";
   const list = rmEl("recommendation-results");
-  const more = rmEl("recommendation-more");
-  more.hidden = !rmRecommendations || rmVisibleJobs >= rmRecommendations.results.length;
-  more.disabled = rmBusy;
-  if (rmRecommendations) more.textContent = rmText("rj_more", { shown: Math.min(rmVisibleJobs, rmRecommendations.results.length), total: rmRecommendations.results.length });
   list.replaceChildren();
   const state = rmEl("recommendation-state");
   let selected = null;
@@ -560,9 +551,10 @@ function rmRenderRecommendations() {
     else messageKey = rmChoiceVersions.length ? "rj_select_first" : "rj_upload_first";
   } else if (!rmHasRecommendationDetails()) messageKey = "rj_empty_profile";
   state.textContent = messageKey === "rj_ready" ? rmText(messageKey, { version }) : rmText(messageKey);
+  list.hidden = !rmRecommendations;
   if (!rmRecommendations) return;
   state.textContent = rmText("rj_source", { version, source: rmRecommendations.source_name, count: rmRecommendations.results.length }) + (rmRecommendations.source_kind === "experience" ? " · " + rmText("rj_experience") : "");
-  for (const result of rmRecommendations.results.slice(0, rmVisibleJobs)) {
+  for (const result of rmRecommendations.results) {
     const card = document.createElement("article"); card.className = "recommended-job";
     const heading = document.createElement("h3"); heading.textContent = result.job.title;
     const meta = document.createElement("p"); meta.className = "hint";
@@ -572,23 +564,29 @@ function rmRenderRecommendations() {
     if (mode) parts.push(rmText("re_option_" + mode.replaceAll(" ", "_")));
     meta.textContent = parts.join(" · ");
     const rank = document.createElement("span"); rank.className = "badge";
-    rank.textContent = result.status === "scored" ? rmText("rj_rank", { rank: result.rank }) : rmText("rj_insufficient");
-    card.append(rank, heading, meta);
+    rank.textContent = rmText("rj_rank", { rank: result.rank });
+    const header = document.createElement("div"); header.className = "job-heading";
+    header.append(rank, heading); card.append(header);
+    if (parts.length) card.append(meta);
+    const reason = document.createElement("p"); reason.className = "job-reason";
+    const reasonLabel = document.createElement("strong"); reasonLabel.textContent = rmText("rj_reason");
+    const reasonText = document.createElement("span");
+    reasonText.textContent = result.recommendation_reason[window.AppI18n.language()];
+    reason.append(reasonLabel, reasonText); card.append(reason);
+    const skills = document.createElement("p"); skills.className = "job-skills";
+    skills.textContent = rmText("rj_skills", { skills: result.job.requirements.required_skills?.join(", ") || rmText("re_unknown") });
+    const matches = document.createElement("p"); matches.className = "hint";
+    matches.textContent = rmText("rj_matches", { skills: result.matched_skills.join(", ") || rmText("rj_no_matches"), count: result.available_feature_count });
+    card.append(skills, matches);
     if (result.job.description) {
       const details = document.createElement("details");
       const summary = document.createElement("summary"); summary.textContent = rmText("rj_details");
       const description = document.createElement("p"); description.textContent = result.job.description;
       details.append(summary, description); card.append(details);
     }
-    const skills = document.createElement("p"); skills.className = "job-skills";
-    skills.textContent = rmText("rj_skills", { skills: result.job.requirements.required_skills?.join(", ") || rmText("re_unknown") });
-    const matches = document.createElement("p"); matches.className = "hint";
-    matches.textContent = rmText("rj_matches", { skills: result.matched_skills.join(", ") || rmText("rj_no_matches"), count: result.available_feature_count });
-    card.append(skills, matches); list.append(card);
+    list.append(card);
   }
 }
-/** 无外部参数；展开已返回的下一组卡片，不发网络请求、不改变模型候选池或名次。 */
-function rmMoreJobs() { if (!rmBusy && rmRecommendations) { rmVisibleJobs += RM_JOB_PAGE_SIZE; rmRenderRecommendations(); } }
 /** 输入侧栏点击事件，展开求职意向单元；保留原锚点滚动，不修改文本或请求模型。 */
 function rmSection(event) {
   const link = event.target.closest("a[data-section]");
@@ -783,7 +781,6 @@ rmEl("recommend-jobs").addEventListener("click", rmRecommend);
 rmEl("recommendation-resume").addEventListener("change", rmChooseResume);
 rmEl("recommendation-review").addEventListener("click", rmReviewRecommendation);
 rmEl("recommendation-parse").addEventListener("click", rmParseUploaded);
-rmEl("recommendation-more").addEventListener("click", rmMoreJobs);
 rmEl("edition-label").addEventListener("input", rmDirty);
 for (const key of RM_UNITS) rmEl("unit-" + key).addEventListener("input", rmDirty);
 for (const key of Object.keys(RM_SLOTS)) {

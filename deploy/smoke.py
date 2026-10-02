@@ -1,10 +1,11 @@
 """职责：发布后验证 HTTP、PostgreSQL、Redis、Celery 和实际个人岗位推荐。
 
 实现：检查数据库、公开登录页和无用户数据 Celery 探针；用临时账号/简历/会话调用
-运行中的 ASGI 推荐接口及冻结本地模型，finally 清理探针记录；失败非零退出，无外部模型调用。
+运行中的 ASGI、冻结模型和单次 LLM 精排，finally 清理探针记录；失败非零退出，不重试。
 关联：deploy-release.py 在切换服务后以应用用户执行本文件。
 目录：
-- verify_recommendations：用临时保存槽位和真实 Session/CSRF 验证全部实验岗位，再清理。
+- verify_recommendations：
+  用临时保存槽位和真实 Session/CSRF 验证 100 岗粗排/20 岗候选/5 岗精排及双语理由，再清理。
 - main：读取已加载生产环境，验证基础组件与岗位推荐，打印固定成功信息。
 关键变量：
 （无模块级变量。）
@@ -24,9 +25,12 @@ def verify_recommendations(base_url="http://127.0.0.1:8765"):
     """输入已初始化 Django 和运行中服务的 base_url；成功返回 None，错误传播以阻断验收。
 
     创建随机用户名、不可登录密码、含 Python 技能的 ready 简历和标准数据库会话。
-    通过回环代理头及会话请求简历页取得 CSRF，再调用真实推荐路由，核对全部 100 个 ID
+    通过回环代理头及会话请求简历页取得 CSRF，再调用真实推荐路由，
+    核对 100 岗粗排、20 岗候选、5 个合法 ID、双语理由
     和体验/实验标记；不覆盖应用配置、评分、用户资料或模型。所有探针记录在 finally 删除，
-    清理异常也明确失败；Cookie、CSRF 和响应正文不输出。此探针不评价模型推荐质量。
+    清理异常也明确失败；Cookie、CSRF 和响应正文不输出。
+    此探针发起一次真实 API 请求（产生服务商用量），但不评价推荐质量。
+    HTTP 读取使用既有 30 秒预算，不增加 API 超时或重发。
     """
     from django.contrib.auth import (
         BACKEND_SESSION_KEY,
@@ -86,14 +90,31 @@ def verify_recommendations(base_url="http://127.0.0.1:8765"):
             result.get("source_kind") != "experience"
             or result.get("experimental") is not True
             or result.get("release_gate_passed") is not False
-            or len(jobs) != 100
-            or {job["job_id"] for job in jobs} != {f"J{number:04}" for number in range(1, 101)}
+            or result.get("sorted_by") != "llm_order"
+            or result.get("pipeline", {}).get("catalog_count") != 100
+            or result.get("pipeline", {}).get("topk1") != 20
+            or result.get("pipeline", {}).get("topk2") != 5
+            or result.get("pipeline", {}).get("shortlist_count") != 20
+            or len(jobs) != 5
+            or len({job["job_id"] for job in jobs}) != 5
+            or not {job["job_id"] for job in jobs}.issubset(
+                {f"J{number:04}" for number in range(1, 101)}
+            )
+            or [job.get("rank") for job in jobs] != [1, 2, 3, 4, 5]
+            or any(
+                not job.get("recommendation_reason", {}).get(lang)
+                for job in jobs
+                for lang in ("zh", "en")
+            )
             or any(job.get("status") != "scored" for job in jobs)
         ):
             raise RuntimeError(
                 "Recommendation probe failed the complete experimental catalog contract"
             )
-        print("Live authenticated recommendation verified: 100 experimental jobs")
+        print(
+            "Live authenticated recommendation verified: "
+            "100 catalog jobs -> 20 shortlist -> 5 LLM jobs with reasons"
+        )
     finally:
         # 清理仅作用于本次持有的探针记录；数据库删除失败仍尝试撤销会话，错误保持可见。
         try:

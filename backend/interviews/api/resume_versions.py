@@ -1,7 +1,7 @@
 """职责：提供登录用户的简历原件/编辑版本、单元及推荐槽位、私有下载与显式解析。
 实现：所有资源按 owner 过滤；解析沿用现有规则+视觉管线及显式队列配置。
 关联：resume_editor 校验单元与确认槽位，resume_slots 提取原件待确认字段；
-resume_models 存储私有文件；recommendation.catalog/runtime 提供显式岗位来源及原模型排序；
+resume_models 存储私有文件；recommendation.catalog/runtime/rerank 提供岗位来源、粗排及 API 精排；
 resume_api/pdf_queue 负责原有解析，不修改实验参数。
 配置索引：ResumeSummary.Meta.model/fields/read_only_fields 定义公开元数据；ResumeInput 的
 label/file/text 定义输入；ResumeVersionViewSet.queryset 延迟读取文件正文，serializer_class
@@ -25,7 +25,7 @@ MAX_BYTES 沿用 PDF 文件限额，不是本模块实现的常量。
 - ResumeVersionViewSet.editor：读取单元、已确认槽位及原件待确认的全字段提取建议/证据。
 - ResumeVersionViewSet.editions：保存独立编辑稿快照并保护原件与基线。
 - ResumeVersionViewSet.recommendation_profile：输出可直接用于现有推荐 API 的候选人字段。
-- ResumeVersionViewSet.recommendations：用本人已保存槽位对显式岗位库调用真实模型并返回卡片。
+- ResumeVersionViewSet.recommendations：用已保存槽位对显式岗位库粗排，再单次 LLM 精排及解释。
 - ResumeVersionViewSet.export：下载独立的 UTF-8 编辑稿/提取文本，不替换原 PDF。
 - version_events：包围既有解析流，持久化成功、失败或中断状态。
 - resolve_resume_version：为 WebSocket 命令解析本人可用版本。
@@ -53,6 +53,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from ..recommendation.catalog import CatalogUnavailable, load_catalog
+from ..recommendation.rerank import RerankUnavailable, rerank_jobs
 from ..recommendation.runtime import ModelUnavailable, rank_pairs
 from ..recommendation.schemas import CandidateInput
 from ..resume_editor import (
@@ -300,9 +301,10 @@ class ResumeVersionViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
 
     @action(detail=True, methods=["post"])
     def recommendations(self, request, pk=None):
-        """输入本人 ready 版本 ID 和空请求体，返回显式岗位目录的原模型排序及展示字段。
+        """输入本人 ready 版本 ID 和空请求体，返回模型粗排 20 后 LLM 精排的前 5 岗及理由。
         只读已保存槽位，不采用自动建议/前端未保存值；未知保持未知。登录和 CSRF 沿用
-        ViewSet；无持久化或外部调用，记录版本 ID、数量及故障类型，失败不生成替代推荐。
+        ViewSet；仅精排调用既有模型 API，无持久化；记录版本 ID、数量及故障类型。
+        API/配置故障返回 503，非法精排返回 502，不补齐、不回退到粗排；小目录按实际数量。
         """
         version = self.get_object()
         if request.data:
@@ -331,17 +333,19 @@ class ResumeVersionViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
                 "Resume recommendation feature computation rejected version=%s", version.pk
             )
             return Response({"code": "recommendation_features_invalid"}, status=422)
-        by_id = {job.requirements.job_id: job for job in catalog.jobs}
-        for result in ranked["results"]:
-            job = by_id[result["job_id"]]
-            result["job"] = job.model_dump()
-            result["matched_skills"] = [
-                skill
-                for skill in (job.requirements.required_skills or [])
-                if skill in (candidate.skills or [])
-            ]
+        try:
+            ranked = rerank_jobs(candidate, catalog, ranked)
+        except RerankUnavailable as exc:
+            code = str(exc)
+            logger.error("Resume recommendation rerank failed version=%s code=%s", version.pk, code)
+            return Response(
+                {"code": code}, status=502 if code == "recommendation_llm_invalid_output" else 503
+            )
         logger.info(
-            "Resume recommendation completed version=%s jobs=%s", version.pk, len(catalog.jobs)
+            "Resume recommendation completed version=%s catalog=%s final=%s",
+            version.pk,
+            len(catalog.jobs),
+            len(ranked["results"]),
         )
         return Response(
             {

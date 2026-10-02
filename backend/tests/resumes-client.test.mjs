@@ -56,7 +56,8 @@
  * - profileSave：本人资料只用 PATCH 和 CSRF 保存，回填服务端结果。
  * - savedRecommendations：显式请求保存版本，安全展示岗位，不自动推荐；编辑后清除结果。
  * - recommendationFailure：来源故障不生成替代卡片，不自动重试，并恢复操作控件。
- * - recommendationExpansion：全部结果仍保留，分组展开不重新请求或改变模型名次。
+ * - recommendationReasons：双语理由安全展示，语言切换不再次请求，最终顺序不改变。
+ * - makePage.language：读取合成语言状态，不调用真实浏览器语言。
  * - recommendationSelection：跨历史分页完整选择 ready 版本，不自动推荐或修改 current。
  * - recommendationGuidance：无简历、待解析和缺少推荐字段时显示对应下一步动作。
  * - recommendationUnsaved：取消版本切换保留输入/选择，显示就近保存按钮。
@@ -197,7 +198,9 @@ async function makePage(initial = [], events = [{ type: "result", text: "中文�
   function selectors() { return []; }
   /** 输入侧栏选择器；返回单一合成节点以验证事件注册。 */
   function sectionNavigation(selector) { assert.equal(selector, ".section-navigation"); return new Element(); }
-  const context = vm.createContext({ document: { getElementById: getElement, createElement, querySelectorAll: selectors, querySelector: sectionNavigation, documentElement: { lang: "zh-CN" } }, window: { AppI18n: { t }, confirm, addEventListener: ignore }, console: { error: ignore }, fetch, Headers, FormData, Response, ReadableStream, TextEncoder, TextDecoder, AbortController, DOMException });
+  /** 无外部参数；读取合成页面语言，用于验证双语理由，无网络副作用。 */
+  function language() { return context.document.documentElement.lang.startsWith("en") ? "en" : "zh"; }
+  const context = vm.createContext({ document: { getElementById: getElement, createElement, querySelectorAll: selectors, querySelector: sectionNavigation, documentElement: { lang: "zh-CN" } }, window: { AppI18n: { t, language }, confirm, addEventListener: ignore }, console: { error: ignore }, fetch, Headers, FormData, Response, ReadableStream, TextEncoder, TextDecoder, AbortController, DOMException });
   await vm.runInContext(SCRIPT, context);
   /** 输入本地函数调用表达式，输出其返回值或 Promise；仅使用测试固定源码。 */
   function run(code) { return vm.runInContext(code, context); }
@@ -485,7 +488,7 @@ test("extracted recommendation suggestions require saving and preserve manual co
 async function savedRecommendations() {
   const item = record("saved"); item.slots = {skills: ["Python"]};
   item.recommendation_response = {source_name: "Synthetic jobs", source_kind: "experience", results: [
-    {job_id: "test", status: "scored", rank: 1, available_feature_count: 1, matched_skills: ["Python"],
+    {job_id: "test", status: "scored", rank: 1, recommendation_reason: {zh:"已保存 Python 技能。", en:"Python is recorded."}, available_feature_count: 1, matched_skills: ["Python"],
       job: {title: "<img src=x> Backend", company: "Synthetic", location: "Test city", description: "Test only",
         requirements: {required_skills: ["Python"], job_in_person_commitment: "Online"}}},
   ]};
@@ -500,7 +503,7 @@ async function savedRecommendations() {
   assert.equal(request.body, undefined);
   const cards = page.elements.get("recommendation-results").children;
   assert.equal(cards.length, 1);
-  assert.equal(cards[0].children[1].textContent, "<img src=x> Backend");
+  assert.equal(cards[0].children[0].children[1].textContent, "<img src=x> Backend");
   assert.match(page.elements.get("recommendation-state").textContent, /rj_experience/);
   page.elements.get("slot-skills").value = "Java";
   await page.run("rmDirty({currentTarget:rmEl('slot-skills')}); rmRecommend()");
@@ -515,37 +518,38 @@ test("recommendations use only saved features and clear results on edits", saved
 /** 来源错误明确展示且无假岗位/自动重试，单操作锁释放后允许用户显式再次请求。 */
 async function recommendationFailure() {
   const item = record("saved"); item.slots = {skills: ["Python"]};
-  item.recommendation_status = 503; item.recommendation_response = {code: "job_catalog_not_configured"};
+  item.recommendation_status = 502; item.recommendation_response = {code: "recommendation_llm_invalid_output"};
   const page = await makePage([item]);
   await page.run("rmPreview('saved')");
   await page.run("rmRecommend()");
   assert.equal(page.requests.length, 4);
-  assert.equal(page.elements.get("recommendation-state").textContent, "rj_no_catalog{}");
+  assert.equal(page.elements.get("recommendation-state").textContent, "rj_llm_output{}");
   assert.equal(page.elements.get("recommendation-results").children.length, 0);
   assert.equal(page.elements.get("recommend-jobs").disabled, false);
-  assert.match(page.elements.get("operation-status").textContent, /^rj_no_catalog/);
+  assert.match(page.elements.get("operation-status").textContent, /^rj_llm_output/);
 }
-test("recommendation source failure stays explicit without fabricated jobs", recommendationFailure);
+test("recommendation LLM failure stays explicit without fabricated jobs", recommendationFailure);
 
-/** 21 个合成结果按组展示，展开与语言重绘不发请求，模型返回的原始顺序完整保留。 */
-async function recommendationExpansion() {
+/** 模拟精排返回五岗；理由与标题中的 HTML 只作文本，切换语言不请求 API 或重排。 */
+async function recommendationReasons() {
   const item = record("saved"); item.slots = {skills: ["Python"]};
   const results = [];
-  for (let rank = 1; rank <= 21; rank += 1) results.push({status: "scored", rank, available_feature_count: 1, matched_skills: [], job: {title: "Job " + rank, requirements: {required_skills: ["Python"]}}});
+  for (let rank = 1; rank <= 5; rank += 1) results.push({status: "scored", rank, available_feature_count: 1, matched_skills: [], recommendation_reason: {zh:"<script>理由 " + rank, en:"<img src=x> Reason " + rank}, job: {title: "Job " + rank, requirements: {required_skills: ["Python"]}}});
   item.recommendation_response = {source_name: "Test", source_kind: "experience", results};
   const page = await makePage([item]);
   await page.run("rmPreview('saved')"); await page.run("rmRecommend()");
-  assert.equal(page.elements.get("recommendation-results").children.length, 10);
-  assert.equal(page.elements.get("recommendation-more").hidden, false);
-  await page.run("rmMoreJobs()");
-  assert.equal(page.elements.get("recommendation-results").children.length, 20);
-  await page.run("rmMoreJobs(); rmLanguage()");
-  assert.equal(page.elements.get("recommendation-results").children.length, 21);
-  assert.equal(page.elements.get("recommendation-more").hidden, true);
+  const list = page.elements.get("recommendation-results");
+  assert.equal(list.children.length, 5);
+  assert.equal(list.hidden, false);
+  assert.equal(list.children[0].children[1].children[1].textContent, "<script>理由 1");
+  page.context.document.documentElement.lang = "en";
+  await page.run("rmLanguage()");
+  assert.equal(list.children[4].children[1].children[1].textContent, "<img src=x> Reason 5");
+  assert.equal(list.children[4].children[0].children[1].textContent, "Job 5");
   assert.equal(page.requests.length, 4);
-  assert.equal(page.elements.get("recommendation-results").children[20].children[1].textContent, "Job 21");
+  assert.match(HTML, /role="region"[^>]*tabindex="0"/);
 }
-test("recommendation cards expand without changing or resending the ranked pool", recommendationExpansion);
+test("LLM reasons stay safe and switch language without another API call", recommendationReasons);
 
 /** 合成 API 分三页，实际客户端选择器列出全部版本；显式选择只读详情，保留历史分页与 current。 */
 async function recommendationSelection() {

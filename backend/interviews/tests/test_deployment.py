@@ -1,17 +1,20 @@
 """职责：验证生产访问边界及实际岗位推荐部署探针的成功、失败和清理契约。
 
 实现：构造代理 ASGI scope，验证 HTTPS 代理协议；本机 LiveServer 与真实冻结模型
-验证部署岗位探针的 Session/CSRF 请求和成功/失败清理，不访问生产数据库或外部服务。
+验证部署岗位探针的 Session/CSRF 和成功/失败清理；仅精排 API 用明确替身，
+不访问生产数据库或外部服务。
 关联：access.websocket_allowed、LocalOnlyMiddleware 和 config.production 的部署契约。
 
 目录：
+- deployment_output：仅外部 API 替身，按实际候选构造合成精排。
 - DeploymentAccessTests：不访问数据库的部署访问策略回归集合。
 - DeploymentAccessTests.scope：构造来自同机代理的 HTTPS WebSocket 请求。
 - DeploymentAccessTests.test_proxy_origin_and_peer：允许指定同源代理，拒绝外站、远端与伪造 Host。
 - DeploymentAccessTests.test_http_proxy_origin：HTTP 应用保留同源与回环限制。
 - DeploymentAccessTests.test_local_defaults：默认开发配置继续拒绝公网 Host。
 - DeploymentRecommendationTests：以隔离数据库和本机 HTTP 服务验证发布岗位验收。
-- DeploymentRecommendationTests.test_live_catalog_and_cleanup：真实 100 岗排序成功且清理探针记录。
+- DeploymentRecommendationTests.test_live_catalog_and_cleanup：
+  真实 100 岗粗排及 API 替身精排成功，清理探针记录。
 - DeploymentRecommendationTests.test_missing_catalog_fails_and_cleans_up：来源缺失明确失败仍清理。
 
 关键变量：
@@ -19,6 +22,7 @@
 """
 
 from pathlib import Path
+from unittest.mock import patch
 from urllib.error import HTTPError
 
 from django.contrib.auth import get_user_model
@@ -29,7 +33,24 @@ from django.test import LiveServerTestCase, RequestFactory, SimpleTestCase, over
 from deploy.smoke import verify_recommendations
 from interviews.access import websocket_allowed
 from interviews.middleware import LocalOnlyMiddleware
+from interviews.recommendation.rerank import RerankOutput
 from interviews.resume_models import ResumeVersion
+
+
+def deployment_output(payload):
+    """输入实际粗排候选，返回其中前 final_count 岗及合成双语理由；只替代外部 API。"""
+    return RerankOutput.model_validate(
+        {
+            "jobs": [
+                {
+                    "job_id": item["job_id"],
+                    "reason_zh": "Python 技能已知，其他信息未知。",
+                    "reason_en": "Python is known; other fields are unknown.",
+                }
+                for item in payload["shortlist"][: payload["final_count"]]
+            ]
+        }
+    ), "test-api"
 
 
 class DeploymentAccessTests(SimpleTestCase):
@@ -106,15 +127,17 @@ class DeploymentRecommendationTests(LiveServerTestCase):
     """功能：验证发布验收真实 HTTP 行为与清理；逻辑：使用隔离库及本机线程服务。
 
     前提：只为 LiveServer 文件处理器提供静态/媒体 URL，不改生产路由或配置。
-    约束：沿用 Session、CSRF 和原冻结模型，无认证/模型替身；此本机 WSGI 验证不代表
-    生产 ASGI 或 Nginx 成功，真实发布另由相同探针检查运行中的服务。
+    约束：沿用 Session、CSRF 和原冻结模型，无认证/粗排模型替身，外部 API 单独模拟；
+    此本机 WSGI 验证不代表生产 ASGI 或 Nginx 成功，真实发布另由相同探针检查运行中的服务。
     """
 
     def test_live_catalog_and_cleanup(self):
         """输入隔离用户库与完整实验目录；验证真实排序通过，账号/简历/会话均不残留。"""
         path = Path(__file__).resolve().parents[1] / "recommendation/data/experience-jobs.json"
         with override_settings(RECOMMENDATION_JOB_CATALOG=str(path)):
-            verify_recommendations(self.live_server_url)
+            with patch("interviews.recommendation.rerank.request_rerank") as api:
+                api.side_effect = deployment_output
+                verify_recommendations(self.live_server_url)
         self.assertEqual(get_user_model().objects.count(), 0)
         self.assertEqual(ResumeVersion.objects.count(), 0)
         self.assertEqual(Session.objects.count(), 0)

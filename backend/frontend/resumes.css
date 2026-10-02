@@ -2,7 +2,7 @@
  * 职责：个人中心的企业招聘式布局：紧凑导航、附件操作、单元编辑、原文对照和版本记录。
  * 实现：单入口上传、附件行内解析、推荐区版本选择/下一步动作；对照展开才分双栏；手机单栏；粘附保存栏。
  * 关联：resumes.html/resumes.js；selected/current 标记版本，不通过样式修改数据或可用状态。
- * 目录：页面框架；侧栏；附件；表单单元与推荐字段；对照；保存栏；推荐卡片；历史；响应式。
+ * 目录：页面框架；侧栏；附件；表单单元与推荐字段；对照；保存栏；推荐滚动区域与理由卡片；历史；响应式。
  * 函数和类声明：None。变量索引：None，无 CSS 自定义变量或配置项。
  * 约束：仅展示，hidden 保持隐藏；长文件名/用户名换行，键盘焦点可见，表单原文不裁剪。
  */
@@ -95,7 +95,7 @@
 
 @media (max-width: 700px) { .resumes-page .unit-navigation { display: none; } }
 
-/* 推荐仅展示来源和排序证据；长岗位文本换行，单列布局适用于桌面与手机。 */
+/* 推荐展示来源、技能证据与 LLM 解释；长岗位文本换行，单列布局适用于桌面与手机。 */
 .resumes-page .recommendation-state { color: #536a70; font-size: 13px; line-height: 1.8; overflow-wrap: anywhere; }
 .resumes-page .recommendation-picker { padding: 14px 16px; background: #f7faf9; border: 1px solid #dce7e2; border-radius: 8px; }
 .resumes-page .recommendation-picker label { margin-top: 0; }
@@ -103,9 +103,20 @@
 .resumes-page .recommendation-actions { flex-wrap: wrap; gap: 10px; }
 .resumes-page .recommendation-actions #recommend-jobs { margin-left: auto; }
 @media (max-width: 700px) { .resumes-page .recommendation-actions button { width: 100%; } .resumes-page .recommendation-actions #recommend-jobs { margin-left: 0; } }
-.resumes-page .recommended-job { border: 1px solid #e2e7ec; border-radius: 8px; padding: 18px; margin-top: 12px; overflow-wrap: anywhere; }
-.resumes-page .recommended-job h3 { margin: 10px 0 6px; font-size: 17px; }
-.resumes-page .recommended-job p { line-height: 1.7; }
-.resumes-page .job-skills { font-size: 13px; color: #236b5d; }
-.resumes-page .recommended-job summary { cursor: pointer; color: #64747c; font-size: 13px; }
-.resumes-page #recommendation-more { margin-top: 16px; }
+/* 固定阅读窗口只限制可视高度，不裁剪数据；区域可聚焦以支持键盘滚动。 */
+.resumes-page .recommendation-results { max-height: min(660px, 68vh); overflow-y: auto; overscroll-behavior-y: contain; scrollbar-gutter: stable; padding: 14px; margin-top: 18px; border: 1px solid #dce5e1; border-radius: 12px; background: #f6f9f7; }
+.resumes-page .recommendation-results:focus-visible { outline: 3px solid #83b3a3; outline-offset: 3px; }
+.resumes-page .recommended-job { border: 1px solid #dde6e1; border-radius: 10px; padding: 22px; background: white; overflow-wrap: anywhere; }
+.resumes-page .recommended-job + .recommended-job { margin-top: 14px; }
+.resumes-page .job-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 10px; }
+.resumes-page .job-heading .badge { flex-shrink: 0; margin: 0; color: #245e4c; background: #eaf2ee; font-size: 12px; }
+.resumes-page .recommended-job h3 { margin: 0; color: #203a32; font-size: 19px; font-weight: 650; line-height: 1.45; }
+.resumes-page .recommended-job p { margin: 12px 0 0; font-size: 14px; line-height: 1.75; }
+.resumes-page .recommended-job .job-reason { margin-top: 16px; padding: 12px 14px; border-left: 3px solid #709c89; background: #f4f8f5; color: #2b453b; font-size: 15px; line-height: 1.8; }
+.resumes-page .job-reason strong { display: block; margin-bottom: 4px; font-size: 12px; font-weight: 600; color: #3e715b; }
+.resumes-page .job-skills { color: #376052; }
+.resumes-page .recommended-job .hint { font-size: 13px; color: #63756d; }
+.resumes-page .recommended-job details { margin-top: 16px; border-top: 1px solid #edf1ee; padding-top: 12px; }
+.resumes-page .recommended-job summary { cursor: pointer; color: #476b5c; font-size: 14px; line-height: 1.6; }
+.resumes-page .recommended-job details p { white-space: pre-line; }
+@media (max-width: 700px) { .resumes-page .recommendation-results { padding: 8px; max-height: 65vh; } .resumes-page .recommended-job { padding: 16px; } .resumes-page .recommended-job h3 { font-size: 17px; } }
