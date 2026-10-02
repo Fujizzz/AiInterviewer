@@ -1,6 +1,6 @@
 /*
  * 职责：个人中心的企业招聘式布局：紧凑导航、附件操作、单元编辑、原文对照和版本记录。
- * 实现：单入口上传、附件行内解析和按需展开选项；对照展开才分双栏；手机单栏；粘附保存栏。
+ * 实现：单入口上传、附件行内解析、推荐区版本选择/下一步动作；对照展开才分双栏；手机单栏；粘附保存栏。
  * 关联：resumes.html/resumes.js；selected/current 标记版本，不通过样式修改数据或可用状态。
  * 目录：页面框架；侧栏；附件；表单单元与推荐字段；对照；保存栏；推荐卡片；历史；响应式。
  * 函数和类声明：None。变量索引：None，无 CSS 自定义变量或配置项。
@@ -97,6 +97,12 @@
 
 /* 推荐仅展示来源和排序证据；长岗位文本换行，单列布局适用于桌面与手机。 */
 .resumes-page .recommendation-state { color: #536a70; font-size: 13px; line-height: 1.8; overflow-wrap: anywhere; }
+.resumes-page .recommendation-picker { padding: 14px 16px; background: #f7faf9; border: 1px solid #dce7e2; border-radius: 8px; }
+.resumes-page .recommendation-picker label { margin-top: 0; }
+.resumes-page .recommendation-picker select { min-width: 0; text-overflow: ellipsis; }
+.resumes-page .recommendation-actions { flex-wrap: wrap; gap: 10px; }
+.resumes-page .recommendation-actions #recommend-jobs { margin-left: auto; }
+@media (max-width: 700px) { .resumes-page .recommendation-actions button { width: 100%; } .resumes-page .recommendation-actions #recommend-jobs { margin-left: 0; } }
 .resumes-page .recommended-job { border: 1px solid #e2e7ec; border-radius: 8px; padding: 18px; margin-top: 12px; overflow-wrap: anywhere; }
 .resumes-page .recommended-job h3 { margin: 10px 0 6px; font-size: 17px; }
 .resumes-page .recommended-job p { line-height: 1.7; }

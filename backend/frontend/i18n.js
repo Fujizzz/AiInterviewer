@@ -17,7 +17,7 @@
  * - t：返回当前语言的动态文案。
  * - setText：以当前语言更新指定元素。
  * 关键变量：
- * - MESSAGES：主页、账号、简历单入口上传/按需展开、单元编辑/推荐字段、面试和诊断页面的中英文资源。
+ * - MESSAGES：主页、账号、简历上传/编辑、推荐版本选择与解析/核对/保存指引、面试和诊断的中英文资源。
  * - STORAGE_KEY：浏览器偏好键名；只保存 language preference，不保存简历或面试内容。
  * - preference：当前偏好，可为 zh、en 或 system。
  * - language：当前实际语言，只能为 zh 或 en。
@@ -51,7 +51,13 @@ const MESSAGES = {
     rj_nav: "04 岗位推荐",
     rj_heading: "为你推荐的岗位",
     rj_button: "推荐岗位",
-    rj_hint: "使用上方已保存版本的推荐信息。实验模型排序，仅供参考。",
+    rj_hint: "选择简历 → 核对并保存推荐信息 → 推荐岗位。实验模型排序，仅供参考。",
+    rj_resume_label: "用于推荐的简历",
+    rj_choose_resume: "请选择简历…",
+    rj_review: "核对技能与推荐信息",
+    rj_upload: "上传或添加简历",
+    rj_upload_first: "还没有可选简历。点击“上传或添加简历”开始。",
+    rj_parse_first: "这份 PDF 还未解析。点击“解析简历”，完成后核对并保存推荐信息。",
     rj_no_catalog: "岗位来源尚未配置，请联系系统维护者接入岗位库。",
     rj_bad_catalog: "岗位来源暂不可用，请联系系统维护者检查岗位文件。",
     rj_empty_profile: "此版本尚无已确认的推荐信息，请补充技能等字段并保存编辑稿。",
@@ -60,8 +66,8 @@ const MESSAGES = {
     rj_feature_error: "推荐字段无法计算，请检查数值与单位后保存新稿。",
     rj_error: "推荐失败，请稍后手动重试。",
     rj_loading: "正在根据已保存的简历特征排序…",
-    rj_save_first: "简历有待确认或未保存的修改，保存编辑稿后即可推荐。",
-    rj_select_first: "先选择一个已解析版本，并核对推荐信息。",
+    rj_save_first: "有待确认或未保存的修改。核对后点击此处“保存编辑稿”，再推荐岗位。",
+    rj_select_first: "在上方“用于推荐的简历”中选择版本；Ready / 已就绪版本可用于推荐。",
     rj_ready: "已选版本：{version} · 点击推荐岗位查看结果。",
     rj_source: "简历：{version} · 岗位来源：{source} · {count} 个岗位",
     rj_experience: "体验数据，非实时招聘职位",
@@ -454,7 +460,13 @@ const MESSAGES = {
     rj_nav: "04 Job recommendations",
     rj_heading: "Jobs for you",
     rj_button: "Recommend jobs",
-    rj_hint: "Uses the saved resume selected above. Experimental ranking, for reference.",
+    rj_hint: "Choose a resume → Review and save its details → Recommend jobs. Experimental ranking, for reference.",
+    rj_resume_label: "Resume for recommendations",
+    rj_choose_resume: "Choose a resume…",
+    rj_review: "Review skills & recommendation details",
+    rj_upload: "Upload or add a resume",
+    rj_upload_first: "No resumes yet. Click Upload or add a resume to get started.",
+    rj_parse_first: "This PDF needs extraction. Click Extract resume, then review and save its recommendation details.",
     rj_no_catalog: "No job source configured. Ask the system maintainer to connect a catalog.",
     rj_bad_catalog: "Job source unavailable. Ask the maintainer to check the catalog file.",
     rj_empty_profile: "No confirmed recommendation details in this version. Add skills or other fields and save an edition.",
@@ -463,8 +475,8 @@ const MESSAGES = {
     rj_feature_error: "Cannot compute these features. Check values and units, then save a new edition.",
     rj_error: "Recommendation failed. Retry manually later.",
     rj_loading: "Ranking jobs using your saved resume features…",
-    rj_save_first: "Review and save your pending changes before requesting recommendations.",
-    rj_select_first: "Select a parsed resume and review its recommendation details first.",
+    rj_save_first: "There are pending details or changes. Review them, then click Save new edition here before recommending jobs.",
+    rj_select_first: "Choose a version in Resume for recommendations above. Ready versions can be used for recommendations.",
     rj_ready: "Selected version: {version} · Click Recommend jobs to see results.",
     rj_source: "Resume: {version} · Source: {source} · {count} jobs",
     rj_experience: "Experience data, not current vacancies",

@@ -1,7 +1,8 @@
 /**
  * @module resumes
  * 职责：维护基本资料、原件、单元编辑稿和推荐槽位；保存独立版本后显式推荐岗位，保护未保存修改。
- * 实现：PDF 选择后一次上传，解析仍显式触发；单操作锁及 CSRF 保护写入；完整 NDJSON 后读持久化详情。
+ * 实现：PDF 选择后一次上传，解析仍显式触发；推荐区直接选择全部版本并提示解析/核对/保存；
+ * 单操作锁及 CSRF 保护写入；完整 NDJSON 后读持久化详情。
  * 关联：resumes.html、i18n.js、/api/resume-versions/ 及其 recommendations 动作；Django session 认证。
  * 目录：
  * - rmEl：取得模板元素。
@@ -11,6 +12,11 @@
  * - rmRecommend：仅显式使用所选已保存版本请求岗位推荐，不提交未保存简历。
  * - rmRecommend.recommend：调用本人推荐动作，失败保留明确来源/模型故障提示。
  * - rmRenderRecommendations：安全展示真实排序、岗位来源和技能交集，不把分数转换成概率。
+ * - rmRenderResumePicker：按已读取的完整版本元数据重绘推荐选择器，标注状态和当前版本。
+ * - rmChooseResume：用户明确切换推荐版本，沿用未保存确认和详情读取，不修改 current。
+ * - rmChooseResume.choose：在操作锁内加载所选持久化版本。
+ * - rmReviewRecommendation：展开技能及推荐字段并移动焦点，不修改或保存资料。
+ * - rmHasRecommendationDetails：检查已加载槽位是否至少有一项已知，不填补未知值。
  * - rmMoreJobs：展开下一组已返回岗位，不重新打分或改变排序。
  * - rmSource：切换互斥上传表单。
  * - rmChooseFile：打开原生选择器，允许重新选择相同文件，不发送请求。
@@ -18,8 +24,8 @@
  * - rmRequest：发同源请求，统一认证及业务错误，保留流响应。
  * - rmRun：串行执行操作，显示失败且释放 UI 状态。
  * - rmButton：生成命名版本动作按钮。
- * - rmRender：安全构造当前页版本卡片，不插入 HTML。
- * - rmLoad：读取分页列表并更新总数。
+ * - rmRender：同步全版本选择器并构造当前页历史卡片，不插入 HTML。
+ * - rmLoad：读取历史当前页及其他页元数据，完整成功后更新全版本选择器和历史分页。
  * - rmPreview：查询版本和编辑契约，显示原文及在线单元，返回持久化记录。
  * - rmClearEditor：清空编辑状态并禁用操作，不删除已保存版本。
  * - rmFillEditor：回填单元/确认值及原件待确认建议，标注证据并保护未保存建议，原文只读。
@@ -60,10 +66,11 @@
  * - rmEl：元素查询函数。
  * - rmBusy：唯一操作锁。
  * - rmController：当前解析 AbortController；页面离开终止接收。
- * - rmVersions：已加载当前页元数据，无文件字节。
+ * - rmVersions：历史当前页元数据，无文件字节。
+ * - rmChoiceVersions：推荐选择器的全部分页元数据，无正文或文件字节。
  * - rmPage：当前页编号，从 1 开始。
  * - rmNextPage：服务端声明是否有下一页。
- * - rmSelected：当前预览的版本 ID，无跨页持久化。
+ * - rmSelected：内存中预览版本 ID；不写浏览器存储或隐式设置 current。
  * - rmAttachment：最近选择/上传的原件元数据，用于就近解析。
  * - rmEditorBase：正在编辑的已保存基线版本 ID。
  * - rmEditorDirty：是否有未保存的单元或槽位修改。
@@ -91,6 +98,7 @@ const rmEl = (id) => document.getElementById(id);
 let rmBusy = false;
 let rmController = null;
 let rmVersions = [];
+let rmChoiceVersions = [];
 let rmPage = 1;
 let rmNextPage = false;
 let rmSelected = null;
@@ -135,7 +143,11 @@ function rmControls() {
   rmEl("edition-fields").disabled = rmBusy || rmEditorBase === null;
   rmEl("edition-save").disabled = rmBusy || rmEditorBase === null;
   rmEl("edition-current").disabled = rmBusy || rmEditorBase === null || rmEditorDirty;
-  rmEl("recommend-jobs").disabled = rmBusy || rmEditorBase === null || rmEditorDirty;
+  rmEl("recommend-jobs").disabled = rmBusy || rmEditorBase === null || rmEditorDirty || !rmHasRecommendationDetails();
+  rmEl("recommendation-resume").disabled = rmBusy || !rmChoiceVersions.length;
+  rmEl("recommendation-review").disabled = rmBusy;
+  rmEl("recommendation-save").disabled = rmBusy;
+  rmEl("recommendation-parse").disabled = rmBusy;
   rmEl("recommendation-results").setAttribute("aria-busy", String(rmBusy));
   rmRenderRecommendations();
   rmEl("versions-list").setAttribute("aria-busy", String(rmBusy));
@@ -197,8 +209,9 @@ function rmButton(action, id, key) {
   button.textContent = rmText(key);
   return button;
 }
-/** 读取当前页元数据及预览 ID，构建卡片；下载只使用服务端 UUID，不解释文件名或简历 HTML。 */
+/** 读取完整选择元数据、当前历史页及预览 ID，同步选项/卡片；下载仅用 UUID，不解释用户 HTML。 */
 function rmRender() {
+  rmRenderResumePicker();
   const list = rmEl("versions-list");
   list.replaceChildren();
   if (!rmVersions.length) {
@@ -269,9 +282,21 @@ function rmRender() {
   rmEl("page-number").textContent = rmText("rm_page", { page: rmPage });
   rmControls();
 }
-/** 输入页面编号；只请求元数据，不加载全文；成功后更新计数、分页与卡片。 */
+/** 输入历史页编号；读取全部页元数据以完整列出可选版本，复用目标页响应，不改变后端分页。
+ * 所有请求成功才替换列表；失败交给操作锁显示，不截断或回退。仅选择后读取正文和编辑契约。
+ */
 async function rmLoad(page = rmPage) {
   const data = await (await rmRequest("?page=" + page)).json();
+  const choices = [];
+  let index = 1;
+  let next = true;
+  while (next) {
+    const result = index === page ? data : await (await rmRequest("?page=" + index)).json();
+    choices.push(...result.results);
+    next = Boolean(result.next);
+    index += 1;
+  }
+  rmChoiceVersions = choices;
   rmVersions = data.results;
   rmPage = page;
   rmNextPage = Boolean(data.next);
@@ -399,7 +424,9 @@ function rmReadSlots() {
   }
   return slots;
 }
-/** 输入编辑表单事件；校验后保存文本单元和确认槽位为独立新稿，不覆盖原件/历史或自动设 current。 */
+/** 输入编辑表单事件；校验后保存独立新稿，不覆盖原件/历史或自动设 current。
+ * submitter 为推荐区保存按钮时，成功后返回推荐区；其他保存入口保持原编辑位置。
+ */
 async function rmSaveEdition(event) {
   event.preventDefault();
   if (rmBusy || !rmEditorBase) return;
@@ -409,6 +436,7 @@ async function rmSaveEdition(event) {
   try { slots = rmReadSlots(); }
   catch (error) { rmStatus(error.message, true); return; }
   const base = rmEditorBase;
+  const returnToRecommendations = event.submitter?.id === "recommendation-save";
   const body = JSON.stringify({ label: rmEl("edition-label").value.trim(), units, slots });
   /** 成功 POST 后才清除未保存状态，读取新稿作为下一次编辑基线；失败保留原输入。 */
   async function save() {
@@ -416,16 +444,22 @@ async function rmSaveEdition(event) {
     rmEditorDirty = false;
     await rmLoad(1); await rmPreview(version.id, true);
     rmStatus(rmText("re_saved"));
+    if (returnToRecommendations) rmEl("job-recommendations").scrollIntoView({ behavior: "smooth", block: "start" });
   }
   await rmRun(save);
 }
-/** 就近按钮只解析当前 uploaded 附件；切换编辑前明确确认，不重复解析 ready/failed。 */
-async function rmParseUploaded() {
+/** 输入可选按钮事件；只解析当前 uploaded 附件，明确确认未保存稿，不重复解析 ready/failed。
+ * 推荐区触发时成功后返回该区；附件原入口保留原位置，不改变解析模式或供应商调用。
+ */
+async function rmParseUploaded(event) {
   if (rmBusy || rmAttachment?.status !== "uploaded" || !rmConfirmDiscard()) return;
   const id = rmAttachment.id;
+  // 原生事件在异步等待后清空 currentTarget；提前保存入口标志以保持解析后的导航位置。
+  const returnToRecommendations = event?.currentTarget?.id === "recommendation-parse";
   /** 保持全页写操作锁，复用一次显式解析的流消费。 */
   async function parse() { await rmParse(id); }
   await rmRun(parse);
+  if (returnToRecommendations && rmEditorBase) rmEl("job-recommendations").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 /** 只有已保存且未再次改动的版本可设 current；改动需先保存，避免把未保存正文误认为已采用。 */
 async function rmUseEdition() {
@@ -440,7 +474,7 @@ async function rmUseEdition() {
 }
 /** 无外部输入；仅本人已保存且未改动的版本允许请求，CSRF 与全页串行锁沿用版本接口。 */
 async function rmRecommend() {
-  if (rmBusy || !rmEditorBase || rmEditorDirty) return;
+  if (rmBusy || !rmEditorBase || rmEditorDirty || !rmHasRecommendationDetails()) return;
   const id = rmEditorBase;
   rmRecommendations = null; rmRecommendationError = null;
   rmVisibleJobs = RM_JOB_PAGE_SIZE;
@@ -457,8 +491,57 @@ async function rmRecommend() {
   }
   await rmRun(recommend);
 }
-/** 读取当前选择、保存状态和服务响应，输出纯 DOM 岗位卡；保留排序与缺失状态，不生成假岗位或匹配率。 */
+/** 读取已确认/待确认槽位；至少一个非 null/undefined 项表示已知，[]/0/false 保持既有语义。 */
+function rmHasRecommendationDetails() {
+  for (const key of Object.keys(RM_SLOTS)) if (rmInitialSlots[key] !== null && rmInitialSlots[key] !== undefined) return true;
+  return false;
+}
+/** 输入全部元数据及当前预览 ID；生成纯文本选项，包含状态、保存时间和 current 标记。
+ * 不自动选择最新稿，不改变当前面试简历；语言和选中值同步，所有正文仍按用户选择加载。
+ */
+function rmRenderResumePicker() {
+  const picker = rmEl("recommendation-resume");
+  picker.replaceChildren();
+  const placeholder = document.createElement("option");
+  placeholder.value = ""; placeholder.textContent = rmText("rj_choose_resume");
+  placeholder.disabled = true; picker.append(placeholder);
+  for (const version of rmChoiceVersions) {
+    const option = document.createElement("option");
+    option.value = version.id;
+    option.textContent = (version.label || version.original_name || rmText("rm_unnamed")) + " · " + rmText("rm_status_" + version.status) + " · " + new Date(version.created_at).toLocaleString(document.documentElement.lang) + (version.is_current ? " · " + rmText("rm_current") : "");
+    picker.append(option);
+  }
+  picker.value = rmSelected || "";
+}
+/** 输入用户 change 事件；取消丢弃时还原选择器，批准后串行读取所选详情，不请求推荐或自动保存。 */
+async function rmChooseResume(event) {
+  const id = event.currentTarget.value;
+  if (rmBusy || !id || id === rmSelected || !rmConfirmDiscard()) { rmRenderResumePicker(); return; }
+  /** 已确认切换后加载同一预览/编辑路径，维持保存和权限边界。 */
+  async function choose() {
+    await rmPreview(id, true);
+    rmEl("job-recommendations").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  await rmRun(choose);
+  if (rmSelected === id) rmEl("recommendation-resume").focus({ preventScroll: true });
+}
+/** 用户显式核对时展开技能和可选推荐字段，滚动及聚焦；不改内容、不进行推断或 API 写入。 */
+function rmReviewRecommendation() {
+  if (rmBusy || !rmEditorBase) return;
+  rmEl("section-skills").open = true;
+  const details = rmEl("slot-skills").closest(".recommendation-fields");
+  if (details) details.open = true;
+  rmEl("section-skills").scrollIntoView({ behavior: "smooth", block: "start" });
+  rmEl("slot-skills").focus({ preventScroll: true });
+}
+/** 读取当前选择、保存状态和服务响应，输出下一步动作和纯 DOM 岗位卡。
+ * messageKey 按故障、待保存、未就绪、未知资料、可推荐顺序决定提示；保留原排序与缺失语义。
+ */
 function rmRenderRecommendations() {
+  rmEl("recommendation-review").hidden = !rmEditorBase;
+  rmEl("recommendation-save").hidden = !rmEditorBase || !rmEditorDirty;
+  rmEl("recommendation-parse").hidden = Boolean(rmEditorBase) || rmAttachment?.status !== "uploaded";
+  rmEl("recommendation-upload").hidden = Boolean(rmEditorBase) || rmAttachment?.status === "uploaded";
   const list = rmEl("recommendation-results");
   const more = rmEl("recommendation-more");
   more.hidden = !rmRecommendations || rmVisibleJobs >= rmRecommendations.results.length;
@@ -466,8 +549,17 @@ function rmRenderRecommendations() {
   if (rmRecommendations) more.textContent = rmText("rj_more", { shown: Math.min(rmVisibleJobs, rmRecommendations.results.length), total: rmRecommendations.results.length });
   list.replaceChildren();
   const state = rmEl("recommendation-state");
-  const version = rmEl("edition-label").value || rmText("rm_unnamed");
-  state.textContent = rmRecommendationError ? rmText(rmRecommendationError) : rmEditorDirty ? rmText("rj_save_first") : !rmEditorBase ? rmText("rj_select_first") : rmText("rj_ready", { version });
+  let selected = null;
+  for (const item of rmChoiceVersions) if (item.id === rmSelected) selected = item;
+  const version = selected?.label || selected?.original_name || rmText("rm_unnamed");
+  let messageKey = "rj_ready";
+  if (rmRecommendationError) messageKey = rmRecommendationError;
+  else if (rmEditorDirty) messageKey = "rj_save_first";
+  else if (!rmEditorBase) {
+    if (rmAttachment?.status === "uploaded") messageKey = "rj_parse_first";
+    else messageKey = rmChoiceVersions.length ? "rj_select_first" : "rj_upload_first";
+  } else if (!rmHasRecommendationDetails()) messageKey = "rj_empty_profile";
+  state.textContent = messageKey === "rj_ready" ? rmText(messageKey, { version }) : rmText(messageKey);
   if (!rmRecommendations) return;
   state.textContent = rmText("rj_source", { version, source: rmRecommendations.source_name, count: rmRecommendations.results.length }) + (rmRecommendations.source_kind === "experience" ? " · " + rmText("rj_experience") : "");
   for (const result of rmRecommendations.results.slice(0, rmVisibleJobs)) {
@@ -688,6 +780,9 @@ rmEl("edition-form").addEventListener("submit", rmSaveEdition);
 rmEl("uploaded-parse").addEventListener("click", rmParseUploaded);
 rmEl("edition-current").addEventListener("click", rmUseEdition);
 rmEl("recommend-jobs").addEventListener("click", rmRecommend);
+rmEl("recommendation-resume").addEventListener("change", rmChooseResume);
+rmEl("recommendation-review").addEventListener("click", rmReviewRecommendation);
+rmEl("recommendation-parse").addEventListener("click", rmParseUploaded);
 rmEl("recommendation-more").addEventListener("click", rmMoreJobs);
 rmEl("edition-label").addEventListener("input", rmDirty);
 for (const key of RM_UNITS) rmEl("unit-" + key).addEventListener("input", rmDirty);

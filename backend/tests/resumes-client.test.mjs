@@ -9,6 +9,8 @@
  * - Element.constructor.toggle：维护模拟 CSS class 集合。
  * - Element.addEventListener：登记事件。
  * - Element.click：记录原生选择器触发，不读取磁盘或创建文件。
+ * - Element.focus：记录客户端主动焦点目标，不模拟浏览器布局。
+ * - Element.scrollIntoView：记录客户端导航目标，不模拟滚动距离。
  * - Element.append：追加纯 DOM 节点。
  * - Element.replaceChildren：清除旧卡片。
  * - Element.querySelectorAll：递归返回按钮。
@@ -55,6 +57,10 @@
  * - savedRecommendations：显式请求保存版本，安全展示岗位，不自动推荐；编辑后清除结果。
  * - recommendationFailure：来源故障不生成替代卡片，不自动重试，并恢复操作控件。
  * - recommendationExpansion：全部结果仍保留，分组展开不重新请求或改变模型名次。
+ * - recommendationSelection：跨历史分页完整选择 ready 版本，不自动推荐或修改 current。
+ * - recommendationGuidance：无简历、待解析和缺少推荐字段时显示对应下一步动作。
+ * - recommendationUnsaved：取消版本切换保留输入/选择，显示就近保存按钮。
+ * - recommendationUnsaved.rejectSwitch：模拟用户拒绝丢弃未保存内容。
  * 关键变量：
  * - SCRIPT：实际客户端源码。
  * - HTML：实际模板，用于验证元素契约。
@@ -85,6 +91,10 @@ class Element {
   addEventListener(name, handler) { this.listeners[name] = handler; }
   /** 无输入；记录 input.click 的选择器请求，不模拟系统选中文件或触发 change。 */
   click() { this.clicked = true; }
+  /** 记录主动焦点请求；输入可选浏览器参数，无真实页面副作用。 */
+  focus(options) { this.focused = options; }
+  /** 记录滚动定位；输入可选浏览器参数，不模拟尺寸或动画。 */
+  scrollIntoView(options) { this.scrolled = options; }
   /** 输入节点列表，保存子节点，不解释字符串为 HTML。 */
   append(...nodes) { this.children.push(...nodes); }
   /** 清除全部子节点；不删除模板元素。 */
@@ -114,8 +124,10 @@ function stream(events) {
 function record(id, status = "ready") {
   return { id, status, label: "<script>label</script>", original_name: status === "uploaded" ? "sample.pdf" : "", extraction_mode: "", error_code: "", is_current: false, created_at: "2026-10-01T00:00:00Z", text: "中文 <img src=x> 简历" };
 }
-/** 输入初始记录与流事件，输出真实脚本 VM 和可观察请求；自动初始加载亦经过模拟 REST。 */
-async function makePage(initial = [], events = [{ type: "result", text: "中文提取", pages: [] }]) {
+/** 输入初始记录、流事件与可选分页大小，输出真实脚本 VM 和请求；分页仅为明确接口替身。
+ * pageSize 为 null 时保留旧单页 fixture；正数模拟服务端分段，不改变生产分页参数。
+ */
+async function makePage(initial = [], events = [{ type: "result", text: "中文提取", pages: [] }], pageSize = null) {
   const elements = new Map();
   for (const match of HTML.matchAll(/id="([^"]+)"/g)) elements.set(match[1], new Element());
   elements.get("csrf-token").content = "synthetic-csrf";
@@ -136,7 +148,11 @@ async function makePage(initial = [], events = [{ type: "result", text: "中文�
       return json({ username: "synthetic", ...JSON.parse(options.body) });
     }
     const path = url.replace("/api/resume-versions/", "");
-    if (method === "GET" && path.startsWith("?")) return json({ count: items.length, results: items, next: null });
+    if (method === "GET" && path.startsWith("?")) {
+      const page = Number(new URLSearchParams(path).get("page"));
+      const size = pageSize || items.length || 1;
+      return json({ count: items.length, results: items.slice((page - 1) * size, page * size), next: page * size < items.length ? "?page=" + (page + 1) : null });
+    }
     if (method === "POST" && path === "") {
       const item = record("new", options.body instanceof FormData ? "uploaded" : "ready");
       if (!(options.body instanceof FormData)) item.text = JSON.parse(options.body).text;
@@ -530,3 +546,79 @@ async function recommendationExpansion() {
   assert.equal(page.elements.get("recommendation-results").children[20].children[1].textContent, "Job 21");
 }
 test("recommendation cards expand without changing or resending the ranked pool", recommendationExpansion);
+
+/** 合成 API 分三页，实际客户端选择器列出全部版本；显式选择只读详情，保留历史分页与 current。 */
+async function recommendationSelection() {
+  const ready = record("older"); ready.slots = { skills: ["Python"] };
+  const page = await makePage([record("pdf", "uploaded"), record("recent"), ready], [], 1);
+  const picker = page.elements.get("recommendation-resume");
+  assert.equal(picker.children.length, 4);
+  assert.match(picker.children[1].textContent, /rm_status_uploaded/);
+  assert.match(picker.children[3].textContent, /<script>label<\/script>/);
+  assert.equal(page.elements.get("versions-list").children.length, 1);
+  picker.value = "older";
+  await page.run("rmChooseResume({currentTarget:rmEl('recommendation-resume')})");
+  assert.equal(page.run("rmEditorBase"), "older");
+  assert.equal(page.elements.get("recommend-jobs").disabled, false);
+  assert.equal(page.requests.at(-1).url, "/api/resume-versions/older/editor/");
+  assert.equal(page.elements.get("job-recommendations").scrolled.block, "start");
+  assert.equal(picker.focused.preventScroll, true);
+  for (const request of page.requests) assert.equal(request.method || "GET", "GET");
+  await page.run("rmNext()");
+  assert.equal(page.run("rmPage"), 2);
+  assert.equal(picker.value, "older");
+  assert.equal(picker.children.length, 4);
+}
+test("recommendation picker includes older pages and selects without automatic writes", recommendationSelection);
+
+/** 真实状态分支显示上传/解析/核对动作；解析仍显式，空槽位不能请求推荐，核对只导航不写入。 */
+async function recommendationGuidance() {
+  const empty = await makePage();
+  assert.equal(empty.elements.get("recommendation-resume").disabled, true);
+  assert.equal(empty.elements.get("recommendation-upload").hidden, false);
+  assert.match(empty.elements.get("recommendation-state").textContent, /^rj_upload_first/);
+  const page = await makePage([record("pdf", "uploaded")]);
+  page.elements.get("recommendation-resume").value = "pdf";
+  await page.run("rmChooseResume({currentTarget:rmEl('recommendation-resume')})");
+  assert.equal(page.elements.get("recommendation-parse").hidden, false);
+  assert.match(page.elements.get("recommendation-state").textContent, /^rj_parse_first/);
+  const parseEvent = { currentTarget: { id: "recommendation-parse" } };
+  const parsing = page.elements.get("recommendation-parse").listeners.click(parseEvent);
+  parseEvent.currentTarget = null; // 模拟原生事件在异步处理返回后清空 currentTarget。
+  await parsing;
+  assert.equal(page.elements.get("job-recommendations").scrolled.block, "start");
+  assert.equal(page.run("rmEditorBase"), "pdf");
+  assert.equal(page.elements.get("recommendation-parse").hidden, true);
+  assert.equal(page.elements.get("recommend-jobs").disabled, true);
+  assert.match(page.elements.get("recommendation-state").textContent, /^rj_empty_profile/);
+  const before = page.requests.length;
+  await page.run("rmReviewRecommendation(); rmRecommend()");
+  assert.equal(page.elements.get("section-skills").open, true);
+  assert.equal(page.elements.get("slot-skills").open, true);
+  assert.equal(page.elements.get("slot-skills").focused.preventScroll, true);
+  assert.equal(page.requests.length, before);
+}
+test("recommendation empty and unparsed states expose actionable next steps", recommendationGuidance);
+
+/** 跨版本切换取消时不读写服务端，选择器还原已载入版本，未保存值及就近保存提示保持。 */
+async function recommendationUnsaved() {
+  const original = record("saved"); original.slots = { skills: ["Python"] };
+  const page = await makePage([original, record("other")]);
+  await page.run("rmPreview('saved')");
+  page.elements.get("slot-skills").value = "Java";
+  await page.run("rmDirty({currentTarget:rmEl('slot-skills')})");
+  assert.equal(page.elements.get("recommendation-save").hidden, false);
+  assert.equal(page.elements.get("recommend-jobs").disabled, true);
+  /** 模拟取消丢弃，仅作用于本次隔离窗口。 */
+  function rejectSwitch() { return false; }
+  page.context.window.confirm = rejectSwitch;
+  const before = page.requests.length;
+  page.elements.get("recommendation-resume").value = "other";
+  await page.run("rmChooseResume({currentTarget:rmEl('recommendation-resume')})");
+  assert.equal(page.elements.get("recommendation-resume").value, "saved");
+  assert.equal(page.elements.get("slot-skills").value, "Java");
+  assert.equal(page.requests.length, before);
+  assert.equal(page.run("rmEditorDirty"), true);
+  assert.match(HTML, /id="recommendation-save"[^>]*form="edition-form"/);
+}
+test("recommendation switching protects pending details and offers nearby saving", recommendationUnsaved);
