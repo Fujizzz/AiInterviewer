@@ -67,7 +67,7 @@ const MESSAGES = {
     rj_error: "推荐失败，请稍后手动重试。",
     rj_loading: "正在根据已保存的简历特征排序…",
     rj_save_first: "有待确认或未保存的修改。核对后点击此处“保存编辑稿”，再推荐岗位。",
-    rj_select_first: "在上方“用于推荐的简历”中选择版本；Ready / 已就绪版本可用于推荐。",
+    rj_select_first: "在上方“用于推荐的简历”中选择版本；已就绪版本可用于推荐。",
     rj_ready: "已选版本：{version} · 点击推荐岗位查看结果。",
     rj_source: "简历：{version} · 岗位来源：{source} · {count} 个岗位",
     rj_experience: "体验数据，非实时招聘职位",
