@@ -1,1 +1,4 @@
-"""Versioned evaluation contracts and rubrics; runtime integration is deferred."""
+"""Evaluation contracts, rubrics, conversation analysis and grounded extraction.
+
+Live Agent port integration, judging, aggregation and persistence are deferred.
+"""

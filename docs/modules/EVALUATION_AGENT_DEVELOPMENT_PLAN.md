@@ -22,12 +22,16 @@
   `evaluation/rubrics/1.0.0/` 包含六项能力、21 个 criterion、105 个行为锚点。
 - `tests/evaluation/` 已覆盖新契约、Rubric 和 Evidence → CriterionAssessment →
   ScoreSnapshot 示例；正式模块尚未接入运行链路，当前分数仍由原 adapter 产生。
+- 第二阶段已完成（2026-10-03）：`evaluation/analyzer.py`、`extractor.py` 和
+  `service.py` 提供独立 schema/Prompt、Planner 目标输入、原子多片段提取、确定性 ID
+  及阶段化 fail-closed 恢复；本阶段为可单独调用的内部服务，线上接入仍在第五阶段。
 
 与目标架构相比，仍存在以下缺口：
 
-- 正式 `evaluation/` 已有契约和 Rubric，但 Analyzer、Extractor、Resolver、Judge、
-  Aggregator 与持久化仍待后续阶段实现。
-- 一次模型调用同时负责对话分析、证据提取、competency 识别和 rubric level 判定，职责过重。
+- 正式 `evaluation/` 已有契约、Rubric、Analyzer 和 Extractor；Resolver、Judge、
+  Aggregator、运行链路接入与持久化仍待后续阶段实现。
+- 当前线上旧 adapter 仍由一次模型调用负责对话分析、证据提取、competency 识别和
+  rubric level 判定；第二阶段内部服务已拆分前两者，等待后续评分模块与第五阶段接入。
 - `DimensionEvidence` 缺少原文 span、criterion、rubric 版本、独立性和纳入或排除原因。
 - Agent 核心仍在重新计算 score 和 coverage，与“Evaluation 负责评分”的边界不一致。
 - 当前简单平均没有区分 supported、weak、duplicate 和 disputed evidence。
@@ -326,10 +330,12 @@ reason_codes = [...]
   示例中的 `fixture-only-1` 仅标识人工构造的测试数据，不代表聚合策略已实现。
 - reason code 词表、质量分量到权重的映射、seniority pack、独立证据与覆盖率门槛、
   reliability 算法和岗位权重 trace 的最终结构留待后续阶段确定。
-- 本阶段仅验证结构、原文对齐和 Rubric 引用；语义非回答过滤、真实历史证据关系、
+- 第一阶段完成时仅验证结构、原文对齐和 Rubric 引用；当时语义非回答过滤、真实历史证据关系、
   去重与独立性、矛盾消解、确定性 ID、分数数学重放及 append-only 持久化尚未实现。
 
 ### 阶段二 Conversation Analyzer 和 Evidence Extractor
+
+状态：**已完成（2026-10-03）**。
 
 交付内容：
 
@@ -338,6 +344,40 @@ reason_codes = [...]
 3. 传入当前 Planner objective 和 completion criteria。
 4. 实现确定性 evidence ID。
 5. 保持现有 fail-closed Evaluation recovery 行为。
+
+实际交付与验收：
+
+- `inputs.py` 将当前 Question/Answer、Planner objective/completion_criteria 冻结为快照；
+  仅保留最近 10 条当前 thread 回答和最多 50 条历史 evidence 精简索引。模型输入按字段
+  白名单构造，不提供岗位权重、当前分数、简历或录用判断。
+- `analyzer.py` 与 `extractor.py` 使用独立 Pydantic schema、版本化 Prompt、模型调用
+  和错误边界。Analyzer 读取当前 Planner 目标；Extractor 按独立 claim 提取，可返回同一
+  能力下的多个 claim，每个 claim 支持多个有序且不重叠的 quote span，不产生 rubric level。
+- `ids.py` 使用规范 UTF-8 JSON + SHA-256，根据 answer_id、原始 spans、normalized_claim
+  和 evidence_kind 生成 identity v1；不受 request_id 或模型输出列表顺序影响。
+- 复用第一阶段精确原文/offset 校验，拒绝问题、简历和历史回答中的非当前原文；错误 quote
+  不修补，同批任一项不合法或 ID 重复时整体失败。常见非回答和裸标签有程序门禁，
+  其余语义非回答由独立 Analyzer 分类；未完成/缺失 Planner 条件、无证据及失败不完成 topic。
+- `service.py` 顺序编排两个阶段，支持单独设置模型与超时。失败结果有明确阶段 reason code，
+  无 evidence/assessment/snapshot；取消继续传播，迟到结果不发布，不修改原始回答。
+- 原有 Adapter、Question Agent、Planner、报告和数据库未修改。失败安全分析通过既有
+  feedback 提交的集成测试验证回答保留、topic 不完成、继续追问和反馈幂等。
+- 验收：本阶段新增 **95 项测试**，`tests/evaluation/` 共 **227 项**；全仓
+  `.venv/bin/pytest -q` 为 **445 passed，5 subtests passed**；
+  `.venv/bin/ruff check .` 与 `git diff --check` 通过。包含真实异步超时、取消和迟到结果
+  测试，以及原 Evaluation recovery、dialogue evaluation、interview planning 回归。
+  模型输出使用测试替身，未调用在线模型；语义提取质量和标注校准仍待后续阶段验证。
+
+版本与后续边界：
+
+- 内部 schema `1.0`、Rubric `1.0.0` 和共享 Agent contract `2.0` 不变；新增 Analyzer
+  `analyzer-1.0.0`、Extractor `extractor-1.0.0` 和 evidence identity v1，无线上数据迁移。
+- ID 稳定性针对同一提取内容的重放，不保证再次调用模型生成同样的 claim。原子性和
+  claim 忠实度主要由 Prompt 约束，需要后续人工标注评估。
+- 当前输出 `relation=new` 是等待 Resolver 的初始状态，不代表独立新证据；精简历史索引
+  不直接决定去重、关系或计分。independence group、语义关系与矛盾消解仍在第三阶段。
+- Analyzer 保留双候选人原文的对话矛盾检查；该检查不替代后续 Evidence Resolver。
+  当前服务尚未实现正式 EvaluationPort、shadow mode、评分或持久化，分别按第四、五阶段推进。
 
 ### 阶段三 校验、去重和矛盾
 
