@@ -1,3 +1,8 @@
+# Responsibilities: package metadata and explicit application/development/semantic-gate dependencies.
+# Implementation: the completion-gate extra installs CPU inference only; training stays on Kaggle.
+# Related Modules: backend/requirements.txt pins the same runtime; training/answer_completion exports.
+# Declaration Index: None. Variable Index: project.optional-dependencies.completion-gate enables
+# NumPy features, ONNX Runtime and tokenizer support; existing application versions are unchanged.
 [project]
 name = "ai-interviewer"
 version = "0.1.0"
@@ -11,6 +16,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+completion-gate = [
+    "numpy==2.0.2",
+    "onnxruntime==1.23.2",
+    "tokenizers==0.22.2",
+]
 dev = [
     "pytest>=8,<10",
     "pytest-asyncio>=0.24,<2",

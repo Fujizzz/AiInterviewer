@@ -1,14 +1,14 @@
 /**
  * @module interview-voice
- * 职责：协调语音播放、实时字幕和用户点击结束后的最终转写提交；不计算面试评价。
- * 实现：epoch 和采集对象身份隔离迟到事件；最终转写与结束确认均满足才回调 agent.js 一次。
+ * 职责：协调语音播放、实时字幕及手动/独立检测结束后的最终转写提交；不计算面试评价。
+ * 实现：epoch 和采集身份隔离迟到事件；自动结束须获最终后端凭据才回调 agent.js 一次。
  * 关联：SpeechCapture 管理 PCM/STT；agent.js 提供提交回调和当前题可回答状态。
  *
  * 目录：
  * - InterviewVoice：
- *   Coordinate subtitles and explicitly confirmed speech answers, isolating stale playback/STT events.
+ *   Coordinate subtitles and manual/observer-confirmed answers, isolating stale playback/STT events.
  * - InterviewVoice.constructor：
- *   Store the answer callback and initialize speech, subtitle and end-confirmation state.
+ *   Store the answer callback and initialize manual/automatic completion and speech state.
  * - InterviewVoice.constructor.callback1：
  *   Connect the avatar when the user clicks its playback button.
  * - InterviewVoice.constructor.callback2：
@@ -30,7 +30,7 @@
  * - InterviewVoice.subtitle：
  *   Render plain-text subtitles in the video stage and follow the newest lines.
  * - InterviewVoice.finishAnswer：
- *   Register explicit end confirmation; flush active capture or submit already-finalized speech.
+ *   Register manual/automatic end confirmation and flush capture; auto requires a final receipt.
  * - InterviewVoice.submitTranscript：
  *   Consume confirmed final text once and call the supplied interview submission boundary.
  * - InterviewVoice.connectAvatar：
@@ -68,9 +68,11 @@
  * - InterviewVoice.record.callback1：
  *   Display draft words only while this capture epoch remains current.
  * - InterviewVoice.record.callback2：
- *   Retain final text; submit only after explicit end confirmation, never on the capture limit alone.
+ *   Retain final text; submit after manual confirmation or a valid automatic receipt.
  * - InterviewVoice.record.callback3：
  *   Release recording controls after a current recognition failure.
+ * - InterviewVoice.record.object1.onCompletion：
+ *   Flush this capture after the independent observer confirms end intent and silence.
  * - InterviewVoice.reset：
  *   Cancel resources/confirmation; optionally preserve submitted subtitles while awaiting the next question.
  * - InterviewVoice.close：
@@ -81,15 +83,19 @@
  */
 import { SpeechCapture } from "./speech-capture.js";
 
-/** 功能：语音与字幕协调；逻辑：按 epoch、对象身份和用户结束确认提交；约束：不评价或隐式重试。
- * 实例状态：onAnswer 为 agent.js 提交边界；finalTranscript 为待确认最终文本，finishRequested 为
- * 本轮显式结束确认；capture/epoch 防止旧采集结果误提交；其余状态管理播放和耗时。 */
+/** 功能：语音与字幕协调；逻辑：按 epoch、采集身份及手动/自动确认提交；约束：不评价或隐式重试。
+ * 实例状态：onAnswer(text, receipt) 为业务提交边界；finalTranscript 为待确认最终文本；
+ * finishRequested 为当前结束请求，autoFinish 区分检测分支，completionReceipt 绑定最终转写；
+ * completionEnabled 来自当前连接 MCP 握手；capture/epoch 防止旧事件误提交；其余状态管理播放。 */
 export class InterviewVoice {
-  /** 输入 onAnswer(text) 回调，输出新协调器；仅最终非空文本且用户显式结束时调用。
+  /** 输入 onAnswer(text, receipt) 回调，输出协调器；仅非空最终文本并获手动/自动确认时调用。
    * 初始无题目/采集/确认；注册按钮和可回答状态监听，不请求设备或网络。 */ constructor(onAnswer) {
     this.onAnswer = onAnswer;
     this.finalTranscript = null;
     this.finishRequested = false;
+    this.autoFinish = false;
+    this.completionReceipt = null;
+    this.completionEnabled = false;
     this.epoch = 0;
     this.question = null;
     this.eligible = false;
@@ -140,27 +146,35 @@ export class InterviewVoice {
     node.scrollTop = node.scrollHeight;
   }
 
-  /** 用户点击结束回答：仅当前题空闲时登记确认；正在录音则等待 PCM flush 和最终 STT。
-   * 已因原 120 秒时限收尾的文本可直接确认；重复点击、失败和空白不会产生回答请求。 */ async finishAnswer() {
+  /** 输入来源（默认 manual）；按钮或后端三秒静默事件登记结束，再等待 flush/最终 STT。
+   * auto 仅对活跃采集生效，最终须凭据；时限本身仍不自动提交；重复调用不产生请求。 */ async finishAnswer(source = "manual") {
     if (!this.eligible || this.busy || this.finishRequested) return;
+    if (source === "auto" && !this.capture?.recording) return;
     if (this.finalTranscript !== null) { this.finishRequested = true; this.submitTranscript(); return; }
     if (!this.capture?.recording) return;
     this.finishRequested = true;
-    console.info("Interview speech answer end confirmed", { epoch: this.epoch });
-    this.message(window.AppI18n?.t("voice_finalizing") ?? "正在完成转写并提交回答…");
+    this.autoFinish = source === "auto";
+    console.info("Interview speech answer end confirmed", { epoch: this.epoch, source });
+    this.message(this.autoFinish
+      ? (window.AppI18n?.t("voice_auto_finalizing") ?? "已检测到回答结束，正在完成转写并自动提交…")
+      : (window.AppI18n?.t("voice_finalizing") ?? "正在完成转写并提交回答…"));
     this.updateControls();
     await this.capture.end();
   }
 
   /** 无外部参数；消费已确认的非空最终转写并回调 onAnswer(text)，仅执行一次。
-   * 清除待提交状态后调用 agent.js；当前题和请求 UUID 再由业务模块校验，不提交部分字幕。 */ submitTranscript() {
+   * 自动分支提供绑定完整文本的凭据；清除状态后回调，当前题/UUID 再由业务模块校验。 */ submitTranscript() {
     if (!this.finishRequested || !this.finalTranscript || !this.eligible || this.busy || this.capture) return;
     const text = this.finalTranscript;
+    const receipt = this.autoFinish ? this.completionReceipt : null;
+    if (this.autoFinish && !receipt) return;
     this.finalTranscript = null;
     this.finishRequested = false;
+    this.autoFinish = false;
+    this.completionReceipt = null;
     this.updateControls();
     console.info("Interview speech answer ready for submission", { textLength: text.length });
-    this.onAnswer(text);
+    this.onAnswer(text, receipt);
   }
 
   /** Load the official player bundle and connect the local signalling endpoint. */ async connectAvatar() {
@@ -293,27 +307,37 @@ export class InterviewVoice {
   }
 
   /** 无参数；当前题可回答且播放结束时启动一轮采集；实时字幕不作为提交内容。
-   * 最终文本按 epoch/采集身份校验，只有显式结束确认才能提交；失败日志只记阶段和状态。
+   * 最终文本按 epoch/采集身份校验；手动确认或自动结束凭据才能提交；失败不记正文。
    * 采集默认时限/编码/供应商超时保持原条件，不引入文字输入或自动重录。 */ async record() {
     if (!this.eligible || this.busy || this.capture || this.finalTranscript !== null) return;
     this.stopPlayback();
     const epoch = this.epoch;
     const started = performance.now();
     this.finishRequested = false;
+    this.autoFinish = false;
+    this.completionReceipt = null;
     this.subtitle("");
     const capture = new SpeechCapture(
       /** Display draft words only while this capture epoch remains current. */ (text) => { if (epoch === this.epoch && this.capture === capture) this.subtitle(text); },
-      /** Retain final text; submit only after explicit end confirmation, never on the capture limit alone. */ (text, finalizationMs) => {
+      /** 保留当前最终文本；自动分支缺少凭据表示补充使检测失效，保持待手动确认，不自动提交。 */ (text, finalizationMs, receipt) => {
         if (epoch !== this.epoch || this.capture !== capture) return;
         this.capture = null;
         this.finalTranscript = text.trim() || null;
+        this.completionReceipt = receipt ?? null;
+        const revoked = this.autoFinish && !receipt;
+        if (this.autoFinish && !receipt) {
+          this.finishRequested = false;
+          this.autoFinish = false;
+        }
         console.info("Interview final speech received", { endRequested: this.finishRequested, textLength: this.finalTranscript?.length ?? 0 });
         this.subtitle(this.finalTranscript ?? "");
         if (!this.finalTranscript) {
           this.finishRequested = false;
           this.message(window.AppI18n?.t("voice_empty") ?? "未识别到语音，请点击“开始回答”重新录音。");
         } else if (!this.finishRequested) {
-          this.message(window.AppI18n?.t("voice_final_ready") ?? "录音已结束，点击“结束回答”提交字幕中的回答。");
+          this.message(revoked
+            ? (window.AppI18n?.t("voice_auto_revoked") ?? "检测到补充内容，已取消自动提交；请核对字幕后点击“结束回答”。")
+            : (window.AppI18n?.t("voice_final_ready") ?? "录音已结束，点击“结束回答”提交字幕中的回答。"));
         }
         document.getElementById("speech-metrics").textContent += ` · 录音含转录 ${Math.round(performance.now() - started)} ms · STT 收尾 ${finalizationMs ?? "—"} ms`;
         this.updateControls();
@@ -323,17 +347,27 @@ export class InterviewVoice {
         if (epoch !== this.epoch || this.capture !== capture) return;
         console.error("Interview speech recognition failed", { phase: "capture_or_finalize", endRequested: this.finishRequested });
         this.capture = null; this.finishRequested = false; this.finalTranscript = null;
+        this.autoFinish = false; this.completionReceipt = null;
         this.message(text); this.updateControls();
+      },
+      { questionId: this.completionEnabled ? this.question.question_id : null,
+        /** 仅当前题、epoch 和采集身份相同才发起自动收尾；下一题的旧事件无副作用。 */ onCompletion: () => {
+          if (epoch === this.epoch && this.capture === capture) void this.finishAnswer("auto");
+        },
       },
     );
     this.capture = capture;
-    this.message(window.AppI18n?.t("voice_starting") ?? "正在开启麦克风与英文识别…");
+    this.message(this.completionEnabled
+      ? (window.AppI18n?.t("voice_auto_starting") ?? "正在开启麦克风与中英双语识别…")
+      : (window.AppI18n?.t("voice_starting") ?? "正在开启麦克风与英文识别…"));
     this.updateControls();
     try {
       await capture.start();
       if (epoch !== this.epoch || capture.closed || this.capture !== capture) { await capture.close(); return; }
       console.info("Interview speech capture started", { epoch });
-      this.message(window.AppI18n?.t("voice_recording") ?? "正在录音，回答结束后点击“结束回答”提交。");
+      this.message(this.completionEnabled
+        ? (window.AppI18n?.t("voice_auto_recording") ?? "正在录音；说“回答完毕”后静默 3 秒将自动提交，也可点击“结束回答”。")
+        : (window.AppI18n?.t("voice_recording") ?? "正在录音，回答结束后点击“结束回答”提交。"));
       this.setState("listening");
       this.updateControls();
       document.getElementById("stop-recording").focus();
@@ -354,6 +388,8 @@ export class InterviewVoice {
     this.question = null;
     this.finalTranscript = null;
     this.finishRequested = false;
+    this.autoFinish = false;
+    this.completionReceipt = null;
     if (clearSubtitle) this.subtitle("");
     this.updateControls();
   }

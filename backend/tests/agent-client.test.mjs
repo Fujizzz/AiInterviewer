@@ -57,6 +57,9 @@
  * - startCapture.page.captureType.prototype.end：离线结束采集，最终文本单独交付。
  * - speechAnswerLifecycle：验证字幕、显式结束、最终转写一次提交及下一题清理。
  * - speechAnswerBoundaries：时限需确认，空白/失败/迟到转写不提交。
+ * - answeringMCPPage：用实际握手处理器启用自动结束并进入当前题。
+ * - automaticSpeechCompletion：检测事件触发 flush，最终凭据才产生一次 MCP 调用。
+ * - revokedSpeechCompletion：补充导致凭据缺失时保留最终文本，显式确认后手动提交。
 
  * - interviewProgressLifecycle：快照预算在回答/等待中推进，重规划扣除已问配额，断线冻结且告警去重。
  * - blockedResumeSelection：缺少 ready、未选 current 或未授权时不能创建面试连接。
@@ -532,3 +535,67 @@ async function interviewProgressLifecycle() {
   assert.equal(page.el("interview-alerts").children.length, 0);
 }
 test("interview progress follows budget snapshots and freezes on disconnect without ending automatically", interviewProgressLifecycle);
+
+/** 输入无；执行真实 MCP 握手和当前题处理器，仅 WebSocket/设备使用隔离替身。 */
+async function answeringMCPPage() {
+  const page = await makePage();
+  startPrepared(page);
+  const ws = Socket.instances.at(-1);
+  ws.emit({ type: "hello", capabilities: ["progress", "answer_completion_mcp"], max_message_bytes: 262144 });
+  const initialize = ws.sent.at(-1);
+  assert.equal(initialize.method, "initialize");
+  ws.emit({ jsonrpc: "2.0", id: initialize.id, result: { protocolVersion: "2025-06-18", capabilities: { tools: {} } } });
+  assert.equal(ws.sent.at(-2).method, "notifications/initialized");
+  const start = ws.sent.at(-1);
+  assert.equal(start.type, "start");
+  ws.emit({ type: "question", request_id: start.request_id, question_index: 1,
+    question: { question_id: "speech-q", text: "Describe one contribution.", difficulty: 1, dialogue_action: "project" } });
+  assert.equal(page.voice.completionEnabled, true);
+  return { ...page, ws };
+}
+
+/** 验证后端检测事件只收尾，完整最终文本及凭据才调用 MCP；重复/旧题事件不能再次提交。 */
+async function automaticSpeechCompletion() {
+  const page = await answeringMCPPage();
+  const capture = await startCapture(page);
+  assert.equal(capture.options.questionId, "speech-q");
+  const count = page.ws.sent.length;
+  capture.options.onCompletion();
+  assert.equal(capture.recording, false);
+  assert.equal(page.ws.sent.length, count);
+  capture.onFinal("Complete answer. That's all.", 10, "server-signed-fixture");
+  const call = page.ws.sent.at(-1);
+  assert.equal(call.method, "tools/call");
+  assert.equal(call.params.name, "finish_current_answer");
+  assert.equal(call.params.arguments.answer_text, "Complete answer. That's all.");
+  assert.equal(call.params.arguments.completion_receipt, "server-signed-fixture");
+  capture.options.onCompletion();
+  capture.onFinal("Late duplicate", 10, "fixture");
+  assert.equal(page.ws.sent.length, count + 1);
+  page.ws.emit({ jsonrpc: "2.0", id: call.id, result: { isError: false, structuredContent: {
+    type: "question", request_id: call.id, question_index: 2,
+    question: { question_id: "next-q", text: "Next question", difficulty: 1, dialogue_action: "project" }
+  } } });
+  capture.options.onCompletion();
+  assert.equal(page.voice.question.question_id, "next-q");
+  assert.equal(page.voice.finishRequested, false);
+  assert.equal(page.ws.sent.length, count + 1);
+}
+test("automatic answer completion flushes then submits one MCP tool call", automaticSpeechCompletion);
+
+/** 验证补充使最终凭据失效：自动分支取消，完整字幕保留，用户确认后沿用手动 answer。 */
+async function revokedSpeechCompletion() {
+  const page = await answeringMCPPage();
+  const capture = await startCapture(page);
+  const count = page.ws.sent.length;
+  capture.options.onCompletion();
+  capture.onFinal("That's all. One more detail.", 10);
+  assert.equal(page.ws.sent.length, count);
+  assert.equal(page.voice.finishRequested, false);
+  assert.match(page.el("voice-status").textContent, /补充/);
+  await page.voice.finishAnswer();
+  assert.equal(page.ws.sent.length, count + 1);
+  assert.equal(page.ws.sent.at(-1).type, "answer");
+  assert.equal(page.ws.sent.at(-1).answer_text, "That's all. One more detail.");
+}
+test("supplemented final transcript cancels automatic submission", revokedSpeechCompletion);

@@ -1,7 +1,7 @@
 /**
  * @module speech-capture
  * 职责：PCM 采集及有界 STT 传输；通过回调交付转写，不直接提交面试回答。
- * 实现：麦克风授权/握手后采集，flush 后发送 stop；时限收尾不代表用户确认提交。
+ * 实现：麦克风授权/握手后采集，flush 后发送 stop；可订阅后端独立结束检测及最终凭据。
  * 关联：interview-voice.js 接收部分/最终文本并控制字幕和结束确认。
  *
  * 目录：
@@ -49,10 +49,12 @@
  */
 /** Browser PCM capture and one STT task; completion delivers text to the caller, never an interview command. */
 export class SpeechCapture {
-  /** Store transcript callbacks and initialize one capture session's resources. */ constructor(onPartial, onFinal, onError) {
+  /** 输入转写/失败回调和可选 options（questionId、onCompletion）；输出采集实例。
+   * 仅带 questionId 时订阅后端结束检测；最终凭据作为 onFinal 第三个参数，不直接提交。 */ constructor(onPartial, onFinal, onError, options = {}) {
     this.onPartial = onPartial;
     this.onFinal = onFinal;
     this.onError = onError;
+    this.options = options;
     this.closed = false;
     this.recording = false;
     this.socket = null;
@@ -87,10 +89,13 @@ export class SpeechCapture {
           if (this.closed) return;
           try {
             const message = JSON.parse(data);
-            if (message.type === "hello") socket.send(JSON.stringify({ type: "start" }));
+            if (message.type === "hello") socket.send(JSON.stringify(this.options.questionId
+              ? { type: "start", completion_detection: true, question_id: this.options.questionId }
+              : { type: "start" }));
             if (message.type === "started") { clearTimeout(timeout); this.startReject = null; resolve(); }
             if (message.type === "partial") this.onPartial(message.text);
-            if (message.type === "final") { this.onFinal(message.text, message.finalization_ms); void this.close(); }
+            if (message.type === "answer_completion" && message.question_id === this.options.questionId) this.options.onCompletion?.();
+            if (message.type === "final") { this.onFinal(message.text, message.finalization_ms, message.completion_receipt); void this.close(); }
             if (message.type === "error") this.fail(new Error(`${message.code}: ${message.detail}`));
           } catch (error) { this.fail(error); }
         };

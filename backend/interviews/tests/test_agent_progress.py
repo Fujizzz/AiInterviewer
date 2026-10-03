@@ -3,7 +3,7 @@
 实现：通过 ASGI 通道验证顺序、关联、失效和取消；用事件屏障证明报告未完成时评分已送达。
 关联：复用 agent_socket、AgentSession 与固定测试数据；TransactionTestCase 隔离持久化数据库。
 目录：
-- connect：建立本机同源测试连接并验证能力公告。
+- connect：建立本机同源测试连接，精确验证阶段/评分及新增自动结束 MCP 能力公告。
 - read：读取一条 JSON 事件，超时或非文本响应直接失败。
 - send_command：发送显式订阅事件的唯一命令，返回请求 ID。
 - collect_until：收集请求内事件直到指定终态，验证关联且拒绝意外错误。
@@ -46,7 +46,9 @@ from .agent_fixtures import ANSWER, RESUME, FixtureLLM, SafetyTestMixin, complet
 
 
 async def connect():
-    """无需外部参数；建立本机同源 ASGI 连接，验证 hello，返回待显式关闭的 communicator。"""
+    """无需外部参数；建立同源 ASGI 连接，精确验证包含 MCP 的完整公告，返回待关闭通道。
+    本帮助函数仍使用原有业务命令；MCP 握手/工具执行由 test_answer_completion 独立验证。
+    """
     comm = ApplicationCommunicator(
         agent_socket,
         {
@@ -60,7 +62,7 @@ async def connect():
     await comm.send_input({"type": "websocket.connect"})
     assert (await comm.receive_output())["type"] == "websocket.accept"
     hello = await read(comm)
-    assert hello["capabilities"] == ["prepare", "progress", "assessment"]
+    assert hello["capabilities"] == ["prepare", "progress", "assessment", "answer_completion_mcp"]
     return comm
 
 

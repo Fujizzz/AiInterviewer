@@ -1,0 +1,2113 @@
+{
+  "config": {
+    "experiment_id": "semantic-completion-v1-20261003",
+    "base_model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    "base_revision": "e8f8c211226b894fcb81acc59f3b34ba3efd5f42",
+    "encoder_file": "onnx/model_quint8_avx2.onnx",
+    "format": "minilm-mean-l2-logistic-v1",
+    "seed": 42,
+    "groups_per_language": 80,
+    "train_groups_per_language": 60,
+    "validation_groups_per_language": 10,
+    "test_groups_per_language": 10,
+    "generation_model": "qwen-plus",
+    "generation_timeout_seconds": 60,
+    "generation_concurrency": 4,
+    "generation_temperature": 0.8,
+    "logistic_C": 1.0,
+    "logistic_max_iter": 2000,
+    "validation_recall_target_per_language": 0.99,
+    "test_recall_min_per_language": 0.95,
+    "test_negative_rejection_min": 0.5,
+    "challenge_recall_min_per_language": 0.95,
+    "batch_size": 16,
+    "onnxruntime_version": "1.23.2",
+    "tokenizers_version": "0.22.2",
+    "sklearn_version": "1.7.2"
+  },
+  "versions": {
+    "numpy": "2.1.3",
+    "onnxruntime": "1.23.2",
+    "tokenizers": "0.22.2",
+    "scikit-learn": "1.7.2"
+  },
+  "platform": "Linux-6.18.48+-x86_64-with-glibc2.39",
+  "evaluation": {
+    "validation": {
+      "overall": {
+        "n": 200,
+        "tp": 40,
+        "fn": 0,
+        "fp": 78,
+        "tn": 82,
+        "recall": 1.0,
+        "negative_rejection": 0.5125,
+        "precision": 0.3389830508474576,
+        "qwen_pass_fraction": 0.59
+      },
+      "zh": {
+        "n": 100,
+        "tp": 20,
+        "fn": 0,
+        "fp": 36,
+        "tn": 44,
+        "recall": 1.0,
+        "negative_rejection": 0.55,
+        "precision": 0.35714285714285715,
+        "qwen_pass_fraction": 0.56
+      },
+      "en": {
+        "n": 100,
+        "tp": 20,
+        "fn": 0,
+        "fp": 42,
+        "tn": 38,
+        "recall": 1.0,
+        "negative_rejection": 0.475,
+        "precision": 0.3225806451612903,
+        "qwen_pass_fraction": 0.62
+      }
+    },
+    "test": {
+      "overall": {
+        "n": 200,
+        "tp": 35,
+        "fn": 4,
+        "fp": 70,
+        "tn": 91,
+        "recall": 0.8974358974358975,
+        "negative_rejection": 0.5652173913043478,
+        "precision": 0.3333333333333333,
+        "qwen_pass_fraction": 0.525
+      },
+      "zh": {
+        "n": 100,
+        "tp": 16,
+        "fn": 1,
+        "fp": 39,
+        "tn": 44,
+        "recall": 0.9411764705882353,
+        "negative_rejection": 0.5301204819277109,
+        "precision": 0.2909090909090909,
+        "qwen_pass_fraction": 0.55
+      },
+      "en": {
+        "n": 100,
+        "tp": 19,
+        "fn": 3,
+        "fp": 31,
+        "tn": 47,
+        "recall": 0.8636363636363636,
+        "negative_rejection": 0.6025641025641025,
+        "precision": 0.38,
+        "qwen_pass_fraction": 0.5
+      }
+    },
+    "challenge": {
+      "overall": {
+        "n": 80,
+        "tp": 31,
+        "fn": 9,
+        "fp": 30,
+        "tn": 10,
+        "recall": 0.775,
+        "negative_rejection": 0.25,
+        "precision": 0.5081967213114754,
+        "qwen_pass_fraction": 0.7625
+      },
+      "zh": {
+        "n": 40,
+        "tp": 17,
+        "fn": 3,
+        "fp": 16,
+        "tn": 4,
+        "recall": 0.85,
+        "negative_rejection": 0.2,
+        "precision": 0.5151515151515151,
+        "qwen_pass_fraction": 0.825
+      },
+      "en": {
+        "n": 40,
+        "tp": 14,
+        "fn": 6,
+        "fp": 14,
+        "tn": 6,
+        "recall": 0.7,
+        "negative_rejection": 0.3,
+        "precision": 0.5,
+        "qwen_pass_fraction": 0.7
+      }
+    }
+  },
+  "release_approved": false,
+  "threshold": 0.33046532150037083,
+  "threshold_source": "validation_only",
+  "labels": "synthetic scenario labels; no independent human gold or real ASR evaluation",
+  "cpu_encoding_latency_ms": {
+    "p50": 11.201275000075839,
+    "p95": 13.606148149949604,
+    "n": 80
+  },
+  "held_out_predictions": [
+    {
+      "id": "zh-054/direct_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.32402977006277206,
+      "passed": false
+    },
+    {
+      "id": "zh-054/indirect_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.30213230492453397,
+      "passed": false
+    },
+    {
+      "id": "zh-054/yield_next",
+      "language": "zh",
+      "label": 0,
+      "score": 0.16008528130127553,
+      "passed": false
+    },
+    {
+      "id": "zh-054/nothing_more",
+      "language": "zh",
+      "label": 1,
+      "score": 0.5111526715823164,
+      "passed": true
+    },
+    {
+      "id": "zh-054/ordinary_content",
+      "language": "zh",
+      "label": 0,
+      "score": 0.359966801569363,
+      "passed": true
+    },
+    {
+      "id": "zh-054/task_complete",
+      "language": "zh",
+      "label": 0,
+      "score": 0.47942550703916015,
+      "passed": true
+    },
+    {
+      "id": "zh-054/quoted_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.32455228123013186,
+      "passed": false
+    },
+    {
+      "id": "zh-054/negated_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.3243710178326988,
+      "passed": false
+    },
+    {
+      "id": "zh-054/continue_after_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.25981246499023786,
+      "passed": false
+    },
+    {
+      "id": "zh-054/polite_only",
+      "language": "zh",
+      "label": 0,
+      "score": 0.452212830634055,
+      "passed": true
+    },
+    {
+      "id": "zh-011/direct_end",
+      "language": "zh",
+      "label": 1,
+      "score": 0.5289776854473448,
+      "passed": true
+    },
+    {
+      "id": "zh-011/indirect_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.3877134151622354,
+      "passed": true
+    },
+    {
+      "id": "zh-011/yield_next",
+      "language": "zh",
+      "label": 0,
+      "score": 0.45385216072087714,
+      "passed": true
+    },
+    {
+      "id": "zh-011/nothing_more",
+      "language": "zh",
+      "label": 1,
+      "score": 0.6534248674009496,
+      "passed": true
+    },
+    {
+      "id": "zh-011/ordinary_content",
+      "language": "zh",
+      "label": 0,
+      "score": 0.4205731567548536,
+      "passed": true
+    },
+    {
+      "id": "zh-011/task_complete",
+      "language": "zh",
+      "label": 0,
+      "score": 0.5066241225693362,
+      "passed": true
+    },
+    {
+      "id": "zh-011/quoted_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.1822910575782347,
+      "passed": false
+    },
+    {
+      "id": "zh-011/negated_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.13941375053067764,
+      "passed": false
+    },
+    {
+      "id": "zh-011/continue_after_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.4980113881266937,
+      "passed": true
+    },
+    {
+      "id": "zh-011/polite_only",
+      "language": "zh",
+      "label": 0,
+      "score": 0.5986490788867096,
+      "passed": true
+    },
+    {
+      "id": "zh-069/direct_end",
+      "language": "zh",
+      "label": 1,
+      "score": 0.8390610374002219,
+      "passed": true
+    },
+    {
+      "id": "zh-069/indirect_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.46394290983793085,
+      "passed": true
+    },
+    {
+      "id": "zh-069/yield_next",
+      "language": "zh",
+      "label": 0,
+      "score": 0.14048627320912963,
+      "passed": false
+    },
+    {
+      "id": "zh-069/nothing_more",
+      "language": "zh",
+      "label": 1,
+      "score": 0.7653795031052476,
+      "passed": true
+    },
+    {
+      "id": "zh-069/ordinary_content",
+      "language": "zh",
+      "label": 0,
+      "score": 0.7696858407904799,
+      "passed": true
+    },
+    {
+      "id": "zh-069/task_complete",
+      "language": "zh",
+      "label": 0,
+      "score": 0.15533425951335522,
+      "passed": false
+    },
+    {
+      "id": "zh-069/quoted_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.11577485617890738,
+      "passed": false
+    },
+    {
+      "id": "zh-069/negated_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.4136317692870532,
+      "passed": true
+    },
+    {
+      "id": "zh-069/continue_after_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.596101142946171,
+      "passed": true
+    },
+    {
+      "id": "zh-069/polite_only",
+      "language": "zh",
+      "label": 0,
+      "score": 0.19717742778001246,
+      "passed": false
+    },
+    {
+      "id": "zh-013/direct_end",
+      "language": "zh",
+      "label": 1,
+      "score": 0.47061358371835427,
+      "passed": true
+    },
+    {
+      "id": "zh-013/indirect_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.38504335612548574,
+      "passed": true
+    },
+    {
+      "id": "zh-013/yield_next",
+      "language": "zh",
+      "label": 0,
+      "score": 0.1839193118967199,
+      "passed": false
+    },
+    {
+      "id": "zh-013/nothing_more",
+      "language": "zh",
+      "label": 1,
+      "score": 0.5855830395693061,
+      "passed": true
+    },
+    {
+      "id": "zh-013/ordinary_content",
+      "language": "zh",
+      "label": 0,
+      "score": 0.4596359191636956,
+      "passed": true
+    },
+    {
+      "id": "zh-013/task_complete",
+      "language": "zh",
+      "label": 0,
+      "score": 0.3925516772228873,
+      "passed": true
+    },
+    {
+      "id": "zh-013/quoted_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.3071546488243823,
+      "passed": false
+    },
+    {
+      "id": "zh-013/negated_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.40731287270952793,
+      "passed": true
+    },
+    {
+      "id": "zh-013/continue_after_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.535272810111049,
+      "passed": true
+    },
+    {
+      "id": "zh-013/polite_only",
+      "language": "zh",
+      "label": 0,
+      "score": 0.38564622884885646,
+      "passed": true
+    },
+    {
+      "id": "zh-017/direct_end",
+      "language": "zh",
+      "label": 1,
+      "score": 0.7696387846333071,
+      "passed": true
+    },
+    {
+      "id": "zh-017/indirect_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.5482525046520732,
+      "passed": true
+    },
+    {
+      "id": "zh-017/yield_next",
+      "language": "zh",
+      "label": 0,
+      "score": 0.31689955281715837,
+      "passed": false
+    },
+    {
+      "id": "zh-017/nothing_more",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9074268446423825,
+      "passed": true
+    },
+    {
+      "id": "zh-017/ordinary_content",
+      "language": "zh",
+      "label": 0,
+      "score": 0.6987331481473759,
+      "passed": true
+    },
+    {
+      "id": "zh-017/task_complete",
+      "language": "zh",
+      "label": 0,
+      "score": 0.5869398599879891,
+      "passed": true
+    },
+    {
+      "id": "zh-017/quoted_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.6467031881596551,
+      "passed": true
+    },
+    {
+      "id": "zh-017/negated_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.7347850772579967,
+      "passed": true
+    },
+    {
+      "id": "zh-017/continue_after_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.5172926618364756,
+      "passed": true
+    },
+    {
+      "id": "zh-017/polite_only",
+      "language": "zh",
+      "label": 0,
+      "score": 0.5718512643735142,
+      "passed": true
+    },
+    {
+      "id": "zh-028/direct_end",
+      "language": "zh",
+      "label": 1,
+      "score": 0.5034113931571141,
+      "passed": true
+    },
+    {
+      "id": "zh-028/indirect_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.49937201828171085,
+      "passed": true
+    },
+    {
+      "id": "zh-028/yield_next",
+      "language": "zh",
+      "label": 0,
+      "score": 0.22270673526122403,
+      "passed": false
+    },
+    {
+      "id": "zh-028/nothing_more",
+      "language": "zh",
+      "label": 1,
+      "score": 0.3019899310557868,
+      "passed": false
+    },
+    {
+      "id": "zh-028/ordinary_content",
+      "language": "zh",
+      "label": 0,
+      "score": 0.2200429184187515,
+      "passed": false
+    },
+    {
+      "id": "zh-028/task_complete",
+      "language": "zh",
+      "label": 0,
+      "score": 0.2751342225949222,
+      "passed": false
+    },
+    {
+      "id": "zh-028/quoted_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.2631978093246028,
+      "passed": false
+    },
+    {
+      "id": "zh-028/negated_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.2072356251119965,
+      "passed": false
+    },
+    {
+      "id": "zh-028/continue_after_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.22468214040600856,
+      "passed": false
+    },
+    {
+      "id": "zh-028/polite_only",
+      "language": "zh",
+      "label": 0,
+      "score": 0.0985868150686249,
+      "passed": false
+    },
+    {
+      "id": "zh-031/direct_end",
+      "language": "zh",
+      "label": 1,
+      "score": 0.7115115723425508,
+      "passed": true
+    },
+    {
+      "id": "zh-031/indirect_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.17064038656932193,
+      "passed": false
+    },
+    {
+      "id": "zh-031/yield_next",
+      "language": "zh",
+      "label": 0,
+      "score": 0.24018035296594617,
+      "passed": false
+    },
+    {
+      "id": "zh-031/nothing_more",
+      "language": "zh",
+      "label": 0,
+      "score": 0.8362621781008103,
+      "passed": true
+    },
+    {
+      "id": "zh-031/ordinary_content",
+      "language": "zh",
+      "label": 0,
+      "score": 0.2526572670196052,
+      "passed": false
+    },
+    {
+      "id": "zh-031/task_complete",
+      "language": "zh",
+      "label": 0,
+      "score": 0.35444141852443456,
+      "passed": true
+    },
+    {
+      "id": "zh-031/quoted_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.2345586343274986,
+      "passed": false
+    },
+    {
+      "id": "zh-031/negated_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.21283769810601186,
+      "passed": false
+    },
+    {
+      "id": "zh-031/continue_after_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.09174482419591355,
+      "passed": false
+    },
+    {
+      "id": "zh-031/polite_only",
+      "language": "zh",
+      "label": 0,
+      "score": 0.3268182210563288,
+      "passed": false
+    },
+    {
+      "id": "zh-035/direct_end",
+      "language": "zh",
+      "label": 1,
+      "score": 0.48838183150515796,
+      "passed": true
+    },
+    {
+      "id": "zh-035/indirect_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.6457401546561349,
+      "passed": true
+    },
+    {
+      "id": "zh-035/yield_next",
+      "language": "zh",
+      "label": 0,
+      "score": 0.15892418212102566,
+      "passed": false
+    },
+    {
+      "id": "zh-035/nothing_more",
+      "language": "zh",
+      "label": 0,
+      "score": 0.8052127686556789,
+      "passed": true
+    },
+    {
+      "id": "zh-035/ordinary_content",
+      "language": "zh",
+      "label": 0,
+      "score": 0.4389210539301233,
+      "passed": true
+    },
+    {
+      "id": "zh-035/task_complete",
+      "language": "zh",
+      "label": 0,
+      "score": 0.19169961572931882,
+      "passed": false
+    },
+    {
+      "id": "zh-035/quoted_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.11188735971860722,
+      "passed": false
+    },
+    {
+      "id": "zh-035/negated_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.1760630136591376,
+      "passed": false
+    },
+    {
+      "id": "zh-035/continue_after_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.5184437008999065,
+      "passed": true
+    },
+    {
+      "id": "zh-035/polite_only",
+      "language": "zh",
+      "label": 0,
+      "score": 0.2905579275864911,
+      "passed": false
+    },
+    {
+      "id": "zh-003/direct_end",
+      "language": "zh",
+      "label": 1,
+      "score": 0.6844794405674751,
+      "passed": true
+    },
+    {
+      "id": "zh-003/indirect_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.38544387016126436,
+      "passed": true
+    },
+    {
+      "id": "zh-003/yield_next",
+      "language": "zh",
+      "label": 0,
+      "score": 0.19073004153347412,
+      "passed": false
+    },
+    {
+      "id": "zh-003/nothing_more",
+      "language": "zh",
+      "label": 1,
+      "score": 0.7210589464675441,
+      "passed": true
+    },
+    {
+      "id": "zh-003/ordinary_content",
+      "language": "zh",
+      "label": 0,
+      "score": 0.30007830011126446,
+      "passed": false
+    },
+    {
+      "id": "zh-003/task_complete",
+      "language": "zh",
+      "label": 0,
+      "score": 0.49757843379890976,
+      "passed": true
+    },
+    {
+      "id": "zh-003/quoted_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.1817783433930833,
+      "passed": false
+    },
+    {
+      "id": "zh-003/negated_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.2825019529272896,
+      "passed": false
+    },
+    {
+      "id": "zh-003/continue_after_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.36775228630056067,
+      "passed": true
+    },
+    {
+      "id": "zh-003/polite_only",
+      "language": "zh",
+      "label": 0,
+      "score": 0.3083557194329785,
+      "passed": false
+    },
+    {
+      "id": "zh-014/direct_end",
+      "language": "zh",
+      "label": 1,
+      "score": 0.4864341794358758,
+      "passed": true
+    },
+    {
+      "id": "zh-014/indirect_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.5526549847958998,
+      "passed": true
+    },
+    {
+      "id": "zh-014/yield_next",
+      "language": "zh",
+      "label": 0,
+      "score": 0.10413421517867487,
+      "passed": false
+    },
+    {
+      "id": "zh-014/nothing_more",
+      "language": "zh",
+      "label": 1,
+      "score": 0.7758693652587401,
+      "passed": true
+    },
+    {
+      "id": "zh-014/ordinary_content",
+      "language": "zh",
+      "label": 0,
+      "score": 0.22202240871515155,
+      "passed": false
+    },
+    {
+      "id": "zh-014/task_complete",
+      "language": "zh",
+      "label": 0,
+      "score": 0.3739349275937581,
+      "passed": true
+    },
+    {
+      "id": "zh-014/quoted_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.2124474980161248,
+      "passed": false
+    },
+    {
+      "id": "zh-014/negated_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.28401431195429366,
+      "passed": false
+    },
+    {
+      "id": "zh-014/continue_after_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.35835349165284697,
+      "passed": true
+    },
+    {
+      "id": "zh-014/polite_only",
+      "language": "zh",
+      "label": 0,
+      "score": 0.26123600479169234,
+      "passed": false
+    },
+    {
+      "id": "en-007/direct_end",
+      "language": "en",
+      "label": 1,
+      "score": 0.8566621775045339,
+      "passed": true
+    },
+    {
+      "id": "en-007/indirect_end",
+      "language": "en",
+      "label": 0,
+      "score": 0.60713817579071,
+      "passed": true
+    },
+    {
+      "id": "en-007/yield_next",
+      "language": "en",
+      "label": 0,
+      "score": 0.30425339209022956,
+      "passed": false
+    },
+    {
+      "id": "en-007/nothing_more",
+      "language": "en",
+      "label": 1,
+      "score": 0.47615073232672994,
+      "passed": true
+    },
+    {
+      "id": "en-007/ordinary_content",
+      "language": "en",
+      "label": 0,
+      "score": 0.2910756508410076,
+      "passed": false
+    },
+    {
+      "id": "en-007/task_complete",
+      "language": "en",
+      "label": 0,
+      "score": 0.47864753888267597,
+      "passed": true
+    },
+    {
+      "id": "en-007/quoted_end",
+      "language": "en",
+      "label": 0,
+      "score": 0.19862434298665135,
+      "passed": false
+    },
+    {
+      "id": "en-007/negated_end",
+      "language": "en",
+      "label": 0,
+      "score": 0.10319568212358392,
+      "passed": false
+    },
+    {
+      "id": "en-007/continue_after_end",
+      "language": "en",
+      "label": 0,
+      "score": 0.3136550704359608,
+      "passed": false
+    },
+    {
+      "id": "en-007/polite_only",
+      "language": "en",
+      "label": 0,
+      "score": 0.224148664150819,
+      "passed": false
+    },
+    {
+      "id": "en-041/direct_end",
+      "language": "en",
+      "label": 1,
+      "score": 0.4764281811862589,
+      "passed": true
+    },
+    {
+      "id": "en-041/indirect_end",
+      "language": "en",
+      "label": 0,
+      "score": 0.5642506644568225,
+      "passed": true
+    },
+    {
+      "id": "en-041/yield_next",
+      "language": "en",
+      "label": 0,
+      "score": 0.2374175714981865,
+      "passed": false
+    },
+    {
+      "id": "en-041/nothing_more",
+      "language": "en",
+      "label": 1,
+      "score": 0.6132318679124518,
+      "passed": true
+    },
+    {
+      "id": "en-041/ordinary_content",
+      "language": "en",
+      "label": 0,
+      "score": 0.5888773822459313,
+      "passed": true
+    },
+    {
+      "id": "en-041/task_complete",
+      "language": "en",
+      "label": 0,
+      "score": 0.19936753050847916,
+      "passed": false
+    },
+    {
+      "id": "en-041/quoted_end",
+      "language": "en",
+      "label": 0,
+      "score": 0.2145176620939293,
+      "passed": false
+    },
+    {
+      "id": "en-041/negated_end",
+      "language": "en",
+      "label": 0,
+      "score": 0.11663915415449465,
+      "passed": false
+    },
+    {
+      "id": "en-041/continue_after_end",
+      "language": "en",
+      "label": 0,
+      "score": 0.13467295260542705,
+      "passed": false
+    },
+    {
+      "id": "en-041/polite_only",
+      "language": "en",
+      "label": 0,
+      "score": 0.06326207126810124,
+      "passed": false
+    },
+    {
+      "id": "en-028/direct_end",
+      "language": "en",
+      "label": 1,
+      "score": 0.5109836124366184,
+      "passed": true
+    },
+    {
+      "id": "en-028/indirect_end",
+      "language": "en",
+      "label": 0,
+      "score": 0.718459440694239,
+      "passed": true
+    },
+    {
+      "id": "en-028/yield_next",
+      "language": "en",
+      "label": 0,
+      "score": 0.5062117577927134,
+      "passed": true
+    },
+    {
+      "id": "en-028/nothing_more",
+      "language": "en",
+      "label": 1,
+      "score": 0.6601754893824539,
+      "passed": true
+    },
+    {
+      "id": "en-028/ordinary_content",
+      "language": "en",
+      "label": 0,
+      "score": 0.24434586909020564,
+      "passed": false
+    },
+    {
+      "id": "en-028/task_complete",
+      "language": "en",
+      "label": 0,
+      "score": 0.36541445446026327,
+      "passed": true
+    },
+    {
+      "id": "en-028/quoted_end",
+      "language": "en",
+      "label": 0,
+      "score": 0.13158804588256826,
+      "passed": false
+    },
+    {
+      "id": "en-028/negated_end",
+      "language": "en",
+      "label": 0,
+      "score": 0.06317731020867735,
+      "passed": false
+    },
+    {
+      "id": "en-028/continue_after_end",
+      "language": "en",
+      "label": 0,
+      "score": 0.279427019518171,
+      "passed": false
+    },
+    {
+      "id": "en-028/polite_only",
+      "language": "en",
+      "label": 0,
+      "score": 0.1685045806483556,
+      "passed": false
+    },
+    {
+      "id": "en-071/direct_end",
+      "language": "en",
+      "label": 1,
+      "score": 0.6936870618397447,
+      "passed": true
+    },
+    {
+      "id": "en-071/indirect_end",
+      "language": "en",
+      "label": 0,
+      "score": 0.4698537385189027,
+      "passed": true
+    },
+    {
+      "id": "en-071/yield_next",
+      "language": "en",
+      "label": 0,
+      "score": 0.2996882495917614,
+      "passed": false
+    },
+    {
+      "id": "en-071/nothing_more",
+      "language": "en",
+      "label": 1,
+      "score": 0.8771074849237503,
+      "passed": true
+    },
+    {
+      "id": "en-071/ordinary_content",
+      "language": "en",
+      "label": 0,
+      "score": 0.3986671721038349,
+      "passed": true
+    },
+    {
+      "id": "en-071/task_complete",
+      "language": "en",
+      "label": 0,
+      "score": 0.4574720742103454,
+      "passed": true
+    },
+    {
+      "id": "en-071/quoted_end",
+      "language": "en",
+      "label": 0,
+      "score": 0.2473613280462259,
+      "passed": false
+    },
+    {
+      "id": "en-071/negated_end",
+      "language": "en",
+      "label": 0,
+      "score": 0.13445570213425298,
+      "passed": false
+    },
+    {
+      "id": "en-071/continue_after_end",
+      "language": "en",
+      "label": 0,
+      "score": 0.4443772198503491,
+      "passed": true
+    },
+    {
+      "id": "en-071/polite_only",
+      "language": "en",
+      "label": 0,
+      "score": 0.4142722340579109,
+      "passed": true
+    },
+    {
+      "id": "en-034/direct_end",
+      "language": "en",
+      "label": 1,
+      "score": 0.5623436028420757,
+      "passed": true
+    },
+    {
+      "id": "en-034/indirect_end",
+      "language": "en",
+      "label": 0,
+      "score": 0.13689088612087602,
+      "passed": false
+    },
+    {
+      "id": "en-034/yield_next",
+      "language": "en",
+      "label": 0,
+      "score": 0.2527466581564973,
+      "passed": false
+    },
+    {
+      "id": "en-034/nothing_more",
+      "language": "en",
+      "label": 1,
+      "score": 0.8354400791721732,
+      "passed": true
+    },
+    {
+      "id": "en-034/ordinary_content",
+      "language": "en",
+      "label": 0,
+      "score": 0.5250220302775518,
+      "passed": true
+    },
+    {
+      "id": "en-034/task_complete",
+      "language": "en",
+      "label": 0,
+      "score": 0.5503006010026888,
+      "passed": true
+    },
+    {
+      "id": "en-034/quoted_end",
+      "language": "en",
+      "label": 0,
+      "score": 0.3481948579888539,
+      "passed": true
+    },
+    {
+      "id": "en-034/negated_end",
+      "language": "en",
+      "label": 0,
+      "score": 0.15614249588010015,
+      "passed": false
+    },
+    {
+      "id": "en-034/continue_after_end",
+      "language": "en",
+      "label": 0,
+      "score": 0.2275316332091598,
+      "passed": false
+    },
+    {
+      "id": "en-034/polite_only",
+      "language": "en",
+      "label": 0,
+      "score": 0.16538478595487466,
+      "passed": false
+    },
+    {
+      "id": "en-048/direct_end",
+      "language": "en",
+      "label": 1,
+      "score": 0.4944370686293916,
+      "passed": true
+    },
+    {
+      "id": "en-048/indirect_end",
+      "language": "en",
+      "label": 0,
+      "score": 0.5847732937235334,
+      "passed": true
+    },
+    {
+      "id": "en-048/yield_next",
+      "language": "en",
+      "label": 0,
+      "score": 0.32844490808524784,
+      "passed": false
+    },
+    {
+      "id": "en-048/nothing_more",
+      "language": "en",
+      "label": 1,
+      "score": 0.44162942964671204,
+      "passed": true
+    },
+    {
+      "id": "en-048/ordinary_content",
+      "language": "en",
+      "label": 0,
+      "score": 0.42486398787557184,
+      "passed": true
+    },
+    {
+      "id": "en-048/task_complete",
+      "language": "en",
+      "label": 0,
+      "score": 0.2081598547659383,
+      "passed": false
+    },
+    {
+      "id": "en-048/quoted_end",
+      "language": "en",
+      "label": 0,
+      "score": 0.24092678436736648,
+      "passed": false
+    },
+    {
+      "id": "en-048/negated_end",
+      "language": "en",
+      "label": 0,
+      "score": 0.06106181963386979,
+      "passed": false
+    },
+    {
+      "id": "en-048/continue_after_end",
+      "language": "en",
+      "label": 0,
+      "score": 0.24576586822708363,
+      "passed": false
+    },
+    {
+      "id": "en-048/polite_only",
+      "language": "en",
+      "label": 0,
+      "score": 0.1071169646423218,
+      "passed": false
+    },
+    {
+      "id": "en-059/direct_end",
+      "language": "en",
+      "label": 1,
+      "score": 0.4000036340111132,
+      "passed": true
+    },
+    {
+      "id": "en-059/indirect_end",
+      "language": "en",
+      "label": 0,
+      "score": 0.5230193981914953,
+      "passed": true
+    },
+    {
+      "id": "en-059/yield_next",
+      "language": "en",
+      "label": 0,
+      "score": 0.19395024993998541,
+      "passed": false
+    },
+    {
+      "id": "en-059/nothing_more",
+      "language": "en",
+      "label": 1,
+      "score": 0.6705285562059516,
+      "passed": true
+    },
+    {
+      "id": "en-059/ordinary_content",
+      "language": "en",
+      "label": 0,
+      "score": 0.7320415027542776,
+      "passed": true
+    },
+    {
+      "id": "en-059/task_complete",
+      "language": "en",
+      "label": 0,
+      "score": 0.5018280898875258,
+      "passed": true
+    },
+    {
+      "id": "en-059/quoted_end",
+      "language": "en",
+      "label": 0,
+      "score": 0.4502684742352735,
+      "passed": true
+    },
+    {
+      "id": "en-059/negated_end",
+      "language": "en",
+      "label": 0,
+      "score": 0.0365293117854701,
+      "passed": false
+    },
+    {
+      "id": "en-059/continue_after_end",
+      "language": "en",
+      "label": 0,
+      "score": 0.34680618685817566,
+      "passed": true
+    },
+    {
+      "id": "en-059/polite_only",
+      "language": "en",
+      "label": 0,
+      "score": 0.3437955621222205,
+      "passed": true
+    },
+    {
+      "id": "en-020/direct_end",
+      "language": "en",
+      "label": 1,
+      "score": 0.7568753014090015,
+      "passed": true
+    },
+    {
+      "id": "en-020/indirect_end",
+      "language": "en",
+      "label": 0,
+      "score": 0.4864936338390473,
+      "passed": true
+    },
+    {
+      "id": "en-020/yield_next",
+      "language": "en",
+      "label": 0,
+      "score": 0.1142166742401095,
+      "passed": false
+    },
+    {
+      "id": "en-020/nothing_more",
+      "language": "en",
+      "label": 1,
+      "score": 0.8518580418566987,
+      "passed": true
+    },
+    {
+      "id": "en-020/ordinary_content",
+      "language": "en",
+      "label": 0,
+      "score": 0.3567258289559178,
+      "passed": true
+    },
+    {
+      "id": "en-020/task_complete",
+      "language": "en",
+      "label": 0,
+      "score": 0.2909709612280904,
+      "passed": false
+    },
+    {
+      "id": "en-020/quoted_end",
+      "language": "en",
+      "label": 0,
+      "score": 0.26721786014412413,
+      "passed": false
+    },
+    {
+      "id": "en-020/negated_end",
+      "language": "en",
+      "label": 0,
+      "score": 0.4072531018081137,
+      "passed": true
+    },
+    {
+      "id": "en-020/continue_after_end",
+      "language": "en",
+      "label": 0,
+      "score": 0.15508505779471368,
+      "passed": false
+    },
+    {
+      "id": "en-020/polite_only",
+      "language": "en",
+      "label": 0,
+      "score": 0.31068248517925084,
+      "passed": false
+    },
+    {
+      "id": "en-031/direct_end",
+      "language": "en",
+      "label": 1,
+      "score": 0.582760422658015,
+      "passed": true
+    },
+    {
+      "id": "en-031/indirect_end",
+      "language": "en",
+      "label": 1,
+      "score": 0.30427282005291745,
+      "passed": false
+    },
+    {
+      "id": "en-031/yield_next",
+      "language": "en",
+      "label": 0,
+      "score": 0.2843005771575323,
+      "passed": false
+    },
+    {
+      "id": "en-031/nothing_more",
+      "language": "en",
+      "label": 1,
+      "score": 0.7068421009346895,
+      "passed": true
+    },
+    {
+      "id": "en-031/ordinary_content",
+      "language": "en",
+      "label": 0,
+      "score": 0.3935607477325776,
+      "passed": true
+    },
+    {
+      "id": "en-031/task_complete",
+      "language": "en",
+      "label": 0,
+      "score": 0.5362712330106769,
+      "passed": true
+    },
+    {
+      "id": "en-031/quoted_end",
+      "language": "en",
+      "label": 0,
+      "score": 0.18621056366525748,
+      "passed": false
+    },
+    {
+      "id": "en-031/negated_end",
+      "language": "en",
+      "label": 0,
+      "score": 0.5537361710468753,
+      "passed": true
+    },
+    {
+      "id": "en-031/continue_after_end",
+      "language": "en",
+      "label": 0,
+      "score": 0.20349311039511264,
+      "passed": false
+    },
+    {
+      "id": "en-031/polite_only",
+      "language": "en",
+      "label": 0,
+      "score": 0.2892352170407826,
+      "passed": false
+    },
+    {
+      "id": "en-068/direct_end",
+      "language": "en",
+      "label": 1,
+      "score": 0.3035451002267432,
+      "passed": false
+    },
+    {
+      "id": "en-068/indirect_end",
+      "language": "en",
+      "label": 1,
+      "score": 0.2842350605629409,
+      "passed": false
+    },
+    {
+      "id": "en-068/yield_next",
+      "language": "en",
+      "label": 0,
+      "score": 0.5139914168409928,
+      "passed": true
+    },
+    {
+      "id": "en-068/nothing_more",
+      "language": "en",
+      "label": 1,
+      "score": 0.7005191189764722,
+      "passed": true
+    },
+    {
+      "id": "en-068/ordinary_content",
+      "language": "en",
+      "label": 0,
+      "score": 0.19166077201699472,
+      "passed": false
+    },
+    {
+      "id": "en-068/task_complete",
+      "language": "en",
+      "label": 0,
+      "score": 0.4035531222890888,
+      "passed": true
+    },
+    {
+      "id": "en-068/quoted_end",
+      "language": "en",
+      "label": 0,
+      "score": 0.12056855474569873,
+      "passed": false
+    },
+    {
+      "id": "en-068/negated_end",
+      "language": "en",
+      "label": 0,
+      "score": 0.1566618370334388,
+      "passed": false
+    },
+    {
+      "id": "en-068/continue_after_end",
+      "language": "en",
+      "label": 0,
+      "score": 0.1673211432812511,
+      "passed": false
+    },
+    {
+      "id": "en-068/polite_only",
+      "language": "en",
+      "label": 0,
+      "score": 0.16527120624854366,
+      "passed": false
+    },
+    {
+      "id": "challenge-zh-00-1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.3484245715431758,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-00-0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.3480305955065576,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-01-1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.12839346896034493,
+      "passed": false
+    },
+    {
+      "id": "challenge-zh-01-0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.2098319034558997,
+      "passed": false
+    },
+    {
+      "id": "challenge-zh-02-1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9907748306160669,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-02-0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.9684824421322165,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-03-1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.5631542728765953,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-03-0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.5488587929634103,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-04-1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.6712046048853888,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-04-0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.48065176996847747,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-05-1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.5652287907362711,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-05-0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.40036929127753623,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-06-1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.3046842992279825,
+      "passed": false
+    },
+    {
+      "id": "challenge-zh-06-0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.327065203556072,
+      "passed": false
+    },
+    {
+      "id": "challenge-zh-07-1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.7834806571020051,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-07-0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.6406679195119711,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-08-1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9239603178667025,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-08-0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.7665975993550304,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-09-1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.7083670149968863,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-09-0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.6262833705225597,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-10-1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.5588107630126702,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-10-0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.3484587887128841,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-11-1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.3685452342819977,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-11-0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.6969804657669707,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-12-1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.7115144887034356,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-12-0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.6730012544238759,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-13-1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9220887848085204,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-13-0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.6580171629135887,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-14-1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.3599130259745448,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-14-0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.3012122925212231,
+      "passed": false
+    },
+    {
+      "id": "challenge-zh-15-1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.36177605777320015,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-15-0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.0874460138035242,
+      "passed": false
+    },
+    {
+      "id": "challenge-zh-16-1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.7554493837348784,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-16-0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.576322443762258,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-17-1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.7624464214731408,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-17-0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.7926833069218404,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-18-1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.8420789699185109,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-18-0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.7105885759533388,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-19-1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.2673958732979008,
+      "passed": false
+    },
+    {
+      "id": "challenge-zh-19-0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.4475276037484968,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-00-1",
+      "language": "en",
+      "label": 1,
+      "score": 0.15389064783123793,
+      "passed": false
+    },
+    {
+      "id": "challenge-en-00-0",
+      "language": "en",
+      "label": 0,
+      "score": 0.10175409708786952,
+      "passed": false
+    },
+    {
+      "id": "challenge-en-01-1",
+      "language": "en",
+      "label": 1,
+      "score": 0.10306075445229505,
+      "passed": false
+    },
+    {
+      "id": "challenge-en-01-0",
+      "language": "en",
+      "label": 0,
+      "score": 0.06092182092872498,
+      "passed": false
+    },
+    {
+      "id": "challenge-en-02-1",
+      "language": "en",
+      "label": 1,
+      "score": 0.8107670208267961,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-02-0",
+      "language": "en",
+      "label": 0,
+      "score": 0.8540612783792065,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-03-1",
+      "language": "en",
+      "label": 1,
+      "score": 0.742219235473292,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-03-0",
+      "language": "en",
+      "label": 0,
+      "score": 0.39324966474526746,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-04-1",
+      "language": "en",
+      "label": 1,
+      "score": 0.6458078843569964,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-04-0",
+      "language": "en",
+      "label": 0,
+      "score": 0.5199397699481626,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-05-1",
+      "language": "en",
+      "label": 1,
+      "score": 0.5909952968727192,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-05-0",
+      "language": "en",
+      "label": 0,
+      "score": 0.6292424837941709,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-06-1",
+      "language": "en",
+      "label": 1,
+      "score": 0.30817179133780215,
+      "passed": false
+    },
+    {
+      "id": "challenge-en-06-0",
+      "language": "en",
+      "label": 0,
+      "score": 0.39287515701628045,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-07-1",
+      "language": "en",
+      "label": 1,
+      "score": 0.816533923757644,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-07-0",
+      "language": "en",
+      "label": 0,
+      "score": 0.7481782947281103,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-08-1",
+      "language": "en",
+      "label": 1,
+      "score": 0.628978672103421,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-08-0",
+      "language": "en",
+      "label": 0,
+      "score": 0.3945730359498603,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-09-1",
+      "language": "en",
+      "label": 1,
+      "score": 0.14968224042015443,
+      "passed": false
+    },
+    {
+      "id": "challenge-en-09-0",
+      "language": "en",
+      "label": 0,
+      "score": 0.15006902885691523,
+      "passed": false
+    },
+    {
+      "id": "challenge-en-10-1",
+      "language": "en",
+      "label": 1,
+      "score": 0.24844997771423502,
+      "passed": false
+    },
+    {
+      "id": "challenge-en-10-0",
+      "language": "en",
+      "label": 0,
+      "score": 0.20185814636638633,
+      "passed": false
+    },
+    {
+      "id": "challenge-en-11-1",
+      "language": "en",
+      "label": 1,
+      "score": 0.6640082572069147,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-11-0",
+      "language": "en",
+      "label": 0,
+      "score": 0.6516424799904855,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-12-1",
+      "language": "en",
+      "label": 1,
+      "score": 0.6701016145819942,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-12-0",
+      "language": "en",
+      "label": 0,
+      "score": 0.6981625166399158,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-13-1",
+      "language": "en",
+      "label": 1,
+      "score": 0.8432781583487688,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-13-0",
+      "language": "en",
+      "label": 0,
+      "score": 0.865977045612189,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-14-1",
+      "language": "en",
+      "label": 1,
+      "score": 0.42167850978723753,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-14-0",
+      "language": "en",
+      "label": 0,
+      "score": 0.35008852590902334,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-15-1",
+      "language": "en",
+      "label": 1,
+      "score": 0.6748593445145276,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-15-0",
+      "language": "en",
+      "label": 0,
+      "score": 0.3133351905022353,
+      "passed": false
+    },
+    {
+      "id": "challenge-en-16-1",
+      "language": "en",
+      "label": 1,
+      "score": 0.5975239957804085,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-16-0",
+      "language": "en",
+      "label": 0,
+      "score": 0.527970982350341,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-17-1",
+      "language": "en",
+      "label": 1,
+      "score": 0.6370621733146348,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-17-0",
+      "language": "en",
+      "label": 0,
+      "score": 0.7866842572384648,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-18-1",
+      "language": "en",
+      "label": 1,
+      "score": 0.6708725324497079,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-18-0",
+      "language": "en",
+      "label": 0,
+      "score": 0.7087928206707822,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-19-1",
+      "language": "en",
+      "label": 1,
+      "score": 0.32488573133946846,
+      "passed": false
+    },
+    {
+      "id": "challenge-en-19-0",
+      "language": "en",
+      "label": 0,
+      "score": 0.29337988386733305,
+      "passed": false
+    }
+  ]
+}

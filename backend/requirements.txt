@@ -3,6 +3,7 @@
 # DashScope：百炼语音合成与识别。
 # PDFium/Pillow：仅后端 PDF 页面渲染，规则文字提取复用根依赖 pypdf。
 # LightGBM/NumPy/SciPy：固定v4-B人岗排序的本地CPU推理。
+# ONNX Runtime/Tokenizers：服务器上的离线 MiniLM 回答结束粗筛；不安装训练框架。
 Django==5.2.17
 djangorestframework==3.18.1
 uvicorn==0.52.4
@@ -14,6 +15,8 @@ Pillow==12.3.0
 lightgbm==4.6.0
 numpy==2.0.2
 scipy==1.14.1
+onnxruntime==1.23.2
+tokenizers==0.22.2
 -r ../requirements.txt
 
 # Redis 仅用于显式 Celery 模式的短期任务与进度；本地 inline 不连接队列。

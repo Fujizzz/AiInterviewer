@@ -20,6 +20,7 @@
 | 用户账号 | PostgreSQL 中的 Django 用户与 session；密码仅保存哈希 |
 | PDF 隔离环境 | `/opt/ai-interviewer/pdf-sandbox`，系统 Python 3.10 专用解析依赖和 bubblewrap |
 | 容量锁 | `/var/lib/ai-interviewer/capacity`；保持原 4 个面试连接、2 个 PDF 上传限额 |
+| 回答结束粗筛模型 | `/var/lib/ai-interviewer/models/answer-completion/v2-20261003`；离线 INT8，配置 `ANSWER_COMPLETION_GATE_PATH`，通过后仍需 Qwen |
 | 数据备份 | `backup-postgresql.sh` 手动创建 `/var/backups/ai-interviewer/*.dump` |
 
 服务器使用新建数据库，只由既有迁移初始化两道练习题；未导入本地 SQLite 历史。
@@ -28,6 +29,14 @@
 UE 工程与 MetaHuman 资源仍保存在 Git/Git LFS，通过克隆仓库获取，在 GPU 机器上单独打包运行。
 后端归档保留网页、语音服务及面试模块，并遵守压缩包 128 MiB、解压后 256 MiB 的发布上限。
 Redis/Celery 接入不修改模型、采样参数、评分策略、推荐权重、PDF 参数或容量限制。
+
+回答结束模型的 ZIP 来自私有 Kaggle V2 输出，单独上传到上述版本目录，未放入源码归档。
+校验 ZIP 和 `manifest.json` 摘要、固定文件白名单、单条输入契约及 `release_approved`
+后再启用；版本目录须允许应用用户读取，环境文件仍使用 root 私有权限。
+服务器只需已有依赖锁中的 ONNX Runtime/tokenizers/NumPy，不安装 PyTorch 训练依赖。
+部署探针校验模型真实加载/推理，并用临时认证会话访问线上 WebSocket，检查 MCP 握手
+和 `finish_current_answer` 工具注册；它不调用结束工具、不录音，也不能证明意图准确率。
+训练/推理及真实 Qwen 检查边界见[训练记录](../backend/docs/answer-completion-training.md)。
 本次同时合并远程 main 的 Plan and Execute 版本；面试时长和题数安全上限沿用该远程版本。
 生产配置通过 `DJANGO_SETTINGS_MODULE=config.production` 显式启用；默认开发启动仍使用 SQLite。
 PostgreSQL 配置不全或连接失败时明确报错，不回退到 SQLite。

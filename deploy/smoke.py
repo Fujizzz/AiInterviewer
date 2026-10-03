@@ -1,12 +1,14 @@
-"""职责：发布后验证 HTTP、PostgreSQL、Redis、Celery 和实际个人岗位推荐。
+"""职责：发布后验证 HTTP、数据库/队列、个人岗位推荐及回答结束模型/MCP。
 
 实现：检查数据库、公开登录页和无用户数据 Celery 探针；用临时账号/简历/会话调用
-运行中的 ASGI、冻结模型和单次 LLM 精排，finally 清理探针记录；失败非零退出，不重试。
+运行中的 ASGI、推荐模型和单次 LLM 精排，并校验本地结束模型与真实 MCP 握手。
+finally 清理探针记录；失败非零退出，不重试。
 关联：deploy-release.py 在切换服务后以应用用户执行本文件。
 目录：
 - verify_recommendations：
   用临时保存槽位和真实 Session/CSRF 验证 100 岗粗排/20 岗候选/5 岗精排及双语理由，再清理。
-- main：读取已加载生产环境，验证基础组件与岗位推荐，打印固定成功信息。
+- verify_answer_completion：校验显式本地模型、真实认证 WebSocket 的 MCP 握手和工具注册。
+- main：读取生产环境，验证基础组件、推荐和结束分支，打印固定成功信息。
 关键变量：
 （无模块级变量。）
 """
@@ -127,10 +129,68 @@ def verify_recommendations(base_url="http://127.0.0.1:8765"):
                 session.delete()
 
 
+def verify_answer_completion():
+    """输入生产模型路径和已初始化 Django；输出真实本地加载/MCP 注册校验或显式异常。
+
+    显式配置模型时验证文件契约、摘要和可执行推理；空路径仍是原有 Qwen-only 配置。
+    创建临时用户/认证 Session，经生产 HTTPS WebSocket 验证 MCP 初始化及工具清单，
+    不调用面试、结束工具、语音或 Qwen；finally 只清理本次用户及会话，清理失败仍传播。
+    此检查证明部署接线可用，不能证明意图准确率、三秒静默或真实麦克风端到端行为。
+    """
+    from django.contrib.auth import (
+        BACKEND_SESSION_KEY,
+        HASH_SESSION_KEY,
+        SESSION_KEY,
+        get_user_model,
+    )
+    from django.contrib.sessions.backends.db import SessionStore
+    from websockets.sync.client import connect
+
+    model_path = os.getenv("ANSWER_COMPLETION_GATE_PATH", "").strip()
+    if model_path:
+        from agents.completion_gate import load_gate
+
+        probability = load_gate(model_path).score("Fictional deployment transcript for inference.")
+        assert 0 <= probability <= 1
+    user = get_user_model().objects.create_user(username=f"completion-probe-{uuid4().hex}")
+    session = SessionStore()
+    try:
+        session[SESSION_KEY] = str(user.pk)
+        session[BACKEND_SESSION_KEY] = "django.contrib.auth.backends.ModelBackend"
+        session[HASH_SESSION_KEY] = user.get_session_auth_hash()
+        session.save()
+        with connect(
+            "wss://47.239.50.129/ws/agent/", origin="https://47.239.50.129",
+            additional_headers={"Cookie": f"sessionid={session.session_key}"},
+            open_timeout=10, close_timeout=5,
+        ) as socket:
+            ready = json.loads(socket.recv(timeout=10))
+            assert "answer_completion_mcp" in ready["capabilities"]
+            socket.send(json.dumps({
+                "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                           "clientInfo": {"name": "deployment-probe", "version": "1"}},
+            }))
+            initialized = json.loads(socket.recv(timeout=10))
+            assert initialized["id"] == 1 and "result" in initialized
+            socket.send(json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}))
+            socket.send(json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}))
+            tools = json.loads(socket.recv(timeout=10))
+            assert tools["id"] == 2
+            assert any(x["name"] == "finish_current_answer" for x in tools["result"]["tools"])
+        print("Completion bundle and live MCP tool registration verified")
+    finally:
+        try:
+            user.delete()
+        finally:
+            if session.session_key:
+                session.delete()
+
+
 def main():
     """无外部参数；使用生产环境与当前源码，Celery 最长等待 20 秒，不重发任务。
 
-    Django 初始化后检查数据库与登录页，运行会清理临时记录的实际岗位推荐探针，
+    Django 初始化后检查数据库与登录页、结束模型和 MCP，运行会清理临时记录的推荐探针，
     再验证 Redis/Celery；任何异常非零退出，不能以单项成功代替完整发布验收。
     """
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
@@ -153,6 +213,7 @@ def main():
     with urllib.request.urlopen(request, timeout=10) as response:
         assert response.status == 200 and b'name="username"' in response.read()
     verify_recommendations()
+    verify_answer_completion()
     probe = uuid4().hex
     key = f"ai-interviewer:probe:{probe}"
     with Redis.from_url(settings.PDF_TASK_REDIS_URL, socket_timeout=5) as redis:

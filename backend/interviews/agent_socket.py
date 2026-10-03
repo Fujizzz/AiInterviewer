@@ -2,6 +2,7 @@
 
 实现：业务模型运行前绑定可信状态，所有模型结果经安全网关后保存/发送；固定控制事件独立处理。
 关联：agent_safety 审查输出，agent_records 保存校验记录；不接入业务工具拦截。
+answer_mcp 将同连接 MCP finish_current_answer 映射为相同的安全/持久化回答流程。
 
 目录：
 - Command：
@@ -25,11 +26,11 @@
 - agent_socket.emit：
   将响应字典编码为单条 JSON 并发送给本连接；编码或传输异常保持传播。
 - agent_socket.reject：
-  发送稳定 error 结构并记录关联 ID；未知或无效请求用 null 标识。
+  发送业务 error 或 MCP JSON-RPC error 并记录关联 ID；未知业务请求用 null 标识。
 - agent_socket.progress：
   校验固定阶段事件；评分事件必须经过行为审查后才发送。
 - agent_socket.progress.deliver_assessment：将已审查评分绑定请求 ID 并发送，不提前保存终态。
-- agent_socket.deliver_result：保存已审查完整响应与凭据，然后将相同正文交给网络。
+- agent_socket.deliver_result：保存已审查正文与凭据；MCP 调用再包装相同正文，不改变安全摘要。
 - agent_socket.run：
   绑定输入、调度 Agent、检查完整结果并保存/发送；安全异常绕过业务备用路径。
 
@@ -43,6 +44,7 @@
 agent_socket 内 session/safety 属于当前连接；operation 为唯一业务任务，receiver 为接收任务。
 interview_started 区分资料已准备和已开始面试；progress_events 只控制事件交付，不影响策略。
 request_id 关联当前响应；seen 记录已接受执行的请求。Command.request_id 为 UUID。
+mcp 为本连接 MCP 握手状态；rpc_ids 区分工具调用以包装终态/错误，工具仍映射为 Answer。
 transport_failed 标记发送端异常，避免将断线误报为可继续发送的业务错误。
 数据库请求主键提供跨连接去重；scope.user 来自会话认证，历史按创建用户隔离。
 Start 的题数参数为安全上限，不决定时间预算；Answer 绑定当前问题。
@@ -68,6 +70,7 @@ from .agent_records import (
 )
 from .agent_safety import InterviewIOGateway, security_error_code, validate_progress
 from .agent_session import AgentSession
+from .answer_mcp import InterviewMCP, tool_result
 from .api.resume_versions import resolve_resume_version
 
 logger = logging.getLogger(__name__)
@@ -181,6 +184,8 @@ async def agent_socket(scope, receive, send):
     session = None
     safety = None
     owner_id = getattr(scope.get("user"), "pk", None)
+    mcp = InterviewMCP(owner_id)
+    rpc_ids = set()
     operation = None
     receiver = None
     request_id = None
@@ -198,7 +203,7 @@ async def agent_socket(scope, receive, send):
             raise
 
     async def reject(code, detail, rejected_id=None):
-        """发送稳定 error 结构并记录关联 ID；未知或无效请求用 null 标识。
+        """发送业务 error 或 MCP JSON-RPC error 并记录 ID；未知业务请求用 null 标识。
 
         code/detail 来自协议层固定消息，不能传入包含候选人输入的原始异常文本。
         仅发送错误，不决定连接是否终止；关闭策略由调用分支执行。
@@ -206,7 +211,16 @@ async def agent_socket(scope, receive, send):
         logger.warning(
             "Agent rejected connection=%s request=%s code=%s", connection_id, rejected_id, code
         )
-        await emit({"type": "error", "request_id": rejected_id, "code": code, "detail": detail})
+        if rejected_id in rpc_ids:
+            await emit(
+                {
+                    "jsonrpc": "2.0",
+                    "id": rejected_id,
+                    "error": {"code": -32000, "message": detail, "data": {"code": code}},
+                }
+            )
+        else:
+            await emit({"type": "error", "request_id": rejected_id, "code": code, "detail": detail})
 
     async def progress(data):
         """输入进度/评分字典；进度仅允许固定元数据，评分必须获准后才发送；返回 None。
@@ -224,11 +238,14 @@ async def agent_socket(scope, receive, send):
             await emit({**validate_progress(data), "request_id": request_id})
 
     async def deliver_result(payload, receipt):
-        """输入获准正文和凭据；原子核对版本后保存，再发送相同正文；发送失败不重试或撤销提交。"""
+        """输入获准正文和凭据；核对版本后保存，再发送业务或 MCP 包装内的相同正文。
+        MCP result 的 structuredContent/text 均来自获准正文；传输失败不重试或撤销提交。
+        """
         await complete_request(
             session.interview_id, request_id, payload, receipt=receipt, owner_id=owner_id
         )
-        await emit({**payload, "request_id": request_id})
+        message = {**payload, "request_id": request_id}
+        await emit(tool_result(request_id, message) if request_id in rpc_ids else message)
         return payload
 
     async def run(command):
@@ -255,7 +272,7 @@ async def agent_socket(scope, receive, send):
             "connection_id": connection_id,
             "max_message_bytes": MAX_MESSAGE_BYTES,
             "seconds_per_question": 120,
-            "capabilities": ["prepare", "progress", "assessment"],
+            "capabilities": ["prepare", "progress", "assessment", "answer_completion_mcp"],
         }
     )
     logger.info("Agent connected connection=%s", connection_id)
@@ -320,6 +337,28 @@ async def agent_socket(scope, receive, send):
                 await send({"type": "websocket.close", "code": 1009})
                 return
             try:
+                data = json.loads(raw)
+                if isinstance(data, dict) and "jsonrpc" in data:
+                    try:
+                        reply, normalized = mcp.handle(data)
+                    except (ValueError, TypeError, AttributeError):
+                        await emit(
+                            {
+                                "jsonrpc": "2.0",
+                                "id": data.get("id"),
+                                "error": {
+                                    "code": -32602,
+                                    "message": "Invalid MCP request or completion receipt.",
+                                },
+                            }
+                        )
+                        continue
+                    if reply is not None:
+                        await emit(reply)
+                    if normalized is None:
+                        continue
+                    raw = json.dumps(normalized)
+                    rpc_ids.add(normalized["request_id"])
                 command = parse_command(raw)
             except (ValueError, TypeError, ValidationError):
                 await reject("invalid_message", "检查消息类型、UUID、必填字段及参数类型。")

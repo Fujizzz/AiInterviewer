@@ -1,0 +1,120 @@
+{
+  "format": "minilm-mean-l2-logistic-v1",
+  "experiment_id": "semantic-completion-v1-20261003",
+  "base_model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+  "base_revision": "e8f8c211226b894fcb81acc59f3b34ba3efd5f42",
+  "release_approved": false,
+  "sha256": {
+    "encoder.onnx": "98a01d88b7de996cdea58c32ca71208c09968d143798814b2ea09d3439dc334f",
+    "tokenizer.json": "2c3387be76557bd40970cec13153b3bbf80407865484b209e655e5e4729076b8",
+    "head.json": "a7ac03178e8d97d12f139a97e2a4bec5e84701c651d6f4d711fb6aea8bff1f47"
+  },
+  "data_sha256": "4860334d29bbf1b8d3511d927232069cc32affd3eb0e1032f969689617ed0584",
+  "evaluation": {
+    "validation": {
+      "overall": {
+        "n": 200,
+        "tp": 40,
+        "fn": 0,
+        "fp": 78,
+        "tn": 82,
+        "recall": 1.0,
+        "negative_rejection": 0.5125,
+        "precision": 0.3389830508474576,
+        "qwen_pass_fraction": 0.59
+      },
+      "zh": {
+        "n": 100,
+        "tp": 20,
+        "fn": 0,
+        "fp": 36,
+        "tn": 44,
+        "recall": 1.0,
+        "negative_rejection": 0.55,
+        "precision": 0.35714285714285715,
+        "qwen_pass_fraction": 0.56
+      },
+      "en": {
+        "n": 100,
+        "tp": 20,
+        "fn": 0,
+        "fp": 42,
+        "tn": 38,
+        "recall": 1.0,
+        "negative_rejection": 0.475,
+        "precision": 0.3225806451612903,
+        "qwen_pass_fraction": 0.62
+      }
+    },
+    "test": {
+      "overall": {
+        "n": 200,
+        "tp": 35,
+        "fn": 4,
+        "fp": 70,
+        "tn": 91,
+        "recall": 0.8974358974358975,
+        "negative_rejection": 0.5652173913043478,
+        "precision": 0.3333333333333333,
+        "qwen_pass_fraction": 0.525
+      },
+      "zh": {
+        "n": 100,
+        "tp": 16,
+        "fn": 1,
+        "fp": 39,
+        "tn": 44,
+        "recall": 0.9411764705882353,
+        "negative_rejection": 0.5301204819277109,
+        "precision": 0.2909090909090909,
+        "qwen_pass_fraction": 0.55
+      },
+      "en": {
+        "n": 100,
+        "tp": 19,
+        "fn": 3,
+        "fp": 31,
+        "tn": 47,
+        "recall": 0.8636363636363636,
+        "negative_rejection": 0.6025641025641025,
+        "precision": 0.38,
+        "qwen_pass_fraction": 0.5
+      }
+    },
+    "challenge": {
+      "overall": {
+        "n": 80,
+        "tp": 31,
+        "fn": 9,
+        "fp": 30,
+        "tn": 10,
+        "recall": 0.775,
+        "negative_rejection": 0.25,
+        "precision": 0.5081967213114754,
+        "qwen_pass_fraction": 0.7625
+      },
+      "zh": {
+        "n": 40,
+        "tp": 17,
+        "fn": 3,
+        "fp": 16,
+        "tn": 4,
+        "recall": 0.85,
+        "negative_rejection": 0.2,
+        "precision": 0.5151515151515151,
+        "qwen_pass_fraction": 0.825
+      },
+      "en": {
+        "n": 40,
+        "tp": 14,
+        "fn": 6,
+        "fp": 14,
+        "tn": 6,
+        "recall": 0.7,
+        "negative_rejection": 0.3,
+        "precision": 0.5,
+        "qwen_pass_fraction": 0.7
+      }
+    }
+  }
+}

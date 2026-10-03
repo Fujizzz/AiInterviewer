@@ -23,7 +23,7 @@
 - INSTALLED_APPS：
   Django 用户/会话、ORM 内容类型、DRF 与 interviews 应用的装配清单。
 - LOGGING：
-  业务及 ai_security 决策的控制台格式、级别和处理器；不配置文件日志或 SDK 正文日志。
+  业务、独立结束检测与安全决策的控制台格式/级别；不记录 SDK 正文或密钥。
 - MIDDLEWARE：
   按顺序执行安全、来源、会话身份、部署登录门禁、CSRF 和通用 HTTP 处理。
 - REST_FRAMEWORK：
@@ -119,6 +119,8 @@ LOGGING = {
     "handlers": {"console": {"class": "logging.StreamHandler", "formatter": "context"}},
     "loggers": {
         "interviews": {"handlers": ["console"], "level": "INFO", "propagate": False},
+        "agents.answer_completion": {"handlers": ["console"], "level": "INFO", "propagate": False},
+        "agents.completion_gate": {"handlers": ["console"], "level": "INFO", "propagate": False},
         "ai_security": {"handlers": ["console"], "level": "INFO", "propagate": False},
     },
 }

@@ -1,5 +1,6 @@
 # Production dependency snapshot verified on Ubuntu 22.04 and Python 3.12.14.
 # Function/class catalog: none. Package names pin the deployed application dependencies.
+# Semantic inference additions preserve existing pins; dependency resolution targets glibc 2.35.
 annotated-types==0.8.0
 anyio==4.15.1
 asgiref==3.12.1
@@ -33,6 +34,20 @@ typing-inspection==0.4.4
 typing_extensions==4.16.0
 uvicorn==0.52.4
 websockets==16.1.1
+
+# Frozen MiniLM INT8 inference and tokenization; training frameworks are excluded.
+coloredlogs==15.0.1
+filelock==4.0.9
+flatbuffers==25.12.19
+fsspec==2026.9.0
+hf-xet==1.6.0
+huggingface-hub==1.33.0
+humanfriendly==10.0
+mpmath==1.3.0
+onnxruntime==1.23.2
+protobuf==7.36.2
+sympy==1.14.0
+tokenizers==0.22.2
 
 # Celery/Redis execution dependencies; existing application pins are unchanged.
 amqp==5.4.0

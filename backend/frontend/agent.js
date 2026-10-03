@@ -1,7 +1,7 @@
 /**
  * @module agent
  * 职责：选择个人中心已就绪简历并进行语音面试，提供真实阶段、计时、评分和报告。
- * 实现：读取本人分页元数据；开始入口打开原生准备弹窗，确认后才通过 UUID 发送 start。
+ * 实现：准备确认后完成连接握手并发送 start；自动结束凭据通过同连接 MCP 提交完整回答。
  * 关联：agent.html、i18n.js、/api/resume-versions/、/ws/agent/；资料维护集中在 /resumes/。
  * 目录：
  * - el：按 ID 查询元素。
@@ -15,20 +15,20 @@
  * - beginWait：启动新请求唯一计时器。
  * - endWait：停止计时并保留实际耗时。
  * - clearResults：清除旧问答、报告及计时显示。
- * - send：校验消息大小并发送唯一请求 UUID。
+ * - send：校验消息大小，按唯一 UUID 发送业务命令或 MCP tools/call。
  * - stop：关闭连接、命令与计时，保留已展示评分和版本选择。
  * - displayAssessment：展示后端评分与能力状态。
- * - onMessage：按连接和请求 UUID 分派完整事件。
+ * - onMessage：完成 MCP 初始化，按连接/UUID 分派业务事件及工具完整结果。
  * - onError：停止当前错误连接。
  * - onClose：意外断线停止计时，不重连。
- * - dispatch：创建或复用连接，等待 hello 后发送一次命令。
+ * - dispatch：创建或复用连接，等待 hello/可选 MCP 握手后发送一次命令。
  * - onStart：使用已加载 ready 版本 UUID 和原有参数开始面试。
  * - onOpenPreparation：空闲时打开准备弹窗，保留输入并聚焦版本选择，不连接后端。
  * - onClosePreparation：显式关闭准备弹窗，不清空输入或发起面试。
  * - onPreparationClosed：关闭后将焦点交还入口或正在准备首题的状态区域。
  * - onPreparationKeydown：在弹窗首尾循环 Tab 焦点；Esc 继续由原生 dialog 处理。
  * - onPreparationLanguage：重绘版本标签和已知选择状态，不请求网络或改变已选版本。
- * - onAnswer：接收用户结束录音后的最终转写，仅在当前题且请求空闲时提交一次。
+ * - onAnswer：当前题空闲时提交最终转写；手动走 answer，自动凭据走固定 MCP 工具。
  * - onCancel：取消当前面试连接。
  * - onClear：清空面试问答，保留版本与岗位设置。
  * - onPageHide：离开时清理连接、计时、录音和数字人资源。
@@ -54,6 +54,8 @@
  * - completedStages：已完成阶段实际耗时文案。
  * - preparationInvoker：打开准备弹窗的按钮，关闭后恢复焦点；不保存用户资料。
  * - resumeSelectionMessage：选择区动态文案 key；未知异常正文保持原错误，不按语言伪造状态。
+ * - mcpInitId：当前 MCP 初始化 UUID；握手成功后再发送唯一待发 start。
+ * - mcpReady：当前连接是否完成 MCP 握手，控制自动结束分支。
  * 约束：
  * 不上传或编辑简历，不改变预算/评分；无重发、自动选择其他版本或模型调用降级。
  */
@@ -64,6 +66,8 @@ import { InterviewProgress } from "./interview-progress.js";
 const el = (id) => document.getElementById(id);
 const voice = new InterviewVoice(onAnswer);
 const progress = new InterviewProgress();
+let mcpInitId = null;
+let mcpReady = false;
 const STAGES = {
   resume_parsing: "agent_stage_resume", question_generation: "agent_stage_question", answer_evaluation: "agent_stage_evaluation",
   next_action: "agent_stage_next", report_generation: "agent_stage_report",
@@ -240,11 +244,16 @@ function clearResults() {
   for (const id of ["question-meta", "evaluation", "report", "score", "report-summary", "assessment", "stage-log", "wait-time"]) el(id).textContent = "";
   for (const id of ["evaluation-panel", "report-panel", "assessment-panel"]) el(id).hidden = true;
 }
-/** 输入命令，校验已公告 UTF-8 上限，绑定 UUID 并发送一次；失败原样传播。 */
+/** 输入业务命令或自动结束参数，校验 UTF-8 上限；发送唯一 UUID 的业务或 MCP 包装。
+ * 模型无法提供工具名称；固定 finish_current_answer 携带最终文本/凭据，失败原样传播。 */
 function send(command) {
   if (!socket || socket.readyState !== WebSocket.OPEN) throw new Error(uiText("agent_closed"));
   const id = crypto.randomUUID();
-  const text = JSON.stringify({ ...command, request_id: id, progress_events: true });
+  const text = JSON.stringify(command.type === "mcp_finish"
+    ? { jsonrpc: "2.0", id, method: "tools/call", params: { name: "finish_current_answer",
+      arguments: { question_id: command.question_id, answer_text: command.answer_text,
+        completion_receipt: command.completion_receipt, progress_events: true } } }
+    : { ...command, request_id: id, progress_events: true });
   if (messageLimit === null || new TextEncoder().encode(text).byteLength > messageLimit) throw new Error(uiText("agent_message_limit"));
   pendingId = id;
   socket.send(text);
@@ -256,6 +265,7 @@ function stop(message) {
   voice.reset();
   voice.setState("idle");
   terminal = true;
+  mcpInitId = null; mcpReady = false; voice.completionEnabled = false;
   const old = socket;
   socket = null;
   if (old) old.close();
@@ -276,14 +286,34 @@ function displayAssessment(assessment) {
   el("score").textContent = assessment.overall_score === null ? uiText("agent_score_missing") : uiText("agent_score", { score: assessment.overall_score.toFixed(2) });
   el("assessment").textContent = JSON.stringify(assessment.competencies, null, 2);
 }
-/** 输入 MessageEvent；绑定 currentTarget 与请求 UUID，未知事件或解析失败明确停止。 */
+/** 输入 MessageEvent；校验连接/UUID，完成 MCP 握手或解包工具批准结果，再交付原业务分支。
+ * MCP 协议/工具错误与未知事件均明确停止，不重发；进度仍使用原请求 UUID。 */
 function onMessage(event) {
   if (socket !== event.currentTarget) return;
   try {
-    const message = JSON.parse(event.data);
+    let message = JSON.parse(event.data);
+    if (message.jsonrpc === "2.0") {
+      if (message.id === mcpInitId && mcpInitId !== null) {
+        if (message.error || message.result?.protocolVersion !== "2025-06-18" || !message.result?.capabilities?.tools) throw new Error("MCP initialization failed.");
+        mcpInitId = null; mcpReady = true; voice.completionEnabled = true;
+        socket.send(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }));
+        const command = pendingCommand; pendingCommand = null; send(command); return;
+      }
+      if (message.id !== pendingId) throw new Error(uiText("agent_mismatch"));
+      if (message.error || message.result?.isError) throw new Error(message.error?.message ?? "MCP tool failed.");
+      if (message.result?.structuredContent?.request_id !== message.id) throw new Error(uiText("agent_mismatch"));
+      message = message.result.structuredContent;
+    }
     if (message.type === "hello") {
       if (!pendingCommand || !message.capabilities?.includes("progress")) throw new Error(uiText("agent_backend_old"));
       messageLimit = message.max_message_bytes;
+      if (message.capabilities.includes("answer_completion_mcp")) {
+        mcpInitId = crypto.randomUUID();
+        socket.send(JSON.stringify({ jsonrpc: "2.0", id: mcpInitId, method: "initialize", params: {
+          protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "interview-voice", version: "1.0.0" }
+        } }));
+        return;
+      }
       const command = pendingCommand;
       pendingCommand = null;
       send(command);
@@ -339,7 +369,7 @@ function onError(event) { if (socket === event.currentTarget) { progress.warn("c
 function onClose(event) {
   if (socket === event.currentTarget && !terminal) { progress.warn("unexpected_close", uiText("agent_unexpected_close")); stop(uiText("agent_unexpected_close")); }
 }
-/** 输入业务命令，使用空闲连接或创建同源连接等待 hello，不排队或自动重试。 */
+/** 输入业务命令，复用空闲连接或等待 hello 和已公告的 MCP 握手；不排队或自动重试。 */
 function dispatch(command) {
   if (pendingId !== null || pendingCommand !== null) return;
   voice.setState("thinking");
@@ -424,16 +454,19 @@ function onPreparationLanguage() {
   if (resumeSelectionMessage) el("resume-selection-status").textContent = uiText(resumeSelectionMessage);
   if (el("preparation-error").textContent) el("preparation-error").textContent = uiText("agent_resume_required");
 }
-/** 输入用户点击结束后获得的最终转写字符串；禁止空白、旧题或在途请求重复提交。
- * 纯语音入口仍发送既有 answer_text 协议，不改变预算/评价；保留字幕直到下一题或终态。
+/** 输入完整最终文本及可选后端自动结束凭据；自动分支走 MCP，手动分支沿用 answer。
+ * 当前题、空闲状态与握手再次校验；完整回答仍由同一后端安全/评价/计划流程处理。
  */
-function onAnswer(text) {
+function onAnswer(text, completionReceipt = null) {
   const answer = text.trim();
   if (!answer || !interviewActive || !questionId || pendingId || pendingCommand || voice.busy || voice.capture) return;
   voice.reset(false);
   voice.message(uiText("agent_submit"));
   status(uiText("agent_submit"));
-  dispatch({ type: "answer", question_id: questionId, answer_text: answer });
+  if (completionReceipt && !mcpReady) { stop("MCP answer completion is unavailable."); return; }
+  dispatch(completionReceipt
+    ? { type: "mcp_finish", question_id: questionId, answer_text: answer, completion_receipt: completionReceipt }
+    : { type: "answer", question_id: questionId, answer_text: answer });
 }
 /** 用户取消时关闭连接和显示计时，不保证供应商已发请求停止或不计费。 */
 function onCancel() { stop(uiText("agent_cancel_message")); }

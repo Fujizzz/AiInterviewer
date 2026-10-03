@@ -42,7 +42,7 @@ before SDK construction. Model, voice, audio and timeout defaults remain unchang
 - RecognitionSession：
   Wrap one SDK recognition task; callbacks hand data to the ASGI event loop.
 - RecognitionSession.__init__：
-  Validate credentials and construct an English PCM recognition task.
+  Validate credentials and construct PCM recognition with default or explicit language hints.
 - RecognitionSession.__init__.Callback：
   Forward provider events without sending audio or secrets to logs.
 - RecognitionSession.__init__.Callback.on_event：
@@ -362,8 +362,12 @@ audio_store = AudioStore()
 class RecognitionSession:
     """Wrap one SDK recognition task; callbacks hand data to the ASGI event loop."""
 
-    def __init__(self, emit):
-        """Validate credentials and construct an English PCM recognition task."""
+    def __init__(self, emit, language_hints=None):
+        """Inputs: SDK event callback and optional explicit language hints; output isolated task.
+        Logic: validate credentials then construct PCM recognition; legacy callers keep English
+        hints. The completion branch explicitly supplies Chinese/English for spoken end phrases.
+        Constraints: model, sample rate and provider deadlines remain unchanged; no language retry.
+        """
         config = SpeechConfig.load()
         from dashscope.audio.asr import Recognition, RecognitionCallback
 
@@ -403,7 +407,7 @@ class RecognitionSession:
             format="pcm",
             sample_rate=16000,
             api_key=config.api_key,
-            language_hints=["en"],
+            language_hints=["en"] if language_hints is None else language_hints,
             request_timeout=140,
             callback=Callback(),
         )
