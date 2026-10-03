@@ -14,7 +14,7 @@
 关键变量：
 - logger：记录操作类别和用户 ID，不记录用户名、密码或 session token。
 - PUBLIC_PATHS：无需登录的主页、账号页及退出入口。
-- PUBLIC_ASSETS：账号页所需的公开样式和语言资源精确路径。
+- PUBLIC_ASSETS：主页/账号页所需的共享样式和语言资源精确路径。
 
 约束：
 用户名非空且最多 150 字符；密码非空且最多 128 字符，无复杂度、邮箱或确认密码验证。
@@ -39,6 +39,7 @@ PUBLIC_PATHS = {"/", "/login/", "/register/", "/logout/"}
 PUBLIC_ASSETS = {
     "/stream-demo/style.css",
     "/stream-demo/home.css",
+    "/stream-demo/workspace.css",
     "/stream-demo/account.css",
     "/stream-demo/i18n.js",
 }

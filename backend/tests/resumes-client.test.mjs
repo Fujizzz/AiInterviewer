@@ -26,6 +26,8 @@
  * - makePage.selectors：语言选择器为空，避免依赖国际化模块。
  * - makePage.t：返回可断言的翻译 key 与参数。
  * - makePage.confirm：显式批准模拟删除确认，无真实删除。
+ * - makePage.replaceState：记录显式哈希修改，不访问浏览器。
+ * - workspaceDraft：验证分区切换保留草稿、无请求且程序化定位先显示面板。
  * - makePage.ignore：替代窗口事件和日志，不访问用户设备。
  * - makePage.run：调用实际客户端函数。
  * - json：生成 JSON HTTP 响应。
@@ -200,7 +202,10 @@ async function makePage(initial = [], events = [{ type: "result", text: "中文�
   function sectionNavigation(selector) { assert.equal(selector, ".section-navigation"); return new Element(); }
   /** 无外部参数；读取合成页面语言，用于验证双语理由，无网络副作用。 */
   function language() { return context.document.documentElement.lang.startsWith("en") ? "en" : "zh"; }
-  const context = vm.createContext({ document: { getElementById: getElement, createElement, querySelectorAll: selectors, querySelector: sectionNavigation, documentElement: { lang: "zh-CN" } }, window: { AppI18n: { t, language }, confirm, addEventListener: ignore }, console: { error: ignore }, fetch, Headers, FormData, Response, ReadableStream, TextEncoder, TextDecoder, AbortController, DOMException });
+  const pageLocation = { hash: "" };
+  /** 输入原生 history 参数；只记录测试哈希，不模拟页面加载或触发事件。 */
+  function replaceState(state, title, url) { assert.equal(state, null); assert.equal(title, ""); pageLocation.hash = url; }
+  const context = vm.createContext({ document: { getElementById: getElement, createElement, querySelectorAll: selectors, querySelector: sectionNavigation, documentElement: { lang: "zh-CN" } }, window: { location: pageLocation, history: { replaceState }, AppI18n: { t, language }, confirm, addEventListener: ignore }, console: { error: ignore }, fetch, Headers, FormData, Response, ReadableStream, TextEncoder, TextDecoder, AbortController, DOMException });
   await vm.runInContext(SCRIPT, context);
   /** 输入本地函数调用表达式，输出其返回值或 Promise；仅使用测试固定源码。 */
   function run(code) { return vm.runInContext(code, context); }
@@ -626,3 +631,36 @@ async function recommendationUnsaved() {
   assert.match(HTML, /id="recommendation-save"[^>]*form="edition-form"/);
 }
 test("recommendation switching protects pending details and offers nearby saving", recommendationUnsaved);
+
+/** 只模拟 REST 与 DOM：切换面板不能丢弃未保存正文或触发保存；真实滚动尺寸需浏览器验证。 */
+async function workspaceDraft() {
+  const item = record("resume"); item.is_current = true; item.slots = { skills: ["Python"] };
+  const page = await makePage([item]);
+  await page.run("rmPreview('resume')");
+  page.elements.get("unit-skills").value = "Unsaved Python experience";
+  await page.run("rmDirty({currentTarget: document.getElementById('unit-skills')}); rmReveal('job-recommendations', true)");
+  const count = page.requests.length;
+  assert.equal(page.elements.get("resume-editor").hidden, true);
+  assert.equal(page.elements.get("job-recommendations").hidden, false);
+  await page.run("rmReviewRecommendation()");
+  assert.equal(page.elements.get("resume-editor").hidden, false);
+  assert.equal(page.elements.get("job-recommendations").hidden, true);
+  assert.equal(page.elements.get("unit-skills").value, "Unsaved Python experience");
+  assert.equal(await page.run("rmEditorDirty"), true);
+  assert.equal(page.context.window.location.hash, "#section-skills");
+  assert.ok(page.elements.get("section-skills").scrolled);
+  assert.equal(page.requests.length, count);
+  page.context.window.location.hash = "#profile-panel";
+  await page.run("rmWorkspaceHash()");
+  assert.equal(page.elements.get("profile-panel").hidden, false);
+  page.context.window.location.hash = "#section-preferences";
+  await page.run("rmWorkspaceHash()");
+  assert.equal(page.elements.get("resume-editor").hidden, false);
+  assert.equal(page.elements.get("section-preferences").open, true);
+  page.context.window.location.hash = "#version-history";
+  await page.run("rmWorkspaceHash()");
+  assert.equal(page.elements.get("resume-files").hidden, false);
+  assert.equal(page.elements.get("version-history").hidden, false);
+  assert.equal(page.requests.length, count);
+}
+test("workspace navigation preserves unsaved draft and reveals recommendation fields", workspaceDraft);

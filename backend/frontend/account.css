@@ -1,8 +1,8 @@
 /*
- * 职责：账号页及跨页面账号导航；复用主页配色与字体，不修改面试组件。
+ * 职责：账号页及跨页面匿名账号入口；复用主页配色与字体，不修改面试组件。
  * 实现：桌面介绍/表单双栏，移动端纵向排列；键盘焦点、错误和输入状态清晰可见。
  * 关联：account.html、account-nav.html、home.css；所有表单数据由 Django 处理。
- * 目录：双栏结构；表单卡片与切换；输入/错误/按钮；账号导航；窄屏布局。
+ * 目录：双栏结构；表单卡片与切换；输入/错误/按钮；匿名账号入口；窄屏布局。
  * 函数/类声明：无。变量索引：无 CSS 自定义变量。关键选择器：.account-layout、.account-card、.account-nav。
  */
 .account-page .account-layout { min-height: calc(100vh - 168px); display: grid; grid-template-columns: 1.15fr 1fr; align-items: center; gap: 90px; padding: 60px 0 70px; }
@@ -30,10 +30,6 @@
 .account-nav { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 12px; font-size: 13px; color: #245e4c; }
 .account-nav a { text-decoration: none; color: inherit; }
 .account-nav .account-register-link { padding: 8px 13px; border: 1px solid #b8cdbc; border-radius: 7px; }
-.account-username { max-width: 140px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.account-nav form { margin: 0; display: inline-flex; }
-.account-nav .account-logout { background: transparent; color: #526d5c; border: 0; padding: 6px 0; font-size: 12px; }
-.account-nav .account-logout:hover { color: #194535; background: transparent; text-decoration: underline; }
 @media (max-width: 850px) { .account-page .account-layout { gap: 36px; } .account-card { padding: 28px; } }
 @media (max-width: 620px) {
   .account-page .account-layout { grid-template-columns: 1fr; gap: 24px; padding: 32px 0; min-height: auto; }
@@ -41,7 +37,5 @@
   .account-page .account-intro .hero-description { margin-bottom: 0; font-size: 13px; }
   .account-note { display: none; }
   .account-card { padding: 24px; }
-  .home-page .home-nav, .home-page .home-nav-actions { flex-wrap: wrap; gap: 12px; }
-  .account-page .home-nav-actions .language-picker > span { display: none; }
   .account-nav { gap: 8px; }
 }

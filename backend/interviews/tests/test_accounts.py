@@ -53,8 +53,14 @@ class AccountTests(TestCase):
         Question.objects.create(text="Second shared question", position=2)
 
     def test_public_entry_and_protected_routes(self):
-        """匿名可读主页/表单/公开样式；业务 HTML 跳转而 API 明确 401，不能靠静态别名绕过。"""
-        for path in ("/", "/login/", "/register/", "/stream-demo/account.css"):
+        """匿名可读主页/表单/共享样式；业务 HTML 跳转而 API 返回 401，静态别名同样保护。"""
+        for path in (
+            "/",
+            "/login/",
+            "/register/",
+            "/stream-demo/account.css",
+            "/stream-demo/workspace.css",
+        ):
             self.assertEqual(self.client.get(path).status_code, 200)
         self.assertRedirects(self.client.get("/agent/"), "/login/?next=%2Fagent%2F")
         self.assertEqual(self.client.get("/api/health/").status_code, 401)

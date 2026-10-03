@@ -2,9 +2,14 @@
  * @module resumes
  * 职责：维护基本资料、原件、单元编辑稿和推荐槽位；保存独立版本后显式推荐岗位，保护未保存修改。
  * 实现：PDF 选择后一次上传，解析仍显式触发；推荐区直接选择全部版本并提示解析/核对/保存；
- * 单操作锁及 CSRF 保护写入；完整 NDJSON 后读持久化详情。
+ * 单操作锁及 CSRF 保护写入；完整 NDJSON 后读持久化详情；哈希分区切换只改变可见性，不清空编辑稿。
  * 关联：resumes.html、i18n.js、/api/resume-versions/ 及其 recommendations 动作；Django session 认证。
  * 目录：
+ * - rmWorkspacePanel：按已有锚点映射页面分区。
+ * - rmReveal：显示目标分区并同步标题/导航，可显式更新哈希，不读取或保存资料。
+ * - rmWorkspaceHash：响应初始 URL 和浏览器前进/后退。
+ * - rmWorkspaceLink：拦截同页顶部入口，保留未保存草稿。
+ * - rmScroll：先显示目标面板再平滑定位，避免滚动隐藏内容。
  * - rmEl：取得模板元素。
  * - rmText：读取已加载的国际化文案。
  * - rmStatus：显示纯文本操作状态。
@@ -37,27 +42,29 @@
  * - rmParseUploaded.parse：在操作锁内执行一次明确解析。
  * - rmUseEdition：将已保存且未被编辑的版本设为当前。
  * - rmUseEdition.select：持久化本人当前版本选择。
- * - rmSection：展开侧栏选中的编辑单元。
+ * - rmSection：先显示侧栏目标分区，再展开编辑单元并定位。
  * - rmBeforeLeave：未保存修改时触发浏览器离开保护。
  * - rmUpload.save：成功创建后清空上传输入并展示新版本。
  * - rmRefresh.refresh：读取列表和现有选择。
  * - rmPrevious.previous：按编号请求上一页。
  * - rmNext.next：按编号请求下一页。
  * - rmAction.act：在操作锁内执行唯一已确认动作。
- * - rmUpload：保存一个 PDF 或文本版本，随后展示新版本。
+ * - rmUpload：保存一个 PDF 或文本版本，随后展示新版本；ready 文本打开编辑分区。
  * - rmSaveProfile：校验表单事件后提交本人姓名/邮箱。
  * - rmSaveProfile.save：PATCH 成功后回填服务端资料并显示保存状态。
  * - rmRefresh：显式刷新当前页与所选详情。
  * - rmPrevious：加载上一页。
  * - rmNext：加载下一页。
  * - rmEvent：处理进度、错误和成功终态，返回疑点数组或 null。
- * - rmParse：消费提取流，完整成功才声明完成，不重试或采用中间文本。
+ * - rmParse：消费提取流，完整成功才显示编辑区并声明完成，不重试或采用中间文本。
  * - rmAction：按已加载版本分派预览、当前选择及确认删除；解析只在附件区触发。
  * - rmCancel：取消当前流接收，不承诺外部模型立即停止。
- * - rmLanguage：语言改变时重绘版本列表，保留当前正文。
+ * - rmLanguage：语言改变时同步分区标题并重绘版本列表，保留当前正文。
  * - rmInit.load：读取列表并打开当前页的已保存 current，没有时保留选择提示。
  * - rmInit：加载初始列表，失败时保留可刷新界面。
  * 关键变量：
+ * - RM_WORKSPACE_SECTIONS：分区对应的既有 DOM 元素；附件与版本历史同屏。
+ * - RM_WORKSPACE_TITLES：分区标题翻译键，不影响业务状态。
  * - RM_API：同源版本接口前缀。
  * - RM_PROFILE：本人资料同源接口。
  * - RM_UNITS：稳定单元 ID，与后端契约一致。
@@ -82,6 +89,55 @@
  * 约束：
  * 用户文本仅经 value/textContent 显示；每次保存生成新版本，不覆盖原件或改变失败语义。
  */
+const RM_WORKSPACE_SECTIONS = {
+  files: ["resume-files", "version-history"], editor: ["resume-editor"], jobs: ["job-recommendations"], profile: ["profile-panel"],
+};
+const RM_WORKSPACE_TITLES = { files: "ws_resumes", editor: "re_editor_heading", jobs: "ws_jobs", profile: "rm_account" };
+/** 输入已有 DOM 锚点，输出分区名；未知或空 URL 显示附件，不修改版本选择或模型参数。 */
+function rmWorkspacePanel(id) {
+  if (id === "job-recommendations") return "jobs";
+  if (id === "profile-panel") return "profile";
+  if (id === "resume-editor" || (id.startsWith("section-") && RM_UNITS.includes(id.slice(8)))) return "editor";
+  return "files";
+}
+/** 输入锚点及是否更新 URL；只改 hidden、标题与 aria-current，不销毁表单或发请求。
+ * URL 使用 replaceState，保留显式浏览器哈希导航；anchor 标记唯一侧栏主入口，不将正文放入地址或日志。
+ */
+function rmReveal(id, navigate = false) {
+  const panel = rmWorkspacePanel(id);
+  let anchor = RM_WORKSPACE_SECTIONS[panel][0];
+  if (id === "section-preferences" || id === "version-history") anchor = id;
+  for (const [name, sections] of Object.entries(RM_WORKSPACE_SECTIONS)) {
+    for (const section of sections) rmEl(section).hidden = name !== panel;
+  }
+  const title = rmEl("workspace-title");
+  title.dataset.i18n = RM_WORKSPACE_TITLES[panel]; title.textContent = rmText(title.dataset.i18n);
+  for (const link of document.querySelectorAll(".section-navigation a")) {
+    const target = link.getAttribute("href").slice(1);
+    if (target === anchor) link.setAttribute("aria-current", "page");
+    else link.removeAttribute("aria-current");
+  }
+  for (const link of document.querySelectorAll("[data-workspace-link]")) {
+    const selected = panel === "jobs" ? link.dataset.workspaceLink === "job-recommendations" : link.dataset.workspaceLink === "resume-files";
+    if (selected) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current");
+  }
+  if (navigate) window.history.replaceState(null, "", "#" + id);
+}
+/** 无外部输入；读取当前 URL 哈希并同步分区/编辑单元展开，支持刷新、分享和浏览器历史。 */
+function rmWorkspaceHash() {
+  const id = window.location.hash.slice(1);
+  rmReveal(id);
+  if (id.startsWith("section-") && RM_UNITS.includes(id.slice(8))) rmEl(id).open = true;
+}
+/** 输入顶部同页入口点击；保留新标签页快捷键，普通点击取消页面重载并显示目标，保留所有输入及离开保护状态。 */
+function rmWorkspaceLink(event) {
+  if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+  event.preventDefault(); rmReveal(event.currentTarget.dataset.workspaceLink, true);
+}
+/** 输入已存在元素 ID；先展开所在分区再滚动，用户数据和焦点由调用者处理。 */
+function rmScroll(id) {
+  rmReveal(id, true); rmEl(id).scrollIntoView({ behavior: "smooth", block: "start" });
+}
 const RM_API = "/api/resume-versions/";
 const RM_PROFILE = "/api/profile/";
 const RM_UNITS = ["basic", "education", "experience", "projects", "skills", "awards", "publications", "preferences", "other"];
@@ -439,7 +495,7 @@ async function rmSaveEdition(event) {
     rmEditorDirty = false;
     await rmLoad(1); await rmPreview(version.id, true);
     rmStatus(rmText("re_saved"));
-    if (returnToRecommendations) rmEl("job-recommendations").scrollIntoView({ behavior: "smooth", block: "start" });
+    if (returnToRecommendations) rmScroll("job-recommendations");
   }
   await rmRun(save);
 }
@@ -454,7 +510,7 @@ async function rmParseUploaded(event) {
   /** 保持全页写操作锁，复用一次显式解析的流消费。 */
   async function parse() { await rmParse(id); }
   await rmRun(parse);
-  if (returnToRecommendations && rmEditorBase) rmEl("job-recommendations").scrollIntoView({ behavior: "smooth", block: "start" });
+  if (returnToRecommendations && rmEditorBase) rmScroll("job-recommendations");
 }
 /** 只有已保存且未再次改动的版本可设 current；改动需先保存，避免把未保存正文误认为已采用。 */
 async function rmUseEdition() {
@@ -514,7 +570,7 @@ async function rmChooseResume(event) {
   /** 已确认切换后加载同一预览/编辑路径，维持保存和权限边界。 */
   async function choose() {
     await rmPreview(id, true);
-    rmEl("job-recommendations").scrollIntoView({ behavior: "smooth", block: "start" });
+    rmScroll("job-recommendations");
   }
   await rmRun(choose);
   if (rmSelected === id) rmEl("recommendation-resume").focus({ preventScroll: true });
@@ -525,7 +581,7 @@ function rmReviewRecommendation() {
   rmEl("section-skills").open = true;
   const details = rmEl("slot-skills").closest(".recommendation-fields");
   if (details) details.open = true;
-  rmEl("section-skills").scrollIntoView({ behavior: "smooth", block: "start" });
+  rmScroll("section-skills");
   rmEl("slot-skills").focus({ preventScroll: true });
 }
 /** 读取当前选择、保存状态和服务响应，输出下一步动作和纯 DOM 岗位卡。
@@ -587,14 +643,18 @@ function rmRenderRecommendations() {
     list.append(card);
   }
 }
-/** 输入侧栏点击事件，展开求职意向单元；保留原锚点滚动，不修改文本或请求模型。 */
+/** 输入侧栏点击事件；先显示目标分区，再展开指定编辑单元并滚动；保留新标签页快捷键，不修改文本或请求模型。 */
 function rmSection(event) {
-  const link = event.target.closest("a[data-section]");
-  if (link && RM_UNITS.includes(link.dataset.section)) rmEl("section-" + link.dataset.section).open = true;
+  const link = event.target.closest("a[href^='#']");
+  if (!link || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+  event.preventDefault();
+  const id = link.getAttribute("href").slice(1);
+  if (id.startsWith("section-") && RM_UNITS.includes(id.slice(8))) rmEl(id).open = true;
+  rmScroll(id);
 }
 /** 输入 beforeunload 事件；有未保存文本才启用浏览器原生离开提示，不在本地存储内容。 */
 function rmBeforeLeave(event) { if (rmEditorDirty) { event.preventDefault(); event.returnValue = ""; } }
-/** 输入文本提交或 PDF 选择事件；验证后保存一次原件，成功才清空输入，不自动解析或切换 current。 */
+/** 输入文本提交或 PDF 选择事件；验证后保存一次原件，成功才清空输入，ready 文本显示编辑区，不自动解析或切换 current。 */
 async function rmUpload(event) {
   event.preventDefault();
   if (rmBusy) return;
@@ -618,6 +678,7 @@ async function rmUpload(event) {
     const version = await (await rmRequest("", { method: "POST", headers, body })).json();
     rmEl("version-label").value = ""; rmEl("resume-file").value = ""; rmEl("resume-text").value = "";
     await rmLoad(1); await rmPreview(version.id, true);
+    if (version.status === "ready") rmReveal("resume-editor", true);
     rmStatus(rmText("rm_saved"));
   }
   await rmRun(save);
@@ -718,9 +779,10 @@ async function rmParse(id) {
   }
   if (failure) throw failure;
   rmEl("preview-notes").textContent = notes.join("\n");
+  rmReveal("resume-editor", true);
   rmStatus(rmText("rm_parsed"));
 }
-/** 输入列表点击事件，只操作已加载 ID；删除需明确确认，引用冲突由后端保持 409。 */
+/** 输入列表点击事件，预览显示编辑区且只操作已加载 ID；删除需明确确认，引用冲突由后端保持 409。 */
 async function rmAction(event) {
   const button = event.target.closest("button[data-action]");
   if (!button || rmBusy) return;
@@ -732,7 +794,7 @@ async function rmAction(event) {
   if (action === "delete" && !window.confirm(rmText("rm_delete_confirm"))) return;
   /** 在操作锁内调用唯一明确动作；不引入自动选择、解析重试或删除绕过。 */
   async function act() {
-    if (action === "preview") { await rmPreview(id, true); rmStatus(""); }
+    if (action === "preview") { await rmPreview(id, true); rmScroll(rmEditorBase ? "resume-editor" : "resume-files"); rmStatus(""); }
     else if (action === "current") {
       await rmRequest(encodeURIComponent(id) + "/current/", { method: "POST" });
       await rmLoad(); await rmPreview(id, true); rmStatus(rmText("rm_selected"));
@@ -752,8 +814,9 @@ async function rmAction(event) {
 }
 /** 取消唯一解析接收并禁用重复取消；服务端状态刷新在原操作结束后执行，无重试。 */
 function rmCancel() { if (rmController) { rmController.abort(); rmEl("cancel-parse").disabled = true; } }
-/** 界面语言变化后更新卡片、分页与编辑/附件状态文字，不重新读取或改写简历内容。 */
+/** 界面语言变化后同步分区标题、卡片、分页与编辑/附件状态文字，不重新读取或改写简历内容。 */
 function rmLanguage() {
+  rmWorkspaceHash();
   rmRenderRecommendations();
   rmRender();
   rmEl("editor-state").textContent = rmSuggestedCount ? rmText("re_suggestions", { count: rmSuggestedCount }) : rmText(rmEditorDirty ? "re_unsaved" : rmEditorBase ? "re_editor_loaded" : "re_editor_empty");
@@ -799,4 +862,7 @@ for (const selector of document.querySelectorAll("[data-language-selector]")) se
 window.addEventListener("languagechange", rmLanguage);
 window.addEventListener("pagehide", rmCancel);
 window.addEventListener("beforeunload", rmBeforeLeave);
+for (const link of document.querySelectorAll("[data-workspace-link]")) link.addEventListener("click", rmWorkspaceLink);
+window.addEventListener("hashchange", rmWorkspaceHash);
+rmWorkspaceHash();
 rmInit();

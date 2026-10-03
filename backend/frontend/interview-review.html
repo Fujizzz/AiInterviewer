@@ -3,7 +3,7 @@
 职责：独立面试复盘页面，顶部导航与个人中心并列；仅读取本人已保存面试。
 实现：复用 interview-history.js 的分页和只读详情弹窗，不加载简历管理脚本。
 关联：/interview-review/ 与 demo_asset 登录门禁；API /api/agent-interviews/ 按归属过滤。
-目录：顶部导航与语言选择；复盘标题；面试记录列表与分页；滚动详情弹窗；页脚。
+目录：共享顶部导航与语言选择；复盘标题；面试记录列表与分页；滚动详情弹窗；页脚。
 函数/类：None。变量索引：user/request/csrf_token 为 Django 上下文；history-list 为分页卡片，
 history-refresh/history-previous/history-next 显式读取列表；history-dialog/history-detail-body
 展示本人问题、回答与报告，history-close 关闭详情并恢复焦点。
@@ -20,18 +20,12 @@ history-refresh/history-previous/history-next 显式读取列表；history-dialo
   <link rel="stylesheet" href="/stream-demo/home.css">
   <link rel="stylesheet" href="/stream-demo/account.css">
   <link rel="stylesheet" href="/stream-demo/interview-history.css">
+<link rel="stylesheet" href="/stream-demo/workspace.css">
 </head>
-<body class="home-page review-page">
+<body class="home-page review-page workspace-page">
   <a class="skip-link" href="#main-content" data-i18n="home_skip">跳转到主要内容</a>
   <div class="home-shell">
-    <nav class="home-nav" aria-label="页面导航" data-i18n-attr="aria-label:nav_label">
-      <a class="brand" href="/"><span class="brand-mark" aria-hidden="true">AI</span> Interviewer</a>
-      <div class="home-nav-actions">
-        <a class="nav-link" href="/agent/" data-i18n="rm_interview">进入面试 ↗</a>
-        {% include "account-nav.html" %}
-        <label class="language-picker"><span data-language-label>界面语言</span><select data-language-selector aria-label="界面语言" data-i18n-attr="aria-label:language"><option value="system" data-i18n="language_system">跟随系统</option><option value="zh" data-i18n="language_zh">中文</option><option value="en" data-i18n="language_en">English</option></select></label>
-      </div>
-    </nav>
+    {% include "workspace-nav.html" %}
     <main id="main-content">
       <header class="review-heading"><h1 data-i18n="review_history">面试复盘</h1><p class="hint" data-i18n="review_hint">查看本人面试的题目、回答、评价和报告。中断或失败的过程也会保留；暂不支持续接。</p></header>
 <section id="interview-history" class="panel" aria-labelledby="history-title"><div class="section-heading"><h2 id="history-title" data-i18n="review_records">面试记录</h2><button id="history-refresh" type="button" class="secondary">刷新</button></div><p id="history-status" role="status" aria-live="polite"></p><div id="history-list" aria-busy="true"></div><div class="pagination"><button id="history-previous" type="button" class="secondary" disabled>上一页</button><span id="history-page"></span><button id="history-next" type="button" class="secondary" disabled>下一页</button></div></section>

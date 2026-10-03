@@ -1,9 +1,9 @@
 <!doctype html>
 <!--
-职责：站内登录与注册共用页面，使用主页的浅绿配色、品牌导航和双栏结构。
+职责：站内登录与注册共用页面，使用共享顶部导航、工作台配色和响应式双栏结构。
 实现：Django 服务端表单提供 CSRF 和错误状态；无需客户端脚本提交或额外身份验证步骤。
-关联：accounts.account_page、home.css、account.css、i18n.js；成功后进入安全 next 路径。
-目录：品牌导航；练习介绍；登录/注册切换；用户名/密码表单；状态与页脚。函数/类：无。
+关联：accounts.account_page、workspace-nav.html、workspace.css、home.css、account.css、i18n.js；成功后进入安全 next 路径。
+目录：共享顶部导航；练习介绍；登录/注册切换；用户名/密码表单；状态与页脚。函数/类：无。
 变量索引：mode 选择表单，next 为已校验目标，username 自动转义，error_key 为固定翻译键。
 约束：不回显密码；无邮箱、验证码、确认密码或复杂度要求；不在浏览器存储凭据。
 -->
@@ -16,16 +16,11 @@
   <link rel="stylesheet" href="/stream-demo/home.css">
   <link rel="stylesheet" href="/stream-demo/account.css">
   <script type="module" src="/stream-demo/i18n.js"></script>
+<link rel="stylesheet" href="/stream-demo/workspace.css">
 </head>
-<body class="home-page account-page">
+<body class="home-page account-page workspace-page">
   <div class="home-shell">
-    <nav class="home-nav" aria-label="页面导航" data-i18n-attr="aria-label:nav_label">
-      <a class="brand" href="/"><span class="brand-mark" aria-hidden="true">AI</span> Interviewer</a>
-      <div class="home-nav-actions">
-        <a class="nav-link" href="/" data-i18n="auth_home">返回主页 ↗</a>
-        <label class="language-picker"><span data-language-label>界面语言</span><select data-language-selector aria-label="界面语言" data-i18n-attr="aria-label:language"><option value="system" data-i18n="language_system">跟随系统</option><option value="zh" data-i18n="language_zh">中文</option><option value="en" data-i18n="language_en">English</option></select></label>
-      </div>
-    </nav>
+    {% include "workspace-nav.html" %}
     <main class="account-layout">
       <section class="account-intro" aria-labelledby="account-heading">
         <span class="eyebrow">AI MOCK INTERVIEW</span>

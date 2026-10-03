@@ -36,6 +36,7 @@ ASSETS = {
     "agent.css",
     "home.html",
     "home.css",
+    "workspace.css",
     "interview-camera.js",
     "i18n.js",
     "account.css",

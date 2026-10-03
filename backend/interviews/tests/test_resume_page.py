@@ -9,7 +9,8 @@
 - ResumePageTests.test_requires_login_even_in_local_mode：页面与静态 HTML 别名都拒绝匿名身份。
 - ResumePageTests.test_authenticated_page_and_assets：
   登录用户看到转义身份、CSRF、传统默认值；复盘独立交付且不加载简历管理。
-- ResumePageTests.test_navigation_from_existing_pages：主页、面试、简历页均有顶部复盘入口。
+- ResumePageTests.test_navigation_from_existing_pages：
+  主页、面试、简历、复盘与诊断均有共享顶部任务导航。
 - ResumePageTests.test_interview_has_no_inline_maintenance：面试仅选择已保存版本，旧维护资源删除。
 
 关键变量：
@@ -75,6 +76,7 @@ class ResumePageTests(TestCase):
         for name, content_type in (
             ("resumes.js", "text/javascript"),
             ("resumes.css", "text/css"),
+            ("workspace.css", "text/css"),
             ("interview-progress.js", "text/javascript"),
             ("interview-history.js", "text/javascript"),
             ("interview-history.css", "text/css"),
@@ -84,10 +86,12 @@ class ResumePageTests(TestCase):
             self.assertTrue(asset["Content-Type"].startswith(content_type))
 
     def test_navigation_from_existing_pages(self):
-        """既有页面顶部含并列复盘入口，简历页不嵌复盘；不创建面试或改变参数。"""
+        """主页/面试/简历/复盘/诊断顶部含统一任务入口，简历页不嵌复盘；不创建面试或改变参数。"""
         self.client.force_login(self.user)
-        for path in ("/", "/agent/", "/resumes/"):
+        for path in ("/", "/agent/", "/resumes/", "/interview-review/", "/stream-demo/"):
             response = self.client.get(path)
+            self.assertContains(response, 'class="workspace-navigation"')
+            self.assertContains(response, 'href="/resumes/#job-recommendations"')
             self.assertContains(response, 'href="/resumes/"')
             self.assertContains(response, 'href="/interview-review/"')
             self.assertNotContains(response, 'href="/resumes/#interview-history"')

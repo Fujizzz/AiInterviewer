@@ -1,7 +1,7 @@
 /**
  * @module agent-client-test
  * 功能：用确定性时钟、DOM 和 WebSocket 替身验证真实 agent.js，完全不访问网络。
- * 实现：从实际 HTML 建立元素集合，vm 执行客户端脚本；通过事件观察计时、缓存与终态。
+ * 实现：从实际 HTML 与共享导航建立元素集合，vm 执行客户端脚本；通过事件观察计时、缓存与终态。
  * 关联：frontend/agent.html、agent.js；node --test 运行，不能证明实际供应商性能。
  * 目录：
  * - Element：最小 DOM 事件与展示替身。
@@ -62,7 +62,7 @@
  * - blockedResumeSelection：缺少 ready、未选 current 或未授权时不能创建面试连接。
  * 关键变量：
  * - SCRIPT：待验证的真实客户端源码。
- * - HTML：实际面试模板，用于核验客户端元素引用。
+ * - HTML：实际面试与共享导航模板，用于核验客户端元素引用。
  * - VOICE_SCRIPT：真实语音协调器源码，在隔离 VM 中执行。
  * - PROGRESS_SCRIPT：真实预算/话题呈现源码，共用可控时钟，不访问后端。
  * - CAPTURE_SCRIPT：真实录音管理器源码，不打开设备或供应商连接。
@@ -76,7 +76,7 @@ import test from "node:test";
 import vm from "node:vm";
 
 const SCRIPT = readFileSync(new URL("../frontend/agent.js", import.meta.url), "utf8");
-const HTML = readFileSync(new URL("../frontend/agent.html", import.meta.url), "utf8");
+const HTML = readFileSync(new URL("../frontend/agent.html", import.meta.url), "utf8") + readFileSync(new URL("../frontend/workspace-nav.html", import.meta.url), "utf8");
 const VOICE_SCRIPT = readFileSync(new URL("../frontend/interview-voice.js", import.meta.url), "utf8");
 const PROGRESS_SCRIPT = readFileSync(new URL("../frontend/interview-progress.js", import.meta.url), "utf8");
 const CAPTURE_SCRIPT = readFileSync(new URL("../frontend/speech-capture.js", import.meta.url), "utf8");

@@ -1,6 +1,6 @@
 /*
- * 职责：个人中心的企业招聘式布局：紧凑导航、附件操作、单元编辑、原文对照和版本记录。
- * 实现：单入口上传、附件行内解析、推荐区版本选择/下一步动作；对照展开才分双栏；手机单栏；粘附保存栏。
+ * 职责：个人中心的企业招聘式布局：共享导航下的分区、附件操作、单元编辑、原文对照和版本记录。
+ * 实现：workspace.css 配合 resumes.js 按哈希切换分区并保留表单；单入口上传、附件行内解析、推荐区版本选择/下一步动作；对照展开才分双栏；手机单栏；粘附保存栏。
  * 关联：resumes.html/resumes.js；selected/current 标记版本，不通过样式修改数据或可用状态。
  * 目录：页面框架；侧栏；附件；表单单元与推荐字段；对照；保存栏；推荐滚动区域与理由卡片；历史；响应式。
  * 函数和类声明：None。变量索引：None，无 CSS 自定义变量或配置项。
@@ -26,8 +26,6 @@
 .resumes-page .unit-navigation { border-left: 2px solid #e2e7ec; margin-left: 8px; }
 .resumes-page .unit-navigation summary { cursor: pointer; padding: 6px 10px; font-size: 12px; color: #64747c; }
 .resumes-page .unit-navigation a { display: block; padding: 5px 10px; font-size: 12px; }
-.resumes-page .account-summary { border-top: 1px solid #edf0f2; padding-top: 14px; font-size: 13px; }
-.resumes-page .account-summary summary { cursor: pointer; font-weight: 600; }
 .resumes-page #profile-save { width: 100%; margin-top: 14px; }
 .resumes-page .panel { border-color: #e2e7ec; padding: 24px; border-radius: 10px; margin-bottom: 20px; }
 .resumes-page .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
