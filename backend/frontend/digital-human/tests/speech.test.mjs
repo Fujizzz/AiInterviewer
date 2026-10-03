@@ -30,7 +30,7 @@
  * - callback4.globalThis.Audio.constructor：浏览器创建重复音频时立即使测试失败。
  * - callback4.callback1：检查是否已发送 speak 消息。
  * - callback4.callback2：检查是否已发送 stop 消息。
- * - callback5：验证 TTS 配额失败后仍可提交文字回答。
+ * - callback5：验证 TTS 配额失败后仍可启动语音回答。
  * - callback5.globalThis.fetch：提供 TTS 配额不足回应。
  * - callback5.globalThis.fetch.object1.json：返回固定公开错误信息。
  * - callback6：验证设备拒绝和取消后的迟到授权不会泄漏音轨。
@@ -151,8 +151,8 @@ test("old UE events are ignored and UE audio is never also played in the browser
   voice.close();
 });
 
-/** 验证 TTS 配额失败后仍可提交文字回答。 */
-test("TTS failure leaves confirmed text submission available", async () => {
+/** 验证 TTS 配额失败后仍可启动语音回答。 */
+test("TTS failure leaves voice recording available", async () => {
   const elements = page();
   const voice = new InterviewVoice();
   voice.eligible = true;
@@ -160,7 +160,7 @@ test("TTS failure leaves confirmed text submission available", async () => {
   /** 提供 TTS 配额不足回应。 */
   globalThis.fetch = async () => ({ ok: false, /** 返回固定公开错误信息。 */ json: async () => ({ error: { code: "quota_exhausted", detail: "Use text" } }) });
   await voice.speak();
-  assert.equal(elements.get("submit-answer").disabled, false);
+  assert.equal(elements.get("start-recording").disabled, false);
   assert.match(elements.get("voice-status").textContent, /quota_exhausted/);
   voice.close();
 });

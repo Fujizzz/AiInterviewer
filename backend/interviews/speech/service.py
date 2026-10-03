@@ -175,7 +175,8 @@ def provider_error(exc):
     """Translate provider failures without reflecting raw exception messages."""
     if "freetieronly" in str(exc).lower():
         return SpeechError(
-            "quota_exhausted", "The model's free quota is exhausted; use text input."
+            "quota_exhausted",
+            "The model's free quota is exhausted; ask the maintainer to check speech billing.",
         )
     return SpeechError(
         "speech_provider_error", "Speech service failed; check model access and quota."

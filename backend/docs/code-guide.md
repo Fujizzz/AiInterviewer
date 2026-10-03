@@ -23,7 +23,7 @@
 | 15 | `interviews/agent_session.py` | 将 MVP 用例适配为初始化、回答、报告三步，复用原有决策和计时 |
 | 16 | `interviews/agent_socket.py` | `/ws/agent/` 严格命令校验、单请求执行、断线清理 |
 | 17 | `frontend/agent.html`、`agent.js`、`agent.css` | 文字面试测试页，不在浏览器保存密钥或持久化结果 |
-| 18 | `frontend/interview-voice.js`、`speech-capture.js` | 数字人语音状态、麦克风采集、转录确认与异常降级 |
+| 18 | `frontend/interview-voice.js`、`speech-capture.js` | 数字人语音状态、麦克风采集、实时字幕与显式结束提交 |
 | 19 | `frontend/digital-human/` | Pixel Streaming SDK 包装、播放器构建与语音前端测试 |
 
 当前前端修改统一维护在本目录的 `frontend/` 中；后续由后端开发人员迁入仓库根目录 `frontend/`。

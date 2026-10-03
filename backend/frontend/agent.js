@@ -1,6 +1,6 @@
 /**
  * @module agent
- * 职责：选择个人中心已就绪简历并进行语音/文字面试，提供真实阶段、计时、评分和报告。
+ * 职责：选择个人中心已就绪简历并进行语音面试，提供真实阶段、计时、评分和报告。
  * 实现：读取本人分页元数据；开始入口打开原生准备弹窗，确认后才通过 UUID 发送 start。
  * 关联：agent.html、i18n.js、/api/resume-versions/、/ws/agent/；资料维护集中在 /resumes/。
  * 目录：
@@ -28,7 +28,7 @@
  * - onPreparationClosed：关闭后将焦点交还入口或正在准备首题的状态区域。
  * - onPreparationKeydown：在弹窗首尾循环 Tab 焦点；Esc 继续由原生 dialog 处理。
  * - onPreparationLanguage：重绘版本标签和已知选择状态，不请求网络或改变已选版本。
- * - onAnswer：仅在未朗读/录音且请求空闲时提交确认答案。
+ * - onAnswer：接收用户结束录音后的最终转写，仅在当前题且请求空闲时提交一次。
  * - onCancel：取消当前面试连接。
  * - onClear：清空面试问答，保留版本与岗位设置。
  * - onPageHide：离开时清理连接、计时、录音和数字人资源。
@@ -60,7 +60,7 @@ import { InterviewVoice } from "./interview-voice.js";
 
 /** 输入模板唯一 ID，返回 DOM 节点；模板缺失由调用位置显式失败。 */
 const el = (id) => document.getElementById(id);
-const voice = new InterviewVoice();
+const voice = new InterviewVoice(onAnswer);
 const STAGES = {
   resume_parsing: "agent_stage_resume", question_generation: "agent_stage_question", answer_evaluation: "agent_stage_evaluation",
   next_action: "agent_stage_next", report_generation: "agent_stage_report",
@@ -140,8 +140,6 @@ function controls() {
   for (const id of ["resume-select", "refresh-resumes"]) el(id).disabled = busy || interviewActive || resumesLoading;
   for (const id of ["job", "duration", "limit", "probes"]) el(id).disabled = interviewActive;
   const answering = interviewActive && questionId !== null && !busy;
-  el("answer").disabled = !answering;
-  el("submit-answer").disabled = !answering;
   el("cancel-agent").disabled = socket === null;
   window.dispatchEvent(new CustomEvent("interview-controls", { detail: { active: interviewActive, answering } }));
 }
@@ -236,7 +234,6 @@ function clearResults() {
   questionId = null;
   el("question").textContent = uiText("agent_question_placeholder");
   for (const id of ["question-meta", "evaluation", "report", "score", "report-summary", "assessment", "stage-log", "wait-time"]) el(id).textContent = "";
-  el("answer").value = "";
   for (const id of ["evaluation-panel", "report-panel", "assessment-panel"]) el(id).hidden = true;
 }
 /** 输入命令，校验已公告 UTF-8 上限，绑定 UUID 并发送一次；失败原样传播。 */
@@ -313,11 +310,10 @@ function onMessage(event) {
       el("question-meta").textContent = window.AppI18n?.language() === "en"
         ? `Question ${message.question_index} · ${message.question.dialogue_action} · Difficulty ${message.question.difficulty}`
         : `第 ${message.question_index} 题 · ${message.question.dialogue_action} · 难度 ${message.question.difficulty}`;
-      el("answer").value = "";
       el("evaluation-panel").hidden = !message.last_evaluation;
       el("evaluation").textContent = message.last_evaluation ? JSON.stringify(message.last_evaluation, null, 2) : "";
       const backendWaitMs = waitStarted === null ? null : performance.now() - waitStarted;
-      endWait(); controls(); status(uiText("agent_question_answer")); el("answer").focus();
+      endWait(); controls(); status(uiText("agent_question_answer")); el("start-recording").focus();
       voice.setQuestion(message.question, backendWaitMs);
     } else if (message.type === "finished") {
       const report = message.result.final_report;
@@ -420,12 +416,14 @@ function onPreparationLanguage() {
   if (resumeSelectionMessage) el("resume-selection-status").textContent = uiText(resumeSelectionMessage);
   if (el("preparation-error").textContent) el("preparation-error").textContent = uiText("agent_resume_required");
 }
-/** 输入回答表单事件，仅在当前题且无在途请求时提交；评价与下一题仍由后端顺序处理。 */
-function onAnswer(event) {
-  event.preventDefault();
-  const answer = el("answer").value.trim();
-  if (!answer || !questionId || pendingId || pendingCommand || voice.busy || voice.capture) return;
-  voice.reset();
+/** 输入用户点击结束后获得的最终转写字符串；禁止空白、旧题或在途请求重复提交。
+ * 纯语音入口仍发送既有 answer_text 协议，不改变预算/评价；保留字幕直到下一题或终态。
+ */
+function onAnswer(text) {
+  const answer = text.trim();
+  if (!answer || !interviewActive || !questionId || pendingId || pendingCommand || voice.busy || voice.capture) return;
+  voice.reset(false);
+  voice.message(uiText("agent_submit"));
   status(uiText("agent_submit"));
   dispatch({ type: "answer", question_id: questionId, answer_text: answer });
 }
@@ -446,7 +444,6 @@ el("preparation-dialog").addEventListener("keydown", onPreparationKeydown);
 el("interview-language").addEventListener("change", onPreparationLanguage);
 el("resume-select").addEventListener("change", onResumeSelect);
 el("refresh-resumes").addEventListener("click", loadResumeVersions);
-el("answer-form").addEventListener("submit", onAnswer);
 el("cancel-agent").addEventListener("click", onCancel);
 el("clear-agent").addEventListener("click", onClear);
 window.addEventListener("pagehide", onPageHide);

@@ -1,10 +1,12 @@
 /**
  * @module speech-capture
- * Local speech presentation; no interview evaluation or automatic answer submission.
+ * 职责：PCM 采集及有界 STT 传输；通过回调交付转写，不直接提交面试回答。
+ * 实现：麦克风授权/握手后采集，flush 后发送 stop；时限收尾不代表用户确认提交。
+ * 关联：interview-voice.js 接收部分/最终文本并控制字幕和结束确认。
  *
  * 目录：
  * - SpeechCapture：
- *   Browser PCM capture and one STT task. Completion only fills an editable draft.
+ *   Browser PCM capture and one STT task; completion delivers text to the caller, never an interview command.
  * - SpeechCapture.constructor：
  *   Store transcript callbacks and initialize one capture session's resources.
  * - SpeechCapture.start：
@@ -45,7 +47,7 @@
  * 关键变量：
  * （无模块级变量。）
  */
-/** Browser PCM capture and one STT task. Completion only fills an editable draft. */
+/** Browser PCM capture and one STT task; completion delivers text to the caller, never an interview command. */
 export class SpeechCapture {
   /** Store transcript callbacks and initialize one capture session's resources. */ constructor(onPartial, onFinal, onError) {
     this.onPartial = onPartial;
@@ -92,7 +94,7 @@ export class SpeechCapture {
             if (message.type === "error") this.fail(new Error(`${message.code}: ${message.detail}`));
           } catch (error) { this.fail(error); }
         };
-        /** Report a recognition transport failure and release the microphone. */ socket.onerror = () => this.fail(new Error("Speech connection failed; use text input."));
+        /** Report a recognition transport failure and release the microphone. */ socket.onerror = () => this.fail(new Error("Speech connection failed; check the service and start a new recording."));
         /** Detect a connection that ended without a final transcript. */ socket.onclose = () => { clearTimeout(timeout); if (!this.closed) this.fail(new Error("Speech ended without a final transcript.")); };
       });
       await this.starting;
@@ -102,7 +104,7 @@ export class SpeechCapture {
         if (data.type === "flushed") this.flushResolve?.();
         if (data.type === "pcm" && !this.closed) {
           if (socket.readyState !== WebSocket.OPEN || socket.bufferedAmount > 1024 * 1024) {
-            this.fail(new Error("Speech connection is not keeping up; use text input."));
+            this.fail(new Error("Speech connection is not keeping up; check the connection and start a new recording."));
           } else socket.send(data.buffer);
         }
       };
@@ -129,7 +131,7 @@ export class SpeechCapture {
       await this.releaseAudio();
       if (this.closed) return;
       this.socket.send(JSON.stringify({ type: "stop" }));
-      this.finalTimer = setTimeout(/** Report a provider that failed to finalize the ended answer. */ () => this.fail(new Error("Final transcription timed out; use text input.")), 15000);
+      this.finalTimer = setTimeout(/** Report a provider that failed to finalize the ended answer. */ () => this.fail(new Error("Final transcription timed out; start a new recording.")), 15000);
     } catch (error) { this.fail(error); }
   }
 

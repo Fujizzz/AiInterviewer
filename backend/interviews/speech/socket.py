@@ -2,7 +2,7 @@
 
 目录：
 - stt_socket：
-  Bridge PCM and SDK callbacks, retaining only text until final confirmation in the UI.
+  Bridge PCM and SDK callbacks, returning final text after stop; the UI owns answer confirmation.
 - stt_socket.output：
   Send one UTF-8 JSON event, with no original audio payload.
 - stt_socket.enqueue：
@@ -25,7 +25,7 @@ from .service import RecognitionSession, SpeechError, provider_error
 
 
 async def stt_socket(scope, receive, send):
-    """Bridge PCM and SDK callbacks, retaining only text until final confirmation in the UI."""
+    """Bridge PCM/SDK callbacks; return final text after stop. The UI owns answer confirmation."""
     if (await receive())["type"] != "websocket.connect":
         return
     if not websocket_allowed(scope):
@@ -97,7 +97,9 @@ async def stt_socket(scope, receive, send):
             if loop.time() - started_at > 135:
                 raise SpeechError("speech_timeout", "Answer exceeded the 120-second limit.", 400)
             if stopped_at is not None and loop.time() - stopped_at > 15:
-                raise SpeechError("speech_timeout", "Final transcription timed out; retry or type.")
+                raise SpeechError(
+                    "speech_timeout", "Final transcription timed out; start a new recording."
+                )
             done, _ = await asyncio.wait(
                 [receive_task, event_task],
                 timeout=1,
@@ -152,7 +154,8 @@ async def stt_socket(scope, receive, send):
                 if event["type"] == "complete":
                     if stopping is None:
                         raise SpeechError(
-                            "recognition_ended", "Recognition ended before stop; retry or type."
+                            "recognition_ended",
+                            "Recognition ended before stop; start a new recording.",
                         )
                     await output(
                         {

@@ -38,7 +38,7 @@
  * - makePage.createElement：创建测试选项。
  * - makePage.fetch.object1.json：返回合成分页 JSON。
  * - makePage.fetch：模拟本人分页版本接口，记录调用而不访问模型。
- * - makePage.ignoreError：记录类型日志，不暴露用户正文。
+ * - makePage.ignoreError：接收诊断日志，不暴露用户正文。
  * - makePage.tick：推进测试时间并执行已登记显示回调。
  * - hello：完成协议公告并返回已发送命令的 UUID。
  * - callback1：start 发送版本 ID、保持原预算并展示真实计时。
@@ -49,9 +49,14 @@
  * - callback6：超限输入在发请求前被拒绝，避免多余模型调用。
  * - callback7：报告模型失败回退时明确提示，不把确定性摘要标记为模型成功。
  * - callback8：错误请求 ID 的阶段事件被拒绝并停止计时。
- * - callback9：当前问题启用语音控件，播放期间禁止确认提交，结束后恢复。
- * - callback10：录音期间禁止确认提交，取消时释放录音并恢复开始按钮。
- * - callback10.page.voice.capture.close：记录被取消的录音资源释放。
+ * - callback9：当前问题启用语音控件，播放期间禁止录音，结束后可语音提交。
+ * - callback10：取消时释放录音，拒绝迟到最终文本并恢复面试入口。
+ * - answeringPage：使用真实客户端处理器进入合成当前题。
+ * - startCapture：只替换设备/供应商边界，启动真实语音协调器。
+ * - startCapture.page.captureType.prototype.start：离线授权/握手使采集就绪。
+ * - startCapture.page.captureType.prototype.end：离线结束采集，最终文本单独交付。
+ * - speechAnswerLifecycle：验证字幕、显式结束、最终转写一次提交及下一题清理。
+ * - speechAnswerBoundaries：时限需确认，空白/失败/迟到转写不提交。
 
  * - blockedResumeSelection：缺少 ready、未选 current 或未授权时不能创建面试连接。
  * 关键变量：
@@ -120,7 +125,7 @@ class Socket {
   emit(data, name = "message") { this.listeners[name]({ data: JSON.stringify(data), currentTarget: this }); }
 }
 
-/** 输入合成 versions/search/failure 选项，执行真实脚本并等待初次加载；输出测试页面，无真实网络。 */
+/** 输入合成 versions/search/failure 选项，执行真实脚本并等待初次加载；输出测试页面和隔离采集类，便于替换设备边界，无真实网络。 */
 async function makePage(options = {}) {
   const elements = new Map();
   for (const match of HTML.matchAll(/id="([^"]+)"/g)) elements.set(match[1], new Element());
@@ -165,7 +170,7 @@ async function makePage(options = {}) {
   }
   /** 输入标签名，输出选项节点，无真实窗口副作用。 */
   function createElement() { return new Element(); }
-  /** 保存日志类型，不打印合成版本内容。 */
+  /** 接收诊断日志，不打印合成版本或语音正文。 */
   function ignoreError() {}
   const clientScript = CAPTURE_SCRIPT.replace("export class SpeechCapture", "class SpeechCapture")
     + VOICE_SCRIPT.replace('import { SpeechCapture } from "./speech-capture.js";', "").replace("export class InterviewVoice", "class InterviewVoice")
@@ -175,12 +180,13 @@ async function makePage(options = {}) {
     window: { addEventListener: addPageListener, dispatchEvent: dispatchPageEvent },
     performance: { now }, crypto: { randomUUID: uuid },
     location: { protocol: "http:", host: "localhost", search: options.search || "" },
-    WebSocket: Socket, TextEncoder, URLSearchParams, fetch, console: {error:ignoreError},
+    WebSocket: Socket, TextEncoder, URLSearchParams, fetch, console: {error:ignoreError, info:ignoreError},
     setInterval: setTimer, clearInterval: clearTimer, clearTimeout, CustomEvent: PageEvent,
   });
   await vm.runInContext(clientScript, context);
   const voice = vm.runInContext("voice", context);
-  return { el: getElement, tick, timers, requests, voice };
+  const captureType = vm.runInContext("SpeechCapture", context);
+  return { el: getElement, tick, timers, requests, voice, captureType };
 }
 
 /** 输入连接及可选测试消息上限，模拟 hello，返回被客户端发送的命令 ID 或 undefined。 */
@@ -310,10 +316,12 @@ test("question and finished response release pending UI state", async () => {
   let id = hello(ws);
   ws.emit({ type: "question", request_id: id, question_index: 1,
     question: { question_id: "q1", text: "What did you implement?", target_competency: "ownership", difficulty: 2 } });
-  assert.equal(page.el("answer").disabled, false);
+  assert.equal(page.el("start-recording").disabled, false);
   assert.equal(page.timers.size, 0);
-  page.el("answer").value = "Synthetic answer.";
-  page.el("answer-form").fire("submit");
+  const capture = await startCapture(page);
+  assert.equal(page.el("voice-enabled").disabled, true);
+  await page.voice.finishAnswer();
+  capture.onFinal("Synthetic answer.", 10);
   id = ws.sent.at(-1).request_id;
   ws.emit({ type: "finished", request_id: id, result: { final_report: {
     overall_score: 3, competencies: {}, summary: "Fixture final report.",
@@ -359,8 +367,8 @@ test("foreign request progress is rejected", async () => {
   assert.equal(page.timers.size, 0);
 });
 
-/** 新版客户端与真实语音协调器共享当前问题和回答边界。 */
-test("voice playback blocks answer submission and releases it on completion", async () => {
+/** 新版客户端与真实语音协调器共享当前问题和回答边界；播放时不允许启动录音。 */
+test("voice playback blocks recording and releases it on completion", async () => {
   const page = await makePage();
   startPrepared(page);
   const ws = Socket.instances.at(-1);
@@ -368,46 +376,116 @@ test("voice playback blocks answer submission and releases it on completion", as
   assert.equal(page.el("start-recording").disabled, true);
   ws.emit({ type: "question", request_id: id, question_index: 1,
     question: { question_id: "voice-q", text: "Describe one contribution.", difficulty: 1, dialogue_action: "project" } });
-  assert.equal(page.el("start-recording").disabled, false);
-  page.el("answer").value = "Public fixture answer.";
   page.voice.busy = true;
   page.voice.utteranceId = "voice-u";
   page.voice.updateControls();
-  page.el("answer-form").fire("submit");
+  await page.voice.record();
+  assert.equal(page.voice.capture, null);
   assert.equal(ws.sent.length, 1);
-  assert.equal(page.el("submit-answer").disabled, true);
+  assert.equal(page.el("start-recording").disabled, true);
   page.voice.avatarEvent({ type: "playback_finished", utterance_id: "voice-u" });
-  assert.equal(page.el("submit-answer").disabled, false);
+  assert.equal(page.el("start-recording").disabled, false);
   assert.match(page.el("voice-status").textContent, /朗读已停止/);
-  page.el("answer-form").fire("submit");
+  const capture = await startCapture(page);
+  await page.voice.finishAnswer();
+  capture.onFinal("Public fixture answer.", 10);
   assert.equal(ws.sent.at(-1).type, "answer");
   assert.equal(page.el("start-recording").disabled, true);
 });
 
-/** 录音草稿不自动提交；取消旧会话必须停止设备并释放控件。 */
-test("recording blocks confirmation and cancellation releases capture", async () => {
+/** 采集/收尾取消使旧回调失效；真实资源释放路径运行，不打开设备或外部服务。 */
+test("cancellation releases capture and ignores a late final transcript", async () => {
+  const page = await answeringPage();
+  const capture = await startCapture(page);
+  capture.onPartial("Unconfirmed fixture draft.");
+  await page.voice.finishAnswer();
+  page.el("cancel-agent").fire("click");
+  assert.equal(capture.closed, true);
+  capture.onFinal("Late cancelled answer.", 10);
+  assert.equal(page.ws.sent.length, 1);
+  assert.equal(page.el("start-agent").disabled, false);
+  assert.equal(page.el("start-recording").disabled, true);
+  assert.equal(page.voice.capture, null);
+  assert.equal(page.el("answer-subtitles").hidden, true);
+  assert.equal(page.el("voice-enabled").disabled, false);
+});
+
+/** 生成真实客户端当前题；仅 WebSocket/版本接口使用离线替身，题目进入真实业务处理器。 */
+async function answeringPage() {
   const page = await makePage();
   startPrepared(page);
   const ws = Socket.instances.at(-1);
   const id = hello(ws);
   ws.emit({ type: "question", request_id: id, question_index: 1,
-    question: { question_id: "mic-q", text: "Describe one contribution.", difficulty: 1, dialogue_action: "project" } });
-  let closed = false;
-  page.voice.capture = { recording: true,
-    /** 记录测试录音被取消，不能留下继续上传的采集对象。 */
-    close() { closed = true; },
-  };
-  page.voice.updateControls();
-  page.el("answer").value = "Unconfirmed fixture draft.";
-  page.el("answer-form").fire("submit");
-  assert.equal(ws.sent.length, 1);
-  assert.equal(page.el("stop-recording").disabled, false);
-  page.el("cancel-agent").fire("click");
-  assert.equal(closed, true);
-  assert.equal(page.el("start-agent").disabled, false);
-  assert.equal(page.el("start-recording").disabled, true);
+    question: { question_id: "speech-q", text: "Describe one contribution.", difficulty: 1, dialogue_action: "project" } });
+  return { ...page, ws };
+}
+
+/** 输入独立 VM 页面；仅替换设备/供应商启动与 flush，保留真实协调器及 close 资源逻辑。
+ * 返回采集对象让测试显式交付部分/最终/错误回调，不证明实际 ASR 性能。 */
+async function startCapture(page) {
+  /** 离线授权和握手完成，不创建麦克风音轨。 */
+  page.captureType.prototype.start = async function syntheticStart() { this.recording = true; };
+  /** 离线结束只置采集标记；最终文本必须由测试另行交付，不伪造同步成功。 */
+  page.captureType.prototype.end = async function syntheticEnd() { this.recording = false; };
+  await page.voice.record();
+  return page.voice.capture;
+}
+
+/** 验证显式结束与最终文本的两阶段边界、字幕纯文本、重复防护及下一题清理。 */
+async function speechAnswerLifecycle() {
+  const page = await answeringPage();
+  assert.doesNotMatch(HTML, /id="(?:answer|answer-form|submit-answer|transcript-draft)"/);
+  const capture = await startCapture(page);
+  capture.onPartial("<img src=x onerror=alert(1)> public fixture");
+  assert.equal(page.el("answer-subtitle").textContent, "<img src=x onerror=alert(1)> public fixture");
+  assert.equal(page.el("answer-subtitles").hidden, false);
+  assert.equal(page.ws.sent.length, 1);
+  await page.el("stop-recording").onclick();
+  await page.voice.finishAnswer();
+  assert.equal(page.el("stop-recording").disabled, true);
+  assert.equal(page.ws.sent.length, 1);
+  capture.onFinal("  Final spoken answer.  ", 10);
+  assert.equal(page.ws.sent.length, 2);
+  assert.equal(page.ws.sent[1].question_id, "speech-q");
+  assert.equal(page.ws.sent[1].answer_text, "Final spoken answer.");
+  assert.equal(page.el("answer-subtitle").textContent, "Final spoken answer.");
+  capture.onFinal("Duplicate final.", 10);
+  await page.voice.record();
+  assert.equal(page.ws.sent.length, 2);
   assert.equal(page.voice.capture, null);
-});
+  page.ws.emit({ type: "question", request_id: page.ws.sent[1].request_id, question_index: 2,
+    question: { question_id: "next-q", text: "Next question", difficulty: 1, dialogue_action: "project" } });
+  assert.equal(page.el("answer-subtitles").hidden, true);
+}
+test("finish answer waits for final speech and submits once while subtitles remain visible", speechAnswerLifecycle);
+
+/** 原采集时限的 final 不代表用户结束确认；有最终文本后仍须按钮，空白/失败不提交。 */
+async function speechAnswerBoundaries() {
+  const page = await answeringPage();
+  let capture = await startCapture(page);
+  capture.onFinal("Timed-limit speech.", 10);
+  assert.equal(page.ws.sent.length, 1);
+  assert.equal(page.el("stop-recording").disabled, false);
+  await page.voice.finishAnswer();
+  assert.equal(page.ws.sent[1].answer_text, "Timed-limit speech.");
+  const empty = await answeringPage();
+  capture = await startCapture(empty);
+  await empty.voice.finishAnswer();
+  capture.onFinal("  ", 10);
+  assert.equal(empty.ws.sent.length, 1);
+  assert.equal(empty.el("start-recording").disabled, false);
+  assert.equal(empty.el("answer-subtitles").hidden, true);
+  capture = await startCapture(empty);
+  capture.onPartial("Unconfirmed words");
+  await empty.voice.finishAnswer();
+  capture.onError("speech_timeout: public fixture failure");
+  capture.onFinal("Late after failed capture", 10);
+  assert.equal(empty.ws.sent.length, 1);
+  assert.match(empty.el("voice-status").textContent, /speech_timeout/);
+  assert.equal(empty.el("start-recording").disabled, false);
+}
+test("capture limit requires end confirmation and empty or failed transcripts never submit", speechAnswerBoundaries);
 
 /** 没有可用输入时禁止 start，失败不选择其他版本；这些是模拟权限响应，不替代真实服务权限。 */
 async function blockedResumeSelection() {

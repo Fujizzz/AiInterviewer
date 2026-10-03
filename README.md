@@ -13,7 +13,7 @@
 - 原子提交状态、问题、反馈和决策日志，重复反馈保持幂等；
 - 按岗位能力权重在代码中计算最终分数，LLM 仅负责报告文字；
 - 支持 OpenAI 和千问 DashScope；
-- 支持网页数字人面试、英文问题朗读、语音转录和可编辑回答确认；
+- 支持网页数字人面试、英文问题朗读、语音实时字幕和结束回答确认；
 - 输出问题历史、能力状态、决策日志和 JSON 报告。
 
 后端另提供支持缺失资料的实验性人岗双向排序接口，使用仓库附带的v4-B树模型，
@@ -139,7 +139,8 @@ uv run python main.py resume.pdf \
 数字人负责面试呈现和语音交互；问题、追问、回答评价和报告继续由既有 Agent 流程处理。
 
 网页支持自动朗读英文问题、重新朗读、打断朗读、麦克风回答和实时转录。
-用户点击“开始回答”录音，点击“结束回答”后检查或修改转录，再点击“确认提交回答”进入下一轮。
+用户点击“开始回答”录音，实时转写以字幕显示在面试画面；点击“结束回答”后等待最终转写并直接提交，进入下一轮。
+页面不提供文字回答输入；空白或失败的转写不会提交。录音仍保持原有 120 秒上限，到达时限后须点击“结束回答”确认提交。
 控制器提供 Idle、Listening、Thinking、Speaking、Interrupted 状态，供角色动画扩展使用。
 
 | 目录 | 职责 |
@@ -147,7 +148,7 @@ uv run python main.py resume.pdf \
 | `DigitalHuman/` | MetaHuman 角色、`L_Interview` 场景、原生音频播放与音频驱动接口 |
 | `DigitalHuman/Tools/` | 本机信令、串流依赖安装、UE 启动和 Windows 打包 |
 | `backend/interviews/speech/` | 百炼 TTS/STT、临时 WAV 与语音 WebSocket |
-| `backend/frontend/` | 面试页面、语音交互、PCM 采集与可编辑转录 |
+| `backend/frontend/` | 面试页面、语音交互、PCM 采集与语音字幕 |
 | `backend/frontend/digital-human/` | UE 5.8 官方 Pixel Streaming SDK 包装、构建配置与前端测试 |
 
 语音配置与模型密钥统一放在根目录 `.env`：

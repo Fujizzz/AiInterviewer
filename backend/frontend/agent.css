@@ -1,23 +1,22 @@
 /*
  * 文件职责：为 agent.html 面试工作台提供布局与可读性样式，叠加在 style.css 之后。
- * 实现：题目位于舞台上方，面试官居中，本地视频绝对定位于舞台右上角；窄屏保持回答可用；原生准备弹窗独立滚动并固定标题/确认操作。
+ * 实现：题目位于舞台上方，面试官居中，本地视频绝对定位于舞台右上角；视频底部以纯文本字幕呈现回答；窄屏保持字幕可读；原生准备弹窗独立滚动并固定标题/确认操作。
  * 关联：agent.js 决定业务状态，interview-camera.js 决定本地预览状态；样式不创建或改变媒体流。
- * 目录：label/input/textarea（表单）；.settings-grid（预算参数）；#question/#report-summary（长文本）；
+ * 目录：label/input（表单）；.settings-grid（预算参数）；#question/#report-summary（长文本）；
  * details/pre（展开结果）；#stage-log/#wait-time（真实阶段与计时）；已保存版本选择；
  * [hidden]（显示状态）；.studio-header/.studio-heading（导航）；.question-card（题目）；
  * .interviewer-stage/.interviewer-placeholder（中央形象）；.self-preview（右上角本地视频）；
- * .camera-toolbar/.answer-panel/.preparation-dialog（操作和模态设置）；@media（窄屏排列）。本文件无函数或 CSS 自定义变量。
- * 关键选择器：.preparation-footer 与 #answer-form .actions 控制确认/回答操作区；不改变 disabled 或网络状态。
+ * .camera-toolbar/.voice-panel/.answer-subtitles/.preparation-dialog（语音操作、字幕和模态设置）；@media（窄屏排列）。本文件无函数或 CSS 自定义变量。
+ * 关键选择器：.preparation-footer 与 .voice-panel .actions 控制准备确认/语音操作区；不改变 disabled 或网络状态。
  * 约束：仅调整外观和布局；预算、评分及协议状态由脚本与后端决定。
  */
 label { display: block; margin: 12px 0 6px; font-weight: 600; }
-input, textarea, #resume-select { width: 100%; box-sizing: border-box; font: inherit; padding: 10px;
+input, #resume-select { width: 100%; box-sizing: border-box; font: inherit; padding: 10px;
   border: 1px solid #afc6c0; border-radius: 8px; background: white; color: #183d34; }
-textarea { resize: vertical; }
 .settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 #question, #report-summary { white-space: pre-wrap; overflow-wrap: anywhere; }
 #question { font-size: 1.15rem; line-height: 1.7; }
-#answer-form .actions, details { margin-top: 16px; }
+details { margin-top: 16px; }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 480px; overflow: auto; }
 [hidden] { display: none !important; }
 #stage-log { flex-basis: 100%; margin: 0; }
@@ -64,15 +63,7 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 480px; overflo
 .camera-toolbar { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; padding: 14px 0 20px; }
 .camera-toolbar button { border-radius: 8px; font-size: 12px; }
 #camera-status { font-size: 12px; color: #627365; flex: 1; min-width: 180px; line-height: 1.6; }
-.answer-panel { padding: 20px 24px; border-color: #e0e5dc; border-radius: 14px; }
-.answer-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-.answer-heading label { margin: 0; font-size: 14px; }
-.answer-heading .hint { margin: 0; }
-#answer { background: #fafbf8; border-color: #dce4d9; font-size: 14px; line-height: 1.7; }
-#answer:disabled { color: #728074; }
-input:focus-visible, textarea:focus-visible, #resume-select:focus-visible, summary:focus-visible, a:focus-visible { outline: 3px solid #6c947d; outline-offset: 3px; }
-#answer-form .actions { justify-content: flex-end; }
-#submit-answer { order: 3; }
+input:focus-visible, #resume-select:focus-visible, summary:focus-visible, a:focus-visible { outline: 3px solid #6c947d; outline-offset: 3px; }
 .privacy-note { color: #718073; font-size: 11px; line-height: 1.9; max-width: 900px; }
 @media (max-width: 650px) {
   .interview-page main { padding: 0 16px 24px; }
@@ -90,8 +81,6 @@ input:focus-visible, textarea:focus-visible, #resume-select:focus-visible, summa
   .interviewer-placeholder { padding: 48px 0 50px; }
   .interviewer-portrait { height: 220px; max-width: 80%; }
   .stage-bottom { left: 16px; right: 16px; bottom: 13px; font-size: 10px; }
-  .answer-panel { padding: 17px; }
-  .answer-heading .hint { font-size: 10px; }
 }
 
 /* Digital-human video occupies the existing interviewer stage; camera stays local. */
@@ -104,7 +93,13 @@ input:focus-visible, textarea:focus-visible, #resume-select:focus-visible, summa
 .voice-panel > label { display: flex; align-items: center; gap: 8px; }
 .voice-panel input[type="checkbox"] { width: auto; margin: 0; }
 .avatar-connection { margin-top: 12px; }
-.transcript-draft { min-height: 1.5em; color: #60716a; }
+/* 字幕覆盖视频底部而不挡住右上角预览；长回答在有限高度内滚动，最新文本由语音模块定位。
+ * z-index 保证数字人播放器之上可读；pointer-events 不截断播放器交互，文本区仍可滚动选择。 */
+.answer-subtitles { position: absolute; z-index: 4; bottom: 50px; left: 8%; right: 8%; padding: 12px 18px; border-radius: 12px; background: #081710d9; color: #fff; box-shadow: 0 4px 18px #0003; pointer-events: none; }
+.subtitle-label { display: block; margin-bottom: 5px; font-size: 11px; color: #c4dccb; }
+#answer-subtitle { margin: 0; max-height: 108px; overflow-y: auto; overscroll-behavior-y: contain; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 17px; line-height: 1.65; pointer-events: auto; }
+.session-actions { justify-content: flex-end; padding-top: 14px; border-top: 1px solid #e3eae5; }
+@media (max-width: 650px) { .answer-subtitles { bottom: 46px; left: 12px; right: 12px; padding: 10px 12px; } #answer-subtitle { font-size: 15px; max-height: 100px; } }
 
 #resume-selection-status { white-space: pre-wrap; }
 #start-form .actions a { align-self: center; color: #236b5d; font-size: 13px; }
