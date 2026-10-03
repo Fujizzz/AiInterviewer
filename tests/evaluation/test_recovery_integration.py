@@ -7,14 +7,15 @@ import pytest
 
 from app.providers.llm import LLMError
 from evaluation.analyzer import ConversationAnalysis
+from evaluation.extractor import EvidenceExtraction
 from evaluation.inputs import EvaluationInput
 from evaluation.service import EvaluationService
 from shared.contracts import CandidateAnswer, EvaluationFeedback, EvaluationRequest
 from tests.agent.integration.test_interview_planning import PlannerLLM, setup
 
 
-@pytest.mark.parametrize("failure", ["analyzer", "extractor", "quote"])
-async def test_failed_phase_two_result_preserves_answer_and_keeps_planner_topic_open(
+@pytest.mark.parametrize("failure", ["analyzer", "extractor", "quote", "resolver", "relations"])
+async def test_failed_evaluation_preserves_answer_and_keeps_planner_topic_open(
     analysis_payload, failure
 ):
     agent, repository, clock, initialized = await setup(PlannerLLM())
@@ -35,16 +36,22 @@ async def test_failed_phase_two_result_preserves_answer_and_keeps_planner_topic_
     )
 
     def model(prompt, data, schema):
-        current = "analyzer" if schema is ConversationAnalysis else "extractor"
+        current = {
+            ConversationAnalysis: "analyzer",
+            EvidenceExtraction: "extractor",
+        }.get(schema, "resolver")
         if current == failure:
             raise LLMError("Unavailable", code="invalid_json")
         if current == "analyzer":
             return schema(**analysis_payload)
+        if current == "resolver":
+            return schema(decisions=[])  # Missing current item fails as invalid relations.
+        quote = "invented" if failure == "quote" else answer.text
         return schema(
             evidence=[
                 dict(
-                    quote_spans=[dict(quote="invented", char_start=0, char_end=8)],
-                    normalized_claim="Invented diagnosis",
+                    quote_spans=[dict(quote=quote, char_start=0, char_end=len(quote))],
+                    normalized_claim="I measured cache misses using a profiler.",
                     evidence_kind="personal_action",
                     ownership_scope="personal",
                     factuality="reported_experience",
@@ -53,10 +60,12 @@ async def test_failed_phase_two_result_preserves_answer_and_keeps_planner_topic_
             ]
         )
 
-    result = await EvaluationService(model).evaluate(
+    resolved = await EvaluationService(model).evaluate_resolved(
         EvaluationInput.from_request(request, topic=topic)
     )
+    result = resolved.evaluation
     assert result.status == "failed"
+    assert resolved.resolution is None
     feedback = EvaluationFeedback(
         request_id=request.request_id,
         question_id=question.question_id,

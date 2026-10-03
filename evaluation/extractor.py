@@ -8,8 +8,9 @@ from app.providers.llm import StructuredLLM
 from evaluation.analyzer import is_bare_label, non_answer_status
 from evaluation.contracts import EvaluationModel, EvidenceItem, QuoteSpan, Text
 from evaluation.ids import evidence_id
-from evaluation.inputs import EvaluationInput
+from evaluation.inputs import EvaluationInput, ThreadTurn
 from evaluation.model_calls import EvaluationModelClient, EvaluationStageError, load_prompt
+from evaluation.validator import validate_evidence
 from shared.contracts import Competency
 
 EXTRACTION_VERSION = "extractor-1.0.0"
@@ -47,9 +48,6 @@ class EvidenceExtractor:
         seen = set()
         try:
             for draft in output.evidence:
-                quoted_text = " ".join(span.quote for span in draft.quote_spans)
-                if non_answer_status(quoted_text) or is_bare_label(quoted_text):
-                    raise ValueError("a non-answer or bare label cannot support a claim")
                 item = EvidenceItem(
                     **draft.model_dump(),
                     evidence_id=evidence_id(
@@ -64,8 +62,11 @@ class EvidenceExtractor:
                     project_id=context.question.project_id,
                     extraction_version=EXTRACTION_VERSION,
                 )
-                # Reuse phase-one hard grounding checks now: never repair invented quotes.
-                item.validate_answer(context.answer.as_candidate_answer())
+                item = validate_evidence(
+                    item,
+                    ThreadTurn(question=context.question, answer=context.answer),
+                    interview_id=context.interview_id,
+                )
                 if item.evidence_id in seen:
                     raise ValueError("duplicate extraction item")
                 seen.add(item.evidence_id)

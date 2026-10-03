@@ -1,4 +1,4 @@
-"""Phase-two orchestration; no live EvaluationPort, judging, scoring or persistence."""
+"""Internal extraction/resolution; no live port, judging, scoring or persistence."""
 
 from agents.tracing import emit_trace
 from app.providers.llm import StructuredLLM
@@ -7,6 +7,8 @@ from evaluation.contracts import EvaluationResult
 from evaluation.extractor import EvidenceExtractor
 from evaluation.inputs import EvaluationInput
 from evaluation.model_calls import EvaluationStageError
+from evaluation.resolution import ResolutionHistory, ResolvedEvaluation
+from evaluation.resolver import EvidenceResolver
 from shared.contracts import AnswerAnalysis
 
 
@@ -16,14 +18,57 @@ class EvaluationService:
         llm: StructuredLLM,
         *,
         extractor_llm: StructuredLLM | None = None,
+        resolver_llm: StructuredLLM | None = None,
         analyzer_timeout_seconds: float = 30,
         extractor_timeout_seconds: float = 30,
+        resolver_timeout_seconds: float = 30,
     ) -> None:
         self._analyzer = ConversationAnalyzer(llm, timeout_seconds=analyzer_timeout_seconds)
         self._extractor = EvidenceExtractor(
             extractor_llm if extractor_llm is not None else llm,
             timeout_seconds=extractor_timeout_seconds,
         )
+        self._resolver = EvidenceResolver(
+            resolver_llm if resolver_llm is not None else llm,
+            timeout_seconds=resolver_timeout_seconds,
+        )
+
+    async def evaluate_resolved(
+        self, context: EvaluationInput, *, history: ResolutionHistory | None = None
+    ) -> ResolvedEvaluation:
+        """Phase-three entry point; keep evaluate() as the extraction-only API.
+
+        Pass the complete pre-answer history, including original candidate source
+        snapshots. Failed resolution discards this call's analysis/evidence too.
+        """
+        result = await self.evaluate(context)
+        if result.status == "failed":
+            return ResolvedEvaluation(evaluation=result)
+        try:
+            resolution = await self._resolver.resolve(
+                context, result.evidence_items, history=history
+            )
+            current_ids = {item.evidence_id for item in result.evidence_items}
+            current_states = [s for s in resolution.states if s.evidence_id in current_ids]
+            analysis = result.analysis.model_copy(deep=True)
+            if any(s.status in {"disputed", "insufficient"} for s in current_states) or not any(
+                s.status == "eligible" for s in current_states
+            ):
+                analysis.thread_complete = False
+            result = EvaluationResult.model_validate(
+                {
+                    **result.model_dump(),
+                    "analysis": analysis,
+                    "evidence_items": tuple(
+                        item
+                        for item in resolution.evidence_items
+                        if item.evidence_id in current_ids
+                    ),
+                }
+            )
+            return ResolvedEvaluation(evaluation=result, resolution=resolution)
+        except EvaluationStageError as error:
+            return ResolvedEvaluation(evaluation=self._failure(context, error))
 
     async def evaluate(self, context: EvaluationInput) -> EvaluationResult:
         identity = dict(
@@ -43,25 +88,31 @@ class EvaluationService:
                 **identity, status="completed", analysis=analysis, evidence_items=evidence
             )
         except EvaluationStageError as error:
-            emit_trace(
-                "evaluation.fallback",
-                question_id=context.question.question_id,
-                answer_id=context.answer.answer_id,
-                stage=error.stage,
-                reason_code=f"{error.stage}_{error.reason}",
-            )
-            # Discard even successful analysis if extraction fails. No side effects:
-            # callers retain the original answer for normal atomic feedback submission.
-            # asyncio cancellation deliberately propagates through both stages.
-            return EvaluationResult(
-                **identity,
-                status="failed",
-                reason_codes=(f"{error.stage}_{error.reason}",),
-                analysis=AnswerAnalysis(
-                    status="partial",
-                    summary="Automated evaluation was unavailable; this answer is unassessed.",
-                    uncertainties=[
-                        "Evaluation failed; do not infer that the candidate lacks knowledge."
-                    ],
-                ),
-            )
+            return self._failure(context, error)
+
+    @staticmethod
+    def _failure(context: EvaluationInput, error: EvaluationStageError) -> EvaluationResult:
+        emit_trace(
+            "evaluation.fallback",
+            question_id=context.question.question_id,
+            answer_id=context.answer.answer_id,
+            stage=error.stage,
+            reason_code=f"{error.stage}_{error.reason}",
+        )
+        # Callers retain the original answer for atomic feedback submission.
+        # asyncio cancellation deliberately propagates through every stage.
+        return EvaluationResult(
+            request_id=context.request_id,
+            interview_id=context.interview_id,
+            question_id=context.question.question_id,
+            answer_id=context.answer.answer_id,
+            status="failed",
+            reason_codes=(f"{error.stage}_{error.reason}",),
+            analysis=AnswerAnalysis(
+                status="partial",
+                summary="Automated evaluation was unavailable; this answer is unassessed.",
+                uncertainties=[
+                    "Evaluation failed; do not infer that the candidate lacks knowledge."
+                ],
+            ),
+        )

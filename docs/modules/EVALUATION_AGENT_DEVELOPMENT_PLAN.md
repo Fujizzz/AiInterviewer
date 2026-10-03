@@ -25,10 +25,13 @@
 - 第二阶段已完成（2026-10-03）：`evaluation/analyzer.py`、`extractor.py` 和
   `service.py` 提供独立 schema/Prompt、Planner 目标输入、原子多片段提取、确定性 ID
   及阶段化 fail-closed 恢复；本阶段为可单独调用的内部服务，线上接入仍在第五阶段。
+- 第三阶段已完成（2026-10-03）：`validator.py`、`resolution.py`、`resolver.py` 和
+  `eligibility.py` 提供完整来源校验、claim 比较键、六类关系、独立组、撤回与矛盾状态，
+  并按 criterion 限制同组贡献。`evaluate_resolved()` 可编排前三阶段；尚不生成分数。
 
 与目标架构相比，仍存在以下缺口：
 
-- 正式 `evaluation/` 已有契约、Rubric、Analyzer 和 Extractor；Resolver、Judge、
+- 正式 `evaluation/` 已有契约、Rubric、Analyzer、Extractor 和 Resolver；Judge、
   Aggregator、运行链路接入与持久化仍待后续阶段实现。
 - 当前线上旧 adapter 仍由一次模型调用负责对话分析、证据提取、competency 识别和
   rubric level 判定；第二阶段内部服务已拆分前两者，等待后续评分模块与第五阶段接入。
@@ -374,12 +377,14 @@ reason_codes = [...]
   `analyzer-1.0.0`、Extractor `extractor-1.0.0` 和 evidence identity v1，无线上数据迁移。
 - ID 稳定性针对同一提取内容的重放，不保证再次调用模型生成同样的 claim。原子性和
   claim 忠实度主要由 Prompt 约束，需要后续人工标注评估。
-- 当前输出 `relation=new` 是等待 Resolver 的初始状态，不代表独立新证据；精简历史索引
-  不直接决定去重、关系或计分。independence group、语义关系与矛盾消解仍在第三阶段。
+- 第二阶段输出 `relation=new` 是等待 Resolver 的初始状态，不代表独立新证据；精简历史索引
+  不直接决定去重、关系或计分。第三阶段现已实现独立入口的 group、关系与矛盾消解。
 - Analyzer 保留双候选人原文的对话矛盾检查；该检查不替代后续 Evidence Resolver。
   当前服务尚未实现正式 EvaluationPort、shadow mode、评分或持久化，分别按第四、五阶段推进。
 
 ### 阶段三 校验、去重和矛盾
+
+状态：**已完成（2026-10-03）**。
 
 交付内容：
 
@@ -388,6 +393,43 @@ reason_codes = [...]
 3. 识别 duplicate、refines、supports、contradicts 和 retracts。
 4. 未解决矛盾只降低相关 criterion 的可评分性，不自动把候选人评为 0 分。
 5. 限制同一 independence group 的重复贡献。
+
+实际交付与验收：
+
+- `validator.py` 统一提取与解析的硬门禁；重新验证原始模型、回答/问题/thread/project/
+  interview 身份、exact quote/span、非回答与空 claim，包含历史证据原文校验。
+  不接受只含 claim 的精简索引作为关系依据，不修补虚构 quote，不允许多段非回答拼成证据。
+- `resolution.py` 保存原始来源、关系提议、解析历史、证据状态和冲突记录。`resolver.py`
+  通过独立 Prompt/schema 提议 `new/duplicate/refines/supports/contradicts/retracts`，
+  程序拒绝未知/未来/自引用、身份冲突、跨项目合并、遗漏或重复决策和无效撤回原文。
+- claim 比较键只做 NFC 与空白规范化，保留数字、否定、大小写与标点，不改原文或 v1 ID。
+  同一事件的规范化重复 claim 会被程序强制去重；同一事件的新事实与追问补充共用独立组，
+  支持跨问题/thread 关联。不同经历保留独立组，无法确认独立性的组暂不贡献。
+- `replay_resolution()` 从完整原始来源和关系提议重建派生视图，不调用模型、不修改历史。
+  group ID 由 interview 与组内最早 evidence ID 确定。未解决矛盾保留双方原文引用，
+  duplicate/refines 不能绕过矛盾或撤回门禁；撤回仅消解相关冲突，冲突记录仍保留。
+- `eligibility.py` 只阻断引用受影响陈述的 criterion assessment；同组无关事实继续可用。
+  disputed/insufficient/excluded 的 level 为 null，不制造 0 分。每个 criterion、每组只
+  选择一个完整贡献，按 specificity、ownership、factuality 和稳定 ID 排序，补充片段保留
+  为审计引用，不增加独立证据数；选择不依据等级高低，未实现数值权重和分数聚合。
+- `EvaluationService.evaluate_resolved()` 顺序编排三个阶段，支持独立 Resolver 模型和期限。
+  解析失败丢弃本次 evidence 与 completion，保留回答及旧历史；取消传播、迟到结果不发布。
+  原 `evaluate()` 保持提取入口，旧线上 Adapter、Question Agent、Planner、报告和数据库未改。
+- 本阶段新增 **93 项测试**，`tests/evaluation/` 共 **320 项**；全仓 `.venv/bin/pytest -q`
+  为 **575 passed，5 subtests passed**，`.venv/bin/ruff check .` 与 `git diff --check` 通过。
+  测试覆盖关系与原文、重复贡献、局部矛盾、撤回、确定性重放、真实异步超时
+  和取消；扩展现有反馈提交回归验证 Resolver 失败后的回答保留、topic 不完成、继续追问和幂等。
+
+版本与后续边界：
+
+- 新增 Resolver/历史契约 `resolver-1.0.0`、claim 规范化 `claim-nfc-whitespace-1`、
+  贡献选择 `episode-selection-1.0.0`。内部 schema `1.0`、Rubric `1.0.0`、evidence identity v1
+  和共享 Agent contract `2.0` 不变，无线上数据迁移。规则变更需新增版本并重评，不能覆盖历史。
+- 相同来源与关系提议可以确定性重放；模型再次生成不保证相同语义判断。关系识别、事件独立性、
+  原子 claim 忠实度和显式撤回语义仍需人工标注校准；本阶段仅使用模型替身，未调用在线模型。
+- 完整来源由调用方按时间顺序提供，程序不静默截断；持久化完整性、append-only 与 CAS 在第五阶段。
+  撤回后的旧 assessment 需重新 Judge，不能恢复失效等级。质量分量、effective weights、发布阈值、
+  reliability、分数/snapshot 和数学重放在第四阶段实现；本阶段的贡献排序不代表已校准评分策略。
 
 ### 阶段四 Rubric Judge 和 Aggregator
 
