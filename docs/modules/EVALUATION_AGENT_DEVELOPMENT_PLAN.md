@@ -28,18 +28,23 @@
 - 第三阶段已完成（2026-10-03）：`validator.py`、`resolution.py`、`resolver.py` 和
   `eligibility.py` 提供完整来源校验、claim 比较键、六类关系、独立组、撤回与矛盾状态，
   并按 criterion 限制同组贡献。`evaluate_resolved()` 可编排前三阶段；尚不生成分数。
+- 第四阶段已完成（2026-10-03）：`judge.py`、`policy.py`、`aggregation.py` 和
+  `aggregator.py` 提供独立 Rubric Judge、版本化质量权重、三级聚合、coverage/reliability、
+  显式发布门槛与完整重放记录。`evaluate_scored()` 可编排前四阶段；未接入线上评分。
 
 与目标架构相比，仍存在以下缺口：
 
-- 正式 `evaluation/` 已有契约、Rubric、Analyzer、Extractor 和 Resolver；Judge、
-  Aggregator、运行链路接入与持久化仍待后续阶段实现。
+- 正式 `evaluation/` 已有契约、Rubric、Analyzer、Extractor、Resolver、Judge 和
+  Aggregator；运行链路接入、shadow mode、持久化与标注校准仍待后续阶段实现。
 - 当前线上旧 adapter 仍由一次模型调用负责对话分析、证据提取、competency 识别和
   rubric level 判定；第二阶段内部服务已拆分前两者，等待后续评分模块与第五阶段接入。
 - `DimensionEvidence` 缺少原文 span、criterion、rubric 版本、独立性和纳入或排除原因。
 - Agent 核心仍在重新计算 score 和 coverage，与“Evaluation 负责评分”的边界不一致。
-- 当前简单平均没有区分 supported、weak、duplicate 和 disputed evidence。
-- 未覆盖 competency 可能在 overall score 的权重重新归一化中被忽略。
-- 没有 append-only evidence ledger 和可重放的 score snapshot。
+- 线上旧评分的简单平均仍没有区分 supported、weak、duplicate 和 disputed evidence。
+- 线上旧评分中未覆盖 competency 可能在 overall score 的权重重新归一化中被忽略；
+  第四阶段内部评分已保留完整重要性分母，并要求覆盖、mandatory 和 anchor 门槛。
+- 尚无 append-only evidence ledger；第四阶段已提供可重放 score snapshot 配套记录，
+  第五阶段需持久化完整 AggregationRecord，而不是仅保存分数。
 
 ## 模块边界
 
@@ -380,7 +385,8 @@ reason_codes = [...]
 - 第二阶段输出 `relation=new` 是等待 Resolver 的初始状态，不代表独立新证据；精简历史索引
   不直接决定去重、关系或计分。第三阶段现已实现独立入口的 group、关系与矛盾消解。
 - Analyzer 保留双候选人原文的对话矛盾检查；该检查不替代后续 Evidence Resolver。
-  当前服务尚未实现正式 EvaluationPort、shadow mode、评分或持久化，分别按第四、五阶段推进。
+  第二阶段完成时尚未实现正式 EvaluationPort、shadow mode、评分或持久化；
+  第四阶段现已提供内部评分，正式端口、shadow mode 与持久化仍按第五阶段推进。
 
 ### 阶段三 校验、去重和矛盾
 
@@ -433,6 +439,8 @@ reason_codes = [...]
 
 ### 阶段四 Rubric Judge 和 Aggregator
 
+状态：**已完成（2026-10-03）**。
+
 交付内容：
 
 1. Rubric Judge 将已验证 evidence 映射到 criterion 和行为锚点。
@@ -440,6 +448,54 @@ reason_codes = [...]
 3. 实现 criterion、competency 和 overall 的纯程序聚合。
 4. 实现 coverage、reliability 和 score publish gate。
 5. 输出完整 aggregation trace，支持确定性重放。
+
+实际交付与验收：
+
+- `judge.py` 与独立 Prompt/schema 将已验证 evidence 映射到 criterion/anchor；每项
+  criterion 必须显式评估，缺口为 insufficient。每个 criterion/episode 最多一个等级，
+  独立经历分别评估；全部来源必须被引用或记录未映射原因。拒绝未知证据、漏评、跨组等级、
+  重复评估、非法锚点和 level。Judge 输入不含岗位权重、发布参数、当前分数或问题 difficulty。
+- Judge 与 Aggregator 均从完整原文历史重放校验；`RubricJudgement` 绑定历史与 Rubric
+  内容摘要，程序生成稳定 assessment ID。撤回、关系改变、原文或 Rubric 改变后不能复用旧等级。
+  模型输出顺序不改变 ID；语义重新生成仍不保证一致。
+- `policy.py` 记录 grounding、relevance、directness、specificity、outcome support、
+  consistency、independence 的枚举标签和 reason codes，提供版本化 effective weight。
+  同一 criterion/group 只取最大有效质量的完整贡献，其余保留补充引用；选择不依据等级。
+  duplicate/disputed/retracted/independence-unresolved 贡献为 0；无效原文整体失败。
+- `aggregator.py` 使用固定 Decimal 上下文计算 criterion、competency 和 overall。
+  criterion 采用证据加权均值；competency 按 Rubric criterion weight 聚合，required
+  criterion coverage 单独计算；overall coverage 保留岗位全部重要性权重，不忽略未覆盖项。
+  reliability 由平均质量、独立证据支持度和等级一致性构成，明确标为待校准启发式指标。
+- `PublicationThresholds` 七个字段必须由调用方显式提供，无内置生产发布阈值。独立数、
+  有效权重、reliability、coverage、mandatory competency、必要锚点评估、未解决矛盾
+  和 Evaluation failure 都有可审计门禁。未达标为 null，不把缺证或矛盾评为 0 分。
+  未解决矛盾只阻断相关 criterion 及 overall，无关 criterion 仍可评分。
+- `AggregationRecord` 保存原始来源/关系、Rubric 全文、Judge 和门禁后评估、策略配置、
+  岗位权重、所有贡献因子、选择/排除原因、三级分子分母与 reliability 分量。
+  `replay_aggregation()` 无模型或文件读取，重新校验并计算整个记录，拒绝不一致 trace。
+  snapshot ID 根据完整规范化输入确定；重评必须同时提供前序 ID 和原因，生成新记录。
+- `EvaluationService.evaluate_scored()` 编排四阶段；Judge 模型与期限可独立配置。
+  任一阶段失败无本次 evidence、assessment、resolution 或 snapshot，topic 不完成；
+  取消传播，迟到结果不发布。调用成功但 score coverage 不足，不会否定已满足的对话目标。
+  `evaluate()`、`evaluate_resolved()` 保持兼容；旧 Adapter、Planner、报告和数据库未修改。
+- 本阶段新增 **98 项测试**，`tests/evaluation/` 共 **418 项**；全仓 `.venv/bin/pytest -q`
+  为 **673 passed，5 subtests passed**。`.venv/bin/ruff check .` 与 `git diff --check`
+  通过。覆盖权重/三级数学、发布边界、重复/补充/撤回/局部矛盾、完整 JSON 重放、篡改拒绝、
+  独立超时/取消及迟到结果；扩展反馈提交回归验证 Judge/聚合失败后的回答保留、继续追问和幂等。
+
+版本与后续边界：
+
+- 新增 `judge-1.0.0`、`aggregation-1.0.0`、`aggregation-trace-1.0.0` 和
+  assessment/snapshot identity v1。Evaluation schema `1.0`、Rubric `1.0.0`、
+  Resolver `resolver-1.0.0` 和共享 Agent contract `2.0` 不变，无线上数据迁移。
+  数值贡献选择独立版本化，不原地修改第三阶段 `episode-selection-1.0.0` 的公开序规则。
+- 发布配置和岗位配置全文进入 snapshot 输入摘要；同名配置的参数变化也产生不同 ID。
+  改变映射/公式必须升级策略版本，并保留旧算法供历史重放；重评不覆盖旧记录。
+- 当前权重、reliability 和 Rubric 仍待人工标注校准；测试配置只验证逻辑，不是生产默认值。
+  本阶段仅使用模型替身，未调用在线模型，不能据此宣称语义判断或招聘效度已经验证。
+- 单独 ScoreSnapshot 不足以重放，调用方须保存配套完整 AggregationRecord。
+  原始历史完整性、持久化、append-only、CAS、历史失败状态维护和线上 shadow mode 在第五阶段；
+  最终报告视图、人工标注集和正式阈值校准在第六阶段。当前不改变用户可见的线上分数。
 
 ### 阶段五 集成和持久化
 

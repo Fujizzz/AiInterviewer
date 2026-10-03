@@ -1,4 +1,4 @@
-"""Evaluation contracts, rubrics, grounded extraction and evidence resolution.
+"""Grounded evidence, rubric judging and replayable deterministic scoring.
 
-Live Agent port integration, judging, aggregation and persistence are deferred.
+Live Agent port integration and persistence are deferred to phase five.
 """

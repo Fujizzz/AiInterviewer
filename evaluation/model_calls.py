@@ -34,7 +34,7 @@ class EvaluationModelClient:
             result = await run_model_call(
                 lambda: asyncio.to_thread(self._llm, prompt, payload, schema),
                 operation=f"evaluation_{stage}",
-                question_id=payload["question"]["question_id"],
+                question_id=payload.get("question", {}).get("question_id"),
                 timeout_seconds=self._timeout_seconds,
             )
             # Revalidate even provider-created models (model_construct/copy can bypass checks).

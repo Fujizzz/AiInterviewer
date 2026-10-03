@@ -9,12 +9,30 @@ from app.providers.llm import LLMError
 from evaluation.analyzer import ConversationAnalysis
 from evaluation.extractor import EvidenceExtraction
 from evaluation.inputs import EvaluationInput
+from evaluation.judge import JudgeDraft
+from evaluation.resolution import ResolutionDraft
+from evaluation.rubric import load_rubric_pack
 from evaluation.service import EvaluationService
 from shared.contracts import CandidateAnswer, EvaluationFeedback, EvaluationRequest
 from tests.agent.integration.test_interview_planning import PlannerLLM, setup
+from tests.evaluation.scoring_helpers import configuration
+from tests.evaluation.test_resolved_service import proposals
+from tests.evaluation.test_scored_service import judge_proposals
 
 
-@pytest.mark.parametrize("failure", ["analyzer", "extractor", "quote", "resolver", "relations"])
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "analyzer",
+        "extractor",
+        "quote",
+        "resolver",
+        "relations",
+        "judge",
+        "judge_assessment",
+        "aggregator",
+    ],
+)
 async def test_failed_evaluation_preserves_answer_and_keeps_planner_topic_open(
     analysis_payload, failure
 ):
@@ -39,13 +57,21 @@ async def test_failed_evaluation_preserves_answer_and_keeps_planner_topic_open(
         current = {
             ConversationAnalysis: "analyzer",
             EvidenceExtraction: "extractor",
-        }.get(schema, "resolver")
+            ResolutionDraft: "resolver",
+            JudgeDraft: "judge",
+        }[schema]
         if current == failure:
             raise LLMError("Unavailable", code="invalid_json")
         if current == "analyzer":
             return schema(**analysis_payload)
         if current == "resolver":
+            if failure in {"judge", "judge_assessment", "aggregator"}:
+                return schema(**proposals(data))
             return schema(decisions=[])  # Missing current item fails as invalid relations.
+        if current == "judge":
+            if failure == "judge_assessment":
+                return schema(assessments=[])  # Missing rubric assessments fails closed.
+            return schema(**judge_proposals(data))
         quote = "invented" if failure == "quote" else answer.text
         return schema(
             evidence=[
@@ -60,9 +86,18 @@ async def test_failed_evaluation_preserves_answer_and_keeps_planner_topic_open(
             ]
         )
 
-    resolved = await EvaluationService(model).evaluate_resolved(
-        EvaluationInput.from_request(request, topic=topic)
-    )
+    evaluation_input = EvaluationInput.from_request(request, topic=topic)
+    if failure in {"judge", "judge_assessment", "aggregator"}:
+        policy, profile = configuration()
+        resolved = await EvaluationService(model).evaluate_scored(
+            evaluation_input,
+            rubric=load_rubric_pack(),
+            policy=policy,
+            profile=profile,
+            supersedes_snapshot_id="missing-reason" if failure == "aggregator" else None,
+        )
+    else:
+        resolved = await EvaluationService(model).evaluate_resolved(evaluation_input)
     result = resolved.evaluation
     assert result.status == "failed"
     assert resolved.resolution is None

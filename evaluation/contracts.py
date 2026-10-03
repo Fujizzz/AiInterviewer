@@ -133,7 +133,7 @@ class CriterionAssessment(VersionedModel):
 
 
 class EvidenceContribution(EvaluationModel):
-    """Recorded aggregation inputs; the phase-four policy will produce these."""
+    """Recorded deterministic aggregation inputs, one contribution per episode."""
 
     assessment_id: Text
     evidence_ids: tuple[Text, ...] = Field(min_length=1)
