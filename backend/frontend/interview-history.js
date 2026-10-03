@@ -1,8 +1,8 @@
 /**
  * @module interview-history
- * 职责：个人中心的本人面试分页列表与只读复盘弹窗。
+ * 职责：独立复盘页的本人面试分页列表与只读复盘弹窗。
  * 实现：请求序号隔离迟到结果；安全 DOM 展示已检题目、本人回答、评价、计划与报告。
- * 关联：resumes.html、interview-history.css、只读 /api/agent-interviews/；不恢复面试或调用模型。
+ * 关联：interview-review.html、interview-history.css、只读 /api/agent-interviews/；不恢复面试或调用模型。
  * 目录：
  * - historyNode：读取模板节点。
  * - historyElement：创建纯文本节点。

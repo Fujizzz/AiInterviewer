@@ -217,5 +217,5 @@ UUID 不代替权限。
 `GET /api/agent-interviews/{id}/` 新增 `schema_version: 2` 和完整获准的 `interview_plan`、
 `plan_history`、`topic_progress`、`decision_logs`；失败/中断请求以 `request_issues` 元数据公开。
 问题和回答各附 `created_at`。原问题/回答/评价/报告键保持不变，仅读取本人记录；缺失旧字段为
-null，不以内部 context 代替获准输出。个人中心提供分页面试列表及只读复盘弹窗，详见
+null，不以内部 context 代替获准输出。顶部导航进入独立 `/interview-review/` 页面，提供分页列表及只读复盘弹窗，详见
 [版本与复盘接口](resume-versions.md#面试进度与复盘2026-10-03)。

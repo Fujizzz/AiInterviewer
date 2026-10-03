@@ -17,7 +17,7 @@
  * - t：返回当前语言的动态文案。
  * - setText：以当前语言更新指定元素。
  * 关键变量：
- * - MESSAGES：主页、账号、简历上传/编辑、推荐指引、面试准备弹窗/语音字幕会话和诊断的中英文资源。
+ * - MESSAGES：主页、账号、简历、独立复盘、推荐、语音面试和诊断的中英文资源。
  * - STORAGE_KEY：浏览器偏好键名；只保存 language preference，不保存简历或面试内容。
  * - preference：当前偏好，可为 zh、en 或 system。
  * - language：当前实际语言，只能为 zh 或 en。
@@ -29,7 +29,7 @@ const STORAGE_KEY = "ai-interviewer-language";
 
 const MESSAGES = {
   zh: {
-    review_progress: "面试进度", review_remaining: "剩余时间", review_stage: "当前阶段", review_questions: "题目进度", review_topics: "话题进度", review_notices: "面试提醒", review_history_link: "在个人中心查看已保存的复盘 ↗", review_history: "面试复盘", review_nav: "06 面试复盘", review_hint: "查看本人面试的题目、回答、评价和报告。中断或失败的过程也会保留；暂不支持续接。", review_close: "关闭复盘",
+    review_progress: "面试进度", review_remaining: "剩余时间", review_stage: "当前阶段", review_questions: "题目进度", review_topics: "话题进度", review_notices: "面试提醒", review_history_link: "查看已保存的面试复盘 ↗", review_history: "面试复盘", review_nav: "面试复盘", review_records: "面试记录", review_page_title: "AI Interviewer · 面试复盘", review_hint: "查看本人面试的题目、回答、评价和报告。中断或失败的过程也会保留；暂不支持续接。", review_close: "关闭复盘",
     avatar_label: "数字人面试官画面",
     avatar_connect: "连接／播放数字人",
     avatar_settings: "数字人连接设置",
@@ -443,7 +443,7 @@ const MESSAGES = {
     camera_failed: "摄像头开启失败（{error}），请检查浏览器和设备。",
   },
   en: {
-    review_progress: "Interview progress", review_remaining: "Time remaining", review_stage: "Current stage", review_questions: "Question progress", review_topics: "Topic progress", review_notices: "Interview notices", review_history_link: "View saved reviews in your profile ↗", review_history: "Interview review", review_nav: "06 Interview review", review_hint: "Review your questions, answers, evaluations and reports. Interrupted and failed conversations are retained; resuming is not supported yet.", review_close: "Close review",
+    review_progress: "Interview progress", review_remaining: "Time remaining", review_stage: "Current stage", review_questions: "Question progress", review_topics: "Topic progress", review_notices: "Interview notices", review_history_link: "View saved interview reviews ↗", review_history: "Interview review", review_nav: "Interview review", review_records: "Interview history", review_page_title: "AI Interviewer · Interview review", review_hint: "Review your questions, answers, evaluations and reports. Interrupted and failed conversations are retained; resuming is not supported yet.", review_close: "Close review",
     avatar_label: "Digital-human interviewer video",
     avatar_connect: "Connect / play interviewer",
     avatar_settings: "Interviewer connection settings",

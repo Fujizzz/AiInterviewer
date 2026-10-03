@@ -1,9 +1,10 @@
 <!--
-职责：主页、面试、简历与诊断页共用账号导航；用户名自动转义，退出使用 CSRF POST。
-目录：个人中心统一维护入口；当前用户名/退出表单或登录/注册链接。函数/类：无。
-变量索引：user 为请求认证用户；csrf_token 由模板上下文生成。无持久化或客户端状态。
+职责：主页、面试、简历、复盘与诊断页共用账号导航；用户名自动转义，退出使用 CSRF POST。
+目录：独立面试复盘和个人中心的并列入口；当前用户名/退出表单或登录/注册链接。函数/类：无。
+变量索引：user 为请求认证用户；request.path 用于复盘当前页标记；csrf_token 由模板上下文生成。无持久化或客户端状态。
 -->
 <div class="account-nav">
+  <a href="/interview-review/" data-i18n="review_nav"{% if request.path == "/interview-review/" or request.path == "/stream-demo/interview-review.html" %} aria-current="page"{% endif %}>面试复盘</a>
   <a href="/resumes/" data-i18n="rm_nav">个人中心</a>
 {% if user.is_authenticated %}
   <span class="account-username" title="{{ user.username }}">{{ user.username }}</span>

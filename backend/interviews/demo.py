@@ -2,7 +2,7 @@
 
 实现：按 ASSETS 白名单读取 frontend、数字人 dist 构建及 diagnostics 内文件，
 HTML 通过 Django 模板加入账号导航与 CSRF token，其他资源返回明确类型和禁止缓存响应。
-个人中心和版本面试页无论本地门禁设置如何都要求登录，静态 HTML 别名执行相同校验。
+个人中心、复盘与版本面试页无论本地门禁设置如何都要求登录，静态 HTML 别名执行相同校验。
 
 目录：
 - demo_asset：
@@ -31,6 +31,7 @@ ASSETS = {
     "agent.js",
     "interview-progress.js",
     "interview-history.js",
+    "interview-review.html",
     "interview-history.css",
     "agent.css",
     "home.html",
@@ -55,13 +56,16 @@ def demo_asset(request, name):
     """返回白名单资源，并显式禁止 HTTP 缓存。
 
     参数：request 为 Django 请求；name 为单一资源名，不是可遍历的相对路径。
-    方法：先检查白名单；个人中心/面试 HTML 未登录跳转 /login/，HTML 渲染已转义账号上下文。
+    方法：先检查白名单；个人中心/复盘/面试 HTML 未登录跳转 /login/，HTML 渲染已转义账号上下文。
     返回：HttpResponse 或登录重定向；不在白名单中或资源/构建不存在时抛出 Http404。
     副作用：只读应用资源；不读取或持久化媒体数据。
     """
     if name not in ASSETS:
         raise Http404
-    if name in {"resumes.html", "agent.html"} and not request.user.is_authenticated:
+    if (
+        name in {"resumes.html", "agent.html", "interview-review.html"}
+        and not request.user.is_authenticated
+    ):
         return redirect_to_login(request.get_full_path(), login_url="/login/")
     content_type = {
         ".html": "text/html",

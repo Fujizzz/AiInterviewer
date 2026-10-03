@@ -2,7 +2,7 @@
  * @module interview-history-test
  * 职责：真实只读复盘模块的 DOM/HTTP 边界测试；所有内容为合成样例，无真实模型或用户数据。
  * 实现：真实模板提供 ID 集合，隔离 VM 运行真实 history/progress 源码，显式交付分页和详情。
- * 关联：interview-history.js、resumes.html；不证明真实数据库或浏览器布局，权限由 Django 测试覆盖。
+ * 关联：interview-history.js、interview-review.html；不证明真实数据库或浏览器布局，权限由 Django 测试覆盖。
  * 目录：
  * - HistoryElement：最小 DOM 替身。
  * - HistoryElement.constructor：初始化文本、节点、事件及属性。
@@ -30,7 +30,7 @@
  * 关键变量：
  * - HISTORY_SOURCE：真实复盘源码。
  * - PRESENTATION_SOURCE：共享纯展示源码。
- * - HISTORY_HTML：真实个人中心模板。
+ * - HISTORY_HTML：真实独立复盘模板。
  * 约束：
  * 无网络、数据库、供应商调用；只验证前端接口和生命周期，不改变生产默认值。
  */
@@ -40,7 +40,7 @@ import test from "node:test";
 import vm from "node:vm";
 const HISTORY_SOURCE = readFileSync(new URL("../frontend/interview-history.js", import.meta.url), "utf8");
 const PRESENTATION_SOURCE = readFileSync(new URL("../frontend/interview-progress.js", import.meta.url), "utf8");
-const HISTORY_HTML = readFileSync(new URL("../frontend/resumes.html", import.meta.url), "utf8");
+const HISTORY_HTML = readFileSync(new URL("../frontend/interview-review.html", import.meta.url), "utf8");
 /** 最小 DOM 边界；只收集文本，不模拟布局或原生焦点陷阱。 */
 class HistoryElement {
   /** 无外部参数；设置空节点、文本、属性与关闭状态。 */

@@ -40,7 +40,7 @@ interview-progress/interview-topics 展示预算与计划，interview-alert-pane
     <div class="interview-stats"><div><span data-i18n="review_remaining">剩余时间</span><strong id="interview-remaining" role="timer"></strong></div><div><span data-i18n="review_stage">当前阶段</span><strong id="interview-stage"></strong></div><div><span data-i18n="review_questions">题目进度</span><strong id="interview-question-progress"></strong><small id="interview-plan-meta"></small></div></div>
     <details><summary data-i18n="review_topics">话题进度</summary><ul id="interview-topics" class="interview-topic-list"></ul></details><p id="interview-clock-note" class="hint"></p>
   </section>
-  <aside id="interview-alert-panel" class="interview-alert-panel" hidden aria-live="polite"><strong data-i18n="review_notices">面试提醒</strong><ul id="interview-alerts"></ul><a href="/resumes/#interview-history" data-i18n="review_history_link">在个人中心查看已保存的复盘 ↗</a></aside>
+  <aside id="interview-alert-panel" class="interview-alert-panel" hidden aria-live="polite"><strong data-i18n="review_notices">面试提醒</strong><ul id="interview-alerts"></ul><a href="/interview-review/" data-i18n="review_history_link">查看已保存的面试复盘 ↗</a></aside>
   <section class="question-card" aria-labelledby="question-heading">
     <div class="question-label"><h2 id="question-heading" data-i18n="agent_current_question">当前题目</h2><span id="question-meta" class="hint"></span></div>
     <p id="question" aria-live="polite" data-i18n="agent_question_placeholder">开始面试后，问题会显示在这里。</p>
@@ -101,7 +101,7 @@ interview-progress/interview-topics 展示预算与计划，interview-alert-pane
   <!-- 仅在收到完整 finished 响应后展示；评分直接呈现后端结果，不在模板中重新计算。 -->
   <section id="report-panel" class="panel" hidden>
     <h2 data-i18n="report_title">面试报告</h2>
-    <a href="/resumes/#interview-history" data-i18n="review_history_link">在个人中心查看已保存的复盘 ↗</a><p id="score"></p><p id="report-summary"></p>
+    <a href="/interview-review/" data-i18n="review_history_link">查看已保存的面试复盘 ↗</a><p id="score"></p><p id="report-summary"></p>
     <details id="assessment-panel" hidden><summary data-i18n="assessment_title">查看能力评分与覆盖程度</summary><pre id="assessment"></pre></details>
     <details><summary data-i18n="full_result">完整结果与决策记录</summary><pre id="report"></pre></details>
   </section>

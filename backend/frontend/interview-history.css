@@ -1,7 +1,7 @@
 /*
-职责：个人中心的只读面试记录列表与复盘弹窗；关联 resumes.html/interview-history.js。
+职责：独立复盘页的只读面试记录列表与详情弹窗；关联 interview-review.html/interview-history.js。
 实现：列表卡片紧凑排列，弹窗独立滚动，正文保持换行及可读行宽；窄屏按钮换行。
-目录：.history-card；.history-dialog；.history-dialog-header；.history-detail-body；
+目录：.review-heading/.section-heading/.pagination（独立页面布局）；.history-card；.history-dialog；.history-dialog-header；.history-detail-body；
 .history-turn；.history-meta；.history-notice；.history-score；@media。
 函数/类：None。变量：None；仅布局，不改变 API、排序、评分或面试状态。
 */
@@ -25,3 +25,13 @@
 .history-score { font-weight: 700; }
 .history-detail-body pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .8rem; max-height: 350px; overflow: auto; }
 @media (max-width: 540px) { .history-card { align-items: flex-start; flex-direction: column; } .history-dialog-header, .history-detail-body { padding: 16px; } .history-turn { padding: 12px; } }
+
+.review-page .review-heading { padding: 32px 0 24px; }
+.review-page .review-heading h1 { margin: 0 0 12px; font-size: clamp(28px, 3vw, 38px); }
+.review-page .review-heading p { max-width: 760px; line-height: 1.8; }
+.review-page .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+.review-page .section-heading h2 { margin: 0; font-size: 1.2rem; }
+.review-page .pagination { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 16px; margin-top: 20px; }
+.review-page .home-nav-actions { flex-wrap: wrap; }
+.review-page .account-nav a[aria-current="page"] { font-weight: 700; border-bottom: 2px solid #245e4c; padding-bottom: 4px; }
+@media (max-width: 620px) { .review-page .home-nav { flex-wrap: wrap; } .review-page .home-nav-actions { gap: 12px; } }
