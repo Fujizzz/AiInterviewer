@@ -19,3 +19,22 @@ AMP 溢出，缩放减半、跳过该批更新，日志保留。选择验证 BCE
 
 大模型文件不进入 Git；校验绑定的 ZIP 和完整输出保存在私有 Kaggle Notebook，
 本机模型在 `output/answer-completion/trained-v2`，服务器模型目录见部署说明。
+
+`speech-provider-beijing.json` 是保持原模型、音频格式与期限的真实北京 TTS/ASR 检查。
+`production-synthetic-speech-completion.json` 是生产 HTTPS 上一条 8.88 秒虚构英文音频：
+真实 ASR、本地粗筛、Qwen、三秒静默和最终签名凭据通过，最后一次转写后等待 3.008 秒。
+PCM 发送完毕至通知的 7.895 秒还包含 ASR 定稿延迟，不能等同三秒端到端延迟。
+
+`production-mcp-first-failed.json` 保留首次追加联调在第二条 STT 握手处的 10 秒超时，
+无自动重试或加时。独立无模型双连接检查通过（0.102 秒），随后单独诊断在首题后增加
+Agent ping/HTTP 健康检查，未修改供应商条件；连接、语音、MCP 与评分均实际执行。
+`production-synthetic-speech-mcp-diagnostic.json` 保留诊断脚本的断言失败：脚本要求保存
+原始首尾空白，但接口已有 `str_strip_whitespace` 契约；其清理还遗漏保护反馈请求的
+`AgentTurn` 依赖。`production-mcp-persistence-cleanup.json` 记录实际请求已 succeeded、
+评分与下一题均保存，随后按该虚构账号精确删除关联记录。生产逻辑/模型参数未改变。
+
+按既有空白处理契约修正脚本断言和关联清理顺序后，单独最终验证通过，记录为
+`production-synthetic-speech-mcp-final.json`：转写后静默 3.025 秒，签名绑定有效，真实
+MCP succeeded、评分保存并返回下一题；虚构账号、会话和面试关联数据已清理。
+供应商参数、音频、模型阈值和期限均保持不变。以上是合成单例的接通证据，不能当作
+真人麦克风、噪声、ASR 准确率或独立泛化评测。

@@ -131,6 +131,20 @@ flush PCM 并发送原有 `stop`，不含提交凭据。确认有效的 `final` 
 这些样例仅为提示修订后的冒烟检查，包含此前的误判样例，不是独立准确率评测，
 也不证明真实麦克风、ASR 或完整语音面试的端到端体验。
 
+2026-10-03 生产配置已启用 V2 本地模型与北京语音端点，部署探针实际校验了
+`finish_current_answer` 注册。虚构英文 TTS 生成 8.88 秒音频，按浏览器格式发送到真实
+HTTPS STT，收到 17 次转写事件；最后一次转写更新后 3.008 秒返回自动结束通知，
+收尾 final 附带凭据，已验证用户/问题/最终文本的签名绑定，无供应商错误。
+从 PCM 发送结束到通知耗时 7.895 秒，包含 ASR 定稿延迟，不能描述为音频停止后
+恰好三秒完成。原始[生产合成语音记录](../../training/answer_completion/results/v2/production-synthetic-speech-completion.json)
+只证明这条虚构音频链路；真人麦克风、噪声与完整数字人体验仍未验收。
+
+最终在一场临时虚构面试中重复该完整链路，保持供应商配置与期限：最后一次转写后
+3.025 秒确认结束，真实凭据经 `finish_current_answer` 提交；原有安全检查、回答保存、
+评分和下一题生成均完成，数据库保存的回答与既有首尾空白处理契约一致。
+临时账号、会话及关联面试记录已清理。[最终 MCP 联调记录](../../training/answer_completion/results/v2/production-synthetic-speech-mcp-final.json)
+和前次握手/脚本诊断记录均保留，不将合成单例作为准确率或真人设备验收。
+
 参考：[百炼思考模式设置](https://help.aliyun.com/en/model-studio/deep-thinking)、
 [MCP 工具消息](https://modelcontextprotocol.io/specification/2025-06-18/server/tools)、
 [MCP 自定义传输](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports)。
