@@ -3,7 +3,7 @@
 职责：面试专用工作台；仅选择个人中心已就绪简历，不上传、提取或编辑个人资料。
 实现：开始入口打开原生准备弹窗，确认后 agent.js 才以 resume_version_id 开始面试；camera 模块只做本地预览，InterviewVoice 协调数字人和语音控件。
 关联：/resumes/ 集中维护资料；/api/resume-versions/ 提供版本；/ws/agent/ 处理面试。
-目录：导航；题目/面试官/本地摄像头/回答字幕；语音回答；准备弹窗中的版本/岗位/预算设置；评分与报告。
+目录：导航；已检面试预算/话题进度与异常提醒；题目/面试官/本地摄像头/回答字幕；语音回答；准备弹窗中的版本/岗位/预算设置；评分与报告。
 函数和类：None。变量索引：user/csrf_token 为 Django 上下文；resume-select 选择版本 UUID；
 job/duration/limit/probes 为岗位、时长和安全上限，question/answer-subtitle/report 为当前会话展示；
 open-preparation/interview-settings 打开 preparation-dialog，close/cancel-preparation 关闭并保留设置，
@@ -11,6 +11,7 @@ start-form 使用原生校验；preparation-error 显示确认错误，preparati
 约束：版本输入须登录；用户名转义，不在浏览器持久化资料；离开页面中断当前面试。
 avatar-view/connect-avatar 为数字人入口；start-recording 开始录音，stop-recording 确认结束并提交最终转写；
 answer-subtitles/answer-subtitle 仅以纯文本展示实时和最终字幕，不提供编辑输入。
+interview-progress/interview-topics 展示预算与计划，interview-alert-panel 展示已有失败标志；不触发收尾。
 -->
 <html lang="zh-CN" data-page-title="agent_title">
 <head>
@@ -35,6 +36,11 @@ answer-subtitles/answer-subtitle 仅以纯文本展示实时和最终字幕，�
     <span id="agent-status" role="status" tabindex="-1" data-i18n="agent_ready">就绪</span><span id="wait-time"></span>
     <p id="stage-log" class="hint" aria-label="已完成阶段耗时" data-i18n-attr="aria-label:agent_stage_log_label"></p>
   </section>
+  <section id="interview-progress" class="interview-progress" hidden aria-label="面试进度" data-i18n-attr="aria-label:review_progress">
+    <div class="interview-stats"><div><span data-i18n="review_remaining">剩余时间</span><strong id="interview-remaining" role="timer"></strong></div><div><span data-i18n="review_stage">当前阶段</span><strong id="interview-stage"></strong></div><div><span data-i18n="review_questions">题目进度</span><strong id="interview-question-progress"></strong><small id="interview-plan-meta"></small></div></div>
+    <details><summary data-i18n="review_topics">话题进度</summary><ul id="interview-topics" class="interview-topic-list"></ul></details><p id="interview-clock-note" class="hint"></p>
+  </section>
+  <aside id="interview-alert-panel" class="interview-alert-panel" hidden aria-live="polite"><strong data-i18n="review_notices">面试提醒</strong><ul id="interview-alerts"></ul><a href="/resumes/#interview-history" data-i18n="review_history_link">在个人中心查看已保存的复盘 ↗</a></aside>
   <section class="question-card" aria-labelledby="question-heading">
     <div class="question-label"><h2 id="question-heading" data-i18n="agent_current_question">当前题目</h2><span id="question-meta" class="hint"></span></div>
     <p id="question" aria-live="polite" data-i18n="agent_question_placeholder">开始面试后，问题会显示在这里。</p>
@@ -95,7 +101,7 @@ answer-subtitles/answer-subtitle 仅以纯文本展示实时和最终字幕，�
   <!-- 仅在收到完整 finished 响应后展示；评分直接呈现后端结果，不在模板中重新计算。 -->
   <section id="report-panel" class="panel" hidden>
     <h2 data-i18n="report_title">面试报告</h2>
-    <p id="score"></p><p id="report-summary"></p>
+    <a href="/resumes/#interview-history" data-i18n="review_history_link">在个人中心查看已保存的复盘 ↗</a><p id="score"></p><p id="report-summary"></p>
     <details id="assessment-panel" hidden><summary data-i18n="assessment_title">查看能力评分与覆盖程度</summary><pre id="assessment"></pre></details>
     <details><summary data-i18n="full_result">完整结果与决策记录</summary><pre id="report"></pre></details>
   </section>

@@ -7,6 +7,7 @@
  * [hidden]（显示状态）；.studio-header/.studio-heading（导航）；.question-card（题目）；
  * .interviewer-stage/.interviewer-placeholder（中央形象）；.self-preview（右上角本地视频）；
  * .camera-toolbar/.voice-panel/.answer-subtitles/.preparation-dialog（语音操作、字幕和模态设置）；@media（窄屏排列）。本文件无函数或 CSS 自定义变量。
+ * .interview-progress/.interview-stats 为紧凑预算区，.interview-topic-list 独立滚动，.interview-alert-panel 展示已有异常。
  * 关键选择器：.preparation-footer 与 .voice-panel .actions 控制准备确认/语音操作区；不改变 disabled 或网络状态。
  * 约束：仅调整外观和布局；预算、评分及协议状态由脚本与后端决定。
  */
@@ -129,3 +130,14 @@ input:focus-visible, #resume-select:focus-visible, summary:focus-visible, a:focu
 .preparation-body .privacy-note { margin: 12px 0; font-size: 12px; line-height: 1.7; }
 @media (max-width: 650px) { .studio-header { flex-wrap: wrap; padding: 16px 0; } .studio-session-actions { width: 100%; justify-content: space-between; } }
 @media (max-width: 520px) { .preparation-dialog { max-height: calc(100dvh - 24px); width: calc(100% - 24px); border-radius: 14px; } .preparation-heading { padding: 18px; } .preparation-body { min-height: 0; padding: 4px 18px 8px; } .preparation-footer { padding: 14px 18px; flex-wrap: wrap; } .preparation-footer button { flex: 1; } }
+
+.interview-progress { padding: 16px 20px; background: #f3f7f6; border: 1px solid #dae5e1; border-radius: 14px; margin: 16px 0; }
+.interview-stats { display: grid; grid-template-columns: 1fr 1fr 2fr; gap: 16px; }
+.interview-stats span, .interview-stats small { display: block; font-size: .8rem; color: #526962; }
+.interview-stats strong { display: block; margin-top: 5px; font-size: 1rem; overflow-wrap: anywhere; }
+#interview-remaining { font-variant-numeric: tabular-nums; font-size: 1.35rem; }
+.interview-topic-list { max-height: 180px; overflow: auto; line-height: 1.65; padding-left: 22px; }
+.interview-topic-list li { margin-bottom: 10px; overflow-wrap: anywhere; }
+.interview-alert-panel { padding: 14px 20px; border: 1px solid #d9bd75; background: #fff9eb; border-radius: 12px; font-size: .9rem; line-height: 1.6; overflow-wrap: anywhere; }
+.interview-alert-panel ul { max-height: 160px; overflow: auto; }
+@media (max-width: 600px) { .interview-stats { grid-template-columns: 1fr 1fr; } .interview-stats > div:last-child { grid-column: 1 / -1; } }

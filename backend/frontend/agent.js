@@ -38,6 +38,7 @@
  * - FALLBACK_TEXT：独立客户端测试未加载 i18n 时的中文资源。
  * - uiText：动态文案查询函数。
  * - socket：当前唯一 WebSocket。
+ * - progress：已检预算/计划快照、冻结计时及异常去重协调器。
  * - voice：数字人呈现和语音交互协调器，不参与面试评分。
  * - questionId：当前问题 ID。
  * - pendingId：当前请求 UUID。
@@ -57,10 +58,12 @@
  * 不上传或编辑简历，不改变预算/评分；无重发、自动选择其他版本或模型调用降级。
  */
 import { InterviewVoice } from "./interview-voice.js";
+import { InterviewProgress } from "./interview-progress.js";
 
 /** 输入模板唯一 ID，返回 DOM 节点；模板缺失由调用位置显式失败。 */
 const el = (id) => document.getElementById(id);
 const voice = new InterviewVoice(onAnswer);
+const progress = new InterviewProgress();
 const STAGES = {
   resume_parsing: "agent_stage_resume", question_generation: "agent_stage_question", answer_evaluation: "agent_stage_evaluation",
   next_action: "agent_stage_next", report_generation: "agent_stage_report",
@@ -229,6 +232,7 @@ function endWait() {
 }
 /** 清空旧问答、报告与时间显示，保留已保存版本选择和岗位，不操作网络。 */
 function clearResults() {
+  progress.reset();
   voice.reset();
   voice.setState("idle");
   questionId = null;
@@ -248,6 +252,7 @@ function send(command) {
 }
 /** 输入终态提示；关闭连接、待发命令、计时与缓存，保留已展示问题和数值评分。 */
 function stop(message) {
+  progress.freeze();
   voice.reset();
   voice.setState("idle");
   terminal = true;
@@ -284,7 +289,7 @@ function onMessage(event) {
       send(command);
       return;
     }
-    if (message.type === "error") { stop(`${message.code}：${message.detail}`); return; }
+    if (message.type === "error") { progress.warn(message.code, `${message.code}：${message.detail}`); stop(`${message.code}：${message.detail}`); return; }
     if (message.request_id !== pendingId) throw new Error(uiText("agent_mismatch"));
     if (message.type === "started") status(uiText("agent_request_received"));
     else if (message.type === "progress") {
@@ -304,6 +309,7 @@ function onMessage(event) {
       displayAssessment(message.assessment);
       el("report-summary").textContent = uiText("report_generating");
     } else if (message.type === "question") {
+      progress.update(message);
       questionId = message.question.question_id;
       pendingId = null;
       el("question").textContent = message.question.text;
@@ -316,6 +322,7 @@ function onMessage(event) {
       endWait(); controls(); status(uiText("agent_question_answer")); el("start-recording").focus();
       voice.setQuestion(message.question, backendWaitMs);
     } else if (message.type === "finished") {
+      progress.update(message.result);
       const report = message.result.final_report;
       displayAssessment(report);
       const summaryPrefix = message.result.report_narrative_status === "fallback" ? uiText("agent_report_fallback") : "";
@@ -324,13 +331,13 @@ function onMessage(event) {
       stop(uiText("agent_finished"));
     } else if (message.type === "cancelled") stop(uiText("agent_cancelled"));
     else throw new Error(uiText("agent_unknown_response"));
-  } catch (error) { stop(uiText("agent_processing_failed", { message: error.message })); }
+  } catch (error) { progress.warn("client_protocol", error.message); stop(uiText("agent_processing_failed", { message: error.message })); }
 }
 /** 输入 error 事件，仅停止当前连接，旧连接事件无副作用。 */
-function onError(event) { if (socket === event.currentTarget) stop(uiText("agent_connection_failed")); }
+function onError(event) { if (socket === event.currentTarget) { progress.warn("connection_failed", uiText("agent_connection_failed")); stop(uiText("agent_connection_failed")); } }
 /** 输入 close 事件，意外断线时清理计时，不自动重连或声称报告完成。 */
 function onClose(event) {
-  if (socket === event.currentTarget && !terminal) stop(uiText("agent_unexpected_close"));
+  if (socket === event.currentTarget && !terminal) { progress.warn("unexpected_close", uiText("agent_unexpected_close")); stop(uiText("agent_unexpected_close")); }
 }
 /** 输入业务命令，使用空闲连接或创建同源连接等待 hello，不排队或自动重试。 */
 function dispatch(command) {
@@ -407,6 +414,7 @@ function onPreparationKeydown(event) {
  * 原始版本名保持原样；已知状态使用稳定 key，非预期解析异常保留现有错误文本。
  */
 function onPreparationLanguage() {
+  progress.render();
   for (const option of el("resume-select").children) {
     if (!option.value) option.textContent = uiText("agent_resume_select");
     else for (const version of availableResumes) if (version.id === option.value) {

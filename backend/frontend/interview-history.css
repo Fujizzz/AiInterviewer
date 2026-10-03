@@ -1,0 +1,27 @@
+/*
+职责：个人中心的只读面试记录列表与复盘弹窗；关联 resumes.html/interview-history.js。
+实现：列表卡片紧凑排列，弹窗独立滚动，正文保持换行及可读行宽；窄屏按钮换行。
+目录：.history-card；.history-dialog；.history-dialog-header；.history-detail-body；
+.history-turn；.history-meta；.history-notice；.history-score；@media。
+函数/类：None。变量：None；仅布局，不改变 API、排序、评分或面试状态。
+*/
+.history-card { display: flex; align-items: center; justify-content: space-between; gap: 16px; border-top: 1px solid #e1e8e5; padding: 16px 0; }
+.history-card h3 { margin: 0 0 6px; font-size: 1rem; overflow-wrap: anywhere; }
+.history-card p { margin: 0; font-size: .85rem; color: #586d65; }
+.history-card button { flex-shrink: 0; }
+.history-dialog { width: min(850px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); padding: 0; border: 1px solid #d5e2dd; border-radius: 18px; color: #173e33; box-sizing: border-box; }
+.history-dialog::backdrop { background: #102e26a6; }
+.history-dialog-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 24px; border-bottom: 1px solid #e0e9e5; gap: 16px; }
+.history-dialog-header h2 { margin: 0; font-size: 1.2rem; }
+.history-detail-body { overflow-y: auto; max-height: calc(100dvh - 145px); padding: 20px 28px; line-height: 1.75; }
+.history-detail-body p, .history-detail-body li { white-space: pre-wrap; overflow-wrap: anywhere; }
+.history-detail-body section { margin-bottom: 28px; }
+.history-detail-body h3 { font-size: 1.05rem; margin: 20px 0 12px; }
+.history-turn { border: 1px solid #e1e9e5; background: #f8fbf9; border-radius: 12px; padding: 16px 20px; margin-bottom: 16px; }
+.history-turn h4, .history-turn h5 { margin: 0 0 8px; font-size: .95rem; }
+.history-question { font-weight: 600; }
+.history-meta { font-size: .8rem; color: #597066; }
+.history-notice { background: #fff6df; border-radius: 8px; padding: 10px 14px; }
+.history-score { font-weight: 700; }
+.history-detail-body pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .8rem; max-height: 350px; overflow: auto; }
+@media (max-width: 540px) { .history-card { align-items: flex-start; flex-direction: column; } .history-dialog-header, .history-detail-body { padding: 16px; } .history-turn { padding: 12px; } }

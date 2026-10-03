@@ -19,7 +19,7 @@
 - AgentSession.answer：
   将当前答案转成标准反馈，驱动一次 Agent 决策并返回下一题或最终报告。
 - AgentSession._response：
-  将 Agent 动作规范化为网络可序列化的 question 或 finished 字典。
+  将 Agent 动作规范化为 question/finished，连同计划修订、话题进度和决策快照交给整包输出检查。
 - AgentSession._response.observe_report：
   观察报告模型是否抛错并原样传播给既有报告函数，明确标记原有摘要回退，不新增回退。
 - AgentSession.close：
@@ -35,7 +35,8 @@ history 为已提交回答的展示缓存；action 为最近提交的 Agent 动�
 profile、candidate_name 在 prepare 中建立；prepared_text 仅用于本连接精确匹配。
 job、service 在 start 中建立；emit_event 是当前请求的异步回调或 None。
 缓存随连接关闭释放；数据库历史保留，但本模块尚不提供恢复连接或重新执行请求。
-解析失败不会被当作成功资料复用；原始简历不保存，成功资料响应与 Agent 上下文会保存。
+解析失败不会被当作成功资料复用；请求层保存所选版本与输入快照，
+成功资料响应与 Agent 上下文由数据库仓库保存。
 """
 
 import asyncio
@@ -240,10 +241,11 @@ class AgentSession:
         return await self._response()
 
     async def _response(self):
-        """将 Agent 动作规范化为网络可序列化的 question 或 finished 字典。
+        """将 Agent 动作及进度快照交给整包输出检查。
 
         逻辑：复用 MVP 的阶段推进方法，读取已提交状态；问题分支附最近评价，结束分支构建报告。
-        返回：question 含完整问题、状态及 last_evaluation；finished.result 与终端 MVP 字段一致。
+        返回：question 含问题、状态、评价、计划修订、话题进度及决策日志；
+        finished.result 与终端 MVP 字段一致；快照在发布前保存并接受同一检查。
         依赖：调用 MVP 的内部阶段辅助方法，升级该接口时须同步核对本适配器和一致性测试。
         异常：无文本的问题或非预期动作抛 RuntimeError；其他错误保留原传播方式。
         报告生成器沿用 MVP 的评分与文字备用逻辑；启用事件时先发送仅含确定性数值的
@@ -276,6 +278,15 @@ class AgentSession:
                 "interview_state": context.state.model_dump(mode="json"),
                 "interview_plan": context.plan.model_dump(mode="json"),
                 "last_evaluation": self.history[-1]["evaluation"] if self.history else None,
+                "plan_history": [item.model_dump(mode="json") for item in context.plan_history],
+                "topic_progress": {
+                    key: value.model_dump(mode="json")
+                    for key, value in context.topic_progress.items()
+                },
+                "decision_logs": [
+                    log.model_dump(mode="json")
+                    for log in await self.app.repository.decision_logs_for(self.interview_id)
+                ],
             }
         if self.action.type != InterviewActionType.FINISH:
             raise RuntimeError("Agent returned an unexpected action.")

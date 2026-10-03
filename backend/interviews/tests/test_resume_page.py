@@ -8,7 +8,7 @@
 - ResumePageTests.setUp：创建仅存在于隔离数据库的用户。
 - ResumePageTests.test_requires_login_even_in_local_mode：页面与静态 HTML 别名都拒绝匿名身份。
 - ResumePageTests.test_authenticated_page_and_assets：
-  登录用户看到转义身份、CSRF、控件及默认传统模式。
+  登录用户看到转义身份、CSRF、控件及默认传统模式；复盘模块按白名单返回脚本。
 - ResumePageTests.test_navigation_from_existing_pages：主页和面试页均有独立简历入口。
 - ResumePageTests.test_interview_has_no_inline_maintenance：面试仅选择已保存版本，旧维护资源删除。
 
@@ -41,7 +41,7 @@ class ResumePageTests(TestCase):
             self.assertTrue(response.url.startswith("/login/?next="))
 
     def test_authenticated_page_and_assets(self):
-        """输入真实 session；验证个人摘要、CSRF、传统默认值和资源内容类型，无生产用户变更。"""
+        """输入真实 session；验证个人摘要、CSRF、传统默认值、复盘控件和资源类型，无生产用户变更。"""
         self.client.force_login(self.user)
         response = self.client.get("/resumes/")
         self.assertContains(response, "&lt;resume-user&gt;")
@@ -53,13 +53,21 @@ class ResumePageTests(TestCase):
             "unit-projects",
             "slot-skills",
             "edition-save",
+            "history-list",
+            "history-dialog",
         ):
             self.assertContains(response, f'id="{control}"')
         self.assertContains(response, 'value="traditional" selected')
         self.assertContains(response, 'name="csrfmiddlewaretoken"')
         self.assertNotContains(response, 'content="NOTPROVIDED"')
         self.assertEqual(response["Cache-Control"], "no-store")
-        for name, content_type in (("resumes.js", "text/javascript"), ("resumes.css", "text/css")):
+        for name, content_type in (
+            ("resumes.js", "text/javascript"),
+            ("resumes.css", "text/css"),
+            ("interview-progress.js", "text/javascript"),
+            ("interview-history.js", "text/javascript"),
+            ("interview-history.css", "text/css"),
+        ):
             asset = self.client.get("/stream-demo/" + name)
             self.assertEqual(asset.status_code, 200)
             self.assertTrue(asset["Content-Type"].startswith(content_type))

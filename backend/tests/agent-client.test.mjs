@@ -58,11 +58,13 @@
  * - speechAnswerLifecycle：验证字幕、显式结束、最终转写一次提交及下一题清理。
  * - speechAnswerBoundaries：时限需确认，空白/失败/迟到转写不提交。
 
+ * - interviewProgressLifecycle：快照预算在回答/等待中推进，重规划扣除已问配额，断线冻结且告警去重。
  * - blockedResumeSelection：缺少 ready、未选 current 或未授权时不能创建面试连接。
  * 关键变量：
  * - SCRIPT：待验证的真实客户端源码。
  * - HTML：实际面试模板，用于核验客户端元素引用。
  * - VOICE_SCRIPT：真实语音协调器源码，在隔离 VM 中执行。
+ * - PROGRESS_SCRIPT：真实预算/话题呈现源码，共用可控时钟，不访问后端。
  * - CAPTURE_SCRIPT：真实录音管理器源码，不打开设备或供应商连接。
  * 关键状态说明：
  * Socket.OPEN 为连接就绪值，Socket.instances 供测试定位连接；每例创建独立页面。
@@ -76,6 +78,7 @@ import vm from "node:vm";
 const SCRIPT = readFileSync(new URL("../frontend/agent.js", import.meta.url), "utf8");
 const HTML = readFileSync(new URL("../frontend/agent.html", import.meta.url), "utf8");
 const VOICE_SCRIPT = readFileSync(new URL("../frontend/interview-voice.js", import.meta.url), "utf8");
+const PROGRESS_SCRIPT = readFileSync(new URL("../frontend/interview-progress.js", import.meta.url), "utf8");
 const CAPTURE_SCRIPT = readFileSync(new URL("../frontend/speech-capture.js", import.meta.url), "utf8");
 
 /** 提供真实客户端所需的 CustomEvent 数据字段；不模拟原生事件权限。 */
@@ -172,9 +175,10 @@ async function makePage(options = {}) {
   function createElement() { return new Element(); }
   /** 接收诊断日志，不打印合成版本或语音正文。 */
   function ignoreError() {}
-  const clientScript = CAPTURE_SCRIPT.replace("export class SpeechCapture", "class SpeechCapture")
+  const clientScript = PROGRESS_SCRIPT.replaceAll("export function", "function").replace("export class InterviewProgress", "class InterviewProgress")
+    + CAPTURE_SCRIPT.replace("export class SpeechCapture", "class SpeechCapture")
     + VOICE_SCRIPT.replace('import { SpeechCapture } from "./speech-capture.js";', "").replace("export class InterviewVoice", "class InterviewVoice")
-    + SCRIPT.replace('import { InterviewVoice } from "./interview-voice.js";', "");
+    + SCRIPT.replace('import { InterviewVoice } from "./interview-voice.js";', "").replace('import { InterviewProgress } from "./interview-progress.js";', "");
   const context = vm.createContext({
     document: { getElementById: getElement, createElement },
     window: { addEventListener: addPageListener, dispatchEvent: dispatchPageEvent },
@@ -503,3 +507,28 @@ async function blockedResumeSelection() {
   }
 }
 test("missing ready selection or authorization cannot start an interview", blockedResumeSelection);
+
+/** 真实页面脚本与确定性时钟：进度不会自动结束面试；断线冻结，既有异常去重且清空不删后端。 */
+async function interviewProgressLifecycle() {
+  const page = await makePage(); startPrepared(page);
+  const ws = Socket.instances.at(-1); const request = hello(ws);
+  const data = { type: "question", request_id: request, question: { question_id: "q1", text: "Explain your project", difficulty: 3 }, question_index: 3,
+    interview_state: { question_index: 3, stage: "project_deep_dive", status: "active", remaining_seconds: 125, clock_started_at: 9999999 },
+    interview_plan: { max_questions: 40, version: 2, topics: [{ topic_key: "a", objective: "Explain ownership", expected_questions: 4 }, { topic_key: "b", objective: "Discuss design", expected_questions: 3 }] },
+    topic_progress: { a: { questions_asked: 2, status: "active" }, b: { questions_asked: 1, status: "completed" } },
+    decision_logs: [{ decision_id: "d1", fallback_used: true, failed_retrieval_sources: ["project"] }] };
+  ws.emit(data);
+  assert.equal(page.el("interview-remaining").textContent, "2:05");
+  assert.equal(page.el("interview-question-progress").textContent, "第 3 题 / 预计约 5 题");
+  assert.equal(page.el("interview-stage").textContent, "项目深入");
+  assert.equal(page.el("interview-alerts").children.length, 2);
+  page.tick(10000); assert.equal(page.el("interview-remaining").textContent, "1:55");
+  assert.equal(ws.sent.length, 1);
+  ws.emit({}, "close"); const frozen = page.el("interview-remaining").textContent;
+  page.tick(300000); assert.equal(page.el("interview-remaining").textContent, frozen);
+  assert.equal(page.timers.size, 0);
+  assert.equal(page.el("interview-alerts").children.length, 3);
+  page.el("clear-agent").fire("click"); assert.equal(page.el("interview-progress").hidden, true);
+  assert.equal(page.el("interview-alerts").children.length, 0);
+}
+test("interview progress follows budget snapshots and freezes on disconnect without ending automatically", interviewProgressLifecycle);

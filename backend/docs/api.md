@@ -190,11 +190,11 @@ sendChunk 支持 Blob / ArrayBuffer，Promise 在对应回传通过校验后完�
 
 ## MVP Agent：`/ws/agent/`
 
-已提供独立文字面试接口及 `/agent/` 浏览器测试页，支持 `start`、`answer`、`cancel`。
+已提供独立 Agent 面试协议及 `/agent/` 语音工作台，支持 `start`、`answer`、`cancel`。
 每个连接一场面试，复用 MVP 出题、评价和报告；写入独立 Agent 表，不与固定题库练习场次混用。
 模型配置、完整消息结构、重复请求规则和取消限制见 [Agent 接入说明](agent-integration.md)。
 
-## Agent 历史（只读、本机访问）
+## Agent 历史（只读、本人记录）
 
 | 方法与路径 | 返回内容 |
 | --- | --- |
@@ -205,7 +205,17 @@ sendChunk 支持 Blob / ArrayBuffer，Promise 在对应回传通过校验后完�
 
 分页沿用每页 50 条；状态/时间使用服务器数据。所有历史响应设置 `Cache-Control: no-store, private`。
 不存在或不属于该场面试的请求返回 404；不开放新增、修改、删除或恢复操作。
-详情回答的 `evaluation`、`committed_state_version` 同时为空表示回答已经接收、尚未提交评分。
-Agent 已结束但报告生成失败时，`final_report` 仍为空，不把部分状态伪装成完整报告。
+详情回答的 `evaluation` 为空表示无获准公开评价；`committed_state_version` 仅表明内部提交状态，
+不代替输出批准。报告文字生成失败沿用既有确定性摘要并标记 `report_narrative_status=fallback`；
+报告整包未通过输出检查或未保存时 `final_report` 为空，不把部分状态伪装成完整报告。
 成功响应只表示服务器保存完成，不保证浏览器收到；查询已保存结果不会再次计费。
-数据库记录包含敏感面试内容；当前依靠本机访问边界，UUID 不代替用户权限。
+数据库记录包含本人面试内容；生产按 Django 会话的 owner 归属过滤，本机匿名开发仅查询未归属记录，
+UUID 不代替权限。
+
+### Agent 历史详情 v2
+
+`GET /api/agent-interviews/{id}/` 新增 `schema_version: 2` 和完整获准的 `interview_plan`、
+`plan_history`、`topic_progress`、`decision_logs`；失败/中断请求以 `request_issues` 元数据公开。
+问题和回答各附 `created_at`。原问题/回答/评价/报告键保持不变，仅读取本人记录；缺失旧字段为
+null，不以内部 context 代替获准输出。个人中心提供分页面试列表及只读复盘弹窗，详见
+[版本与复盘接口](resume-versions.md#面试进度与复盘2026-10-03)。

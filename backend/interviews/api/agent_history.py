@@ -11,13 +11,16 @@
 - AgentHistoryViewSet：只读历史及请求查询，不开放创建、修改、删除或自动重试。
 - AgentHistoryViewSet.get_queryset：按登录用户过滤，使详情与子请求路由共用同一归属边界。
 - AgentHistoryViewSet.finalize_response：对历史成功及错误响应设置禁止缓存头。
-- AgentHistoryViewSet.retrieve：从已检响应重建公开资料、问题及评价，附本人回答和内部提交标记。
+- AgentHistoryViewSet.retrieve：从已检响应重建公开资料、问题及评价。
+  附本人回答、时间、进度和异常元数据；不公开未经批准的 Agent 正文。
 - AgentHistoryViewSet.requests：分页返回当前面试的请求元数据。
 - AgentHistoryViewSet.request_result：按面试和请求双条件读取已检结果，跨面试返回 404。
 
 关键变量：
-（无模块级变量。）
+- logger：仅记录面试关联 ID、获准请求数与可见问题数，不记录模型正文或用户资料。
 """
+
+import logging
 
 from django.shortcuts import get_object_or_404
 from rest_framework import mixins, serializers, viewsets
@@ -26,6 +29,8 @@ from rest_framework.response import Response
 
 from ..agent_models import AgentInterview, AgentRequest
 from ..agent_safety import approved_response
+
+logger = logging.getLogger(__name__)
 
 
 class InterviewSummary(serializers.ModelSerializer):
@@ -94,12 +99,18 @@ class AgentHistoryViewSet(
         旧记录或被拒绝结果不自动批准；不读取原始 context、question.payload 或 answer.evaluation。
         评价从同一回答请求的已检响应提取，最终报告从已检 finished 提取；无记录则为 None。
         processing 返回最近请求的状态与固定错误码；不将运行中请求声称为可恢复面试。
+        schema_version=2 附最新已检计划、修订、进度及日志；旧响应缺字段时明确返回 None。
+        请求异常列表只含固定元数据；问题/回答时间取本人关系记录，不从内部 JSON 补正文。
+        成功查询日志仅含关联 ID 与输出数量，便于诊断缺失批准记录，不记录问答正文。
         """
         interview = self.get_object()
         approved = {}
         visible_questions = {}
         profile = job = state = latest_action = None
         result = {}
+        progress = dict.fromkeys(
+            ("interview_plan", "plan_history", "topic_progress", "decision_logs")
+        )
         for record in interview.requests.filter(status="succeeded").order_by("finished_at", "id"):
             payload = approved_response(record)
             if payload is None:
@@ -111,11 +122,13 @@ class AgentHistoryViewSet(
                 visible_questions[payload["question"]["question_id"]] = payload["question"]
                 state = payload["interview_state"]
                 latest_action = {"type": "ask_question", "question": payload["question"]}
+                progress = {key: payload.get(key) for key in progress}
             elif payload["type"] == "finished":
                 result = payload["result"]
                 profile, job = result.get("candidate_profile"), result.get("job_profile")
                 state = result.get("interview_state")
                 latest_action = {"type": "finish", "question": None}
+                progress = {key: result.get(key) for key in progress}
         questions = []
         for question in interview.questions.select_related("answer"):
             checked_question = visible_questions.get(str(question.id))
@@ -136,21 +149,34 @@ class AgentHistoryViewSet(
             questions.append(
                 {
                     "ordinal": question.ordinal,
+                    "created_at": question.created_at,
                     "question": checked_question,
                     "answer": None
                     if answer is None
                     else {
                         "id": str(answer.id),
                         "text": answer.text,
+                        "created_at": answer.created_at,
                         "evaluation": evaluation,
                         "committed_state_version": answer.committed_state_version,
                         "request_id": str(answer.request_id),
                     },
                 }
             )
+        logger.info(
+            "Agent history read interview=%s schema=2 approved_requests=%d visible_questions=%d",
+            interview.id,
+            len(approved),
+            len(questions),
+        )
         return Response(
             {
                 **InterviewSummary(interview).data,
+                "schema_version": 2,
+                **progress,
+                "request_issues": RequestSummary(
+                    interview.requests.filter(status__in=["failed", "interrupted"]), many=True
+                ).data,
                 "can_resume": False,
                 "security_output_available": bool(approved),
                 "candidate_profile": profile,

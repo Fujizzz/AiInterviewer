@@ -122,3 +122,26 @@ GPA 沿用原成绩制，学业阶段不是岗位资历，不能从项目文本�
 `POST /api/recommendations/jobs/`。此接口不自动加载岗位池、不执行排序或调用模型。
 仅本人可访问这四个动作，非 ready 返回 400，来源/基线仍被编辑稿引用时删除返回 409。
 测试见 `interviews.tests.test_resume_editor`；数据库/API 真实执行，推荐复用验证为严格 schema，非模型效果评估。
+
+## 面试进度与复盘（2026-10-03）
+
+工作台在首题就绪后展示剩余时间、Agent 当前阶段、当前题号、预计总题数与安全上限。
+剩余时间以获准 question 响应的 `interview_state.remaining_seconds` 为锚点，用浏览器单调时钟推进；
+模型等待期间继续计时，结束或断线冻结。不会将服务端 `clock_started_at` 与浏览器时间相减，
+也不会因客户端显示 0 自动提交回答。原有后端预算、题数与收尾策略不变。
+
+question 响应新增 `plan_history`、`topic_progress`、`decision_logs`，与问题、状态、计划和评价
+一起经过完整输出检查，并在发送前保存。当前计划 topics 的 `expected_questions` 已由 Agent
+包含累计已问数量，预计总题数按当前题号加未完成话题的剩余配额计算，再限制到 `max_questions`；
+完成或跳过的话题不再增加预计题数。估计随计划修订变化，不是必须完成的题量。
+
+历史详情仍使用 `GET /api/agent-interviews/{id}/`，新增 `schema_version: 2`、`interview_plan`、
+`plan_history`、`topic_progress`、`decision_logs` 和 `request_issues`（失败/中断请求的固定元数据）。
+`questions[].created_at` 与 `questions[].answer.created_at` 为保存时间；原 `questions`、评价、
+最终报告、`processing`、`can_resume` 契约保留。新增模型正文仅读获准响应，不公开内部 context；
+旧获准响应缺字段返回 null，未获准或摘要被篡改的内容不会自动公开。
+
+个人中心“06 面试复盘”提供分页列表和独立滚动弹窗，展示难度、追问深度、问答、获准评价、
+报告总结、优势与待改进项，以及话题进度和可展开诊断。失败/中断过程与未评价答案明确标注，
+没有完整报告时不伪造评分。工作台与复盘显示已有检索失败/超时、备用路径和报告叙述失败标志；
+连接/协议异常仍停止当前流程，不增加重试、恢复连接或模型备用策略。

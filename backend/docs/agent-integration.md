@@ -64,7 +64,7 @@ python -m uvicorn config.asgi:application --host 127.0.0.1 --port 8765 --ws webs
 - 同时只执行一个命令。处理中返回 `busy`；重复 UUID 返回 `duplicate_request`；旧问题返回 `stale_question`。请求 UUID 全库唯一，每场最多一个 running 请求，重连后也不会重复执行。不排队或自动重发。
 - 请求记录在 `started` 前写入，成功响应在网络发送前保存。存储不可用时返回明确错误，不回退内存或启动收费请求。正常退出标记未完成请求为 interrupted；进程骤停可能留下 running，必须人工确认，不自动重放。
 - 回答在评价前保存为未评分；评价、Agent 状态、下一动作和决策日志在同一事务提交。若事务失败，原回答保留但评价为空，不作为已评分证据。
-- 历史 API 为 `/api/agent-interviews/`，支持列表、详情及请求状态/结果查询，见 [API 文档](api.md)。仍仅允许本机访问，没有用户账户隔离，不应直接放宽来源限制用于共享服务。
+- 历史 API 为 `/api/agent-interviews/`，支持列表、详情及请求状态/结果查询，见 [API 文档](api.md)。当前使用 Django 登录会话按本人归属过滤；生产账号隔离与本机匿名开发策略见 [版本接口](resume-versions.md)。
 
 ## 实际协议
 
@@ -175,3 +175,10 @@ python tests/run_agent_e2e.py
 这些测试不代表真实模型通过。填好 key 后，使用生产入口 `config.asgi:application` 和 `/agent/` 页面测试实际供应商；不要用测试专用入口测试 key。
 
 2026-09-11 已使用本地配置的千问服务完成一次真实单题 WebSocket 面试，简历解析、出题、评价及报告生成均成功，全程约 20.1 秒。使用虚构测试内容；原始输入、输出和密钥未写入测试记录。详细范围见 `testing.md`。
+
+### 实时计划字段
+
+question 除原问题/状态/计划/上一题评价外，还返回 `plan_history`、`topic_progress`、`decision_logs`。
+这些字段接受与完整业务响应相同的安全检查；后端保存批准摘要后才发送，不经未检查的 progress
+事件透传模型文字。前端利用这些快照展示倒计时、阶段、话题与预计题数，规则及复盘 v2 见
+[面试进度与复盘](resume-versions.md#面试进度与复盘2026-10-03)。

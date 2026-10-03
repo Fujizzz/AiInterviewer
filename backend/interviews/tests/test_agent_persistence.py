@@ -47,6 +47,11 @@
 - PersistenceTests.test_foreign_question_collision_rolls_back_commit：
   另一场面试的问题 ID 不能被覆盖，版本占用同时回滚。
 
+- PersistenceTests.test_review_progress_snapshots：核对实时进度持久化与完整复盘字段。
+- PersistenceTests.test_review_legacy_and_tampered_snapshots：
+  旧记录缺字段不读取内部上下文，篡改输出不公开。
+- PersistenceTests.test_review_failed_answer：失败请求保留本人回答，未批准评价为空。
+
 关键变量：
 （无模块级变量。）
 约束：
@@ -469,3 +474,83 @@ class PersistenceTests(SafetyTestMixin, TransactionTestCase):
             await session.app.repository.get_interview_context(session.interview_id), context
         )
         self.assertEqual(await other.app.repository.get_question(foreign.question_id), foreign)
+
+    async def test_review_progress_snapshots(self):
+        """离线模型与真实数据库：首题进度已存，完成复盘保留计划、难度、对话、评价和时间。"""
+        session, first = await self.start_session(count=1)
+        for key in ("interview_plan", "plan_history", "topic_progress", "decision_logs"):
+            self.assertTrue(first[key])
+        response = await self.async_client.get(f"/api/agent-interviews/{session.interview_id}/")
+        initial = response.json()
+        self.assertEqual(initial["schema_version"], 2)
+        for key in ("interview_plan", "plan_history", "topic_progress", "decision_logs"):
+            self.assertEqual(initial[key], first[key])
+        command = self.answer_command(first)
+        await reserve_request(session.interview_id, command)
+        final = await session.answer(command)
+        await complete_fixture_request(session.interview_id, command.request_id, final)
+        detail = (
+            await self.async_client.get(f"/api/agent-interviews/{session.interview_id}/")
+        ).json()
+        for key in ("interview_plan", "plan_history", "topic_progress", "decision_logs"):
+            self.assertEqual(detail[key], final["result"][key])
+        turn = detail["questions"][0]
+        self.assertEqual(turn["question"]["difficulty"], first["question"]["difficulty"])
+        self.assertEqual(turn["answer"]["text"], ANSWER)
+        self.assertEqual(
+            turn["answer"]["evaluation"], final["result"]["question_history"][0]["evaluation"]
+        )
+        self.assertTrue(turn["created_at"])
+        self.assertTrue(turn["answer"]["created_at"])
+        self.assertEqual(detail["request_issues"], [])
+
+    async def test_review_legacy_and_tampered_snapshots(self):
+        """显式重建旧格式批准凭据，缺失字段为空；随后篡改已存包，摘要失配使全部正文不可见。"""
+        from interviews.agent_safety import make_output_receipt
+
+        session, first = await self.start_session()
+        request = await AgentRequest.objects.filter(interview_id=session.interview_id).afirst()
+        legacy = {
+            key: value
+            for key, value in first.items()
+            if key not in {"plan_history", "topic_progress", "decision_logs"}
+        }
+        receipt = make_output_receipt(legacy, request.id, 2)
+        await AgentRequest.objects.filter(id=request.id).aupdate(
+            response={**legacy, "_security": receipt}
+        )
+        url = f"/api/agent-interviews/{session.interview_id}/"
+        detail = (await self.async_client.get(url)).json()
+        self.assertTrue(detail["security_output_available"])
+        self.assertIsNone(detail["plan_history"])
+        self.assertIsNone(detail["decision_logs"])
+        self.assertIsNone(detail["topic_progress"])
+        await AgentRequest.objects.filter(id=request.id).aupdate(
+            response={**legacy, "topic_progress": {"private": "hidden"}, "_security": receipt}
+        )
+        detail = (await self.async_client.get(url)).json()
+        self.assertFalse(detail["security_output_available"])
+        self.assertIsNone(detail["interview_plan"])
+        self.assertIsNone(detail["decision_logs"])
+        self.assertEqual(detail["questions"], [])
+
+    async def test_review_failed_answer(self):
+        """真实仓库接受本人回答后模拟评价请求失败；复盘保留回答但不使用内部未获准评分。"""
+        session, first = await self.start_session()
+        command = self.answer_command(first)
+        await reserve_request(session.interview_id, command)
+        answer = CandidateAnswer(
+            interview_id=session.interview_id,
+            question_id=first["question"]["question_id"],
+            answer_id=str(uuid4()),
+            text=ANSWER,
+        )
+        await session.app.repository.accept_answer(command.request_id, answer)
+        await fail_request(session.interview_id, command.request_id, error_code="agent_failed")
+        detail = (
+            await self.async_client.get(f"/api/agent-interviews/{session.interview_id}/")
+        ).json()
+        self.assertEqual(detail["questions"][0]["answer"]["text"], ANSWER)
+        self.assertIsNone(detail["questions"][0]["answer"]["evaluation"])
+        self.assertEqual(detail["request_issues"][0]["error_code"], "agent_failed")
+        self.assertIsNone(detail["final_report"])

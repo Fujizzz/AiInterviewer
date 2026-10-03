@@ -29,6 +29,7 @@ const STORAGE_KEY = "ai-interviewer-language";
 
 const MESSAGES = {
   zh: {
+    review_progress: "面试进度", review_remaining: "剩余时间", review_stage: "当前阶段", review_questions: "题目进度", review_topics: "话题进度", review_notices: "面试提醒", review_history_link: "在个人中心查看已保存的复盘 ↗", review_history: "面试复盘", review_nav: "06 面试复盘", review_hint: "查看本人面试的题目、回答、评价和报告。中断或失败的过程也会保留；暂不支持续接。", review_close: "关闭复盘",
     avatar_label: "数字人面试官画面",
     avatar_connect: "连接／播放数字人",
     avatar_settings: "数字人连接设置",
@@ -442,6 +443,7 @@ const MESSAGES = {
     camera_failed: "摄像头开启失败（{error}），请检查浏览器和设备。",
   },
   en: {
+    review_progress: "Interview progress", review_remaining: "Time remaining", review_stage: "Current stage", review_questions: "Question progress", review_topics: "Topic progress", review_notices: "Interview notices", review_history_link: "View saved reviews in your profile ↗", review_history: "Interview review", review_nav: "06 Interview review", review_hint: "Review your questions, answers, evaluations and reports. Interrupted and failed conversations are retained; resuming is not supported yet.", review_close: "Close review",
     avatar_label: "Digital-human interviewer video",
     avatar_connect: "Connect / play interviewer",
     avatar_settings: "Interviewer connection settings",
