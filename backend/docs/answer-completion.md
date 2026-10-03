@@ -145,6 +145,13 @@ HTTPS STT，收到 17 次转写事件；最后一次转写更新后 3.008 秒返
 临时账号、会话及关联面试记录已清理。[最终 MCP 联调记录](../../training/answer_completion/results/v2/production-synthetic-speech-mcp-final.json)
 和前次握手/脚本诊断记录均保留，不将合成单例作为准确率或真人设备验收。
 
+后续按用户要求增加了[12 个合成音频用例](../../training/answer_completion/results/synthetic-audio-v1/README.md)：
+中英文直接/间接结束、否定、引用、后文继续，以及一秒内补充和通知后收尾补充，
+均经真实 TTS/ASR 符合预先固定的通知/凭据预期。四个单段结束用例的转写后静默为
+3.004–3.035 秒，PCM 停发到通知为 7.016–7.948 秒；后者仍包含 ASR 延迟。
+一秒内补充没有误提交，通知后补充撤销最终凭据，首例 MCP 成功保存评分并返回下一题。
+生产代码、模型和阈值未改动，仍不代表真人/噪声或独立准确率验收。
+
 参考：[百炼思考模式设置](https://help.aliyun.com/en/model-studio/deep-thinking)、
 [MCP 工具消息](https://modelcontextprotocol.io/specification/2025-06-18/server/tools)、
 [MCP 自定义传输](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports)。

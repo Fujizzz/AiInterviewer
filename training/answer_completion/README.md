@@ -108,3 +108,36 @@ V2 第一次运行第五轮因严格梯度裁剪抛错中止，未做留出集�
 `results/v2-aborted`。用户明确批准改为标准 AMP GradScaler 溢出处理后再运行：先取消
 损失缩放，有限梯度才裁剪；非有限梯度让 GradScaler 跳过更新并降低缩放，记录批次和
 每轮次数。不会切换 FP32 或变更数据/学习率/轮数/验收，非有限损失仍直接中止。
+
+## 真实合成音频接通检查
+
+`probe_synthetic_audio.py` 将预先固定的 `synthetic-audio-cases.json` 变成真实百炼音频，
+再发送到生产 HTTPS STT；不把原文直接交给分类器，也不替换 ASR、粗筛或 Qwen。
+中英文各五个单段用例覆盖直接/间接结束、否定、引用、后文继续；另测结束语后间隔
+一秒补充，以及收到结束通知后仍有收尾语音。期待结果在生成音频前固定。
+
+测试生成端显式选择 `Chinese` / `English`，其余 TTS 模型、声音、24kHz PCM16 和期限
+使用现有生产配置；不会修改生产合成适配器固定的英文默认值。
+语言参数依据[百炼官方 Python SDK](https://help.aliyun.com/en/model-studio/qwen-tts-realtime-python-sdk)。
+音频按浏览器 `PCM16Resampler` 的面积平均及量化逻辑转成 16kHz PCM16；本机已用
+满量程、零值、固定随机输入及 128 帧块边界与真实 JS 实现做逐字节一致性检查。
+网络探针沿用此前合成检查的 20ms/640 字节发送节奏，不模拟真实设备的采集处理和噪声。
+
+在已加载生产私有环境的服务器执行（须使用新的输出目录）：
+
+```bash
+/opt/ai-interviewer/current/.venv/bin/python /tmp/probe-synthetic-audio-v1.py \
+  --project-root /opt/ai-interviewer/current \
+  --cases /tmp/synthetic-audio-cases-v1.json \
+  --output-dir /opt/ai-interviewer/preflight/synthetic-audio-20261003-v1
+```
+
+前两个 `/tmp` 文件分别由本目录脚本和用例上传得到；不上传 SSH 文件或其他本地环境。
+输出记录文本/脚本/模型 manifest 摘要、每段 WAV/PCM 摘要与逐例结果，录音停止后最多
+观察 15 秒，不修改服务端三秒计时、分类阈值或 API 超时。负例随后手动 stop 取得最终
+转写，不能把“有限观察期内未结束”解释为永远不会触发。首个正例还会调用真实 MCP，
+验证回答/评分保存和下一步，其他用例只验证真实 STT、意图与凭据，不触发评分。
+临时用户、会话及面试关联记录在 finally 清理，供应商错误显式失败且不自动重试。
+这是固定虚构样例的接通检查，不是训练验收或独立人工准确率评测。
+2026-10-03 本轮 12 个用例全部符合预期，结果与验证边界见
+[合成音频报告](results/synthetic-audio-v1/README.md)。
