@@ -29,8 +29,8 @@ Declaration Index:
   Sends notifications only to explicitly enabled requests; network failures propagate along original
   exception path.
 - AgentSession.answer:
-  Converts current answer into standard feedback, drives one Agent decision, and returns next
-  question or final report.
+  Converts answer/skip/finish into feedback, records empty speech without competency evidence,
+  and returns the next question or explicit early report.
 - AgentSession._response:
   Normalizes Agent actions into question/finished format, along with planned revisions, topic
   progress, and decision snapshots, for full output validation.
@@ -40,6 +40,9 @@ Declaration Index:
 - AgentSession.close:
   Transfers cleanup requests to model instances supporting close, without proactively clearing state
   still referenced by background calls.
+
+- AgentSession.finish: Evaluate optional current speech and produce a user-ended report without
+  another question.
 
 Variable Index:
 - logger:
@@ -71,7 +74,9 @@ from app.parsing.resume import parse_resume_profile
 from app.reporting.final_report import build_final_report
 from app.settings import interview_settings
 from shared.contracts import (
+    AnswerAnalysis,
     CandidateAnswer,
+    EvaluationFeedback,
     EvaluationRequest,
     InitializeInterviewRequest,
     InterviewActionType,
@@ -222,12 +227,14 @@ class AgentSession:
         self.action = initialized.first_action
         return await self._response()
 
-    async def answer(self, command):
+    async def answer(self, command, *, finishing=False):
         """Converts current answer into standard feedback, drives one Agent decision, and returns
         next question or final report.
 
-        Input: Validated Answer command; protocol layer ensures session ready, current question ID
-        valid, and request unique.
+        Input: Validated Answer, Skip, or Finish command; finishing selects explicit early finish.
+        Skip stores an empty answer with non_answer analysis and no competency dimensions; it
+        does not invoke the evaluator or fabricate spoken words. Protocol validates the current
+        question ID and request uniqueness.
         Logic: Save pending evaluation answer → extract evidence → atomically submit feedback and
         state → append display cache → generate response.
         Atomic boundary: Database repository commits answer evaluation, state, next action, and logs
@@ -248,12 +255,27 @@ class AgentSession:
         )
         await self.app.repository.accept_answer(command.request_id, answer)
         async with self._stage("answer_evaluation"):
-            feedback = await self.app.evaluation.evaluate(
-                EvaluationRequest(
+            feedback = (
+                EvaluationFeedback(
                     request_id=str(command.request_id),
-                    interview_id=self.interview_id,
-                    question=question,
-                    answer=answer,
+                    question_id=question.question_id,
+                    answer_relevance=0,
+                    evidence_strength=0,
+                    analysis=AnswerAnalysis(
+                        status="non_answer",
+                        answer_scope="none",
+                        thread_complete=True,
+                        summary="No speech was recognized before automatic closure.",
+                    ),
+                )
+                if command.type == "skip"
+                else await self.app.evaluation.evaluate(
+                    EvaluationRequest(
+                        request_id=str(command.request_id),
+                        interview_id=self.interview_id,
+                        question=question,
+                        answer=answer,
+                    )
                 )
             )
         history_entry = {
@@ -279,12 +301,35 @@ class AgentSession:
         }
         self.app.repository.pending_feedback = feedback
         async with self._stage("next_action"):
-            self.action = await self.service.apply_evaluation_feedback(
+            advance = (
+                self.service.finish_interview
+                if finishing
+                else self.service.apply_evaluation_feedback
+            )
+            self.action = await advance(
                 self.interview_id,
-                feedback,
-                answer=answer,
+                feedback=feedback,
+                answer=answer if command.type != "skip" else None,
             )
         self.history.append(history_entry)
+        return await self._response()
+
+    async def finish(self, command):
+        """Functionality: Evaluate the optional current transcript and generate an early report.
+        Inputs: Validated Finish with optional current question ID and nonempty answer text.
+        Outputs: The existing finished envelope, approved/persisted by the socket gateway.
+        Logic: A supplied answer uses the regular evaluator and an atomic finish commit; without
+        an answer only previously committed evidence contributes. No next question is generated.
+        Constraints: Empty/unfinished speech is not scored; model and persistence errors propagate.
+        """
+        logger.info(
+            "Agent early finish interview=%s include_current_answer=%s",
+            self.interview_id,
+            bool(command.answer_text),
+        )
+        if command.answer_text:
+            return await self.answer(command, finishing=True)
+        self.action = await self.service.finish_interview(self.interview_id)
         return await self._response()
 
     async def _response(self):

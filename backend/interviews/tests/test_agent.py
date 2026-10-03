@@ -60,6 +60,17 @@ Declaration Index:
 - ProviderTests.test_inflight_client_closed_only_after_call_returns.blocked:
   Wait at controlled barrier, request closure while call still executing.
 
+- AgentTests.test_early_finish_with_and_without_current_answer: Verify saved early reports with
+  optional speech, no next question.
+- AgentTests.test_silent_answer_is_unanswered_without_capability_evidence: Verify empty speech
+  records no competency evidence.
+- AgentTests.test_discard_cancels_busy_work_and_deletes_history: Verify cancellation and
+  transactional history deletion.
+- AgentTests.test_discard_cancels_busy_work_and_deletes_history.blocked_start: Hold startup until
+  cancellation without vendor I/O.
+- AgentTests.test_discard_after_final_response_keeps_end_choice_available: Verify completed results
+  remain discardable during end choice.
+
 Variable Index:
 None
 """
@@ -72,12 +83,14 @@ from time import perf_counter
 from unittest.mock import Mock, patch
 from uuid import uuid4
 
+from asgiref.sync import sync_to_async
 from asgiref.testing import ApplicationCommunicator
 from django.test import SimpleTestCase, TransactionTestCase
 
 from agents.model_calls import ModelCall, current_model_call
 from app.application import MVPInterviewApplication
 from app.providers.llm import LLMError, OpenAILLM
+from interviews.agent_models import AgentAnswer, AgentInterview, AgentRequest
 from interviews.agent_provider import BackendLLM
 from interviews.agent_session import AgentSession
 from interviews.agent_socket import MAX_MESSAGE_BYTES, agent_socket
@@ -87,8 +100,7 @@ from .agent_fixtures import ANSWER, RESUME, FixtureLLM, SafetyTestMixin
 
 
 class AgentTests(SafetyTestMixin, TransactionTestCase):
-    """Use ASGI message-driven full interview, TransactionTestCase isolates persistent data.
-    """
+    """Use ASGI message-driven full interview, TransactionTestCase isolates persistent data."""
 
     async def connect(self, origin="http://localhost", client="127.0.0.1"):
         """Establish test connection under same access policy constraints; caller must wait for
@@ -117,8 +129,7 @@ class AgentTests(SafetyTestMixin, TransactionTestCase):
         return comm
 
     async def read(self, comm):
-        """Read one JSON; timeout implies protocol did not proceed as expected.
-        """
+        """Read one JSON; timeout implies protocol did not proceed as expected."""
         return json.loads((await comm.receive_output(timeout=3))["text"])
 
     async def command(self, comm, kind, **fields):
@@ -183,6 +194,136 @@ class AgentTests(SafetyTestMixin, TransactionTestCase):
                     [q["question"] for q in expected["question_history"]],
                 )
                 self.assertTrue(llm.closed)
+
+    async def test_early_finish_with_and_without_current_answer(self):
+        """Functionality: Verify explicit finish bypasses next-question generation and saves report.
+        Inputs: Isolated database, fixture LLM/security review and optional actual current answer.
+        Outputs: Assertions on question count, evaluated history and approved completed record.
+        Logic: Drive real socket/repository, compare with/without answer, inspect model call
+        history.
+        Constraints: Offline fixtures cannot verify real provider quality or microphone behavior.
+        """
+        for include_answer in (False, True):
+            with self.subTest(include_answer=include_answer):
+                llm = FixtureLLM()
+                with patch("interviews.agent_session.BackendLLM", return_value=llm):
+                    comm = await self.accepted()
+                    await self.command(comm, "start", resume_text=RESUME, max_questions=8)
+                    question = await self.read(comm)
+                    generated = sum(c.__name__ == "QuestionAgentDecision" for c in llm.calls)
+                    fields = (
+                        {"question_id": question["question"]["question_id"], "answer_text": ANSWER}
+                        if include_answer
+                        else {}
+                    )
+                    self.assertEqual(
+                        (await self.command(comm, "finish", **fields))["type"], "started"
+                    )
+                    result = (await self.read(comm))["result"]
+                    self.assertTrue(result["interview_finished"])
+                    self.assertEqual(len(result["question_history"]), int(include_answer))
+                    self.assertEqual(result["interview_state"]["question_index"], 1)
+                    self.assertEqual(result["decision_logs"][-1]["reason_code"], "USER_FINISHED")
+                    self.assertEqual(
+                        sum(c.__name__ == "QuestionAgentDecision" for c in llm.calls), generated
+                    )
+                    self.assertEqual((await comm.receive_output())["code"], 1000)
+                    await comm.wait()
+                    record = await sync_to_async(AgentInterview.objects.get)(
+                        id=question["interview_id"]
+                    )
+                    self.assertEqual(record.status, "completed")
+                    self.assertEqual(
+                        await sync_to_async(
+                            AgentAnswer.objects.filter(question__interview_id=record.id).count
+                        )(),
+                        int(include_answer),
+                    )
+
+    async def test_silent_answer_is_unanswered_without_capability_evidence(self):
+        """Functionality: Verify silent closure preserves an empty answer and no ability scores.
+        Inputs: Real socket/database with fixture model; a Skip bound to the sole question.
+        Outputs: Empty text, non_answer status, null capability scores and zero evaluator calls.
+        Logic: Complete at safety question limit so all committed evidence is inspectable in report.
+        Constraints: No real silence detection or provider calls are exercised here.
+        """
+        llm = FixtureLLM()
+        with patch("interviews.agent_session.BackendLLM", return_value=llm):
+            comm = await self.accepted()
+            await self.command(comm, "start", resume_text=RESUME, max_questions=1)
+            question = await self.read(comm)
+            await self.command(comm, "skip", question_id=question["question"]["question_id"])
+            result = (await self.read(comm))["result"]
+            self.assertEqual(result["question_history"][0]["answer"], "")
+            self.assertEqual(
+                result["question_history"][0]["evaluation"]["analysis"]["status"], "non_answer"
+            )
+            self.assertTrue(
+                all(
+                    value["score"] is None
+                    for value in result["interview_state"]["competencies"].values()
+                )
+            )
+            self.assertFalse(any(c.__name__ == "AnswerEvidence" for c in llm.calls))
+            self.assertEqual((await comm.receive_output())["code"], 1000)
+            await comm.wait()
+
+    async def test_discard_cancels_busy_work_and_deletes_history(self):
+        """Functionality: Verify no-save end cancels a running request and cascades history
+        deletion.
+        Inputs: Real socket/database and explicitly blocked start coroutine; no cloud models.
+        Outputs: Discard acknowledgement, cancellation event, zero interview/request records.
+        Logic: Accept start, issue discard while busy, await cleanup before querying database.
+        Constraints: Does not prove cancellation of an already dispatched synchronous vendor call.
+        """
+        entered, cancelled = asyncio.Event(), asyncio.Event()
+
+        async def blocked_start(session, command):
+            """Inputs: Session/validated start. Outputs: None; waits until test cancellation.
+            Logic: Mark entry and await forever; finally marks coroutine cleanup.
+            Constraints: No model call or interview context is initialized by this stub.
+            """
+            entered.set()
+            try:
+                await asyncio.Future()
+            finally:
+                cancelled.set()
+
+        with (
+            patch("interviews.agent_session.BackendLLM", return_value=FixtureLLM()),
+            patch.object(AgentSession, "start", blocked_start),
+        ):
+            comm = await self.accepted()
+            await self.command(comm, "start", resume_text=RESUME)
+            await entered.wait()
+            self.assertEqual((await self.command(comm, "discard"))["type"], "discarded")
+            self.assertEqual((await comm.receive_output())["code"], 1000)
+            await comm.wait()
+        self.assertTrue(cancelled.is_set())
+        self.assertEqual(await sync_to_async(AgentInterview.objects.count)(), 0)
+        self.assertEqual(await sync_to_async(AgentRequest.objects.count)(), 0)
+
+    async def test_discard_after_final_response_keeps_end_choice_available(self):
+        """Functionality: Verify end-choice race can still remove a newly completed interview.
+        Inputs: Opt-in browser start, real persistence, fixture model/security review.
+        Outputs: Completed report then discard acknowledgement and no historical record.
+        Logic: Keep the connection open only for clients requesting the end-choice lifecycle.
+        Constraints: Other clients retain their existing close-after-finished behavior.
+        """
+        with patch("interviews.agent_session.BackendLLM", return_value=FixtureLLM()):
+            comm = await self.accepted()
+            await self.command(
+                comm, "start", resume_text=RESUME, max_questions=1, keep_end_choice_open=True
+            )
+            question = await self.read(comm)
+            await self.command(
+                comm, "answer", question_id=question["question"]["question_id"], answer_text=ANSWER
+            )
+            self.assertEqual((await self.read(comm))["type"], "finished")
+            self.assertEqual((await self.command(comm, "discard"))["type"], "discarded")
+            self.assertEqual((await comm.receive_output())["code"], 1000)
+            await comm.wait()
+        self.assertEqual(await sync_to_async(AgentInterview.objects.count)(), 0)
 
     async def test_invalid_commands_do_not_create_model(self):
         """Corrupted JSON, unknown fields, empty text, wrong type, and premature answers do not

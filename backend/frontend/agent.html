@@ -11,10 +11,10 @@ Template Context:
 user and csrf_token come from Django; identity is escaped and version access is authenticated.
 Element Index:
 resume-select stores the version UUID; job/duration/limit/probes are preparation inputs; open-preparation/interview-settings opens settings; close/cancel-preparation retains settings while closing; start-form uses native validation; preparation-error/title identifies dialog feedback.
-question, answer-subtitle and report display current session output; avatar-view/connect-avatar controls avatar connection; start-recording begins capture; stop-recording finalizes and submits; answer-subtitles contains plain-text captions.
+question, answer-subtitle and report display current session output; avatar-view/connect-avatar controls avatar connection; answer-countdown shows preparation/inactivity; cancel-agent opens end-interview-dialog with end-and-save/end-without-save/continue-interview choices; answer-subtitles contains plain-text captions.
 interview-language selects UI copy; interview-progress/interview-topics displays budget/plan; interview-alert-panel shows existing anomalies.
 Page Regions:
-Shared navigation, question/avatar/answer main column, budget/topic/device sidebar, preparation dialog, assessment and report.
+Shared navigation, question/avatar/answer main column, budget/topic/device sidebar, preparation/end-choice dialogs, assessment and report.
 Constraints:
 The page does not upload, extract or edit profile data and does not persist profiles in the browser. Leaving interrupts the current local interview flow; backend persistence and provider cancellation follow their existing contracts.
 -->
@@ -43,6 +43,7 @@ The page does not upload, extract or edit profile data and does not persist prof
   <section class="question-card" aria-labelledby="question-heading">
     <div class="question-label"><h2 id="question-heading" data-i18n="agent_current_question">Current question</h2><span id="question-meta" class="hint"></span></div>
     <p id="question" aria-live="polite" data-i18n="agent_question_placeholder">Your question will appear here once the interview starts.</p>
+    <p id="answer-countdown" class="answer-countdown" role="timer" hidden></p>
   </section>
   <section id="interviewer-stage" class="interviewer-stage" aria-label="Interview video area" data-i18n-attr="aria-label:interviewer_video_label">
     <div class="stage-caption"><span class="stage-dot" aria-hidden="true"></span> <span data-i18n="agent_stage">Interviewer seat</span></div>
@@ -57,12 +58,8 @@ The page does not upload, extract or edit profile data and does not persist prof
   </section>
   <div class="camera-toolbar"><button id="camera-toggle" type="button" class="secondary" aria-pressed="false" aria-controls="self-video" data-i18n="camera_enable">Enable camera</button><span id="camera-status" role="status" data-i18n="camera_note">Camera is for self-preview only; nothing is recorded or uploaded.</span></div>
   <section class="panel voice-panel" aria-label="Voice interview controls" data-i18n-attr="aria-label:voice_controls_label">
-    <div class="actions answer-actions">
-      <button id="start-recording" type="button" disabled data-i18n="voice_start">Start answering</button>
-      <button id="stop-recording" type="button" disabled data-i18n="voice_stop">Finish answer</button>
-    </div>
-    <p id="voice-status" class="hint" role="status" data-i18n="voice_ready">When the question is ready, start speaking and click Finish answer to submit.</p>
-    <div class="actions session-actions"><button id="cancel-agent" type="button" class="secondary" disabled data-i18n="cancel_interview">Cancel interview</button><button id="clear-agent" type="button" class="secondary" data-i18n="clear_content">Clear interview content</button></div>
+    <p id="voice-status" class="hint" role="status" data-i18n="voice_ready">Prepare for 15 seconds; recording and answer submission then run automatically.</p>
+    <div class="actions session-actions"><button id="cancel-agent" type="button" class="secondary" disabled aria-haspopup="dialog" aria-controls="end-interview-dialog" data-i18n="end_interview">End interview</button><button id="clear-agent" type="button" class="secondary" data-i18n="clear_content">Clear interview content</button></div>
   </section>
   </div><aside class="studio-sidebar">
   <section id="interview-progress" class="interview-progress" hidden aria-label="Interview progress" data-i18n-attr="aria-label:review_progress">
@@ -99,13 +96,19 @@ Parameter form initial values match MVP defaults; disabled during runtime by scr
       <div><label for="limit" data-i18n="limit_label">Question safety limit</label><input id="limit" type="number" min="1" step="1" value="40" required></div>
       <div><label for="probes" data-i18n="probes_label">Follow-up safety limit per topic</label><input id="probes" type="number" min="0" step="1" value="7" required></div>
     </div>
-    <p class="hint" data-i18n="budget_hint">Timing starts when the first question is ready and includes voice answers and model calls. Completion is checked after submission. Each recording lasts up to 120 seconds; click Finish answer to submit after the limit.</p>
+    <p class="hint" data-i18n="budget_hint">Timing starts when the first question is ready and includes voice answers and model calls. Each question allows 15 seconds of preparation. Answers finish automatically after 5 seconds of silence, detected completion, or the 120-second recording limit.</p>
     <p id="preparation-error" class="preparation-error" role="alert"></p>
     <p class="privacy-note" data-i18n="privacy_note">Your resume and answers are sent to the configured model service; parsed materials, questions, answers, and reports are stored in the server database. Clearing the page does not delete history, and interrupted sessions cannot yet be resumed.</p>
   </div>
   <div class="preparation-footer"><button id="cancel-preparation" type="button" class="secondary" data-i18n="preparation_cancel">Not now</button><button id="start-agent" type="submit" data-i18n="preparation_confirm">Confirm and start interview</button></div>
   </form>
   </dialog>
+<dialog id="end-interview-dialog" class="preparation-dialog" aria-labelledby="end-interview-title">
+  <h2 id="end-interview-title" data-i18n="end_interview">End interview</h2>
+  <p data-i18n="end_interview_choice">Evaluate completed answers and save this interview, or end without evaluation and remove this interview from history.</p>
+  <p id="end-interview-error" role="alert"></p>
+  <div class="actions"><button id="end-and-save" type="button" data-i18n="end_and_save">Evaluate and save</button><button id="end-without-save" type="button" class="secondary" data-i18n="end_without_save">End without saving</button><button id="continue-interview" type="button" class="secondary" data-i18n="continue_interview">Continue interview</button></div>
+</dialog>
   <!--
 Displayed only after receiving complete finished response; scores shown directly from backend result, not recalculated in template.
 -->

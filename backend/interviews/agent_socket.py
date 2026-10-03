@@ -28,7 +28,8 @@ Declaration Index:
 - Cancel:
   Cancels entire interview for current connection, retains history but does not auto-recover.
 - parse_command:
-  Converts single JSON text into Start, Answer, or Cancel command, no I/O produced.
+  Converts single JSON text into strict Prepare/Start/Answer/Skip/Finish/Discard/Cancel commands; no
+  I/O.
 - agent_socket:
   Manages ASGI lifecycle for one local-origin text interview, does not access practice database.
 - agent_socket.emit:
@@ -46,6 +47,11 @@ Declaration Index:
 - agent_socket.run:
   Binds input, schedules Agent, checks complete result, saves and sends; security exceptions bypass
   business fallback path.
+
+- Skip: Validate automatic unanswered closure against the current question.
+- Finish: Validate explicit early end with an optional paired current transcript.
+- Finish.paired_answer: Reject an incomplete question/text pair before any model operation.
+- Discard: Validate deletion of the current connection interview without evaluation.
 
 Variable Index:
 - MAX_MESSAGE_BYTES:
@@ -86,6 +92,7 @@ from .agent_records import (
     DuplicateRequest,
     PendingRequest,
     complete_request,
+    discard_interview,
     fail_request,
     interrupt_interview,
     reserve_request,
@@ -130,7 +137,8 @@ class Prepare(Command):
 
 class Start(Command):
     """Input is minutes duration and optional question count safety limit; defaults to 30 minutes
-    and Agent-configured upper limit.
+    and Agent-configured upper limit. keep_end_choice_open defaults False; browser opts in to
+    retain its owned connection after a final report for a concurrently open end-choice dialog.
     """
 
     type: Literal["start"]
@@ -142,6 +150,7 @@ class Start(Command):
     max_questions_per_project: int | None = Field(default=None, ge=1)
     max_questions_per_topic: int | None = Field(default=None, ge=1)
     job_title: str = Field(default="General AI / Software Engineer", min_length=1)
+    keep_end_choice_open: bool = False
 
     @model_validator(mode="after")
     def resume_source(self):
@@ -180,8 +189,56 @@ class Cancel(Command):
     type: Literal["cancel"]
 
 
+class Skip(Command):
+    """Functionality: Record automatic closure with no recognized speech.
+    Logic: Bind an empty transcript to the current question; no fabricated answer or capability
+    score.
+    Constraints: Only empty answer_text is accepted, with normal request deduplication.
+    """
+
+    type: Literal["skip"]
+    question_id: str = Field(min_length=1)
+    answer_text: Literal[""] = ""
+
+
+class Finish(Command):
+    """Functionality: Request evaluation/reporting of an early-ended interview.
+    Logic: Optional current answer is evaluated once, then the Agent commits FINISH directly.
+    Constraints: Nonempty answer requires its current question ID; no client scoring input.
+    """
+
+    type: Literal["finish"]
+    question_id: str | None = Field(default=None, min_length=1)
+    answer_text: str | None = Field(default=None, min_length=1)
+
+    @model_validator(mode="after")
+    def paired_answer(self):
+        """Inputs: Parsed question/text pair. Outputs: Self or validation error.
+        Logic: Require both or neither and reject whitespace-only answers before any paid calls.
+        Constraints: Uses the existing strict command envelope and server question validation.
+        """
+        if (
+            (self.answer_text is None) != (self.question_id is None)
+            or self.answer_text is not None
+            and not self.answer_text.strip()
+        ):
+            raise ValueError(
+                "Provide both current question_id and nonempty answer_text, or neither"
+            )
+        return self
+
+
+class Discard(Command):
+    """Functionality: End and remove the current connection's interview from history.
+    Logic: Socket cancels/awaits current work before deleting its owned session.
+    Constraints: No evaluation/report model is invoked; resumes are preserved.
+    """
+
+    type: Literal["discard"]
+
+
 def parse_command(raw):
-    """Converts single JSON text into Prepare, Start, Answer, or Cancel command, no I/O produced.
+    """Converts JSON into Prepare/Start/Answer/Skip/Finish/Discard/Cancel, without I/O.
 
     Precondition: Caller has checked message is text and within byte limit.
     Logic: Parse object and select type, then validate strictly via model for UUID, required fields,
@@ -194,9 +251,15 @@ def parse_command(raw):
     data = json.loads(raw)
     if not isinstance(data, dict):
         raise ValueError("Expected a JSON object.")
-    schema = {"prepare": Prepare, "start": Start, "answer": Answer, "cancel": Cancel}.get(
-        data.get("type")
-    )
+    schema = {
+        "prepare": Prepare,
+        "start": Start,
+        "answer": Answer,
+        "cancel": Cancel,
+        "skip": Skip,
+        "finish": Finish,
+        "discard": Discard,
+    }.get(data.get("type"))
     if schema is None:
         raise ValueError("Unknown message type.")
     return schema.model_validate_json(raw)
@@ -242,6 +305,7 @@ async def agent_socket(scope, receive, send):
     request_id = None
     seen = set()
     interview_started = False
+    keep_end_choice_open = False
     transport_failed = False
 
     async def emit(data):
@@ -321,7 +385,13 @@ async def agent_socket(scope, receive, send):
         """
         try:
             command = await safety.bind_input(command)
-            handler = {"prepare": session.prepare, "start": session.start, "answer": session.answer}
+            handler = {
+                "prepare": session.prepare,
+                "start": session.start,
+                "answer": session.answer,
+                "skip": session.answer,
+                "finish": session.finish,
+            }
             result = await handler[command.type](command)
             return await safety.publish(result, deliver_result)
         except Exception as exc:
@@ -337,7 +407,15 @@ async def agent_socket(scope, receive, send):
             "connection_id": connection_id,
             "max_message_bytes": MAX_MESSAGE_BYTES,
             "seconds_per_question": 120,
-            "capabilities": ["prepare", "progress", "assessment", "answer_completion_mcp"],
+            "capabilities": [
+                "prepare",
+                "progress",
+                "assessment",
+                "answer_completion_mcp",
+                "early_finish",
+                "discard",
+                "skip",
+            ],
         }
     )
     logger.info("Agent connected connection=%s", connection_id)
@@ -354,7 +432,20 @@ async def agent_socket(scope, receive, send):
                 event = receiver.result()
                 if event["type"] == "websocket.disconnect":
                     return
-            if operation is not None and operation in done:
+            discard_requested = False
+            if receiver in done:
+                raw_control = event.get("text")
+                if (
+                    isinstance(raw_control, str)
+                    and len(raw_control.encode("utf-8")) <= MAX_MESSAGE_BYTES
+                ):
+                    try:
+                        discard_requested = isinstance(parse_command(raw_control), Discard)
+                    except (ValueError, TypeError, ValidationError):
+                        pass  # The ordinary parser below reports malformed controls.
+            # A valid no-save choice takes precedence even if work failed in this same loop
+            # iteration. The normal parsing/ownership/deletion path below still applies.
+            if operation is not None and operation in done and not discard_requested:
                 try:
                     result = operation.result()
                 except Exception as exc:
@@ -394,9 +485,14 @@ async def agent_socket(scope, receive, send):
                     request_id,
                     result["type"],
                 )
-                if result["type"] == "finished":
+                if result["type"] == "finished" and not keep_end_choice_open:
                     await send({"type": "websocket.close", "code": 1000})
                     return
+                if result["type"] == "finished":
+                    # The browser normally closes after displaying the approved report. Keep
+                    # this owned connection available for an end-choice dialog that was opened
+                    # while the final request was running; Discard must still honor that choice.
+                    interview_started = True
             if receiver not in done:
                 continue
             receiver = asyncio.create_task(receive())
@@ -439,6 +535,37 @@ async def agent_socket(scope, receive, send):
                 )
                 continue
             incoming_id = str(command.request_id)
+            if isinstance(command, Discard):
+                if operation is not None:
+                    operation.cancel()
+                    outcome = (await asyncio.gather(operation, return_exceptions=True))[0]
+                    if isinstance(outcome, Exception):
+                        logger.warning(
+                            "Agent discarded work failed connection=%s exception=%s",
+                            connection_id,
+                            type(outcome).__name__,
+                        )
+                    operation = None
+                if session is not None:
+                    try:
+                        await discard_interview(session.interview_id, owner_id)
+                    except Exception as exc:
+                        logger.error(
+                            "Agent discard failed interview=%s exception=%s; "
+                            "inspect database deletion constraints",
+                            session.interview_id,
+                            type(exc).__name__,
+                        )
+                        await reject(
+                            "storage_unavailable",
+                            "Interview deletion failed. Check backend storage logs.",
+                            incoming_id,
+                        )
+                        await send({"type": "websocket.close", "code": 1011})
+                        return
+                await emit({"type": "discarded", "request_id": incoming_id})
+                await send({"type": "websocket.close", "code": 1000})
+                return
             # Cancel the entire session without busy-state or deduplication restrictions; every exit
             # path cancels the active local task.
             if isinstance(command, Cancel):
@@ -500,7 +627,7 @@ async def agent_socket(scope, receive, send):
                         "not_started", "Send start first and wait for a question.", incoming_id
                     )
                     continue
-                if (
+                if (not isinstance(command, Finish) or command.question_id is not None) and (
                     session.action.question is None
                     or command.question_id != session.action.question.question_id
                 ):
@@ -561,6 +688,7 @@ async def agent_socket(scope, receive, send):
                 return
             if isinstance(command, Start):
                 interview_started = True
+                keep_end_choice_open = command.keep_end_choice_open
             work = run(command)
             seen.add(incoming_id)
             request_id = incoming_id

@@ -82,7 +82,15 @@ async def connect():
     await comm.send_input({"type": "websocket.connect"})
     assert (await comm.receive_output())["type"] == "websocket.accept"
     hello = await read(comm)
-    assert hello["capabilities"] == ["prepare", "progress", "assessment", "answer_completion_mcp"]
+    assert hello["capabilities"] == [
+        "prepare",
+        "progress",
+        "assessment",
+        "answer_completion_mcp",
+        "early_finish",
+        "discard",
+        "skip",
+    ]
     return comm
 
 

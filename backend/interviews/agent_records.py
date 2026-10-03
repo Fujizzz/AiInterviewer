@@ -19,6 +19,8 @@ Declaration Index:
   interview failed.
 - interrupt_interview: Marks unfinished requests and interviews upon connection exit, without
   overwriting saved successful results.
+- discard_interview: Delete this connection's owned interview and cascading history after
+  cancellation.
 
 Variable Index:
 - logger: Logs only interview, request, operation, and lifecycle events, not input or response body.
@@ -32,16 +34,35 @@ from django.utils import timezone
 
 from ai_security.errors import SecurityContextChanged
 
-from .agent_models import AgentInterview, AgentRequest
+from .agent_models import AgentAnswer, AgentInterview, AgentRequest, AgentTurn
 from .agent_safety import make_output_receipt
 from .resume_models import ResumeVersion
 
 logger = logging.getLogger(__name__)
 
 
-class DuplicateRequest(Exception):
-    """Identifies previously accepted UUIDs, without revealing associated interview or input.
+@sync_to_async
+def discard_interview(interview_id, owner_id):
+    """Functionality: Honor the user's explicit end-without-saving choice.
+    Inputs: Server session ID and authenticated connection owner; no arbitrary client ID.
+    Outputs: None; deletes the matching interview and its requests, answers and turns.
+    Logic: After awaiting cancellation, verify ownership and delete protected turn/answer links
+    before the interview in one transaction; database failure rolls back the entire removal.
+    Constraints: Saved resume versions are preserved; database failures propagate and are logged
+    by the socket. Already sent vendor calls may finish but cannot recreate the deleted session.
     """
+    with transaction.atomic():
+        owned = AgentInterview.objects.filter(id=interview_id, owner_id=owner_id)
+        if not owned.exists():
+            return
+        AgentTurn.objects.filter(interview_id=interview_id).delete()
+        AgentAnswer.objects.filter(question__interview_id=interview_id).delete()
+        deleted, _ = owned.delete()
+    logger.info("Agent interview discarded interview=%s deleted_records=%d", interview_id, deleted)
+
+
+class DuplicateRequest(Exception):
+    """Identifies previously accepted UUIDs, without revealing associated interview or input."""
 
 
 class PendingRequest(Exception):

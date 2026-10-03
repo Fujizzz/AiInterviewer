@@ -82,8 +82,7 @@ class AgentInterview(models.Model):
     closed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        """Constrains context version and final state time, indexes historical list for sorting.
-        """
+        """Constrains context version and final state time, indexes historical list for sorting."""
 
         ordering = ["-created_at", "-id"]
         indexes = [models.Index(fields=["-created_at", "-id"], name="agent_history_order")]
@@ -107,6 +106,7 @@ class AgentRequest(models.Model):
 
     id is client-side UUID, globally unique to prevent duplicate triggering after reconnection.
     Duplicate IDs do not return responses from other connections.
+    kind permits prepare/start/answer/skip/finish; discard is an out-of-band deletion control.
     response saves successful result; error_code only records backend-fixed error codes, not vendor
     exceptions or keys.
     """
@@ -123,8 +123,7 @@ class AgentRequest(models.Model):
     finished_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        """Constrains request status and completion time, indexes request history within interviews.
-        """
+        """Constrain request status/completion time and index requests within each interview."""
 
         ordering = ["created_at", "id"]
         indexes = [
@@ -137,7 +136,8 @@ class AgentRequest(models.Model):
                 name="agent_one_running_request",
             ),
             models.CheckConstraint(
-                condition=Q(kind__in=["prepare", "start", "answer"]), name="agent_request_kind"
+                condition=Q(kind__in=["prepare", "start", "answer", "skip", "finish"]),
+                name="agent_request_kind",
             ),
             models.CheckConstraint(
                 condition=Q(status="running", finished_at__isnull=True, response__isnull=True)
@@ -171,8 +171,7 @@ class AgentQuestion(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        """Ensures unique question numbers within the same interview and sorts by question number.
-        """
+        """Ensure unique, ordered question numbers within each interview."""
 
         ordering = ["ordinal", "id"]
         constraints = [
@@ -237,8 +236,7 @@ class AgentTurn(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        """Constrains unique submission version and feedback request within the same interview.
-        """
+        """Constrains unique submission version and feedback request within the same interview."""
 
         ordering = ["state_version"]
         constraints = [

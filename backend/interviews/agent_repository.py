@@ -116,7 +116,9 @@ class DjangoInterviewRepository:
         """Saves answer before evaluation, validates request, current question, and session
         ownership.
 
-        Input: accepted request UUID and CandidateAnswer; returns None. Original answer persisted
+        Input: accepted answer/skip/finish request UUID and CandidateAnswer; returns None. Empty
+        text is permitted only through the validated Skip command; normal/finish text remains
+        nonempty. Original answer persisted
         but evaluation remains empty.
         One-answer-per-question constraint prevents repeated consumption; does not reuse failed
         answers or auto-retry them.
@@ -128,7 +130,10 @@ class DjangoInterviewRepository:
             if record.status != "active" or current.get("question_id") != answer.question_id:
                 raise InvalidAgentState("Answer does not target the active question")
             request = AgentRequest.objects.get(
-                id=request_id, interview_id=self.interview_id, kind="answer", status="running"
+                id=request_id,
+                interview_id=self.interview_id,
+                kind__in=["answer", "skip", "finish"],
+                status="running",
             )
             question = AgentQuestion.objects.get(
                 id=answer.question_id, interview_id=self.interview_id

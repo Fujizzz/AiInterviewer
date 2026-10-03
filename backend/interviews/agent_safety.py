@@ -288,6 +288,9 @@ class InterviewIOGateway:
 
     async def bind_input(self, command):
         """Bind a protocol-validated command to isolated backend state before running the Agent.
+        Inputs include answer/skip or explicit finish, which may omit a current answer; all require
+        active context. Supplied question IDs must match the current question. Outputs: detached
+        validated command; no scoring or question selection is performed.
 
         Do not reject based on attack wording or promote a job title or answer to authority; keep
         raw text only in connection memory.
@@ -308,12 +311,15 @@ class InterviewIOGateway:
             if snapshot.type in {"prepare", "start"}:
                 if context is not None:
                     raise IOSafetyError("interview already initialized")
-            elif snapshot.type == "answer":
+            elif snapshot.type in {"answer", "skip", "finish"}:
                 question = (stored["latest_action"] or {}).get("question") or {}
                 if (
                     context is None
                     or context.state.status != "active"
-                    or question.get("question_id") != snapshot.question_id
+                    or (
+                        snapshot.question_id is not None
+                        and question.get("question_id") != snapshot.question_id
+                    )
                 ):
                     raise IOSafetyError("answer outside current question")
             else:

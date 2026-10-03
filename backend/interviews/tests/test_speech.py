@@ -42,7 +42,7 @@ Declaration Index:
 - SpeechAccountTests:
   Ensure the integrated speech route retains account authentication and CSRF protection.
 - SpeechAccountTests.test_login_and_csrf_precede_tts:
-  Reject anonymous and tokenless writes before calling the offline synthesis provider.
+  Reject anonymous and tokenless writes before offline synthesis; verify automatic-answer UI.
 - FixtureRecognition:
   Explicit offline provider used only by protocol tests.
 - FixtureRecognition.__init__:
@@ -96,12 +96,10 @@ from interviews.speech.socket import stt_socket
 
 
 class SpeechServiceTests(SimpleTestCase):
-    """Validate region selection, raw audio format, quota errors and cache retention.
-    """
+    """Validate region selection, raw audio format, quota errors and cache retention."""
 
     def test_disabled_and_missing_credentials_never_construct_provider(self):
-        """Opt-in and complete credentials must precede any SDK construction.
-        """
+        """Opt-in and complete credentials must precede any SDK construction."""
         with (
             patch.dict(os.environ, {"SPEECH_ENABLED": "false"}),
             patch("dashscope.audio.qwen_tts_realtime.QwenTtsRealtime") as sdk,
@@ -115,8 +113,7 @@ class SpeechServiceTests(SimpleTestCase):
                 SpeechConfig.load()
 
     def test_singapore_wav_and_sanitised_quota_failure(self):
-        """The real adapter requests mono PCM and wraps it in a correctly labelled WAV.
-        """
+        """The real adapter requests mono PCM and wraps it in a correctly labelled WAV."""
         settings = {
             "SPEECH_ENABLED": "true",
             "DASHSCOPE_API_KEY": "test-key",
@@ -166,8 +163,7 @@ class SpeechServiceTests(SimpleTestCase):
             self.assertNotIn("SECRET", str(error.exception))
 
     def test_public_endpoints_and_incompatible_models(self):
-        """Singapore defaults require no workspace; unsupported protocols fail before SDK use.
-        """
+        """Singapore defaults require no workspace; unsupported protocols fail before SDK use."""
         settings = {"SPEECH_ENABLED": "true", "DASHSCOPE_API_KEY": "test-key"}
         with patch.dict(os.environ, settings, clear=True):
             self.assertEqual(
@@ -300,8 +296,7 @@ class SpeechServiceTests(SimpleTestCase):
             sdk.return_value.close.assert_called_once()
 
     def test_quota_error_survives_connection_close(self):
-        """Preserve a server quota error when sending input races with its disconnect.
-        """
+        """Preserve a server quota error when sending input races with its disconnect."""
         settings = {"SPEECH_ENABLED": "true", "DASHSCOPE_API_KEY": "test-key"}
         with (
             patch.dict(os.environ, settings, clear=True),
@@ -309,8 +304,7 @@ class SpeechServiceTests(SimpleTestCase):
         ):
 
             def reject(**kwargs):
-                """Emit a quota failure before simulating a failed client send.
-                """
+                """Emit a quota failure before simulating a failed client send."""
                 sdk.call_args.kwargs["callback"].on_event(
                     {"type": "error", "error": {"code": "AllocationQuota.FreeTierOnly"}}
                 )
@@ -324,8 +318,7 @@ class SpeechServiceTests(SimpleTestCase):
             sdk.return_value.close.assert_called_once()
 
     def test_qwen_incomplete_invalid_oversized_and_timeout(self):
-        """Reject truncated streams, malformed PCM, excessive output and missing completion.
-        """
+        """Reject truncated streams, malformed PCM, excessive output and missing completion."""
         cases = [
             ("early_close", [], "speech_connection_closed"),
             (
@@ -355,8 +348,7 @@ class SpeechServiceTests(SimpleTestCase):
             ):
 
                 def deliver(current_events=events, current_label=label, current_sdk=sdk):
-                    """Deliver chosen provider events on finish without a network connection.
-                    """
+                    """Deliver chosen provider events on finish without a network connection."""
                     callback = current_sdk.call_args.kwargs["callback"]
                     for event in current_events:
                         callback.on_event(event)
@@ -371,8 +363,7 @@ class SpeechServiceTests(SimpleTestCase):
                 sdk.return_value.close.assert_called_once()
 
     def test_cache_evicts_by_bytes_count_and_ttl(self):
-        """Audio capabilities expire and cannot grow memory without a fixed bound.
-        """
+        """Audio capabilities expire and cannot grow memory without a fixed bound."""
         clock = Mock(return_value=10)
         store = AudioStore(ttl=5, max_bytes=6, max_items=2, clock=clock)
         first = store.put(b"1111")
@@ -385,8 +376,7 @@ class SpeechServiceTests(SimpleTestCase):
             store.put(b"oversized")
 
     def test_recognition_adapter_english_format_and_callback(self):
-        """Verify the real SDK boundary without creating a remote task.
-        """
+        """Verify the real SDK boundary without creating a remote task."""
         settings = {
             "SPEECH_ENABLED": "true",
             "DASHSCOPE_API_KEY": "test-key",
@@ -422,12 +412,10 @@ class SpeechServiceTests(SimpleTestCase):
 
 
 class SpeechHTTPTests(SimpleTestCase):
-    """Exercise actual Django routes and loopback access with generated fixture bytes.
-    """
+    """Exercise actual Django routes and loopback access with generated fixture bytes."""
 
     def test_tts_url_audio_and_unknown_capability(self):
-        """A synthesis response resolves through the public UUID route and is not cached.
-        """
+        """A synthesis response resolves through the public UUID route and is not cached."""
         wav = b"fixture WAV bytes"
         with patch("interviews.speech.views.synthesize", return_value=wav):
             response = self.client.post(
@@ -450,8 +438,7 @@ class SpeechHTTPTests(SimpleTestCase):
         )
 
     def test_invalid_text_disabled_voice_and_static_allowlist(self):
-        """Bad text never reaches the provider and disabled service offers explicit errors.
-        """
+        """Bad text never reaches the provider and disabled service offers explicit errors."""
         with patch("interviews.speech.views.synthesize") as provider:
             for text in ("", " " * 10, "a" * 1201, 123):
                 response = self.client.post(
@@ -471,11 +458,14 @@ class SpeechHTTPTests(SimpleTestCase):
 
 @override_settings(INTERVIEW_REQUIRE_LOGIN=True)
 class SpeechAccountTests(TestCase):
-    """Verify authenticated speech using an isolated test database and a local provider double.
-    """
+    """Verify authenticated speech using an isolated test database and a local provider double."""
 
     def test_login_and_csrf_precede_tts(self):
-        """A logged-in page supplies CSRF; missing login or token never calls synthesis.
+        """A logged-in automatic-answer page supplies CSRF; missing login/token prevents synthesis.
+        Inputs: Isolated account/database, CSRF-enforcing client and offline synthesis mock.
+        Outputs: Assertions on access checks, countdown/end controls and permitted synthesis.
+        Logic: Authenticate, load the actual template, then submit with its issued CSRF cookie.
+        Constraints: No microphone or vendor call; DOM assertions do not verify rendered layout.
         """
         client = Client(enforce_csrf_checks=True)
         with patch("interviews.speech.views.synthesize", return_value=b"fixture WAV") as provider:
@@ -498,7 +488,11 @@ class SpeechAccountTests(TestCase):
             provider.assert_not_called()
             page = client.get("/agent/")
             self.assertEqual(page.status_code, 200)
-            self.assertContains(page, 'id="start-recording"')
+            self.assertContains(page, 'id="answer-countdown"')
+            self.assertContains(page, 'id="end-and-save"')
+            self.assertContains(page, 'id="end-without-save"')
+            self.assertNotContains(page, 'id="start-recording"')
+            self.assertNotContains(page, 'id="stop-recording"')
             response = client.post(
                 "/api/speech/tts/",
                 {"text": "Describe one contribution."},
@@ -510,21 +504,17 @@ class SpeechAccountTests(TestCase):
 
 
 class FixtureRecognition:
-    """Explicit offline provider used only by protocol tests.
-    """
+    """Explicit offline provider used only by protocol tests."""
 
     def __init__(self, emit):
-        """Store the callback and the PCM received by this isolated session.
-        """
+        """Store the callback and the PCM received by this isolated session."""
         self.emit, self.frames = emit, []
 
     def start(self):
-        """Allow startup without a network service.
-        """
+        """Allow startup without a network service."""
 
     def feed(self, pcm):
-        """Produce one evolving sentence and mark it final without ending the answer.
-        """
+        """Produce one evolving sentence and mark it final without ending the answer."""
         self.frames.append(pcm)
         self.emit({"type": "sentence", "segment": "1", "text": "I built", "is_final": False})
         self.emit(
@@ -532,19 +522,16 @@ class FixtureRecognition:
         )
 
     def stop(self):
-        """Append a final sentence and emit completion only after explicit stop.
-        """
+        """Append a final sentence and emit completion only after explicit stop."""
         self.emit({"type": "sentence", "segment": "2", "text": "I tested it.", "is_final": True})
         self.emit({"type": "complete"})
 
 
 class SpeechSocketTests(SimpleTestCase):
-    """Validate answer boundaries, sentence accumulation and malformed audio rejection.
-    """
+    """Validate answer boundaries, sentence accumulation and malformed audio rejection."""
 
     async def connect(self, origin="http://localhost"):
-        """Create an in-process ASGI connection with the production loopback policy.
-        """
+        """Create an in-process ASGI connection with the production loopback policy."""
         comm = ApplicationCommunicator(
             stt_socket,
             {
@@ -558,13 +545,11 @@ class SpeechSocketTests(SimpleTestCase):
         return comm
 
     async def read(self, comm):
-        """Read one JSON event with a bounded wait.
-        """
+        """Read one JSON event with a bounded wait."""
         return json.loads((await comm.receive_output(timeout=3))["text"])
 
     async def test_partial_text_waits_for_stop_and_final_joins_sentences(self):
-        """Sentence-final events remain drafts until explicit answer completion.
-        """
+        """Sentence-final events remain drafts until explicit answer completion."""
         with patch("interviews.speech.socket.RecognitionSession", FixtureRecognition):
             comm = await self.connect()
             self.assertEqual((await comm.receive_output())["type"], "websocket.accept")
@@ -585,8 +570,7 @@ class SpeechSocketTests(SimpleTestCase):
             await comm.wait(timeout=3)
 
     async def test_odd_pcm_and_cross_origin_fail_before_recognition(self):
-        """PCM byte alignment and browser origins are checked on the server.
-        """
+        """PCM byte alignment and browser origins are checked on the server."""
         with patch("interviews.speech.socket.RecognitionSession", FixtureRecognition):
             comm = await self.connect()
             await comm.receive_output()
@@ -604,8 +588,7 @@ class SpeechSocketTests(SimpleTestCase):
             provider.assert_not_called()
 
     async def test_disconnect_stops_provider(self):
-        """Closing the page releases the recognition task rather than keeping its stream open.
-        """
+        """Closing the page releases the recognition task rather than keeping its stream open."""
         session = Mock()
         with patch("interviews.speech.socket.RecognitionSession", return_value=session):
             comm = await self.connect()
@@ -618,8 +601,7 @@ class SpeechSocketTests(SimpleTestCase):
             session.stop.assert_called_once()
 
     async def test_production_stt_rejects_anonymous_before_provider(self):
-        """Production session validation runs before the new speech WebSocket handler.
-        """
+        """Production session validation runs before the new speech WebSocket handler."""
         from config.asgi import application
 
         with (

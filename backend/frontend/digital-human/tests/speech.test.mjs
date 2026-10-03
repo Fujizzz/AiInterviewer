@@ -1,7 +1,9 @@
 /**
  *
  * @module speech-tests
- * Offline speech frontend regression test; uses only device and network stubs, without accessing real microphone or cloud models.
+ * Responsibilities: Verify offline speech, automatic preparation, inactivity and end-finalization contracts.
+ * Implementation: Stub DOM, provider/device boundaries and capture startup; drive monotonic deadlines explicitly.
+ * Related Modules: InterviewVoice, SpeechCapture, speech-worklet and PCM16Resampler; no real microphone or cloud model is used.
  *
  * Declaration Index:
  * - page: Create minimal DOM and event listener stubs.
@@ -35,21 +37,34 @@
  * - callback5.globalThis.fetch: Provide TTS quota insufficient response.
  * - callback5.globalThis.fetch.object1.json: Return fixed public error message.
  * - callback6: Verify late authorization after device rejection or cancellation does not leak audio track.
- * - callback6.object1.value.mediaDevices.getUserMedia: Simulate microphone authorization rejection.
- * - callback6.callback1: Provide temporary transcription callback with no processing required.
- * - callback6.callback2: Provide final transcription callback with no processing required.
- * - callback6.callback3: Provide recognition error callback with no processing required.
+ * - callback6.object1.value.mediaDevices.getUserMedia: Simulate microphone permission denial.
+ * - callback6.callback1: Temporary transcription callback.
+ * - callback6.callback2: Final transcription callback.
+ * - callback6.callback3: Recognition error callback.
  * - callback6.navigator.mediaDevices.getUserMedia: Provide late device authorization result.
  * - callback6.navigator.mediaDevices.getUserMedia.callback1: Save device authorization completion callback.
- * - callback6.callback4: Provide temporary transcription callback for canceled session.
- * - callback6.callback5: Provide final transcription callback for canceled session.
- * - callback6.callback6: Provide recognition error callback for canceled session.
+ * - callback6.callback4: Cancel session temporary transcription callback.
+ * - callback6.callback5: Cancel session final transcription callback.
+ * - callback6.callback6: Cancel session recognition error callback.
  * - callback6.object2.getTracks: Return test audio track with verifiable stop status.
  * - callback6.object2.getTracks.object1.stop: Mark late audio track as released.
- * - callback7: Verify CSRF token provided by login page is sent with TTS POST.
- * - callback7.globalThis.fetch: Record request headers and return offline vendor error.
- * - callback7.globalThis.fetch.object1.json: Return fixed public error without triggering audio playback.
- *
+ * - callback7: New account API requires TTS write requests to carry page token; does not weaken server-side CSRF checks.
+ * - callback7.globalThis.fetch: Save client request headers; fix failure to prevent browser audio creation during testing.
+ * - callback7.globalThis.fetch.object1.json: Return offline error, prohibiting real vendor calls.
+ * - callback8: Verify 15 seconds of preparation and five silent seconds without real microphone access.
+ * - callback8.callback1: Observe exactly one final answer submission.
+ * - callback8.SpeechCapture.prototype.start: Replace device/provider startup with a recording-state transition only.
+ * - callback8.SpeechCapture.prototype.end: Deliver the empty final provider text after automatic flush.
+ * - callback9: Verify semantic completion submits once and obsolete recognition callbacks cannot affect the new question.
+ * - callback9.callback1: Save final text and optional receipt for protocol assertions.
+ * - callback9.SpeechCapture.prototype.start: Simulate ready capture without creating real device or network resources.
+ * - callback9.SpeechCapture.prototype.end: Simulate receipt-bound provider finalization.
+ * - callback10: Verify early ending consumes final STT rather than partial captions and prevents normal answer submission.
+ * - callback10.callback1: Detect accidental normal submission while ending.
+ * - callback10.SpeechCapture.prototype.start: Mark the offline capture ready for finalization.
+ * - callback10.SpeechCapture.prototype.end: Return final words distinct from the preceding partial subtitles.
+ * - callback11: Verify a denied automatic microphone attempt is explicit and is not silently retried.
+ * - callback11.SpeechCapture.prototype.start: Reject device startup at the same boundary as browser permission refusal.
  * Variable Index:
  * None
  *
@@ -222,7 +237,8 @@ test("TTS failure leaves voice recording available", async () => {
  *  Return fixed public error message.
  */ json: async () => ({ error: { code: "quota_exhausted", detail: "Use text" } }) });
   await voice.speak();
-  assert.equal(elements.get("start-recording").disabled, false);
+  assert.equal(voice.eligible, true);
+  assert.equal(voice.capture, null);
   assert.match(elements.get("voice-status").textContent, /quota_exhausted/);
   voice.close();
 });
@@ -295,4 +311,118 @@ test("TTS includes the page CSRF token for authenticated sessions", async () => 
   assert.equal(headers["X-CSRFToken"], "public-test-csrf");
   assert.equal(headers["Content-Type"], "application/json");
   voice.close();
+});
+
+/** Verify 15 seconds of preparation and five silent seconds without real microphone access. */
+test("preparation opens capture once and five silent seconds submit an empty answer", async () => {
+  page();
+  const submitted = [];
+  const voice = new InterviewVoice(/** Observe exactly one final answer submission. */ (text) => submitted.push(text));
+  voice.eligible = true;
+  const originalStart = SpeechCapture.prototype.start;
+  const originalEnd = SpeechCapture.prototype.end;
+  let starts = 0;
+  /** Replace device/provider startup with a recording-state transition only. */
+  SpeechCapture.prototype.start = async function () { starts++; this.recording = true; };
+  /** Deliver the empty final provider text after automatic flush. */
+  SpeechCapture.prototype.end = async function () { this.recording = false; this.onFinal("", 1); await this.close(); };
+  try {
+    const before = performance.now();
+    voice.setQuestion({ question_id: "q1", text: "Question" });
+    assert.ok(voice.deadline - before >= 15000);
+    assert.equal(starts, 0);
+    assert.match(document.getElementById("answer-countdown").textContent, /15s/);
+    voice.deadline = performance.now() - 1;
+    voice.tick();
+    await Promise.resolve();
+    assert.equal(starts, 1);
+    assert.equal(voice.phase, "answering");
+    voice.tick();
+    assert.equal(starts, 1);
+    const capture = voice.capture;
+    voice.deadline = performance.now() + 20;
+    capture.options.onActivity();
+    assert.ok(voice.deadline - performance.now() > 4900);
+    voice.deadline = performance.now() - 1;
+    voice.tick();
+    await Promise.resolve();
+    voice.tick();
+    assert.deepEqual(submitted, [""]);
+    assert.equal(voice.capture, null);
+  } finally { voice.close(); SpeechCapture.prototype.start = originalStart; SpeechCapture.prototype.end = originalEnd; }
+});
+
+/** Verify semantic completion submits once and obsolete recognition callbacks cannot affect the new question. */
+test("semantic completion flushes once and stale text cannot refresh a new question", async () => {
+  page();
+  const submitted = [];
+  const voice = new InterviewVoice(/** Save final text and optional receipt for protocol assertions. */ (text, receipt) => submitted.push({ text, receipt }));
+  voice.eligible = true;
+  voice.completionEnabled = true;
+  const originalStart = SpeechCapture.prototype.start;
+  const originalEnd = SpeechCapture.prototype.end;
+  let endings = 0;
+  /** Simulate ready capture without creating real device or network resources. */
+  SpeechCapture.prototype.start = async function () { this.recording = true; };
+  /** Simulate receipt-bound provider finalization. */
+  SpeechCapture.prototype.end = async function () { endings++; this.recording = false; this.onFinal("Real answer", 1, "receipt"); await this.close(); };
+  try {
+    voice.setQuestion({ question_id: "q1", text: "First" });
+    voice.deadline = performance.now() - 1; voice.tick();
+    await Promise.resolve();
+    const previous = voice.capture;
+    previous.options.onCompletion(); previous.options.onCompletion();
+    await Promise.resolve();
+    assert.equal(endings, 1);
+    assert.deepEqual(submitted, [{ text: "Real answer", receipt: "receipt" }]);
+    voice.setQuestion({ question_id: "q2", text: "Second" });
+    const deadline = voice.deadline;
+    previous.onPartial("Late words"); previous.options.onActivity();
+    assert.equal(voice.deadline, deadline);
+    assert.equal(document.getElementById("answer-subtitle").textContent, "");
+  } finally { voice.close(); SpeechCapture.prototype.start = originalStart; SpeechCapture.prototype.end = originalEnd; }
+});
+
+/** Verify early ending consumes final STT rather than partial captions and prevents normal answer submission. */
+test("early end flushes final text without submitting another answer or question", async () => {
+  page();
+  const submitted = [];
+  const voice = new InterviewVoice(/** Detect accidental normal submission while ending. */ (text) => submitted.push(text));
+  voice.eligible = true;
+  const originalStart = SpeechCapture.prototype.start;
+  const originalEnd = SpeechCapture.prototype.end;
+  /** Mark the offline capture ready for finalization. */
+  SpeechCapture.prototype.start = async function () { this.recording = true; };
+  /** Return final words distinct from the preceding partial subtitles. */
+  SpeechCapture.prototype.end = async function () { this.recording = false; this.onFinal("Final answer", 1); await this.close(); };
+  try {
+    voice.setQuestion({ question_id: "q1", text: "Question" });
+    voice.deadline = performance.now() - 1; voice.tick();
+    await Promise.resolve();
+    voice.capture.onPartial("Partial caption");
+    assert.equal(await voice.takeFinalAnswer(), "Final answer");
+    assert.deepEqual(submitted, []);
+    assert.equal(voice.answerTimer, null);
+  } finally { voice.close(); SpeechCapture.prototype.start = originalStart; SpeechCapture.prototype.end = originalEnd; }
+});
+
+/** Verify a denied automatic microphone attempt is explicit and is not silently retried. */
+test("automatic microphone failure stops clocks and does not retry", async () => {
+  page();
+  const voice = new InterviewVoice();
+  voice.eligible = true;
+  const originalStart = SpeechCapture.prototype.start;
+  let attempts = 0;
+  /** Reject device startup at the same boundary as browser permission refusal. */
+  SpeechCapture.prototype.start = async function () { attempts++; throw new Error("Permission denied"); };
+  try {
+    voice.setQuestion({ question_id: "q1", text: "Question" });
+    voice.deadline = performance.now() - 1; voice.tick();
+    await Promise.resolve();
+    voice.tick();
+    assert.equal(attempts, 1);
+    assert.equal(voice.phase, "error");
+    assert.equal(voice.answerTimer, null);
+    assert.match(document.getElementById("voice-status").textContent, /Permission denied/);
+  } finally { voice.close(); SpeechCapture.prototype.start = originalStart; }
 });

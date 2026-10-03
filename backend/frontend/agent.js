@@ -1,7 +1,7 @@
 /**
  * @module agent
  * Responsibilities: Run voice interviews with a ready resume selected from the personal center and display actual stages, timing, scores, and reports.
- * Implementation: Confirm preparation before connecting and sending start; submit automatically completed answers through the same MCP connection only when a completion receipt is present.
+ * Implementation: Confirm preparation before connecting and sending start; submit final automatic answers using MCP when receipt-backed and ordinary answer/skip otherwise; explicit end evaluates/saves or discards after its acknowledgement.
  * Related Modules: agent.html, i18n.js, /api/resume-versions/, and /ws/agent/; resume maintenance is handled at /resumes/.
  * Declaration Index:
  * - el: Find a required page element by ID.
@@ -28,8 +28,12 @@
  * - onPreparationClosed: Return focus to the entry control or the status region preparing the first question.
  * - onPreparationKeydown: Cycle Tab focus within the dialog; let the native dialog handle Escape.
  * - onPreparationLanguage: Redraw resume labels and known selection status without network access or selection changes.
- * - onAnswer: Submit the final transcript while the current question is idle; manual answers use answer and receipt-backed automatic answers use the fixed MCP tool.
- * - onCancel: Cancel the active interview connection.
+ * - onAnswer: Submit the final transcript while the current question is idle; inactivity answers use answer, empty closure uses skip, and receipt-backed semantic completion uses MCP.
+ * - onCancel: Suspend automatic answering and open evaluate/save versus discard choices.
+ * - dispatchFinish: Functionality: Send the chosen finish after any already accepted request completes.
+ * - onEndSave: Functionality: Select early evaluation and preserve the final current transcript if available.
+ * - onEndDiscard: Functionality: End without evaluation and remove this session's history.
+ * - onEndContinue: Functionality: Dismiss the end choice and restore automatic answering.
  * - onClear: Clear interview content while retaining resume and role settings.
  * - onPageHide: Release the connection, timers, recording, and avatar resources when leaving the page.
  * Variable Index:
@@ -55,6 +59,7 @@
  * - preparationInvoker: Dialog entry button used to restore focus; stores no profile data.
  * - resumeSelectionMessage: Localization key for the selection message; unknown server errors retain their original text.
  * - mcpInitId: Current MCP initialization UUID; the pending start is sent only after handshake succeeds.
+ * - ending: Explicit end-choice state and optional final transcript; gates automation and queued finish.
  * - mcpReady: Whether the connection completed MCP handshake; controls the automatic completion path.
  *
  * Constraints:
@@ -76,6 +81,7 @@ const STAGES = {
   next_action: "agent_stage_next", report_generation: "agent_stage_report",
 };
 const FALLBACK_TEXT = {
+  interview_discarded: "Interview ended. This interview was removed from history.",
   agent_resume_choice: "Select a saved resume",
   agent_resume_select: "Select a ready resume version",
   agent_manage_profile: "Manage profile and resumes in your personal center ↗",
@@ -111,7 +117,6 @@ const FALLBACK_TEXT = {
   report_generating: "The score is ready; report text is still being generated.",
   agent_finished: "Interview complete",
   agent_cancelled: "Interview cancelled; sent model requests may still finish.",
-  agent_cancel_message: "Cancelled; sent model requests may still finish.",
   agent_processing_failed: "Processing failed: {message}",
   agent_connection_failed: "Connection failed. Check the backend service.",
   agent_page_left: "Page left; connection ended.",
@@ -145,6 +150,7 @@ let clockTimer = null;
 let completedStages = [];
 let preparationInvoker = null;
 let resumeSelectionMessage = null;
+let ending = null;
 
 /**
  * Read request and interview state update disabled; protect version selection during version loading and session, no network side effects.
@@ -156,8 +162,9 @@ function controls() {
   for (const id of ["resume-select", "refresh-resumes"]) el(id).disabled = busy || interviewActive || resumesLoading;
   for (const id of ["job", "duration", "limit", "probes"]) el(id).disabled = interviewActive;
   const answering = interviewActive && questionId !== null && !busy;
-  el("cancel-agent").disabled = socket === null;
-  window.dispatchEvent(new CustomEvent("interview-controls", { detail: { active: interviewActive, answering } }));
+  el("cancel-agent").disabled = socket === null || ending !== null;
+  el("clear-agent").disabled = socket !== null;
+  window.dispatchEvent(new CustomEvent("interview-controls", { detail: { active: interviewActive, answering: answering && ending === null } }));
 }
 /**
  * Input status text, display using textContent, do not execute HTML, output is empty.
@@ -298,6 +305,8 @@ function stop(message) {
   pendingId = null;
   pendingCommand = null;
   interviewActive = false;
+  ending = null;
+  el("end-interview-dialog").close();
   endWait();
   controls();
   if (!el("report-panel").hidden && el("report").textContent === "") {
@@ -322,6 +331,10 @@ function onMessage(event) {
   if (socket !== event.currentTarget) return;
   try {
     let message = JSON.parse(event.data);
+    // Discard is the only control allowed to preempt an outstanding request. Ignore its
+    // now-obsolete response; only a matching discard acknowledgement completes deletion.
+    if (ending?.kind === "discard" && message.request_id !== pendingId) return;
+    if (ending?.kind === "discard" && message.type !== "discarded" && message.type !== "error") return;
     if (message.jsonrpc === "2.0") {
       if (message.id === mcpInitId && mcpInitId !== null) {
         if (message.error || message.result?.protocolVersion !== "2025-06-18" || !message.result?.capabilities?.tools) throw new Error("MCP initialization failed.");
@@ -379,9 +392,19 @@ function onMessage(event) {
       el("evaluation-panel").hidden = !message.last_evaluation;
       el("evaluation").textContent = message.last_evaluation ? JSON.stringify(message.last_evaluation, null, 2) : "";
       const backendWaitMs = waitStarted === null ? null : performance.now() - waitStarted;
-      endWait(); controls(); status(uiText("agent_question_answer")); el("start-recording").focus();
+      endWait(); controls(); status(uiText("agent_question_answer"));
+      if (ending?.kind === "finish") { dispatchFinish(); return; }
       voice.setQuestion(message.question, backendWaitMs);
+      if (ending?.kind === "choosing") voice.suspended = true;
     } else if (message.type === "finished") {
+      if (ending?.kind === "choosing") {
+        ending.completed = message;
+        pendingId = null;
+        endWait();
+        voice.reset(); voice.suspended = true;
+        controls();
+        return;
+      }
       progress.update(message.result);
       const report = message.result.final_report;
       displayAssessment(report);
@@ -389,7 +412,8 @@ function onMessage(event) {
       el("report-summary").textContent = summaryPrefix + report.summary;
       el("report").textContent = JSON.stringify(message.result, null, 2);
       stop(uiText("agent_finished"));
-    } else if (message.type === "cancelled") stop(uiText("agent_cancelled"));
+    } else if (message.type === "discarded") { stop(uiText("interview_discarded")); clearResults(); }
+    else if (message.type === "cancelled") stop(uiText("agent_cancelled"));
     else throw new Error(uiText("agent_unknown_response"));
   } catch (error) { progress.warn("client_protocol", error.message); stop(uiText("agent_processing_failed", { message: error.message })); }
 }
@@ -442,6 +466,7 @@ function onStart(event) {
   clearResults(); interviewActive = true;
   el("preparation-dialog").close();
   dispatch({ type: "start", resume_version_id: id, job_title: job,
+    keep_end_choice_open: true,
     duration_minutes: Number(el("duration").value),
     max_questions: Number(el("limit").value), max_follow_up_per_topic: Number(el("probes").value) });
 }
@@ -499,24 +524,111 @@ function onPreparationLanguage() {
   if (el("preparation-error").textContent) el("preparation-error").textContent = uiText("agent_resume_required");
 }
 /**
- * Input complete final text and optional backend auto-end credential; automatic branch goes through MCP, manual branch uses answer.
+ * Inputs: Complete final text and optional semantic receipt. Outputs: None. Logic: Semantic receipts use MCP, ordinary inactivity/capture-limit text uses answer and empty closure uses skip.
  * Current question, idle state, and handshake revalidated; complete answer still processed by same backend secure/evaluation/planning flow.
  */
 function onAnswer(text, completionReceipt = null) {
   const answer = text.trim();
-  if (!answer || !interviewActive || !questionId || pendingId || pendingCommand || voice.busy || voice.capture) return;
+  if (!interviewActive || !questionId || pendingId || pendingCommand || voice.busy || voice.capture || ending) return;
   voice.reset(false);
   voice.message(uiText("agent_submit"));
   status(uiText("agent_submit"));
   if (completionReceipt && !mcpReady) { stop("MCP answer completion is unavailable."); return; }
-  dispatch(completionReceipt
+  dispatch(!answer ? { type: "skip", question_id: questionId } : completionReceipt
     ? { type: "mcp_finish", question_id: questionId, answer_text: answer, completion_receipt: completionReceipt }
     : { type: "answer", question_id: questionId, answer_text: answer });
 }
 /**
- *  Close connection and display timer when user cancels; does not guarantee that the vendor has stopped sending requests or will not incur charges.
+ * Functionality: Open the explicit end choice from any active connection. Inputs: Current socket/ending state. Outputs: None. Logic: Suspend automatic transitions and show a native modal; no backend command until a choice. Constraints: Already accepted requests may complete.
  */
-function onCancel() { stop(uiText("agent_cancel_message")); }
+function onCancel() {
+  if (!socket || ending) return;
+  ending = { kind: "choosing" };
+  voice.suspended = true;
+  el("end-interview-error").textContent = "";
+  el("end-interview-dialog").showModal();
+  controls();
+}
+
+/** Functionality: Send the chosen finish after any already accepted request completes.
+ * Inputs: ending's optional final transcript and current server question ID.
+ * Outputs: None. Logic: No retry or extra question submission; finished responses use regular review.
+ * Constraints: A pending request must resolve before this command can be reserved by the backend.
+ */
+function dispatchFinish() {
+  if (ending?.kind !== "finish" || pendingId || pendingCommand) return;
+  const command = { type: "finish" };
+  if (ending.text) { command.question_id = ending.questionId; command.answer_text = ending.text; }
+  dispatch(command);
+}
+
+/** Functionality: Select early evaluation and preserve the final current transcript if available.
+ * Inputs: Current voice/question/request state. Outputs: None; errors stay visible in the dialog.
+ * Logic: Suspend automation, flush active recording once, and queue finish behind an accepted request.
+ * Constraints: Final speech errors are not silently replaced by partial captions or omitted answers.
+ */
+async function onEndSave() {
+  if (ending?.kind !== "choosing") return;
+  if (ending.completed) {
+    const message = ending.completed;
+    ending = { kind: "finish" };
+    pendingId = message.request_id;
+    el("end-interview-dialog").close();
+    onMessage({ currentTarget: socket, data: JSON.stringify(message) });
+    return;
+  }
+  ending = { kind: "finalizing" };
+  el("end-and-save").disabled = true;
+  el("end-without-save").disabled = true;
+  el("continue-interview").disabled = true;
+  try {
+    const text = pendingId || pendingCommand ? "" : await voice.takeFinalAnswer();
+    if (!ending || terminal) return;
+    ending = { kind: "finish", text, questionId };
+    voice.reset(false);
+    voice.suspended = true;
+    el("end-interview-dialog").close();
+    dispatchFinish();
+  } catch (error) {
+    console.error("Early interview finalization failed", { name: error.name });
+    if (ending) ending = { kind: "choosing" };
+    el("end-interview-error").textContent = error.message;
+  } finally {
+    for (const id of ["end-and-save", "end-without-save", "continue-interview"]) el(id).disabled = false;
+    controls();
+  }
+}
+
+/** Functionality: End without evaluation and remove this session's history.
+ * Inputs: User's explicit discard choice. Outputs: None.
+ * Logic: Cancel capture locally and send a distinct discard UUID even during a pending request.
+ * Constraints: Keep connection open until deletion acknowledgement; failures never claim deletion.
+ */
+function onEndDiscard() {
+  if (ending?.kind !== "choosing") return;
+  ending = { kind: "discard" };
+  voice.reset();
+  voice.suspended = true;
+  el("end-interview-dialog").close();
+  beginWait();
+  try { send({ type: "discard" }); }
+  catch (error) { stop(error.message); }
+}
+
+/** Functionality: Dismiss the end choice and restore automatic answering.
+ * Inputs: Dialog close/cancel event and ending state. Outputs: None.
+ * Logic: Only an uncommitted choice is resumable; save/discard closures stay terminal.
+ * Constraints: No duplicate speech capture or backend command is created.
+ */
+function onEndContinue(event) {
+  event?.preventDefault();
+  if (ending?.kind !== "choosing") return;
+  if (ending.completed) { void onEndSave(); return; }
+  ending = null;
+  el("end-interview-dialog").close();
+  controls();
+  voice.resumeAnswer();
+}
 /**
  *  Clear connection and current interview display; keep original values for selected version, position, and number of questions.
  */
@@ -537,6 +649,10 @@ el("interview-language").addEventListener("change", onPreparationLanguage);
 el("resume-select").addEventListener("change", onResumeSelect);
 el("refresh-resumes").addEventListener("click", loadResumeVersions);
 el("cancel-agent").addEventListener("click", onCancel);
+el("end-and-save").addEventListener("click", onEndSave);
+el("end-without-save").addEventListener("click", onEndDiscard);
+el("continue-interview").addEventListener("click", onEndContinue);
+el("end-interview-dialog").addEventListener("cancel", onEndContinue);
 el("clear-agent").addEventListener("click", onClear);
 window.addEventListener("pagehide", onPageHide);
 window.addEventListener("languagechange", onPreparationLanguage);
