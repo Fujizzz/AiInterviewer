@@ -1,9 +1,15 @@
 /*
- * 职责：主页与账号页共享链接、介绍文字和页脚的基础样式。
- * 实现：保留账号介绍的可读行距和主/次操作配色；布局与响应式由 workspace.css 统一。
- * 关联：home.html、account.html、resumes.html、interview-review.html；不负责业务状态。
- * 目录：语言选择；介绍文字；主次链接；页脚。函数和类声明：None。变量索引：None。
- * 约束：纯展示，无 API 或设备访问；旧营销页的布局选择器已删除。
+ * Responsibilities: Style shared introductions, links and footers.
+ * Implementation: Provide readable line height and primary/secondary action colors; workspace.css owns common layout and responsive behavior.
+ * Related Modules: home.html, account.html, resumes.html and interview-review.html.
+ * Declaration Index:
+ * None
+ * Variable Index:
+ * None
+ * Style Groups:
+ * Language controls, introduction text, action links and footer.
+ * Constraints:
+ * This stylesheet performs no API or device access; obsolete marketing-layout selectors are removed.
  */
 .language-picker { display: inline-flex; align-items: center; gap: 7px; color: #526d5c; font-size: 12px; }
 .language-picker select { border: 1px solid #b8cdbc; border-radius: 6px; background: #fff; color: #245e4c; padding: 7px 8px; font: inherit; }

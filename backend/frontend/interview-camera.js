@@ -1,27 +1,27 @@
 /**
  * @module interview-camera
- * 职责：面试页本地摄像头预览和多语言设备提示；不申请麦克风、不上传、不录制媒体。
- * 实现：显式点击后申请视频流；关闭、设备终止或 pagehide 时释放轨道，序号隔离迟到的授权结果；提示由 i18n.js 解析。
- * 关联：agent.html 提供 video、占位及按钮，i18n.js 提供语言服务；与 agent.js 的业务连接和题目预算独立。
- * 目录：
- * - cameraText：读取摄像头状态文案并执行命名参数插值。
- * - cameraText.callback1：将错误类型等参数转换为显示文本。
- * - releaseCamera：使待决申请失效，停止已有轨道并重置预览。
- * - onCameraEnded：设备意外终止时释放其余资源并报告状态。
- * - toggleCamera：根据状态开启、取消申请或关闭摄像头，失败明确显示且不重试。
- * - onCameraPageHide：离开页面时释放本地媒体并使待决权限结果失效。
- * 关键变量：
- * - cameraVideo：本地静音视频元素。
- * - cameraPlaceholder：未播放时显示的占位区域。
- * - cameraButton：显式启停按钮。
- * - cameraStatus：可访问的状态和错误提示。
- * - cameraStream：本模块当前持有的流，空值表示无活动流。
- * - cameraPending：当前是否等待授权或 video.play 完成。
- * - cameraGeneration：申请序号，关闭或离开时递增以拒绝迟到结果。
- * - CAMERA_FALLBACK：独立客户端测试所用的中文状态文案。
- * - cameraText：生成当前语言的摄像头状态提示。
- * 约束：
- * 浏览器设备授权可能晚于关闭请求返回；迟到流必须立即停止，不能重新激活预览。
+ * Responsibilities: Local camera preview and multilingual device prompts on interview page; does not request microphone, upload, or record media.
+ * Implementation: Explicit click to request video stream; release tracks on close, device termination, or pagehide; isolate late authorization results by sequence number; prompts resolved by i18n.js.
+ * Related Modules: agent.html provides video, placeholder, and button; i18n.js provides language service; independent of agent.js business logic and question budget.
+ * Declaration Index:
+ * - cameraText: read camera status text and perform named parameter interpolation.
+ * - cameraText.callback1: convert error types and other parameters into display text.
+ * - releaseCamera: invalidate pending request, stop active tracks, and reset preview.
+ * - onCameraEnded: release remaining resources and report status upon unexpected device termination.
+ * - toggleCamera: enable, cancel request, or disable camera based on state; fail explicitly without retry.
+ * - onCameraPageHide: release local media and invalidate pending permission results when leaving page.
+ * Variable Index:
+ * - cameraVideo: local muted video element.
+ * - cameraPlaceholder: placeholder area shown when not playing.
+ * - cameraButton: explicit start/stop button.
+ * - cameraStatus: accessible status and error messages.
+ * - cameraStream: current stream held by module, empty value indicates no active stream.
+ * - cameraPending: whether currently waiting for authorization or video.play completion.
+ * - cameraGeneration: request sequence number, incremented on close or leave to reject late results.
+ * - CAMERA_FALLBACK: English status text used when standalone client tests omit i18n.js.
+ * - cameraText: generates camera status prompt in current language.
+ * Constraints:
+ * Browser device authorization may arrive after close request returns; late streams must be stopped immediately and cannot reactivate preview.
  */
 const cameraVideo = document.getElementById("self-video");
 const cameraPlaceholder = document.getElementById("camera-placeholder");
@@ -31,21 +31,31 @@ let cameraStream = null;
 let cameraPending = false;
 let cameraGeneration = 0;
 const CAMERA_FALLBACK = {
-  camera_enable: "开启摄像头", camera_closed: "摄像头已关闭，仅本地预览，不录制、不上传。", camera_note: "摄像头仅供自我预览，不录制、不上传。",
-  camera_unavailable: "当前环境无法使用摄像头，请使用支持摄像头的浏览器并通过 localhost 或 HTTPS 打开。", camera_waiting: "等待摄像头授权，请在浏览器中选择允许；也可取消开启。",
-  camera_on: "摄像头已开启 · 仅本地预览，不录制、不上传。", camera_interrupted: "摄像头连接已中断，请检查设备后重新开启。", camera_permission: "摄像头权限被拒绝，请在浏览器站点设置中允许后重新开启。",
-  camera_not_found: "未检测到摄像头，请连接设备后重新开启。", camera_not_readable: "无法读取摄像头，请检查设备是否被其他应用占用。", camera_failed: "摄像头开启失败（{error}），请检查浏览器和设备。",
+  "camera_enable": "Enable camera",
+  "camera_closed": "Camera closed; local preview only, nothing recorded or uploaded.",
+  "camera_note": "Camera is for self-preview only; nothing is recorded or uploaded.",
+  "camera_unavailable": "Camera is unavailable here. Use a supported browser over localhost or HTTPS.",
+  "camera_waiting": "Waiting for camera permission. Choose Allow in the browser, or cancel.",
+  "camera_on": "Camera enabled · local preview only, nothing recorded or uploaded.",
+  "camera_interrupted": "Camera connection ended. Check the device and enable it again.",
+  "camera_permission": "Camera permission was denied. Allow it in site settings and try again.",
+  "camera_not_found": "No camera was found. Connect one and try again.",
+  "camera_not_readable": "The camera could not be read. Check whether another app is using it.",
+  "camera_failed": "Could not enable camera ({error}). Check the browser and device."
 };
-/** 返回摄像头状态文案；独立测试上下文没有 i18n 模块时使用中文兼容回退。 */
+/**
+ *  Return camera status text; use English fallback in standalone test context without i18n module.
+ */
 const cameraText = (key, values = {}) => {
   const template = window.AppI18n?.t(key, values) ?? CAMERA_FALLBACK[key] ?? key;
-  return template.replace(/\{(\w+)\}/g, /** 将错误参数转换为显示文本。 */ (_, name) => String(values[name] ?? `{${name}}`));
+  return template.replace(/\{(\w+)\}/g, /**
+ *  Convert error parameters into display text.
+ */ (_, name) => String(values[name] ?? `{${name}}`));
 };
 
 /**
- * 功能：释放预览并失效尚未完成的申请。输入：显示文字 message 及模块媒体状态。
- * 输出：无；停止所有持有轨道，重置 DOM。逻辑：先递增序号，再释放，避免迟到 Promise 覆盖新状态。
- * 约束：不撤销浏览器权限，不影响面试连接；可重复调用，不发送网络数据。
+ * Function: Release preview and invalidate uncompleted requests. Input: message string and module media state. Output: none; stops all held tracks and resets DOM. Logic: increment sequence number first, then release, to prevent late Promise from overriding new state.
+ * Constraints: Does not revoke browser permissions, does not affect interview connection; safe to call repeatedly, sends no network data.
  */
 function releaseCamera(message) {
   cameraGeneration += 1;
@@ -66,8 +76,8 @@ function releaseCamera(message) {
 }
 
 /**
- * 功能：报告设备终止。输入：轨道 ended 事件隐式触发，读取当前媒体状态。输出：无。
- * 逻辑：统一清理，显示可操作提示并记录非敏感警告；不自动重新申请权限。
+ * Function: Report device termination. Input: triggered implicitly by track ended event, reads current media state. Output: none.
+ * Logic: unified cleanup, displays actionable prompt, logs non-sensitive warnings; does not auto-reapply permissions.
  */
 function onCameraEnded() {
   console.warn("[interview-camera] Video track ended; local preview stopped.");
@@ -75,10 +85,9 @@ function onCameraEnded() {
 }
 
 /**
- * 功能：显式启停本地预览。输入：按钮事件隐式触发，读取模块状态及浏览器媒体能力。
- * 输出：Promise<void>；成功绑定视频流，失败捕获权限、设备及播放异常并显示诊断。
- * 逻辑：每次申请捕获序号，授权和播放后分别核验；取消后的迟到流仅释放。
- * 约束：仅申请 video，不录制或上传；日志仅包含阶段和异常名称，无设备标识或媒体内容。
+ * Function: Explicitly start or stop local preview. Input: triggered implicitly by button event, reads module state and browser media capabilities. Output: Promise<void>; successfully binds video stream, fails capture permission, device, or playback exceptions and displays diagnostics.
+ * Logic: capture sequence number on each request, verify authorization and playback separately; late streams after cancellation are only released.
+ * Constraints: requests only video, does not record or upload; logs contain only phase and exception name, no device identifiers or media content.
  */
 async function toggleCamera() {
   if (cameraStream || cameraPending) {
@@ -93,7 +102,7 @@ async function toggleCamera() {
   }
   const generation = ++cameraGeneration;
   cameraPending = true;
-  cameraButton.textContent = window.AppI18n?.language() === "en" ? "Cancel" : "取消开启";
+  cameraButton.textContent = window.AppI18n?.language() === "zh" ? "取消开启" : "Cancel";
   cameraStatus.textContent = cameraText("camera_waiting");
   console.info("[interview-camera] Requesting local video permission.");
   try {
@@ -110,7 +119,7 @@ async function toggleCamera() {
     if (generation !== cameraGeneration) return;
     cameraPending = false;
     cameraPlaceholder.hidden = true;
-    cameraButton.textContent = window.AppI18n?.language() === "en" ? "Disable camera" : "关闭摄像头";
+    cameraButton.textContent = window.AppI18n?.language() === "zh" ? "关闭摄像头" : "Disable camera";
     cameraButton.setAttribute("aria-pressed", "true");
     cameraStatus.textContent = cameraText("camera_on");
     console.info("[interview-camera] Local preview is playing.");
@@ -122,11 +131,13 @@ async function toggleCamera() {
       NotReadableError: cameraText("camera_not_readable"),
     };
     console.error("[interview-camera] Preview failed", { name: error.name });
-    releaseCamera(messages[error.name] || cameraText("camera_failed", { error: error.name || (window.AppI18n?.language() === "en" ? "unknown error" : "未知错误") }));
+    releaseCamera(messages[error.name] || cameraText("camera_failed", { error: error.name || (window.AppI18n?.language() === "zh" ? "未知错误" : "unknown error") }));
   }
 }
 
-/** 功能：离开时清理媒体。输入：pagehide 隐式事件。输出：无；不保留视频，不影响既有面试清理器。 */
+/**
+ * Function: Clean up media when leaving. Input: Implicit pagehide event. Output: None; do not retain video, does not affect existing interview cleaner.
+ */
 function onCameraPageHide() {
   releaseCamera(cameraText("camera_closed"));
 }

@@ -1,18 +1,20 @@
-"""职责：显式重测本地 PDF 的原有规则/视觉管线，输出有限诊断与私有结果文件。
-实现：默认传统提取；advanced 使用当前行号协议和严格范围校验，
-保留已配置模型参数，不重试、不回退、不调整预算。
-关联：pdf_sandbox、ResumeVision、ResumeCleanupAgent；只在直接执行时调用真实模型。
-目录：
-- ObservedVision：保存本次校对结构以生成不含原文的定位/无效修改统计。
-- ObservedVision.__init__：创建原视觉客户端并初始化观察状态。
-- ObservedVision.review：委派原模型并记录返回结构，不改写输入或输出。
-- retest：按模式运行管线并保存成功结果；高级模式另存页面，失败只打印有限错误定位。
-- retest_http：尝试取得 CSRF 并调用上传接口；无匿名页面时明确失败，不绕过会话认证。
-- main：校验命令行路径并加载后端设置，执行一次显式真实重测。
-关键变量：
-（无模块级变量。）
-配置说明：
-ObservedVision.result 保存单页原响应；路径仅来自 CLI，输出目录应为私有目录。
+"""Responsibilities: Explicitly retest the local PDF extraction and vision pipelines with bounded
+diagnostics and private result files.
+Implementation: Default to traditional extraction; advanced mode applies the current line-number
+protocol and strict range validation while preserving configured model parameters.
+Related Modules: interviews.pdf_sandbox, interviews.resume_vision, and agents.resume_cleanup; real
+models are called only during direct execution.
+Declaration Index:
+- ObservedVision: Wrap the existing vision client and retain the last page review for bounded
+  diagnostics.
+- ObservedVision.__init__: Initialize the real client and empty observation state.
+- ObservedVision.review: Delegate review and retain the returned structure without rewriting it.
+- retest: Run the selected local pipeline and save successful output and bounded failure details.
+- retest_http: Call the local HTTP parse endpoint after obtaining CSRF and save its result
+  privately.
+- main: Validate CLI arguments, initialize Django, and run one explicit live retest.
+Variable Index:
+None
 """
 
 import argparse
@@ -24,25 +26,46 @@ from pathlib import Path
 
 
 class ObservedVision:
-    """功能：诊断端口；逻辑：包装原适配器；约束：不修改生产模型结果或失败语义。"""
+    """Functionality: Wrap the production vision adapter to observe the last review result.
+    Inputs: No explicit inputs; the client reads its existing environment configuration.
+    Outputs: Stores the client and initially empty result state.
+    Logic: Construct ResumeVision without changing its configuration.
+    Constraints: The caller is responsible for closing the client.
+    """
 
     def __init__(self):
-        """无显式输入，原客户端读取既有环境；result 初始为空，调用者负责关闭 client。"""
+        """Functionality: Initialize the real vision adapter and observation state.
+        Inputs: No explicit arguments beyond the instance.
+        Outputs: Sets client and result attributes.
+        Logic: Construct ResumeVision and initialize result to None.
+        Constraints: Environment configuration is read by the existing adapter; client cleanup is
+        external.
+        """
         from interviews.resume_vision import ResumeVision
 
         self.client = ResumeVision()
         self.result = None
 
     async def review(self, page, prompt):
-        """输入原页面和提示，输出原 PageReview；先清空上页观察结果，模型异常直接传播。"""
+        """Functionality: Delegate one page review and retain the original response for diagnostics.
+        Inputs: A page and review prompt.
+        Outputs: The original PageReview returned by the client.
+        Logic: Clear previous observation, await the client, save and return its result.
+        Constraints: Model exceptions propagate; neither input nor output is rewritten.
+        """
         self.result = None
         self.result = await self.client.review(page, prompt)
         return self.result
 
 
 async def retest(source, output, *, mode="traditional"):
-    """输入 PDF/私有输出路径及模式，返回成功布尔；传统模式不构造模型，高级模式严格校验。
-    仅输出行号、范围有效标记、替换长度和空理由标记，不打印正文、供应商异常或密钥。
+    """Functionality: Run the selected local PDF pipeline and persist its successful results.
+    Inputs: Source PDF path, private output directory, and extraction mode.
+    Outputs: True on a complete pipeline and False on an advanced-mode page failure.
+    Logic: Parse the PDF; traditional mode serializes rule output, while advanced mode records page
+    images and validates model corrections.
+    Constraints: Diagnostics omit source text, provider exceptions, and secrets; the real vision
+    client is closed in a finally block.
     """
     from interviews.pdf_sandbox import parse_pdf
     from interviews.resume_api import resume_failure_code
@@ -118,10 +141,14 @@ async def retest(source, output, *, mode="traditional"):
 
 
 async def retest_http(source, output, url, *, mode="traditional"):
-    """输入 PDF、私有目录、本地服务 URL 和模式，返回成功布尔；取得 CSRF 后消费所选 NDJSON。
-    前置条件为 /agent/ 允许匿名访问；当前受保护页面会返回设置失败，不创建或窃取用户会话。
-    HTTP 客户端等待 180 秒覆盖原 90 秒模型预算与沙箱开销，不修改服务模型预算或重试。
-    只打印阶段和固定失败码；结果存私有文件，缺失终态或 HTTP 拒绝均失败，不自动采用文本。
+    """Functionality: Exercise the local HTTP resume-parse route and persist its terminal result.
+    Inputs: PDF path, private output directory, backend URL, and extraction mode.
+    Outputs: True only after a result event; setup, HTTP, error-event, or missing-terminal failures
+    return False.
+    Logic: Fetch the agent page for CSRF state, submit the PDF, consume NDJSON, and write the result
+    event.
+    Constraints: The agent page must allow anonymous access; no session is created or bypassed,
+    retries are disabled, and only bounded event metadata is printed.
     """
     import httpx
 
@@ -168,7 +195,14 @@ async def retest_http(source, output, url, *, mode="traditional"):
 
 
 def main():
-    """输入 CLI 路径、模式（默认传统）和可选 HTTP URL；加载原环境，单次运行，失败退出 1。"""
+    """Functionality: Parse CLI options and run one explicit live pipeline retest.
+    Inputs: Source/output paths, optional local HTTP URL, extraction mode, and process environment.
+    Outputs: Process status 0 for success and 1 for a reported pipeline failure.
+    Logic: Add the backend import path, initialize Django, select the requested operation, and
+    execute it once.
+    Constraints: The default mode is traditional; no retries or parameter adjustments are
+    introduced.
+    """
     backend = Path(__file__).resolve().parents[1]
     sys.path.insert(0, str(backend))
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")

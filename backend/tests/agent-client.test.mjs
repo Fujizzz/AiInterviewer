@@ -1,77 +1,77 @@
 /**
  * @module agent-client-test
- * 功能：用确定性时钟、DOM 和 WebSocket 替身验证真实 agent.js，完全不访问网络。
- * 实现：从实际 HTML 与共享导航建立元素集合，vm 执行客户端脚本；通过事件观察计时、缓存与终态。
- * 关联：frontend/agent.html、agent.js；node --test 运行，不能证明实际供应商性能。
- * 目录：
- * - Element：最小 DOM 事件与展示替身。
- * - Element.constructor：初始化可见状态与监听器。
- * - Element.addEventListener：保存命名事件处理器。
- * - Element.focus：记录焦点，无窗口副作用。
- * - Element.showModal：模拟原生 open 状态，不模拟焦点陷阱或背景 inert。
- * - Element.close：清除 open 并派发 close，以验证确认和取消的状态转换。
- * - startPrepared：通过开始入口打开弹窗，再显式提交准备表单。
- * - preparationInteraction：弹窗打开/关闭不建立连接；输入保留、确认后关闭且进行中禁改。
- * - preparationBoundaries：隐藏表单、无效岗位和来源失败不能开始面试。
- * - Element.fire：向监听器派发当前目标与表单取消函数。
- * - Element.fire.object1.preventDefault：模拟阻止默认表单导航。
- * - Socket：记录发送消息且允许测试显式交付事件。
- * - Socket.constructor：初始化连接与实例记录。
- * - Socket.addEventListener：保存处理器。
- * - Socket.send：收集已编码命令，不请求模型。
- * - Socket.close：关闭连接，不隐式重连。
- * - Socket.emit：显式交付 JSON 消息或关闭事件。
- * - makePage：创建独立脚本上下文及可控时钟。
- * - makePage.getElement：只允许查询真实模板中的元素。
- * - makePage.now：返回确定性单调时钟。
- * - makePage.setTimer：登记计时回调，不产生真实 interval。
- * - makePage.clearTimer：移除显示计时器。
- * - makePage.uuid：生成测试唯一请求标识。
- * - makePage.ignoreEvent：接收 pagehide 注册但不操作窗口。
- * - makePage.addPageListener：保存页面事件处理器，连接面试和语音控件。
- * - makePage.dispatchPageEvent：将面试控件状态交给真实语音协调器。
- * - PageEvent：仅提供 CustomEvent 的 type 与 detail 字段。
- * - PageEvent.constructor：创建测试页面事件，不接触浏览器。
-
- * - Element.append：追加选项节点。
- * - Element.replaceChildren：清空旧选项。
- * - makePage.createElement：创建测试选项。
- * - makePage.fetch.object1.json：返回合成分页 JSON。
- * - makePage.fetch：模拟本人分页版本接口，记录调用而不访问模型。
- * - makePage.ignoreError：接收诊断日志，不暴露用户正文。
- * - makePage.tick：推进测试时间并执行已登记显示回调。
- * - hello：完成协议公告并返回已发送命令的 UUID。
- * - callback1：start 发送版本 ID、保持原预算并展示真实计时。
- * - callback2：跨页加载 current，并拒绝不可用指定版本。
- * - callback3：取消后旧事件不能覆盖状态，版本保留且计时器清理。
- * - callback4：评分先可见，后续错误明确报告未完成且保留评分。
- * - callback5：正常题目与最终报告结束等待，恢复控件。
- * - callback6：超限输入在发请求前被拒绝，避免多余模型调用。
- * - callback7：报告模型失败回退时明确提示，不把确定性摘要标记为模型成功。
- * - callback8：错误请求 ID 的阶段事件被拒绝并停止计时。
- * - callback9：当前问题启用语音控件，播放期间禁止录音，结束后可语音提交。
- * - callback10：取消时释放录音，拒绝迟到最终文本并恢复面试入口。
- * - answeringPage：使用真实客户端处理器进入合成当前题。
- * - startCapture：只替换设备/供应商边界，启动真实语音协调器。
- * - startCapture.page.captureType.prototype.start：离线授权/握手使采集就绪。
- * - startCapture.page.captureType.prototype.end：离线结束采集，最终文本单独交付。
- * - speechAnswerLifecycle：验证字幕、显式结束、最终转写一次提交及下一题清理。
- * - speechAnswerBoundaries：时限需确认，空白/失败/迟到转写不提交。
- * - answeringMCPPage：用实际握手处理器启用自动结束并进入当前题。
- * - automaticSpeechCompletion：检测事件触发 flush，最终凭据才产生一次 MCP 调用。
- * - revokedSpeechCompletion：补充导致凭据缺失时保留最终文本，显式确认后手动提交。
-
- * - interviewProgressLifecycle：快照预算在回答/等待中推进，重规划扣除已问配额，断线冻结且告警去重。
- * - blockedResumeSelection：缺少 ready、未选 current 或未授权时不能创建面试连接。
- * 关键变量：
- * - SCRIPT：待验证的真实客户端源码。
- * - HTML：实际面试与共享导航模板，用于核验客户端元素引用。
- * - VOICE_SCRIPT：真实语音协调器源码，在隔离 VM 中执行。
- * - PROGRESS_SCRIPT：真实预算/话题呈现源码，共用可控时钟，不访问后端。
- * - CAPTURE_SCRIPT：真实录音管理器源码，不打开设备或供应商连接。
- * 关键状态说明：
- * Socket.OPEN 为连接就绪值，Socket.instances 供测试定位连接；每例创建独立页面。
- * makePage 的 timers/time 仅为测试时钟，未修改生产显示周期、模型超时或面试预算。
+ * Responsibilities: Validate real agent.js using deterministic clock, DOM, and WebSocket stubs, with no network access.
+ * Implementation: Build element collection from actual HTML and shared navigation; execute client scripts in vm; observe timing, cache, and final state via events.
+ * Related Modules: frontend/agent.html and agent.js; run with node --test, cannot prove actual vendor performance.
+ * Declaration Index:
+ * - Element: Minimal DOM event and display stub.
+ * - Element.constructor: Initialize visible state and listeners.
+ * - Element.addEventListener: Save named event handlers.
+ * - Element.focus: Record focus, no window side effects.
+ * - Element.showModal: Simulate native open state, do not simulate focus trap or background inert.
+ * - Element.close: Clear open and dispatch close, to validate confirmation and cancellation state transitions.
+ * - startPrepared: Open dialog via start entry, then explicitly submit prepared form.
+ * - preparationInteraction: Dialog open/close does not establish connection; input preserved, confirmed close disables editing during active phase.
+ * - preparationBoundaries: Hidden form, invalid role, and source failure prevent interview start.
+ * - Element.fire: Dispatch current target and form cancel function to listeners.
+ * - Element.fire.object1.preventDefault: Simulate preventing default form navigation.
+ * - Socket: Record sent messages and allow test to explicitly deliver events.
+ * - Socket.constructor: Initialize connection and instance recording.
+ * - Socket.addEventListener: Save handler.
+ * - Socket.send: Collect encoded commands, do not request model.
+ * - Socket.close: Close connection, no implicit reconnection.
+ * - Socket.emit: Explicitly deliver JSON message or close event.
+ * - makePage: Create isolated script context and controllable clock.
+ * - makePage.getElement: Allow querying only real template elements.
+ * - makePage.now: Return deterministic monotonic clock.
+ * - makePage.setTimer: Register timer callback, do not generate real interval.
+ * - makePage.clearTimer: Remove displayed timer.
+ * - makePage.uuid: Generate test-unique request identifier.
+ * - makePage.ignoreEvent: Receive pagehide registration but do not operate window.
+ * - makePage.addPageListener: Save page event handler, connect interview and voice controls.
+ * - makePage.dispatchPageEvent: Pass interview control state to real voice coordinator.
+ * - PageEvent: Provide only type and detail fields of CustomEvent.
+ * - PageEvent.constructor: Create test page event, do not touch browser.
+ *
+ * - Element.append: Append option nodes.
+ * - Element.replaceChildren: Clear old options.
+ * - makePage.createElement: Create test option.
+ * - makePage.fetch.object1.json: Return combined paginated JSON.
+ * - makePage.fetch: Simulate personal pagination version interface, record calls without accessing model.
+ * - makePage.ignoreError: Receive diagnostic logs, do not expose user content.
+ * - makePage.tick: Advance test time and execute registered display callbacks.
+ * - hello: Complete protocol announcement and return UUID of sent command.
+ * - callback1: start sends version ID, maintains original budget, and displays real timing.
+ * - callback2: cross-page load current, reject unavailable specified version.
+ * - callback3: canceled old event cannot override state, version retained and timer cleaned.
+ * - callback4: scoring becomes visible first, subsequent errors clearly report incomplete and retain score.
+ * - callback5: normal question and final report end wait, restore controls.
+ * - callback6: over-limit input rejected before request sent, avoid unnecessary model calls.
+ * - callback7: when report model fails, provide clear prompt, do not mark deterministic summary as model success.
+ * - callback8: stage event with invalid request ID is rejected and timing stops.
+ * - callback9: current question enables voice control, recording prohibited during playback, allowed after playback ends.
+ * - callback10: cancel releases recording, rejects late final text, restores interview entry.
+ * - answeringPage: Use real client processor to enter synthesized current question.
+ * - startCapture: Replace only device/vendor boundaries, start real voice coordinator.
+ * - startCapture.page.captureType.prototype.start: Offline authorization/handshake makes capture ready.
+ * - startCapture.page.captureType.prototype.end: Offline end capture, final text delivered separately.
+ * - speechAnswerLifecycle: Verify captions, explicit end, single final transcription submission, and next question cleanup.
+ * - speechAnswerBoundaries: Time limit must be confirmed; blank/failure/late transcriptions do not submit.
+ * - answeringMCPPage: Use real handshake processor to enable auto-complete and enter current question.
+ * - automaticSpeechCompletion: Detect event trigger flush, final credential generated only after MCP call.
+ * - revokedSpeechCompletion: When credential missing due to revocation, retain final text and manually submit after explicit confirmation.
+ *
+ * - interviewProgressLifecycle: Snapshot budget advances during answer/wait, re-planning deducts already asked quota, disconnection freezes and deduplicates alerts.
+ * - blockedResumeSelection: Cannot create interview connection without ready, unselected current, or unauthorized.
+ * Variable Index:
+ * - SCRIPT: Real client source code to be validated.
+ * - HTML: Actual interview and shared navigation templates, used to verify client element references.
+ * - VOICE_SCRIPT: Real voice coordinator source code, executed in isolated VM.
+ * - PROGRESS_SCRIPT: Real budget/topic presentation source code, shares controllable clock, does not access backend.
+ * - CAPTURE_SCRIPT: Real recording manager source code, does not open device or vendor connection.
+ * Key State Notes:
+ * Socket.OPEN is the connection-ready value; Socket.instances allows test to locate connections; each instance creates independent page.
+ * makePage's timers/time are only for test clock; do not modify production display cycle, model timeout, or interview budget.
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -84,54 +84,92 @@ const VOICE_SCRIPT = readFileSync(new URL("../frontend/interview-voice.js", impo
 const PROGRESS_SCRIPT = readFileSync(new URL("../frontend/interview-progress.js", import.meta.url), "utf8");
 const CAPTURE_SCRIPT = readFileSync(new URL("../frontend/speech-capture.js", import.meta.url), "utf8");
 
-/** 提供真实客户端所需的 CustomEvent 数据字段；不模拟原生事件权限。 */
+/**
+ * Provides CustomEvent data fields required by real client; does not simulate native event permissions.
+ */
 class PageEvent {
-  /** 保存事件名和 detail，供页面状态协调器分派。 */
+  /**
+ * Stores event name and detail for dispatch by page state coordinator.
+ */
   constructor(type, options) { this.type = type; this.detail = options.detail; }
 }
 
-/** 最小 DOM 替身，仅维护测试需要的文本、禁用状态和事件，不模拟真实浏览器布局。 */
+/**
+ * Minimal DOM stub maintaining only test-required text, disabled state, and events; does not simulate real browser layout.
+ */
 class Element {
-  /** 输入无；所有字段初始为空，hidden 为 true 以模拟尚未出现的结果区。 */
+  /**
+ * Input: None; all fields initially empty, hidden set to true to simulate result area not yet appeared.
+ */
   constructor() { this.value = ""; this.textContent = ""; this.hidden = true; this.disabled = false; this.listeners = {}; this.children = []; this.open = false; }
-  /** 输入事件名和处理器，保存引用，返回无。 */
+  /**
+ * Input: Event name and handler; save reference, return nothing.
+ */
   addEventListener(name, handler) { this.listeners[name] = handler; }
-  /** 输入节点列表；保存版本选项，无布局或解析 HTML 副作用。 */
+  /**
+ * Input: Node list; save version options, no layout or HTML parsing side effects.
+ */
   append(...nodes) { this.children.push(...nodes); }
-  /** 清除此前选项，保持 DOM 对象身份。 */
+  /**
+ * Clear previous options, preserve DOM object identity.
+ */
   replaceChildren() { this.children = []; }
-  /** 记录客户端要求聚焦，不操作真实窗口。 */
+  /**
+ * Record client request to focus, no operation on real window.
+ */
   focus() { this.focused = true; }
-  /** 无参数；只模拟 dialog.open，不证明真实浏览器焦点范围或原生表单校验。 */
+  /**
+ * No parameters; only simulate dialog.open, do not prove real browser focus range or native form validation.
+ */
   showModal() { this.open = true; }
-  /** 无参数；模拟原生 close 事件，不执行模型或设备请求。 */
+  /**
+ * No parameters; simulate native close event, do not execute model or device requests.
+ */
   close() { if (!this.open) return; this.open = false; this.fire("close"); }
-  /** 输入事件名称，构造 currentTarget 并调用已注册处理器，缺失监听器立即失败。 */
+  /**
+ * Input: Event name; construct currentTarget and invoke registered handler; missing listener fails immediately.
+ */
   fire(name) {
     this.listeners[name]({ currentTarget: this,
-      /** 仅作为表单事件接口，无导航副作用。 */
+      /**
+ * Serves only as form event interface, no navigation side effects.
+ */
       preventDefault() {},
     });
   }
 }
 
-/** 可控 WebSocket 替身：无真实连接，测试必须显式发送 hello 与结果事件。 */
+/**
+ * Controllable WebSocket stub: no real connection; test must explicitly send hello and result events.
+ */
 class Socket {
   static OPEN = 1;
   static instances = [];
-  /** 输入 URL，仅记录连接地址；不自动触发协议事件。 */
+  /**
+ * Input: URL; only record connection address; do not automatically trigger protocol events.
+ */
   constructor(url) { this.url = url; this.readyState = 1; this.sent = []; this.listeners = {}; Socket.instances.push(this); }
-  /** 输入事件名和回调，记录处理器供 emit 调用。 */
+  /**
+ * Input: Event name and callback; record handler for emit invocation.
+ */
   addEventListener(name, handler) { this.listeners[name] = handler; }
-  /** 输入已编码 JSON，解析并保存以断言命令内容。 */
+  /**
+ * Input: Encoded JSON; parse and save to assert command content.
+ */
   send(text) { this.sent.push(JSON.parse(text)); }
-  /** 将连接标记关闭，不隐式发其他事件。 */
+  /**
+ * Mark connection as closed; no implicit emission of other events.
+ */
   close() { this.readyState = 3; }
-  /** 输入事件负载及可选事件名，默认 message；currentTarget 固定为此连接。 */
+  /**
+ * Input: Event payload and optional event name (default: message); currentTarget fixed to this connection.
+ */
   emit(data, name = "message") { this.listeners[name]({ data: JSON.stringify(data), currentTarget: this }); }
 }
 
-/** 输入合成 versions/search/failure 选项，执行真实脚本并等待初次加载；输出测试页面和隔离采集类，便于替换设备边界，无真实网络。 */
+/**
+ * Input: Synthesized versions/search/failure options; execute real script and wait for initial load; output test page and isolated capture class, enabling device boundary replacement, no real network.
+ */
 async function makePage(options = {}) {
   const elements = new Map();
   for (const match of HTML.matchAll(/id="([^"]+)"/g)) elements.set(match[1], new Element());
@@ -140,23 +178,41 @@ async function makePage(options = {}) {
   let timerId = 0;
   let serial = 0;
   const pageListeners = new Map();
-  /** 保存事件名与回调，让真实语音协调器接收客户端 eligibility。 */
+  /**
+ * Save event name and callback, allowing real voice coordinator to receive client eligibility.
+ */
   function addPageListener(name, handler) { pageListeners.set(name, handler); }
-  /** 交付测试 CustomEvent；不发送网络或采集媒体。 */
+  /**
+ * Deliver test CustomEvent; do not send network or capture media.
+ */
   function dispatchPageEvent(event) { pageListeners.get(event.type)?.(event); }
-  /** 输入模板 ID，返回对应元素；客户端引用不存在的元素即失败。 */
+  /**
+ * Input: Template ID; return corresponding element; client referencing non-existent element fails.
+ */
   function getElement(id) { assert.ok(elements.has(id), id); return elements.get(id); }
-  /** 返回可控单调时钟，不读取真实时间。 */
+  /**
+ * Return controllable monotonic clock; do not read real time.
+ */
   function now() { return time; }
-  /** 输入计时回调，登记并返回 ID，不启动系统 interval。 */
+  /**
+ * Input: Timer callback; register and return ID; do not start system interval.
+ */
   function setTimer(fn) { timers.set(++timerId, fn); return timerId; }
-  /** 输入 ID，删除对应计时回调。 */
+  /**
+ * Input: ID; remove corresponding timer callback.
+ */
   function clearTimer(id) { timers.delete(id); }
-  /** 返回页面内唯一测试请求标识；不模拟后端 UUID 校验。 */
+  /**
+ * Return unique test request identifier within page; do not simulate backend UUID validation.
+ */
   function uuid() { return `request-${++serial}`; }
-  /** 输入页面事件注册参数；测试不创建真实页面生命周期。 */
+  /**
+ * Input: Page event registration parameters; test does not create real page lifecycle.
+ */
   function ignoreEvent() {}
-  /** 输入毫秒推进测试时钟，再执行当前显示回调。 */
+  /**
+ * Input: Milliseconds to advance test clock; then execute current display callbacks.
+ */
   function tick(ms) { time += ms; for (const fn of timers.values()) fn(); }
 
   getElement("job").value = "General AI / Software Engineer";
@@ -165,18 +221,26 @@ async function makePage(options = {}) {
   getElement("probes").value = "2";
   const requests = [];
   const versions = options.versions || [{id:"version-a",status:"ready",label:"Current resume",is_current:true}];
-  /** 输入请求 URL，输出合成分页 JSON；失败用真实 HTTP 状态，不隐式降级。 */
+  /**
+ * Input: Request URL; output combined paginated JSON; fail with real HTTP status, no implicit downgrade.
+ */
   async function fetch(url) {
     requests.push(url);
     const page = Number(new URL(url, "http://localhost").searchParams.get("page"));
     return { ok: !options.failure, status: options.failure || 200,
-      /** 返回对应合成页；每页 1 个记录使测试覆盖 current 在后续页。 */
+      /**
+ * Return corresponding synthesized page; one record per page ensures test coverage of current on subsequent pages.
+ */
       async json() { return {results: versions.slice(page-1,page),next: page < versions.length ? "next" : null}; },
     };
   }
-  /** 输入标签名，输出选项节点，无真实窗口副作用。 */
+  /**
+ * Input: Tag name; output option node; no real window side effects.
+ */
   function createElement() { return new Element(); }
-  /** 接收诊断日志，不打印合成版本或语音正文。 */
+  /**
+ *  Receive diagnostic logs without printing synthesized version or voice content.
+ */
   function ignoreError() {}
   const clientScript = PROGRESS_SCRIPT.replaceAll("export function", "function").replace("export class InterviewProgress", "class InterviewProgress")
     + CAPTURE_SCRIPT.replace("export class SpeechCapture", "class SpeechCapture")
@@ -196,19 +260,25 @@ async function makePage(options = {}) {
   return { el: getElement, tick, timers, requests, voice, captureType };
 }
 
-/** 输入连接及可选测试消息上限，模拟 hello，返回被客户端发送的命令 ID 或 undefined。 */
+/**
+ *  Input connection and optional test message limit, simulate hello, return command ID sent by client or undefined.
+ */
 function hello(ws, limit = 262144) {
   ws.emit({ type: "hello", capabilities: ["prepare", "progress", "assessment"], max_message_bytes: limit });
   return ws.sent.at(-1)?.request_id;
 }
 
-/** 输入已加载页面，显式打开准备并确认；不替代业务处理器或创建额外连接。 */
+/**
+ *  Input loaded page, explicitly open preparation and confirm; do not override business handlers or create additional connections.
+ */
 function startPrepared(page) {
   page.el("open-preparation").fire("click");
   page.el("start-form").fire("submit");
 }
 
-/** 真实脚本配合原生 dialog 替身；开关保留设置，无网络，确认一次后关闭并禁用所有准备入口。 */
+/**
+ *  Real script paired with native dialog stub; preserve settings toggle, no network, confirm once then close and disable all preparation entry points.
+ */
 async function preparationInteraction() {
   const page = await makePage();
   const count = Socket.instances.length;
@@ -223,7 +293,7 @@ async function preparationInteraction() {
   assert.equal(Socket.instances.length, count);
   page.el("interview-settings").fire("click");
   assert.equal(page.el("job").value, "Edited target role");
-  page.el("preparation-dialog").close(); // 模拟原生 Esc 的 close，键盘陷阱另由浏览器验证。
+  page.el("preparation-dialog").close(); // Simulate native Esc close; keyboard trap validation handled separately by browser.
   assert.equal(page.el("interview-settings").focused, true);
   startPrepared(page);
   const ws = Socket.instances.at(-1); hello(ws);
@@ -241,7 +311,9 @@ async function preparationInteraction() {
 }
 test("preparation opens before start, preserves edits on dismiss, and locks during interview", preparationInteraction);
 
-/** 不在弹窗内的提交不能连接；无效输入留在弹窗；来源故障仍允许打开并看到明确指引。 */
+/**
+ *  Submissions outside popups cannot connect; invalid inputs remain in popup; source failure still allows opening and shows clear guidance.
+ */
 async function preparationBoundaries() {
   const page = await makePage();
   const count = Socket.instances.length;
@@ -251,19 +323,21 @@ async function preparationBoundaries() {
   page.el("job").value = "  ";
   page.el("start-form").fire("submit");
   assert.equal(page.el("preparation-dialog").open, true);
-  assert.match(page.el("preparation-error").textContent, /岗位/);
+  assert.match(page.el("preparation-error").textContent, /target role/);
   assert.equal(Socket.instances.length, count);
   const empty = await makePage({failure:403});
   assert.equal(empty.el("open-preparation").disabled, false);
   empty.el("open-preparation").fire("click");
   assert.equal(empty.el("preparation-dialog").open, true);
-  assert.match(empty.el("resume-selection-status").textContent, /登录/);
+  assert.match(empty.el("resume-selection-status").textContent, /Sign in again/);
   assert.equal(empty.el("start-agent").disabled, true);
   assert.equal(Socket.instances.length, count);
 }
 test("preparation rejects hidden submissions and keeps invalid or unavailable input visible", preparationBoundaries);
 
-/** 元数据就绪后 start 只发送版本 ID；保持阶段计时与原有预算，不发送姓名/邮箱/正文。 */
+/**
+ *  After metadata readiness, start only sends version ID; maintain phase timing and original budget, do not send name/email/content.
+ */
 test("selected ready version starts once with original budget and real timing", async () => {
   const page = await makePage();
   assert.equal(page.el("resume-select").value, "version-a");
@@ -277,31 +351,37 @@ test("selected ready version starts once with original budget and real timing", 
   assert.equal(ws.sent[0].max_follow_up_per_topic, 2);
   assert.equal(page.el("resume-select").disabled, true);
   ws.emit({type:"progress", request_id:id,stage:"resume_parsing",state:"running"});
-  page.tick(32000); assert.match(page.el("wait-time").textContent,/32 秒/);
+  page.tick(32000); assert.match(page.el("wait-time").textContent,/32 seconds/);
   startPrepared(page); assert.equal(ws.sent.length,1);
 });
 
-/** current 可以位于后续页；未 ready 版本不进入选项，明确指定不可用版本不自动选择其他版本。 */
+/**
+ *  current may be located on subsequent pages; unready versions do not enter options, explicitly specified unavailable versions do not auto-select others.
+ */
 test("selection includes later pages and rejects an unavailable explicit version", async () => {
   const versions=[{id:"pending",status:"uploaded"},{id:"version-b",status:"ready",is_current:true}];
   const page=await makePage({versions});
   assert.equal(page.el("resume-select").value,"version-b");assert.equal(page.requests.length,2);
   const missing=await makePage({versions,search:"?resume_version_id=pending"});
   assert.equal(missing.el("resume-select").value,"");assert.equal(missing.el("start-agent").disabled,true);
-  assert.match(missing.el("resume-selection-status").textContent,/不可用/);
+  assert.match(missing.el("resume-selection-status").textContent,/unavailable/);
 });
 
-/** 取消后迟到事件不恢复面试，已选版本仍保留，计时清理。 */
+/**
+ *  Cancelled late events do not resume interview; selected version remains, timer cleared.
+ */
 test("cancel clears timers and ignores late events while retaining the selected version", async () => {
   const page = await makePage();startPrepared(page);
   const ws = Socket.instances.at(-1);const id=hello(ws);
   page.el("cancel-agent").fire("click");
   ws.emit({type:"progress",request_id:id,stage:"resume_parsing",state:"running"});ws.emit({},"close");
-  assert.match(page.el("agent-status").textContent,/已取消/);
+  assert.match(page.el("agent-status").textContent,/Cancelled/);
   assert.equal(page.el("resume-select").value,"version-a");assert.equal(page.timers.size,0);
 });
 
-/** 先行评分尚无文字报告时断线，保留分数并明确未完成，停止计时。 */
+/**
+ *  Disconnection during initial scoring without text report retains score and clearly indicates incomplete, stops timer.
+ */
 test("early assessment stays visible if report connection fails", async () => {
   const page = await makePage();
   startPrepared(page);
@@ -311,11 +391,13 @@ test("early assessment stays visible if report connection fails", async () => {
   assert.equal(page.el("report-panel").hidden, false);
   assert.match(page.el("score").textContent, /3.00/);
   ws.emit({}, "close");
-  assert.match(page.el("report-summary").textContent, /未完成/);
+  assert.match(page.el("report-summary").textContent, /not complete/);
   assert.equal(page.timers.size, 0);
 });
 
-/** 首题允许回答并停止计时，最后一轮报告成功后保留真实总结并恢复开始按钮。 */
+/**
+ *  First question allows answer and stops timer; after final round report success, retain real summary and restore start button.
+ */
 test("question and finished response release pending UI state", async () => {
   const page = await makePage();
   startPrepared(page);
@@ -338,18 +420,22 @@ test("question and finished response release pending UI state", async () => {
   assert.equal(page.timers.size, 0);
 });
 
-/** 模拟服务端公告低上限，仅验证客户端边界；不得发送超限内容或遗留计时器。 */
+/**
+ *  Simulate server-side announcement with low upper limit, verify only client-side boundaries; must not send over-limited content or leave timers running.
+ */
 test("oversized command is rejected before send", async () => {
   const page = await makePage();
   startPrepared(page);
   const ws = Socket.instances.at(-1);
   hello(ws, 5);
   assert.equal(ws.sent.length, 0);
-  assert.match(page.el("agent-status").textContent, /大小限制/);
+  assert.match(page.el("agent-status").textContent, /server limit/);
   assert.equal(page.timers.size, 0);
 });
 
-/** 原有报告回退被服务端标记时，前端必须明确告知来源，不改变有效分数。 */
+/**
+ *  When original report rollback is marked by server, frontend must explicitly inform origin, without changing valid score.
+ */
 test("report fallback is explicitly labeled", async () => {
   const page = await makePage();
   startPrepared(page);
@@ -359,22 +445,26 @@ test("report fallback is explicitly labeled", async () => {
     report_narrative_status: "fallback",
     final_report: { overall_score: 3, competencies: {}, summary: "Deterministic summary." },
   } });
-  assert.match(page.el("report-summary").textContent, /模型报告文字生成失败/);
+  assert.match(page.el("report-summary").textContent, /model report failed/);
   assert.match(page.el("score").textContent, /3.00/);
 });
 
-/** 同连接内错误 request_id 不得误改当前阶段，应明确失败并清理计时器。 */
+/**
+ *  Within same connection, error request_id must not alter current phase; should clearly fail and clear timer.
+ */
 test("foreign request progress is rejected", async () => {
   const page = await makePage();
   startPrepared(page);
   const ws = Socket.instances.at(-1);
   hello(ws);
   ws.emit({ type: "progress", request_id: "foreign", stage: "resume_parsing", state: "running" });
-  assert.match(page.el("agent-status").textContent, /请求不匹配/);
+  assert.match(page.el("agent-status").textContent, /does not match the current request/);
   assert.equal(page.timers.size, 0);
 });
 
-/** 新版客户端与真实语音协调器共享当前问题和回答边界；播放时不允许启动录音。 */
+/**
+ *  New client shares current question and answer boundary with real voice coordinator; playback must not trigger recording start.
+ */
 test("voice playback blocks recording and releases it on completion", async () => {
   const page = await makePage();
   startPrepared(page);
@@ -392,7 +482,7 @@ test("voice playback blocks recording and releases it on completion", async () =
   assert.equal(page.el("start-recording").disabled, true);
   page.voice.avatarEvent({ type: "playback_finished", utterance_id: "voice-u" });
   assert.equal(page.el("start-recording").disabled, false);
-  assert.match(page.el("voice-status").textContent, /朗读已停止/);
+  assert.match(page.el("voice-status").textContent, /Speech has stopped/);
   const capture = await startCapture(page);
   await page.voice.finishAnswer();
   capture.onFinal("Public fixture answer.", 10);
@@ -400,7 +490,9 @@ test("voice playback blocks recording and releases it on completion", async () =
   assert.equal(page.el("start-recording").disabled, true);
 });
 
-/** 采集/收尾取消使旧回调失效；真实资源释放路径运行，不打开设备或外部服务。 */
+/**
+ *  Cancellation during collection/ending renders old callbacks invalid; real resource release path executed, no device or external service opened.
+ */
 test("cancellation releases capture and ignores a late final transcript", async () => {
   const page = await answeringPage();
   const capture = await startCapture(page);
@@ -417,7 +509,9 @@ test("cancellation releases capture and ignores a late final transcript", async 
   assert.equal(page.el("voice-enabled").disabled, false);
 });
 
-/** 生成真实客户端当前题；仅 WebSocket/版本接口使用离线替身，题目进入真实业务处理器。 */
+/**
+ *  Generate real client current question; only WebSocket/version interface uses offline stubs, questions enter real business processor.
+ */
 async function answeringPage() {
   const page = await makePage();
   startPrepared(page);
@@ -428,18 +522,26 @@ async function answeringPage() {
   return { ...page, ws };
 }
 
-/** 输入独立 VM 页面；仅替换设备/供应商启动与 flush，保留真实协调器及 close 资源逻辑。
- * 返回采集对象让测试显式交付部分/最终/错误回调，不证明实际 ASR 性能。 */
+/**
+ *  Input independent VM page; replace only device/supplier startup and flush, preserve real coordinator and close resource logic.
+ * Return collection object to let test explicitly deliver partial/final/error callbacks, without proving actual ASR performance.
+ */
 async function startCapture(page) {
-  /** 离线授权和握手完成，不创建麦克风音轨。 */
+  /**
+ *  Offline authorization and handshake complete without creating microphone track.
+ */
   page.captureType.prototype.start = async function syntheticStart() { this.recording = true; };
-  /** 离线结束只置采集标记；最终文本必须由测试另行交付，不伪造同步成功。 */
+  /**
+ *  Offline end only sets collection flag; final text must be delivered separately by test, do not fabricate synchronous success.
+ */
   page.captureType.prototype.end = async function syntheticEnd() { this.recording = false; };
   await page.voice.record();
   return page.voice.capture;
 }
 
-/** 验证显式结束与最终文本的两阶段边界、字幕纯文本、重复防护及下一题清理。 */
+/**
+ *  Validate two-phase boundary between explicit end and final text, plain text captions, duplicate prevention, and next-question cleanup.
+ */
 async function speechAnswerLifecycle() {
   const page = await answeringPage();
   assert.doesNotMatch(HTML, /id="(?:answer|answer-form|submit-answer|transcript-draft)"/);
@@ -467,7 +569,9 @@ async function speechAnswerLifecycle() {
 }
 test("finish answer waits for final speech and submits once while subtitles remain visible", speechAnswerLifecycle);
 
-/** 原采集时限的 final 不代表用户结束确认；有最终文本后仍须按钮，空白/失败不提交。 */
+/**
+ *  Final from original collection timeout does not represent user confirmation of end; button still required after final text, blank/failure does not submit.
+ */
 async function speechAnswerBoundaries() {
   const page = await answeringPage();
   let capture = await startCapture(page);
@@ -494,7 +598,9 @@ async function speechAnswerBoundaries() {
 }
 test("capture limit requires end confirmation and empty or failed transcripts never submit", speechAnswerBoundaries);
 
-/** 没有可用输入时禁止 start，失败不选择其他版本；这些是模拟权限响应，不替代真实服务权限。 */
+/**
+ *  Prohibit start when no input available; failure does not select alternative version; these are simulated permission responses, not replacing real service permissions.
+ */
 async function blockedResumeSelection() {
   const before = Socket.instances.length;
   for (const options of [
@@ -511,7 +617,9 @@ async function blockedResumeSelection() {
 }
 test("missing ready selection or authorization cannot start an interview", blockedResumeSelection);
 
-/** 真实页面脚本与确定性时钟：进度不会自动结束面试；断线冻结，既有异常去重且清空不删后端。 */
+/**
+ *  Real page script with deterministic clock: progress will not automatically end interview; disconnection freezes, existing exceptions deduplicated and cleared without removing backend.
+ */
 async function interviewProgressLifecycle() {
   const page = await makePage(); startPrepared(page);
   const ws = Socket.instances.at(-1); const request = hello(ws);
@@ -536,7 +644,9 @@ async function interviewProgressLifecycle() {
 }
 test("interview progress follows budget snapshots and freezes on disconnect without ending automatically", interviewProgressLifecycle);
 
-/** 输入无；执行真实 MCP 握手和当前题处理器，仅 WebSocket/设备使用隔离替身。 */
+/**
+ *  Input none; execute real MCP handshake and current question processor, only WebSocket/device use isolated stubs.
+ */
 async function answeringMCPPage() {
   const page = await makePage();
   startPrepared(page);
@@ -554,7 +664,9 @@ async function answeringMCPPage() {
   return { ...page, ws };
 }
 
-/** 验证后端检测事件只收尾，完整最终文本及凭据才调用 MCP；重复/旧题事件不能再次提交。 */
+/**
+ *  After verification, backend detection event only concludes; complete final text and credentials trigger MCP call; duplicate/old question events cannot be resubmitted.
+ */
 async function automaticSpeechCompletion() {
   const page = await answeringMCPPage();
   const capture = await startCapture(page);
@@ -583,7 +695,9 @@ async function automaticSpeechCompletion() {
 }
 test("automatic answer completion flushes then submits one MCP tool call", automaticSpeechCompletion);
 
-/** 验证补充使最终凭据失效：自动分支取消，完整字幕保留，用户确认后沿用手动 answer。 */
+/**
+ *  Verification supplement invalidates final credentials: automatic branching cancelled, full caption preserved, manual answer used after user confirmation.
+ */
 async function revokedSpeechCompletion() {
   const page = await answeringMCPPage();
   const capture = await startCapture(page);
@@ -592,7 +706,7 @@ async function revokedSpeechCompletion() {
   capture.onFinal("That's all. One more detail.", 10);
   assert.equal(page.ws.sent.length, count);
   assert.equal(page.voice.finishRequested, false);
-  assert.match(page.el("voice-status").textContent, /补充/);
+  assert.match(page.el("voice-status").textContent, /Additional speech/);
   await page.voice.finishAnswer();
   assert.equal(page.ws.sent.length, count + 1);
   assert.equal(page.ws.sent.at(-1).type, "answer");

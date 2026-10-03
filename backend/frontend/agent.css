@@ -1,15 +1,16 @@
 /*
- * 文件职责：为 agent.html 面试工作台提供布局与可读性样式，叠加在 style.css 之后。
- * 实现：workspace.css 将主画面/回答按钮与进度/设备侧栏分为双栏；题目位于舞台上方，面试官居中，本地视频绝对定位于舞台右上角；视频底部以纯文本字幕呈现回答；窄屏保持字幕可读；原生准备弹窗独立滚动并固定标题/确认操作。
- * 关联：agent.js 决定业务状态，interview-camera.js 决定本地预览状态；样式不创建或改变媒体流。
- * 目录：label/input（表单）；.settings-grid（预算参数）；#question/#report-summary（长文本）；
- * details/pre（展开结果）；#stage-log/#wait-time（真实阶段与计时）；已保存版本选择；
- * [hidden]（显示状态）；.studio-heading（页面标题）；.question-card（题目）；
- * .interviewer-stage/.avatar-view（面试画面）；.self-preview（右上角本地视频）；
- * .camera-toolbar/.voice-panel/.answer-subtitles/.preparation-dialog（语音操作、字幕和模态设置）；@media（窄屏排列）。本文件无函数或 CSS 自定义变量。
- * .interview-progress/.interview-stats 为紧凑预算区，.interview-topic-list 独立滚动，.interview-alert-panel 展示已有异常。
- * 关键选择器：.preparation-footer 与 .voice-panel .actions 控制准备确认/语音操作区；不改变 disabled 或网络状态。
- * 约束：仅调整外观和布局；预算、评分及协议状态由脚本与后端决定。
+ * Responsibilities: Style the interview workspace after the shared styles.
+ * Implementation: Arrange the question, centered interviewer, upper-right local preview, captions and progress/device sidebar; narrow screens retain DOM readability. Bound caption scrolling and independently scroll the preparation dialog with stable confirmation controls.
+ * Related Modules: agent.html, style.css and workspace.css; agent.js owns business state and interview-camera.js owns media preview.
+ * Declaration Index:
+ * None
+ * Variable Index:
+ * None
+ * Style Groups:
+ * Form labels/inputs and .settings-grid; #question/#report-summary; details/pre; #stage-log/#wait-time; saved-version controls and [hidden]; .studio-heading/.question-card; .interviewer-stage/.avatar-view/.self-preview; .camera-toolbar/.voice-panel/.answer-subtitles/.preparation-dialog; responsive @media rules.
+ * .interview-progress/.interview-stats shows budgets; .interview-topic-list scrolls; .interview-alert-panel shows existing anomalies; .preparation-footer and voice actions position confirmation controls.
+ * Constraints:
+ * Styles create no media streams and alter no disabled state, budget, score, collection parameter or protocol transition.
  */
 label { display: block; margin: 12px 0 6px; font-weight: 600; }
 input, #resume-select { width: 100%; box-sizing: border-box; font: inherit; padding: 10px;
@@ -78,8 +79,10 @@ input:focus-visible, #resume-select:focus-visible, summary:focus-visible, a:focu
 .voice-panel > label { display: flex; align-items: center; gap: 8px; }
 .voice-panel input[type="checkbox"] { width: auto; margin: 0; }
 .avatar-connection { margin-top: 12px; }
-/* 字幕覆盖视频底部而不挡住右上角预览；长回答在有限高度内滚动，最新文本由语音模块定位。
- * z-index 保证数字人播放器之上可读；pointer-events 不截断播放器交互，文本区仍可滚动选择。 */
+/*
+ * Subtitles overlay video bottom without blocking upper-right preview; long answers scroll within limited height, latest text positioned by voice module.
+ * z-index ensures readability above digital human player; pointer-events do not block player interaction, text area remains scrollable and selectable.
+ */
 .answer-subtitles { position: absolute; z-index: 4; bottom: 50px; left: 8%; right: 8%; padding: 12px 18px; border-radius: 12px; background: #081710d9; color: #fff; box-shadow: 0 4px 18px #0003; pointer-events: none; }
 .subtitle-label { display: block; margin-bottom: 5px; font-size: 11px; color: #c4dccb; }
 #answer-subtitle { margin: 0; max-height: 108px; overflow-y: auto; overscroll-behavior-y: contain; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 17px; line-height: 1.65; pointer-events: auto; }
@@ -89,8 +92,10 @@ input:focus-visible, #resume-select:focus-visible, summary:focus-visible, a:focu
 #resume-selection-status { white-space: pre-wrap; }
 #start-form .actions a { align-self: center; color: #236b5d; font-size: 13px; }
 
-/* 原生 dialog 控制背景不可交互和焦点范围；打开期间阻止背景滚动，关闭恢复原布局。
- * 仅 [open] 设置弹窗布局，不覆盖原生关闭隐藏；短屏由 body 内容区滚动，确认栏保持可见。 */
+/*
+ * Native dialog controls background interactivity and focus scope; blocks background scrolling during open, restores original layout on close.
+ * Only [open] sets dialog layout, does not override native close behavior; short screens use body content area for scrolling, confirmation bar remains visible.
+ */
 .interview-page:has(.preparation-dialog[open]) { overflow: hidden; }
 .studio-session-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .preparation-dialog { width: min(640px, calc(100% - 32px)); max-height: calc(100dvh - 48px); padding: 0; border: 1px solid #dce6df; border-radius: 18px; background: #fff; color: #263d36; box-shadow: 0 24px 80px #10251c33; }

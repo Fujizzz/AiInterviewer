@@ -1,27 +1,39 @@
-"""职责：验证个人中心岗位推荐的真实排序、保存边界、岗位来源故障和私有访问控制。
-实现：隔离数据库与临时合成岗位 JSON；粗排执行实际冻结模型；仅在外部 API 边界注入明确的精排替身。
-关联：resume_versions.recommendations、recommendation.catalog/runtime/rerank；不访问正式岗位或外部模型。
-目录：
-- PersonalRecommendationTests：本人快照推荐集成测试。
-- PersonalRecommendationTests.setUp：创建两用户、保存槽位和合成目录。
-- PersonalRecommendationTests.tearDown：关闭配置覆盖并清理临时目录。
-- PersonalRecommendationTests.write_catalog：写入显式测试目录，不触碰生产配置。
-- PersonalRecommendationTests.model_output：外部 API 替身按倒序返回有界岗位和合成双语理由。
-- PersonalRecommendationTests.test_real_model_uses_saved_snapshot：
-  粗排分数不变，最终次序由精排决定。
-- PersonalRecommendationTests.test_llm_failure_is_explicit：精排失败返回固定状态，不输出粗排替代项。
-- PersonalRecommendationTests.test_permissions_and_csrf：跨用户、匿名和缺失 CSRF 请求拒绝。
-- PersonalRecommendationTests.test_saved_ready_and_empty_boundaries：未解析、未知及未保存输入拒绝。
-- PersonalRecommendationTests.test_catalog_failures_do_not_fabricate_results：
-  缺失、非法、重复、超量目录失败。
-- PersonalRecommendationTests.test_model_failure_is_explicit：模型不可用返回故障而非替代结果。
-- PersonalRecommendationTests.test_invalid_saved_values_are_diagnostic：
-  保存数据损坏与数值越界明确失败。
-- PersonalRecommendationTests.test_bundled_experience_catalog：实验岗位全部通过契约并调用原模型。
-关键变量：
-（无模块级变量。）
-约束：
-真实本地推理通过不代表模型效果或生产岗位可用；所有简历和岗位均为合成数据。
+"""Responsibilities: Verify real ranking, save boundary, job source failure, and private access
+control in personal center job recommendations.
+Implementation: Isolated database and temporarily synthesized job JSON; coarse ranking executes
+actual frozen model; inject explicit precision ranking stubs only at external API boundary.
+Related Modules: resume_versions.recommendations, recommendation.catalog/runtime/rerank; do not
+access official jobs or external models.
+Declaration Index:
+- PersonalRecommendationTests: Integrated test for personal snapshot recommendations.
+- PersonalRecommendationTests.setUp: Create two users, save slots, and synthesize directory.
+- PersonalRecommendationTests.tearDown: Disable configuration override and clean up temporary
+  directory.
+- PersonalRecommendationTests.write_catalog: Write explicit test directory, do not touch production
+  configuration.
+- PersonalRecommendationTests.model_output: External API stub returns bounded jobs in reverse order
+  and synthesized bilingual rationale.
+- PersonalRecommendationTests.test_real_model_uses_saved_snapshot:
+  Coarse ranking scores unchanged, final order determined by precision ranking.
+- PersonalRecommendationTests.test_llm_failure_is_explicit: Precision ranking failure returns fixed
+  status, no coarse ranking fallback.
+- PersonalRecommendationTests.test_permissions_and_csrf: Reject cross-user, anonymous, and missing
+  CSRF requests.
+- PersonalRecommendationTests.test_saved_ready_and_empty_boundaries: Reject unprocessed, unknown,
+  and unsaved inputs.
+- PersonalRecommendationTests.test_catalog_failures_do_not_fabricate_results:
+  Fail on missing, invalid, duplicate, or excessive directories.
+- PersonalRecommendationTests.test_model_failure_is_explicit: Model unavailable returns failure, not
+  fallback result.
+- PersonalRecommendationTests.test_invalid_saved_values_are_diagnostic:
+  Corrupted saved data and out-of-range values fail explicitly.
+- PersonalRecommendationTests.test_bundled_experience_catalog: All experimental jobs pass contract
+  and invoke original model.
+Variable Index:
+None
+Constraints:
+Real local inference does not imply model effectiveness or production job availability; all resumes
+and jobs are synthetic data.
 """
 
 import json
@@ -40,10 +52,14 @@ from interviews.resume_models import ResumeVersion
 
 
 class PersonalRecommendationTests(APITestCase):
-    """功能：集成测试个人推荐；逻辑：真实权限、ORM、目录和排序；约束：不读写真实用户记录。"""
+    """Function: Integrated test for personal recommendations; Logic: Real permissions, ORM,
+    directory, and sorting; Constraint: No reading or writing real user records.
+    """
 
     def setUp(self):
-        """无外部输入；创建隔离用户与 ready 保存快照，临时目录显式提供两岗，不修改模型。"""
+        """No external input; create isolated users and save ready snapshots, explicitly provide
+        temporary directories for two roles, do not modify models.
+        """
         self.owner = get_user_model().objects.create_user(
             username="job-owner", password="test-pass"
         )
@@ -87,16 +103,22 @@ class PersonalRecommendationTests(APITestCase):
         self.addCleanup(self.llm_patch.stop)
 
     def tearDown(self):
-        """读取实例配置与临时目录，恢复 Django 设置并删除测试文件；不涉及正式目录。"""
+        """Read instance configuration and temporary directory, restore Django settings and delete
+        test files; no involvement with production directories.
+        """
         self.override.disable()
         self.directory.cleanup()
 
     def write_catalog(self, data):
-        """输入可 JSON 编码数据，写入当前临时目录；无返回，非法契约用于边界测试。"""
+        """Input: JSON-encodable data; write to current temporary directory; no return value;
+        invalid contracts used for boundary testing.
+        """
         self.catalog_path.write_text(json.dumps(data), encoding="utf-8")
 
     def model_output(self, payload):
-        """输入候选 JSON，输出倒序前 final_count 个及固定理由；仅替代外部 API，不替代粗排。"""
+        """Input: candidate JSON; output: the final_count items in reverse order and fixed
+        rationale; only substitutes external API, does not substitute coarse ranking.
+        """
         jobs = [
             {
                 "job_id": item["job_id"],
@@ -108,7 +130,9 @@ class PersonalRecommendationTests(APITestCase):
         return RerankOutput.model_validate({"jobs": jobs}), "test-api-model"
 
     def test_llm_failure_is_explicit(self):
-        """外部调用替身显式抛错；API/配置为 503、坏输出为 502，不返回粗排或自动再次调用。"""
+        """External call stub explicitly throws error; API/configuration returns 503, bad output
+        returns 502, no coarse ranking returned or automatic re-call.
+        """
         for code, status in [
             ("recommendation_llm_not_configured", 503),
             ("recommendation_llm_unavailable", 503),
@@ -122,7 +146,9 @@ class PersonalRecommendationTests(APITestCase):
             self.llm_call.assert_called_once()
 
     def test_real_model_uses_saved_snapshot(self):
-        """粗排运行实际 LightGBM，模拟 API 反转名次；验证原分数不变和精排理由，不验证供应商。"""
+        """Coarse ranking runs actual LightGBM, simulates API reversal of rankings; verify original
+        scores unchanged and fine-ranking rationale, do not verify vendor.
+        """
         candidate = CandidateInput(
             candidate_id=str(self.version.pk), **self.version.recommendation_slots
         )
@@ -159,7 +185,9 @@ class PersonalRecommendationTests(APITestCase):
         )
 
     def test_permissions_and_csrf(self):
-        """跨用户和匿名拒绝；真实 SessionAuthentication 缺 CSRF 拒绝，有正确 token 才实际排序。"""
+        """Reject across users and anonymous requests; real SessionAuthentication rejects without
+        CSRF, only accepts actual sorting with correct token.
+        """
         self.client.force_authenticate(self.other)
         self.assertEqual(self.client.post(self.url).status_code, 404)
         self.client.force_authenticate(None)
@@ -172,7 +200,9 @@ class PersonalRecommendationTests(APITestCase):
         self.assertEqual(session.post(self.url, HTTP_X_CSRFTOKEN=token).status_code, 200)
 
     def test_saved_ready_and_empty_boundaries(self):
-        """不接受前端候选人覆盖、未 ready 或全未知快照；原件文本中的技能不自动成为确认字段。"""
+        """Do not accept frontend candidate overrides, unready state, or fully unknown snapshots;
+        skills in original text do not automatically become confirmed fields.
+        """
         self.assertEqual(
             self.client.post(self.url, {"skills": ["Java"]}, format="json").status_code, 400
         )
@@ -186,7 +216,9 @@ class PersonalRecommendationTests(APITestCase):
         self.assertEqual(self.client.post(self.url).data["code"], "recommendation_profile_empty")
 
     def test_catalog_failures_do_not_fabricate_results(self):
-        """显式空配置、坏 JSON、额外字段、重复 ID 和超过 100 岗均 503，无截断或替代来源。"""
+        """Explicitly empty config, malformed JSON, extra fields, duplicate IDs, and pools exceeding
+        100 roles all return 503; no truncation or alternative source used.
+        """
         with override_settings(RECOMMENDATION_JOB_CATALOG=""):
             self.assertEqual(self.client.post(self.url).data["code"], "job_catalog_not_configured")
         self.catalog_path.write_text("broken JSON", encoding="utf-8")
@@ -202,7 +234,9 @@ class PersonalRecommendationTests(APITestCase):
             self.assertEqual(response.status_code, 503)
 
     def test_model_failure_is_explicit(self):
-        """只模拟模型不可用异常验证 503，不将该 mocked 测试当真实服务验证，不产生替代推荐。"""
+        """Only simulate model unavailable exception to validate 503; do not treat this mocked test
+        as real service validation, do not generate alternative recommendations.
+        """
         with patch(
             "interviews.api.resume_versions.rank_pairs", side_effect=ModelUnavailable("test")
         ):
@@ -211,7 +245,9 @@ class PersonalRecommendationTests(APITestCase):
         self.assertEqual(response.data, {"code": "recommendation_model_unavailable"})
 
     def test_invalid_saved_values_are_diagnostic(self):
-        """真实保存损坏类型返回 503；有限数值超出原 float32 特征范围返回 422，不替代评分。"""
+        """Real save with corrupted type returns 503; limited numeric values exceeding original
+        float32 feature range return 422, no score replacement.
+        """
         for slots, expected in [
             ({"skills": "bad"}, "recommendation_profile_invalid"),
             ({"months_experience": 1e308}, "recommendation_features_invalid"),
@@ -221,7 +257,9 @@ class PersonalRecommendationTests(APITestCase):
             self.assertEqual(self.client.post(self.url).data["code"], expected)
 
     def test_bundled_experience_catalog(self):
-        """显式选定同源的 100 岗并实际调用粗排，验证 20 岗送入 API 替身及 5 岗展示。"""
+        """Explicitly select 100 roles from same source and actually invoke coarse ranking; verify
+        20 roles sent to API stub and 5 roles displayed.
+        """
         path = Path(__file__).resolve().parents[1] / "recommendation/data/experience-jobs.json"
         with override_settings(RECOMMENDATION_JOB_CATALOG=str(path)):
             response = self.client.post(self.url)

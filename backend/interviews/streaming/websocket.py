@@ -1,16 +1,16 @@
-"""ASGI WebSocket 生命周期与协议调度。
+"""Responsibilities: Run the ASGI WebSocket lifecycle and dispatch echo protocol operations.
+Implementation: Validate the handshake, send bounded control responses, and echo each binary message
+after its ACK.
+Related Modules: streaming.protocol owns deterministic state validation; access.websocket_allowed
+enforces peer and origin policy.
 
-目录：
-- send_json：
-  将响应字典编码为紧凑 JSON，并交给 ASGI send；不缓存响应正文。
-- dispatch_control：
-  将控制消息映射为协议响应。
-- echo_socket：
-  执行单连接回传循环，按 ACK → 原始二进制消息顺序输出。
+Declaration Index:
+- send_json: Encode a response dictionary as compact JSON and send it over ASGI.
+- dispatch_control: Map a validated control message to a protocol response.
+- echo_socket: Run one connection's receive/echo loop with explicit error and close behavior.
 
-关键变量：
-- logger：
-  当前模块的控制台日志入口；上下文标识及异常处理方式见相应函数。
+Variable Index:
+- logger: Module-level logger for connection lifecycle and protocol failures.
 """
 
 import asyncio
@@ -25,16 +25,19 @@ logger = logging.getLogger(__name__)
 
 
 async def send_json(send, data):
-    """将响应字典编码为紧凑 JSON，并交给 ASGI send；不缓存响应正文。"""
+    """Encode a response dictionary as compact JSON and send it through ASGI without caching the
+    body.
+    """
     await send({"type": "websocket.send", "text": json.dumps(data, separators=(",", ":"))})
 
 
 def dispatch_control(state, message):
-    """将控制消息映射为协议响应。
+    """Map a JSON-validated control dictionary and current connection state to a response
+    dictionary.
 
-    参数：state 为当前连接状态，message 为已通过 JSON 校验的字典。
-    方法：ping 验证关联 ID；start/finish 委派状态对象；未知类型显式失败。
-    返回：响应字典。是否关闭连接由主循环根据响应类型判断。
+    Validate ping IDs and delegate start/finish to EchoState. Unknown message types raise
+    ProtocolError.
+    The caller decides whether to close the connection based on the returned response type.
     """
     kind = message.get("type")
     if kind == "ping":
@@ -52,12 +55,15 @@ def dispatch_control(state, message):
 
 
 async def echo_socket(scope, receive, send):
-    """执行单连接回传循环，按 ACK → 原始二进制消息顺序输出。
+    """Run one connection's ASGI receive/send loop, emitting each ACK before its original binary
+    message.
 
-    输入：ASGI scope 以及异步 receive/send 回调。
-    逻辑：验证握手→公告限制→接收控制或二进制帧→完成或显式关闭。
-    异常：协议错误返回 error 和相应关闭码；系统错误记录上下文并以 1011 关闭。
-    副作用：仅网络发送和控制台日志；日志不包含音视频正文。
+    Inputs are ASGI scope and async receive/send callbacks. Validate the handshake, announce limits,
+    process control or
+    binary messages, then complete or close explicitly. Protocol errors produce an error response
+    and matching close code;
+    unexpected failures log context and close with 1011. Side effects are network sends and console
+    logs only; logs exclude media bodies.
     """
     event = await receive()
     if event["type"] != "websocket.connect":

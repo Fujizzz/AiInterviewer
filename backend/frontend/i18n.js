@@ -1,28 +1,29 @@
 /**
  * @module i18n
- * 功能：为所有浏览器页面提供中文、英文和跟随系统三种语言模式。
- * 实现：读取页面上的 data-i18n 标记，结合 localStorage 保存用户选择；system 模式按浏览器语言并监听语言变化。
- * 关联：由 home.html、account.html、resumes.html、agent.html 和 index.html 先于页面业务脚本加载；业务脚本通过 window.AppI18n.t 读取动态文案。
- * 目录：
- * - systemLanguage：将系统语言映射为中文或英文。
- * - resolveLanguage：将用户偏好解析为当前语言。
- * - interpolate：替换文案中的命名插值。
- * - interpolate.callback1：仅以文本替换命名占位符。
- * - translateElement：更新元素文本和可选属性。
- * - applyLanguage：应用语言、更新 html.lang 和页面控件。
- * - init：初始化选择器、恢复偏好并注册系统语言监听。
- * - init.callback1：保存新语言选择并更新页面。
- * - init.callback2：仅在跟随系统模式下响应系统语言变化。
- * - window.AppI18n.language：返回当前实际语言。
- * - t：返回当前语言的动态文案。
- * - setText：以当前语言更新指定元素。
- * 关键变量：
- * - MESSAGES：共享工作台导航、主页、账号、简历、独立复盘、推荐、语音面试和诊断的中英文资源。
- * - STORAGE_KEY：浏览器偏好键名；只保存 language preference，不保存简历或面试内容。
- * - preference：当前偏好，可为 zh、en 或 system。
- * - language：当前实际语言，只能为 zh 或 en。
- * 约束：
- * 缺失翻译回退到中文资源或 key；翻译只改变界面文案，不改变 API、评分或面试状态。
+ * Responsibilities: Provide Chinese, English, and system-following language modes to browser pages.
+ * Implementation: Translate data-i18n markers, persist the selected preference in localStorage, and track system-language changes only in system mode.
+ * Related Modules: Loaded before page-specific scripts by the product templates; dynamic UI copy is read through window.AppI18n.t.
+ * Declaration Index:
+ * - systemLanguage: Map the browser language to the supported Chinese or English locale.
+ * - resolveLanguage: Resolve an explicit preference or system mode to a supported locale.
+ * - interpolate: Replace named placeholders as plain text.
+ * - interpolate.callback1: Convert each placeholder value to a string without interpreting HTML.
+ * - translateElement: Translate an element's text and selected attributes.
+ * - applyLanguage: Apply a preference and synchronize document metadata and selectors.
+ * - init: Restore the saved preference and register selector and system-language listeners.
+ * - init.callback1: Persist a selector change and apply the selected language.
+ * - init.callback2: Reapply system mode after the browser language changes.
+ * - window.AppI18n.language: Return the active locale.
+ * - t: Return localized dynamic copy with interpolation.
+ * - setText: Set an element's text from a localization key.
+ * Variable Index:
+ * - MESSAGES: Chinese and English resources for navigation, pages, interviews, and diagnostics.
+ * - STORAGE_KEY: localStorage key for the language preference; no user content is stored.
+ * - preference: Selected preference: zh, en, or system.
+ * - language: Active locale, either zh or en.
+ *
+ * Constraints:
+ * A missing locale entry returns its key; localization does not alter APIs, scoring, or interview state.
  */
 
 const STORAGE_KEY = "ai-interviewer-language";
@@ -64,6 +65,28 @@ const MESSAGES = {
     voice_finalizing: "正在完成转写并提交回答…",
     voice_empty: "未识别到语音，请点击“开始回答”重新录音。",
     voice_final_ready: "录音已结束，点击“结束回答”提交字幕中的回答。",
+    voice_avatar_unavailable: "数字人不可用：{message}；可继续语音面试。",
+    voice_avatar_fps: "串流 {fps} FPS",
+    voice_avatar_disconnected: "数字人断开，问题已显示；可重新朗读或直接回答。",
+    voice_avatar_prepare: "UE 准备 {ms} ms",
+    voice_avatar_timeout: "数字人播放超时，可直接回答。",
+    voice_avatar_speaking: "面试官正在朗读…",
+    voice_avatar_playback_failed: "数字人播放失败：{message}；切换到音频。",
+    voice_question_wait: "问题等待 {ms} ms",
+    voice_question_generating: "正在生成英文语音…",
+    voice_tts_metrics: "TTS {generation} ms · 语音请求 {request} ms",
+    voice_question_unavailable: "问题朗读不可用：{message}；可阅读题目并开始语音回答。",
+    voice_audio_load_failed: "问题音频加载失败，可阅读题目并开始语音回答。",
+    voice_mode_reading: "语音模式：正在朗读问题…",
+    voice_enable_audio: "点击“重新朗读”启用声音，或直接回答。",
+    voice_recording_metrics: "录音含转录 {recording} ms · STT 收尾 {finalization} ms",
+    avatar_ready: "数字人已连接",
+    avatar_invalid_message: "数字人返回了无效消息",
+    avatar_controller_unresponsive: "画面已连接，但面试控制器未响应；请检查 L_Interview 中的控制器。",
+    avatar_checking_controller: "画面已连接，正在检查面试控制器…",
+    avatar_disconnected: "数字人已断开，使用语音／文字模式",
+    avatar_connection_failed: "数字人连接失败，使用语音／文字模式",
+    avatar_enable_audio: "点击连接／播放按钮启用声音",
 
     re_workspace: "我的资料 / 简历与岗位",
     re_preserve: "原件留存 · 编辑稿独立保存",
@@ -396,6 +419,9 @@ const MESSAGES = {
     media_format_unsupported: "浏览器不支持 {mime}，请使用支持该格式的浏览器。",
     media_backpressure: "待发送媒体超过 4 MiB，网络未及时回传，测试已停止。",
     media_empty: "没有产生可校验的媒体分片。",
+    media_capturing: "采集中 · 分片实时回传",
+    media_record_start: "MediaRecorder 开始 · {mime} · 分片目标间隔 250 ms",
+    media_echo_rebuilt: "回传媒体已重组 · {bytes} bytes",
     media_recording_failed: "MediaRecorder failed.",
     agent_waiting: "已等待 {seconds} 秒",
     agent_waiting_stage: "已等待 {seconds} 秒 · 当前阶段 {stage} 秒",
@@ -475,6 +501,28 @@ const MESSAGES = {
     voice_finalizing: "Finalizing the transcript and submitting your answer…",
     voice_empty: "No speech was recognized. Click Start answering to record again.",
     voice_final_ready: "Recording has ended. Click Finish answer to submit the subtitled answer.",
+    voice_avatar_unavailable: "The avatar is unavailable: {message}. You can continue the voice interview.",
+    voice_avatar_fps: "Stream {fps} FPS",
+    voice_avatar_disconnected: "The avatar disconnected. The question is visible; replay it or answer directly.",
+    voice_avatar_prepare: "UE preparation {ms} ms",
+    voice_avatar_timeout: "Avatar playback timed out. You can answer directly.",
+    voice_avatar_speaking: "The interviewer is speaking…",
+    voice_avatar_playback_failed: "Avatar playback failed: {message}. Switching to audio.",
+    voice_question_wait: "Question wait {ms} ms",
+    voice_question_generating: "Generating English speech…",
+    voice_tts_metrics: "TTS {generation} ms · speech request {request} ms",
+    voice_question_unavailable: "Question playback is unavailable: {message}. Read the question and answer by voice.",
+    voice_audio_load_failed: "Question audio failed to load. Read the question and answer by voice.",
+    voice_mode_reading: "Voice mode: reading the question…",
+    voice_enable_audio: "Select Replay question to enable audio, or answer directly.",
+    voice_recording_metrics: "Recording with transcript {recording} ms · STT finalization {finalization} ms",
+    avatar_ready: "Avatar connected",
+    avatar_invalid_message: "The avatar returned an invalid message",
+    avatar_controller_unresponsive: "Video connected, but the interviewer controller did not respond. Check the controller in L_Interview.",
+    avatar_checking_controller: "Video connected. Checking the interviewer controller…",
+    avatar_disconnected: "Avatar disconnected. Using voice/text mode.",
+    avatar_connection_failed: "Avatar connection failed. Using voice/text mode.",
+    avatar_enable_audio: "Select Connect / play to enable audio.",
 
     re_workspace: "Personal center / My resume",
     re_preserve: "Original retained · Editions saved separately",
@@ -697,7 +745,7 @@ const MESSAGES = {
     auth_error_duplicate: "That username is taken. Try another one.",
     auth_error_credentials: "Incorrect username or password. Please try again.",
     language: "Language",
-    language_zh: "中文",
+    language_zh: "Chinese",
     language_en: "English",
     language_system: "Follow system",
     nav_label: "Page navigation",
@@ -807,6 +855,9 @@ const MESSAGES = {
     media_format_unsupported: "This browser does not support {mime}. Use a browser that supports this format.",
     media_backpressure: "More than 4 MiB of media is waiting to be sent; the test stopped.",
     media_empty: "No media chunks were produced for verification.",
+    media_capturing: "Capturing · echoing chunks",
+    media_record_start: "MediaRecorder started · {mime} · 250 ms target chunk interval",
+    media_echo_rebuilt: "Echoed media reassembled · {bytes} bytes",
     media_recording_failed: "MediaRecorder failed.",
     agent_waiting: "Waiting {seconds} seconds",
     agent_waiting_stage: "Waiting {seconds} seconds · current stage {stage} seconds",
@@ -852,40 +903,52 @@ const MESSAGES = {
   },
 };
 
-let preference = "system";
-let language = "zh";
+let preference = "en";
+let language = "en";
 
-/** 将浏览器语言映射到当前支持的语言；未知语言使用英文作为国际化默认值。 */
+/**
+ *  Map browser language to currently supported languages; use English as default for unknown languages.
+ */
 function systemLanguage() {
   return /^zh(?:-|$)/i.test(navigator.language || "") ? "zh" : "en";
 }
 
-/** 将用户偏好解析为可渲染的 zh 或 en。 */
+/**
+ *  Parse user preference into renderable zh or en.
+ */
 function resolveLanguage(value) {
   return value === "zh" || value === "en" ? value : systemLanguage();
 }
 
-/** 替换文案中的 {name} 占位符；输入值只作为文本，不解释 HTML。 */
+/**
+ *  Replace {name} placeholder in text; input values treated as plain text, not HTML interpretation.
+ */
 function interpolate(template, values = {}) {
-  return template.replace(/\{(\w+)\}/g, /** 以纯文本替换对应占位符。 */ (_, key) => String(values[key] ?? `{${key}}`));
+  return template.replace(/\{(\w+)\}/g, /**
+ *  Replace placeholders with plain text.
+ */ (_, key) => String(values[key] ?? `{${key}}`));
 }
 
-/** 根据 data-i18n 标记更新文本，并按 data-i18n-attr 更新属性。 */
+/**
+ *  Update text based on data-i18n attribute and update attributes based on data-i18n-attr.
+ */
 function translateElement(element) {
   const key = element.dataset.i18n;
-  if (key) element.textContent = MESSAGES[language][key] ?? MESSAGES.zh[key] ?? key;
+  if (key) element.textContent = MESSAGES[language][key] ?? key;
   const attributes = element.dataset.i18nAttr;
   if (attributes) {
     for (const item of attributes.split(",")) {
       const [attribute, attributeKey] = item.split(":");
-      if (attribute && attributeKey) element.setAttribute(attribute, MESSAGES[language][attributeKey] ?? MESSAGES.zh[attributeKey] ?? attributeKey);
+      if (attribute && attributeKey) element.setAttribute(attribute, MESSAGES[language][attributeKey] ?? attributeKey);
     }
   }
 }
 
-/** 应用语言并同步 select、html.lang 和页面标题；不触碰业务状态。 */
+/**
+ *  Apply language and synchronize select, html.lang, and page title; does not touch business state.
+ */
 function applyLanguage(nextPreference) {
-  preference = ["zh", "en", "system"].includes(nextPreference) ? nextPreference : "system";
+  preference = ["zh", "en", "system"].includes(nextPreference) ? nextPreference : "en";
   language = resolveLanguage(preference);
   document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
   for (const element of document.querySelectorAll("[data-i18n], [data-i18n-attr]")) translateElement(element);
@@ -895,11 +958,15 @@ function applyLanguage(nextPreference) {
   for (const label of document.querySelectorAll("[data-language-label]")) label.textContent = t("language");
 }
 
-/** 初始化语言选择器、恢复偏好并监听跟随系统模式的变化。 */
+/**
+ *  Initialize language selector, restore preference, and listen for changes in system mode.
+ */
 function init() {
-  try { preference = localStorage.getItem(STORAGE_KEY) || "system"; } catch { preference = "system"; }
+  try { preference = localStorage.getItem(STORAGE_KEY) || "en"; } catch { preference = "en"; }
   for (const select of document.querySelectorAll("[data-language-selector]")) {
-    /** 保存语言偏好并立即应用。 */
+    /**
+ *  Save language preference and apply immediately.
+ */
     select.addEventListener("change", () => {
       preference = select.value;
       try { localStorage.setItem(STORAGE_KEY, preference); } catch { /* storage is optional */ }
@@ -907,18 +974,24 @@ function init() {
     });
   }
   applyLanguage(preference);
-  /** 跟随系统模式下更新实际语言。 */
+  /**
+ *  Update actual language when following system mode.
+ */
   window.addEventListener("languagechange", () => {
     if (preference === "system") applyLanguage("system");
   });
 }
 
-/** 返回当前语言文案；动态业务脚本使用此函数避免散落中英文判断。 */
+/**
+ *  Return current language text; dynamic business scripts use this function to avoid scattered Chinese/English checks.
+ */
 function t(key, values = {}) {
-  return interpolate(MESSAGES[language][key] ?? MESSAGES.zh[key] ?? key, values);
+  return interpolate(MESSAGES[language][key] ?? key, values);
 }
 
-/** 更新页面元素文本；元素不存在时明确抛错，便于模板和脚本保持同步。 */
+/**
+ *  Update page element text; throw explicit error if element does not exist, aiding template and script synchronization.
+ */
 function setText(id, key, values = {}) {
   const element = document.getElementById(id);
   if (!element) throw new Error(`Missing localized element: ${id}`);
@@ -927,7 +1000,9 @@ function setText(id, key, values = {}) {
 
 window.AppI18n = {
   applyLanguage,
-  /** 读取当前实际语言，不修改状态。 */
+  /**
+ *  Read current actual language without modifying state.
+ */
   language: () => language,
   setText,
   t,

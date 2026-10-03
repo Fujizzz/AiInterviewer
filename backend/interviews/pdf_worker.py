@@ -1,18 +1,25 @@
-"""职责：在隔离的 Linux 文件系统和网络命名空间内执行 PDF 提取与渲染。
+"""Responsibilities: execute PDF extraction and rendering inside isolated Linux filesystem and
+network namespace.
 
-实现：先限制地址空间、CPU、文件与系统调用，再导入原解析模块；stdin/stdout 为唯一数据通道。
-关联：pdf_supervisor 只挂载本文件、resume_pdf 与 resume_cleanup 及依赖，不挂载项目目录或 .env。
+Implementation: first apply address space, CPU, file, and system call limits, then import original
+parsing module; stdin/stdout are the only data channels.
+Related Modules: pdf_supervisor mounts only this file, resume_pdf, resume_cleanup, and dependencies,
+not project directory or .env.
 
-目录：
-- install_limits：设置不可提升的进程资源限制及 seccomp 拒绝规则。
-- probe：验证网络、宿主路径、环境和派生进程限制，仅供显式运维自检。
-- main：从有界 stdin 读取 PDF，以原参数提取渲染，返回 JSON 页面或固定错误码。
+Declaration Index:
+- install_limits: set non-upgradable process resource limits and seccomp deny rules.
+- probe: validate network, host path, environment, and derived process limits, for explicit
+  operational self-check only.
+- main: read PDF from bounded stdin, extract and render with original parameters, return JSON page
+  or fixed error code.
 
-关键变量：
-（无模块级变量。）
-约束：
-本文件只在 Linux 沙箱中运行，不加载 Django、不读取任何模型凭据、不调用视觉服务。
---probe 是可信启动参数，不来自上传文件；用于验证操作系统边界，不能替代对恶意文件的长期测试。
+Variable Index:
+None
+Constraints:
+This file runs only in Linux sandbox, does not load Django, does not read any model credentials,
+does not call visual services.
+--probe is trusted startup argument, not from uploaded file; used to verify OS boundaries, cannot
+replace long-term testing against malicious files.
 """
 
 import base64
@@ -25,10 +32,13 @@ import sys
 
 
 def install_limits(memory_mib, cpu_seconds):
-    """设置不可提升的进程资源限制及 seccomp 拒绝规则；任何设置失败立即退出。
+    """Set non-upgradable process resource limits and seccomp deny rules; any failure causes
+    immediate exit.
 
-    输入为正整数 MiB 与 CPU 秒。限制在 PDF 库导入前生效，不改变 PDF 页数、像素和提取算法。
-    禁止派生/替换进程和创建 socket，避免通过子进程规避每进程限额；命名空间额外隔离网络。
+    Input: positive integers in MiB and CPU seconds. Limits take effect before PDF library import,
+    do not alter PDF page count, pixels, or extraction algorithm.
+    Prohibit process spawning/replacement and socket creation, preventing bypassing per-process
+    limits via child processes; namespace provides additional network isolation.
     """
     import resource
 
@@ -86,7 +96,9 @@ def install_limits(memory_mib, cpu_seconds):
 
 
 def probe():
-    """验证网络、宿主路径、环境和派生进程限制，仅供显式运维自检；返回布尔证据。"""
+    """Validate network, host path, environment, and derived process limits, for explicit
+    operational self-check only; return boolean evidence.
+    """
     import resource
     import socket
 
@@ -112,10 +124,13 @@ def probe():
 
 
 def main():
-    """从有界 stdin 读取 PDF，以原参数提取渲染，返回 JSON 页面或固定错误码。
+    """Read PDF from bounded stdin, extract and render with original parameters, return JSON page or
+    fixed error code.
 
-    隐式输入为沙箱固定 /runtime/lib 与 /worker 挂载及可信 CLI 限额；无文件持久化。
-    抑制解析库日志，错误正文不离开沙箱；内存耗尽、CPU 超限或崩溃由监督进程识别。
+    Implicit inputs: fixed sandbox /runtime/lib and /worker mounts and trusted CLI limits; no file
+    persistence.
+    Suppress parsing library logs, error content does not leave sandbox; memory exhaustion, CPU
+    over-limit, or crash identified by supervising process.
     """
     install_limits(int(sys.argv[1]), int(sys.argv[2]))
     if len(sys.argv) > 3 and sys.argv[3] == "probe":

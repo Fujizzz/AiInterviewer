@@ -1,15 +1,23 @@
-"""职责：在独立 Celery 进程按模式运行 PDF 沙箱与可选视觉校对，保持模型参数不变。
+"""Responsibilities: Run PDF sandbox and optional visual proofreading in isolated Celery process,
+preserving model parameters.
 
-实现：原子消费输入；短期 Redis stream 承载进度，消费者消失时取消整条异步管线。
-关联：pdf_queue 提交任务，resume_api.resume_events 保持页数、并发和失败语义。
-目录：
-- publish_events：消费既有管线并向私有 stream 写入有序事件。
-- watch_client：续 worker 心跳并监视消费者存活，断线后取消管线。
-- execute_pdf：验证一次性输入，协调生产者/取消监视并清理资源。
-- parse_pdf_task：Celery 同步任务入口，不返回正文、不重试。
-- worker_probe：返回空结果并写短期探针键，供部署验证真实任务消费。
-关键变量：
-- logger：仅记录任务 ID、状态和异常类型。
+Implementation: Atomic consumption of input; short-term Redis stream holds progress, canceling
+entire async pipeline when consumer vanishes.
+Related Modules: pdf_queue submits tasks, resume_api.resume_events maintains page count,
+concurrency, and failure semantics.
+
+Declaration Index:
+- publish_events: Consume existing pipeline and write ordered events to private stream.
+- watch_client: Resume worker heartbeat and monitor consumer liveness; cancel pipeline on
+  disconnection.
+- execute_pdf: Validate one-time input, coordinate producer/cancellation monitoring, and clean up
+  resources.
+- parse_pdf_task: Celery synchronous task entry point, returns no body, does not retry.
+- worker_probe: Return empty result and write short-lived probe key, for deployment validation of
+  real task consumption.
+
+Variable Index:
+- logger: Logs only task ID, status, and exception type.
 """
 
 import asyncio
@@ -25,7 +33,9 @@ logger = logging.getLogger(__name__)
 
 
 async def publish_events(redis, job_id, data, *, mode="traditional"):
-    """输入 Redis、任务 ID、PDF 和模式；完整消费选定管线，按顺序写事件，异常传播。"""
+    """Input: Redis, task ID, PDF, and mode; fully consume selected pipeline, write events
+    sequentially, propagate exceptions.
+    """
     from .resume_api import resume_events
 
     async with aclosing(resume_events(data, mode=mode)) as stream:
@@ -38,16 +48,20 @@ async def publish_events(redis, job_id, data, *, mode="traditional"):
 
 
 async def watch_client(redis, job_id):
-    """每秒续五秒 worker 心跳；客户端退出或过期时返回，调用方取消未完成管线。"""
+    """Resume worker heartbeat every five seconds; return on client exit or expiration, causing
+    caller to cancel unfinished pipeline.
+    """
     while await redis.exists(queue_key(job_id, "client")):
         await redis.set(queue_key(job_id, "worker"), "1", ex=5)
         await asyncio.sleep(1)
 
 
 async def execute_pdf(job_id, *, mode="traditional"):
-    """输入任务 ID 和模式；一次性取得 PDF，监视断线，始终等待取消和清理。
+    """Input: task ID and mode; obtain PDF once, monitor disconnection, always wait for cancellation
+    and cleanup.
 
-    重复投递或过期任务不再执行；Redis 故障日志只含类别并传播，不触发本机处理回退。
+    Repeated delivery or expired tasks are not executed; Redis failure logs contain only category
+    and propagate, without triggering local fallback handling.
     """
     redis = redis_client()
     tasks = []
@@ -85,7 +99,9 @@ async def execute_pdf(job_id, *, mode="traditional"):
 
 @app.task(name="interviews.parse_pdf", max_retries=0, ignore_result=True)
 def parse_pdf_task(job_id, *, mode="traditional"):
-    """输入服务端 UUID 和选定模式；执行一次事件循环，异常记录类别后抛固定脱敏异常。"""
+    """Input: server UUID and selected mode; execute one event loop, log exception category then
+    raise fixed sanitized exception.
+    """
     try:
         asyncio.run(execute_pdf(job_id, mode=mode))
     except Exception as exc:
@@ -95,7 +111,9 @@ def parse_pdf_task(job_id, *, mode="traditional"):
 
 @app.task(name="interviews.worker_probe", max_retries=0, ignore_result=True)
 def worker_probe(probe_id):
-    """输入随机部署探针 ID，写入短期成功标记；不调用模型、不读用户数据。"""
+    """Input: random deployment probe ID; write short-lived success marker; do not invoke model, do
+    not read user data.
+    """
     from django.conf import settings
     from redis import Redis
 

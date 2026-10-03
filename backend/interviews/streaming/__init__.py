@@ -1,11 +1,10 @@
-"""内存流式诊断模块。
+"""Responsibilities: Package in-memory streaming diagnostics.
+Implementation: Keep protocol invariants in protocol and ASGI connection lifecycle in websocket.
+Related Modules: Neither module stores media nor calls the Agent.
 
-目录：
-（无本地函数或类定义。）
+Declaration Index:
+None
 
-关键变量：
-（无模块级变量。）
-
-设计说明：
-模块关系：protocol 维护状态不变量；websocket 管理 ASGI 网络生命周期；二者均不保存媒体或调用 Agent。
+Variable Index:
+None
 """

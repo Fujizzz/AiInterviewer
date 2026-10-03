@@ -1,11 +1,12 @@
-"""REST 接口层。
+"""Responsibilities: Package the REST API adapters.
+Implementation: Keep input/output validation in serializers, request handling in views, and route
+declarations in urls.
+Related Modules: views call services for transactional decisions; route modules do not contain
+business transaction logic.
 
-目录：
-（无本地函数或类定义。）
+Declaration Index:
+None
 
-关键变量：
-（无模块级变量。）
-
-设计说明：
-模块关系：serializers 定义输入输出；views 调用 services；urls 注册资源，事务决策不写在路由层。
+Variable Index:
+None
 """

@@ -1,17 +1,24 @@
 <!doctype html>
 <!--
-职责：站内登录与注册共用页面，使用共享顶部导航、工作台配色和响应式双栏结构。
-实现：Django 服务端表单提供 CSRF 和错误状态；无需客户端脚本提交或额外身份验证步骤。
-关联：accounts.account_page、workspace-nav.html、workspace.css、home.css、account.css、i18n.js；成功后进入安全 next 路径。
-目录：共享顶部导航；练习介绍；登录/注册切换；用户名/密码表单；状态与页脚。函数/类：无。
-变量索引：mode 选择表单，next 为已校验目标，username 自动转义，error_key 为固定翻译键。
-约束：不回显密码；无邮箱、验证码、确认密码或复杂度要求；不在浏览器存储凭据。
+Responsibilities: Render the shared login/registration page with workspace navigation and responsive form layout.
+Implementation: Django renders mode, safe redirect target, escaped username, CSRF and fixed error keys; normal form submission invokes accounts.account_page.
+Related Modules: accounts.py, workspace-nav.html, workspace.css, home.css, account.css and i18n.js.
+Declaration Index:
+None
+Variable Index:
+None
+Template Context:
+mode selects login/register; next is the validated redirect; username is escaped; error_key identifies localized feedback; user/csrf_token serve navigation and submission.
+Page Regions:
+Navigation, practice introduction, login/register links, username/password form, status and footer.
+Constraints:
+Passwords are never echoed. Forms require no email, verification code, confirmation password or composition rule. Credentials are not persisted client-side.
 -->
-<html lang="zh-CN" data-page-title="auth_title">
+<html lang="en" data-page-title="auth_title">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>AI Interviewer · 登录与注册</title>
+  <title>AI Interviewer · Sign in</title>
   <link rel="stylesheet" href="/stream-demo/style.css">
   <link rel="stylesheet" href="/stream-demo/home.css">
   <link rel="stylesheet" href="/stream-demo/account.css">
@@ -24,37 +31,38 @@
     <main class="account-layout">
       <section class="account-intro" aria-labelledby="account-heading">
         <span class="eyebrow">AI MOCK INTERVIEW</span>
-        <h1 id="account-heading" data-i18n="auth_heading">每一次练习，<br>离从容表达更近一步。</h1>
-        <p class="hero-description" data-i18n="auth_intro">从你的项目经历出发，练习回答、梳理思路，让下一次面试更有准备。</p>
-        <div class="account-note"><span class="account-note-icon" aria-hidden="true">↗</span><div><strong data-i18n="auth_private_heading">属于你的练习空间</strong><p data-i18n="auth_private_text">面试、作答和报告与你的账号关联，仅你自己可以查看。</p></div></div>
+        <h1 id="account-heading" data-i18n="auth_heading">A little practice.
+A more confident you.<br>One step closer to confident answers.</h1>
+        <p class="hero-description" data-i18n="auth_intro">Start with your experience. Practise your answers, clarify your thinking, and feel more prepared for your next interview.</p>
+        <div class="account-note"><span class="account-note-icon" aria-hidden="true">↗</span><div><strong data-i18n="auth_private_heading">Your own space to practise</strong><p data-i18n="auth_private_text">Your interviews, answers and reports belong to your account and are only visible to you.</p></div></div>
       </section>
       <section class="account-card" aria-labelledby="form-heading">
-        <nav class="account-tabs" aria-label="账号操作" data-i18n-attr="aria-label:auth_tabs">
-          <a href="/login/?next={{ next|urlencode }}" {% if mode == 'login' %}aria-current="page"{% endif %} data-i18n="auth_login">登录</a>
-          <a href="/register/?next={{ next|urlencode }}" {% if mode == 'register' %}aria-current="page"{% endif %} data-i18n="auth_register">注册</a>
+        <nav class="account-tabs" aria-label="Account options" data-i18n-attr="aria-label:auth_tabs">
+          <a href="/login/?next={{ next|urlencode }}" {% if mode == 'login' %}aria-current="page"{% endif %} data-i18n="auth_login">Sign in</a>
+          <a href="/register/?next={{ next|urlencode }}" {% if mode == 'register' %}aria-current="page"{% endif %} data-i18n="auth_register">Sign up</a>
         </nav>
         {% if mode == 'register' %}
-        <h2 id="form-heading" data-i18n="auth_create_heading">创建你的账号</h2>
-        <p class="account-subtitle" data-i18n="auth_create_text">只需用户名和密码，即可开始练习。</p>
+        <h2 id="form-heading" data-i18n="auth_create_heading">Create your account</h2>
+        <p class="account-subtitle" data-i18n="auth_create_text">Just a username and password to get started.</p>
         {% else %}
-        <h2 id="form-heading" data-i18n="auth_welcome">欢迎回来</h2>
-        <p class="account-subtitle" data-i18n="auth_welcome_text">登录后，开始属于你的下一次练习。</p>
+        <h2 id="form-heading" data-i18n="auth_welcome">Welcome back</h2>
+        <p class="account-subtitle" data-i18n="auth_welcome_text">Sign in and start your next practice session.</p>
         {% endif %}
-        {% if error_key %}<p id="account-error" class="account-error" role="alert" data-i18n="{{ error_key }}">请检查用户名和密码后再试。</p>{% endif %}
+        {% if error_key %}<p id="account-error" class="account-error" role="alert" data-i18n="{{ error_key }}">Check your username and password, then try again.</p>{% endif %}
         <form class="account-form" method="post" action="/{{ mode }}/">
           {% csrf_token %}
           <input type="hidden" name="next" value="{{ next }}">
-          <label for="username" data-i18n="auth_username">用户名</label>
-          <input id="username" name="username" value="{{ username }}" type="text" autocomplete="username" maxlength="150" required placeholder="输入用户名" data-i18n-attr="placeholder:auth_username_placeholder" {% if error_key %}aria-describedby="account-error"{% endif %}>
-          <label for="password" data-i18n="auth_password">密码</label>
-          <input id="password" name="password" type="password" autocomplete="{% if mode == 'register' %}new-password{% else %}current-password{% endif %}" maxlength="128" required placeholder="输入密码" data-i18n-attr="placeholder:auth_password_placeholder" {% if error_key %}aria-describedby="account-error"{% endif %}>
-          {% if mode == 'register' %}<p class="account-help" data-i18n="auth_password_hint">密码无需组合大小写、数字或符号。</p>{% endif %}
-          <button class="account-submit" type="submit"><span data-i18n="{% if mode == 'register' %}auth_create_submit{% else %}auth_login_submit{% endif %}">{% if mode == 'register' %}注册并开始{% else %}登录并继续{% endif %}</span><span aria-hidden="true">↗</span></button>
+          <label for="username" data-i18n="auth_username">Username</label>
+          <input id="username" name="username" value="{{ username }}" type="text" autocomplete="username" maxlength="150" required placeholder="Enter your username" data-i18n-attr="placeholder:auth_username_placeholder" {% if error_key %}aria-describedby="account-error"{% endif %}>
+          <label for="password" data-i18n="auth_password">Password</label>
+          <input id="password" name="password" type="password" autocomplete="{% if mode == 'register' %}new-password{% else %}current-password{% endif %}" maxlength="128" required placeholder="Enter your password" data-i18n-attr="placeholder:auth_password_placeholder" {% if error_key %}aria-describedby="account-error"{% endif %}>
+          {% if mode == 'register' %}<p class="account-help" data-i18n="auth_password_hint">No required mix of uppercase letters, numbers or symbols.</p>{% endif %}
+          <button class="account-submit" type="submit"><span data-i18n="{% if mode == 'register' %}auth_create_submit{% else %}auth_login_submit{% endif %}">{% if mode == 'register' %}Create account and start{% else %}Log in and continue{% endif %}</span><span aria-hidden="true">↗</span></button>
         </form>
-        <p class="account-footnote" data-i18n="auth_footer_note">准备好简历，以自己的节奏开始。</p>
+        <p class="account-footnote" data-i18n="auth_footer_note">Bring your resume. Start at your own pace.</p>
       </section>
     </main>
-    <footer class="home-footer"><span>AI Interviewer</span><span data-i18n="home_footer">自适应提问 · 基于回答证据的反馈</span></footer>
+    <footer class="home-footer"><span>AI Interviewer</span><span data-i18n="home_footer">Adaptive questions · Evidence-based feedback</span></footer>
   </div>
 </body>
 </html>

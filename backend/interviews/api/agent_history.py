@@ -1,23 +1,35 @@
-"""职责：提供本机只读 Agent 面试历史，不将历史查询当作重新执行或恢复命令。
+"""Responsibilities: provide local read-only Agent interview history, without treating history
+queries as re-execution or recovery commands.
 
-实现：分页仅读元数据；模型正文只从摘要匹配的已检查响应重建，不公开原始内部上下文。
-关联：使用 agent_models，按会话认证用户过滤；无归属旧记录不向注册账号公开。
+Implementation: paginate only metadata; model content reconstructed solely from matched summaries,
+never exposing original internal context.
+Related Modules: use agent_models, filter by session-authenticated user; unowned old records are not
+exposed to registered accounts.
 
-目录：
-- InterviewSummary：显式列出可公开的面试元数据，不在列表加载候选人上下文。
-- InterviewSummary.Meta：定义模型与只读字段。
-- RequestSummary：公开请求状态和固定错误码，不在列表返回资料或响应正文。
-- RequestSummary.Meta：定义请求元数据字段。
-- AgentHistoryViewSet：只读历史及请求查询，不开放创建、修改、删除或自动重试。
-- AgentHistoryViewSet.get_queryset：按登录用户过滤，使详情与子请求路由共用同一归属边界。
-- AgentHistoryViewSet.finalize_response：对历史成功及错误响应设置禁止缓存头。
-- AgentHistoryViewSet.retrieve：从已检响应重建公开资料、问题及评价。
-  附本人回答、时间、进度和异常元数据；不公开未经批准的 Agent 正文。
-- AgentHistoryViewSet.requests：分页返回当前面试的请求元数据。
-- AgentHistoryViewSet.request_result：按面试和请求双条件读取已检结果，跨面试返回 404。
+Declaration Index:
+- InterviewSummary: Explicitly list publicly available interview metadata, without loading candidate
+  context in lists.
+- InterviewSummary.Meta: Define model and read-only fields.
+- RequestSummary: Public request status and fixed error codes, no materials or response body
+  returned in lists.
+- RequestSummary.Meta: Define request metadata fields.
+- AgentHistoryViewSet: Read-only history and request queries, no create, modify, delete, or
+  auto-retry.
+- AgentHistoryViewSet.get_queryset: Filter by logged-in user, sharing same ownership boundary with
+  detail and sub-request routing.
+- AgentHistoryViewSet.finalize_response: Set no-cache headers for both successful and errored
+  responses.
+- AgentHistoryViewSet.retrieve: Reconstruct public materials, questions, and evaluations from
+  approved responses.
+  Include personal answers, timestamps, progress, and exception metadata; do not expose unapproved
+  Agent content.
+- AgentHistoryViewSet.requests: Paginated return of current interview request metadata.
+- AgentHistoryViewSet.request_result: Retrieve checked results by both interview and request, return
+  404 across interviews.
 
-关键变量：
-- logger：仅记录面试关联 ID、获准请求数与可见问题数，不记录模型正文或用户资料。
+Variable Index:
+- logger: Log only interview-related ID, number of approved requests, and visible questions; do not
+  log model content or user data.
 """
 
 import logging
@@ -34,10 +46,14 @@ logger = logging.getLogger(__name__)
 
 
 class InterviewSummary(serializers.ModelSerializer):
-    """显式列出可公开的面试元数据，不在列表加载候选人上下文。"""
+    """Explicitly list publicly available interview metadata, without loading candidate context in
+    lists.
+    """
 
     class Meta:
-        """定义模型与只读字段；列表不附带简历、回答、内部日志或报告。"""
+        """Define model and read-only fields; list does not include resume, answers, internal logs,
+        or reports.
+        """
 
         model = AgentInterview
         fields = [
@@ -54,10 +70,13 @@ class InterviewSummary(serializers.ModelSerializer):
 
 
 class RequestSummary(serializers.ModelSerializer):
-    """公开请求状态和固定错误码，不在列表返回资料或响应正文。"""
+    """Public request status and fixed error codes, no materials or response body returned in lists.
+    """
 
     class Meta:
-        """定义请求元数据字段；响应正文须通过单条请求查询显式读取。"""
+        """Define request metadata fields; response body must be explicitly retrieved via
+        single-request query.
+        """
 
         model = AgentRequest
         fields = ["id", "kind", "status", "error_code", "created_at", "finished_at"]
@@ -67,10 +86,11 @@ class RequestSummary(serializers.ModelSerializer):
 class AgentHistoryViewSet(
     mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet
 ):
-    """只读历史及请求查询，不开放创建、修改、删除或自动重试。
+    """Read-only history and request queries, no create, modify, delete, or auto-retry.
 
-    按登录用户过滤；本地匿名模式只读未归属记录。UUID 不是授权凭据。
-    queryset 避免列表读取较大的 JSON 列；详情在按 ID 定位后再读取它们。
+    Filter by authenticated user; anonymous mode only reads unowned records. UUID is not an
+    authorization credential.
+    queryset avoids loading large JSON in list reads; details are fetched only after ID lookup.
     """
 
     queryset = AgentInterview.objects.defer("context", "latest_action", "resume_text_snapshot")
@@ -78,7 +98,9 @@ class AgentHistoryViewSet(
     http_method_names = ["get", "head", "options"]
 
     def get_queryset(self):
-        """按认证用户过滤并应用可选 status 查询；详情及请求先验证归属，不读取其他用户内容。"""
+        """Filter by authenticated user and optional status query; validate ownership first for
+        details and requests, without reading other users' content.
+        """
         queryset = super().get_queryset().filter(owner_id=getattr(self.request.user, "pk", None))
         status = self.request.query_params.get("status")
         if status:
@@ -86,22 +108,35 @@ class AgentHistoryViewSet(
         return queryset
 
     def finalize_response(self, request, response, *args, **kwargs):
-        """对历史成功及错误响应设置禁止缓存头；其余 DRF 响应处理保持原样。"""
+        """Set no-cache headers for successful and errored historical responses; all other DRF
+        response handling remains unchanged.
+        """
         response = super().finalize_response(request, response, *args, **kwargs)
         response["Cache-Control"] = "no-store, private"
         response["X-Content-Type-Options"] = "nosniff"
         return response
 
     def retrieve(self, request, *args, **kwargs):
-        """返回已获准输出和本人已接受回答，区分内部提交与可公开结果。
+        """Return approved outputs and personally accepted answers, distinguishing internal
+        submissions from publicly available results.
 
-        输入为 URL 中面试 UUID；只读数据库，不调用模型。评价为空表示没有获准公开的评价。
-        旧记录或被拒绝结果不自动批准；不读取原始 context、question.payload 或 answer.evaluation。
-        评价从同一回答请求的已检响应提取，最终报告从已检 finished 提取；无记录则为 None。
-        processing 返回最近请求的状态与固定错误码；不将运行中请求声称为可恢复面试。
-        schema_version=2 附最新已检计划、修订、进度及日志；旧响应缺字段时明确返回 None。
-        请求异常列表只含固定元数据；问题/回答时间取本人关系记录，不从内部 JSON 补正文。
-        成功查询日志仅含关联 ID 与输出数量，便于诊断缺失批准记录，不记录问答正文。
+        Input is interview UUID from URL; read-only database, no model invocation.
+        Evaluations are empty if no evaluation was approved for public release.
+        Old records or rejected results are not automatically approved; do not read original
+        context, question.payload, or answer.evaluation.
+        Evaluation extracted from checked response of same answer request; final report extracted
+        from checked finished;
+        None if no record exists.
+        processing returns latest request status and fixed error code; do not claim running requests
+        as recoverable interviews.
+        schema_version=2 includes latest checked plan, revisions, progress, and logs; return None
+        explicitly if old response lacks fields.
+        Request exception list contains only fixed metadata; question/answer timestamps taken from
+        personal relationship records,
+        not filled in from internal JSON.
+        Success query logs contain only associated ID and output count, aiding diagnosis of missing
+        approval records,
+        without logging Q&A content.
         """
         interview = self.get_object()
         approved = {}
@@ -196,14 +231,18 @@ class AgentHistoryViewSet(
 
     @action(detail=True, methods=["get"])
     def requests(self, request, pk=None):
-        """分页返回当前面试的请求元数据；不存在的面试返回 404，不返回响应 JSON。"""
+        """Paginated return of current interview request metadata; return 404 for non-existent
+        interview, no response JSON returned.
+        """
         interview = self.get_object()
         page = self.paginate_queryset(interview.requests.defer("response"))
         return self.get_paginated_response(RequestSummary(page, many=True).data)
 
     @action(detail=True, methods=["get"], url_path=r"requests/(?P<request_id>[0-9a-f-]{36})")
     def request_result(self, request, pk=None, request_id=None):
-        """输入面试和请求 ID；返回元数据及已检正文或 None，跨面试 404；不重试或调用模型。"""
+        """Input interview and request ID; return metadata and checked content or None, return 404
+        across interviews; no retry or model invocation.
+        """
         interview = self.get_object()
         record = get_object_or_404(interview.requests, id=request_id)
         payload = approved_response(record)

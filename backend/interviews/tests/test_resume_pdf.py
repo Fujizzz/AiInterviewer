@@ -1,49 +1,71 @@
-"""职责：验证真实 PDF 提取/渲染及模拟视觉端口，不向外部模型发送简历。
-实现：内存构造双栏、扫描、加密与多页 PDF；检查阶段流、失败和取消的语义。
-关联：resume_pdf、resume_api、resume_vision 及 agents.resume_cleanup。
+"""Responsibilities: Verify real PDF extraction/rendering and simulated visual port, without sending
+resumes to external models.
+Implementation: Memory-construct dual-column, scanned, encrypted, and multi-page PDFs; check stream
+phase, failure, and cancellation semantics.
+Related Modules: resume_pdf, resume_api, resume_vision, and agents.resume_cleanup.
 
-目录：
-- make_pdf：生成带 Helvetica 双栏文本的确定性 PDF。
-- collect：消费异步 NDJSON 生成器为事件列表。
-- ResumePdfTests：规则与原生渲染的本地测试。
-- ResumePdfTests.test_rules_and_render：保留原文、分栏布局并渲染有界 PNG。
-- ResumePdfTests.test_scanned_page：扫描图像无规则文本但可渲染视觉证据。
-- ResumePdfTests.test_invalid_inputs：损坏、加密、过多页和超限全部明确拒绝。
-- ResumePdfTests.test_conservative_normalization：不误合并列、不猜测断词或日期。
-- ResumeFlowTests：异步 HTTP、视觉契约和生命周期测试。
-- ResumeFlowTests.setUp：显式模拟沙箱边界，原解析算法在独立单元测试与沙箱联调中验证。
-- ResumeFlowTests.setUp.local_parse：仅供流程测试返回既有算法的页面，不属于生产备用路径。
-- ResumeFlowTests.test_no_changes_preserves_baseline：无修改建议时逐字保留提取基线。
-- ResumeFlowTests.test_precise_corrections：仅替换编号行范围，越界、逆序、重叠或无依据拒绝。
-- ResumeFlowTests.test_unchanged_suggestions_preserve_baseline：同文建议保留原文，不冒充实际修改。
-- ResumeFlowTests.test_unchanged_suggestions_with_real_changes：
-  忽略同文覆盖区间，仍验证行号与理由。
-- ResumeFlowTests.test_line_ranges_preserve_unedited_repeated_text：
-  行号区分重复文字，保留未选中行、CRLF 与末端无换行。
-- ResumeFlowTests.test_vision_order_and_close：规则先返回，视觉按页序合并并关闭。
-- ResumeFlowTests.test_failure_no_fallback：视觉失败无成功终态，错误不泄露原文。
-- ResumeFlowTests.test_failure_codes_are_specific_and_redacted：
-  定位失败与超时返回明确有限码，未知异常不泄露原文。
-- ResumeFlowTests.test_cancellation_closes_client：取消发生后释放视觉连接。
-- ResumeFlowTests.test_agent_rejects_mismatch_and_omission：拒绝缺图、页码错配与非空页丢失。
-- ResumeFlowTests.test_http_contract：真实 Django 路由接受 multipart 并拒绝错误方法和参数。
-- ResumeFlowTests.test_default_traditional_has_no_model_call：
-  默认传统提取返回原基线，不构造或调用视觉客户端。
-- ResumeProviderTests：模拟 SDK，验证真实适配器配置与图文请求。
-- ResumeProviderTests.test_explicit_configuration：缺专用模型时不使用面试文本模型。
-- ResumeProviderTests.test_multimodal_payload：图片和编号规则行实际进入请求，禁止 SDK 重试。
-- ResumeProviderTests.test_invalid_output_is_not_retried：截断及非法 JSON 不能标记成功。
+Declaration Index:
+- make_pdf: Generate deterministic PDF with Helvetica dual-column text.
+- collect: Consume asynchronous NDJSON generator into event list.
+- ResumePdfTests: Local tests for rules and native rendering.
+- ResumePdfTests.test_rules_and_render: Preserve original text, column layout, render bounded PNG.
+- ResumePdfTests.test_scanned_page: Scanned images have no rule-based text but render visual
+  evidence.
+- ResumePdfTests.test_invalid_inputs: Damaged, encrypted, excessive pages, and over-limit all
+  explicitly rejected.
+- ResumePdfTests.test_conservative_normalization: Do not merge columns, guess word breaks or dates.
+- ResumeFlowTests: Asynchronous HTTP, visual contract, and lifecycle testing.
+- ResumeFlowTests.setUp: Explicitly simulate sandbox boundaries; original parsing algorithm verified
+  in independent unit tests and sandbox integration.
+- ResumeFlowTests.setUp.local_parse: For flow testing only, return existing algorithm’s pages; not
+  part of production fallback path.
+- ResumeFlowTests.test_no_changes_preserves_baseline: No modification suggestions preserve baseline
+  extraction verbatim.
+- ResumeFlowTests.test_precise_corrections: Replace only numbered line ranges; reject out-of-bound,
+  reverse, overlapping, or unsupported changes.
+- ResumeFlowTests.test_unchanged_suggestions_preserve_baseline: Same-text suggestions preserve
+  original, do not impersonate actual
+  edits.
+- ResumeFlowTests.test_unchanged_suggestions_with_real_changes:
+  Ignore same-text override range, still validate line numbers and reasons.
+- ResumeFlowTests.test_line_ranges_preserve_unedited_repeated_text:
+  Line numbers distinguish repeated text, preserve unselected lines, CRLF, and trailing no-newline.
+- ResumeFlowTests.test_vision_order_and_close: Rules returned first, vision merged by page order and
+  closed.
+- ResumeFlowTests.test_failure_no_fallback: Vision failure has no successful terminal state, no
+  original text leaked.
+- ResumeFlowTests.test_failure_codes_are_specific_and_redacted:
+  Failure and timeout return specific, limited codes; unknown exceptions do not leak original text.
+- ResumeFlowTests.test_cancellation_closes_client: Cancellation releases visual connection.
+- ResumeFlowTests.test_agent_rejects_mismatch_and_omission: Reject missing images, wrong page
+  numbers, and non-empty page loss.
+- ResumeFlowTests.test_http_contract: Real Django routing accepts multipart, rejects wrong methods
+  and parameters.
+- ResumeFlowTests.test_default_traditional_has_no_model_call:
+  Default traditional extraction returns original baseline, no visual client constructed or called.
+- ResumeProviderTests: Simulate SDK, verify real adapter configuration and multimodal requests.
+- ResumeProviderTests.test_explicit_configuration: Do not use interview text model if dedicated
+  model missing.
+- ResumeProviderTests.test_multimodal_payload: Images and numbered rule lines actually enter
+  request, SDK retry prohibited.
+- ResumeProviderTests.test_invalid_output_is_not_retried: Truncated or invalid JSON cannot be marked
+  successful.
 
-- ControlledAgent：用事件控制每页完成或失败，不依赖时间估计并发。
-- ControlledAgent.__init__：建立页面闸门、启动队列和在途计数。
-- ControlledAgent.clean_page：记录在途状态并等待测试释放，传播失败及取消。
-- ResumeConcurrencyTests：验证有界并发、乱序完成与清理。
-- ResumeConcurrencyTests.test_window_and_completion_order：证明三页重叠执行且窗口随完成补充。
-- ResumeConcurrencyTests.test_failure_cancels_siblings：失败停止补充并取消其他在途页。
-- ResumeConcurrencyTests.test_consumer_close_cancels_pending：消费者在一次产出后关闭时释放兄弟任务。
+- ControlledAgent: Control page completion or failure via events, not relying on time-based
+  concurrency estimates.
+- ControlledAgent.__init__: Establish page gate, start queue, and track in-flight count.
+- ControlledAgent.clean_page: Record in-flight status, wait for test release, propagate failure and
+  cancellation.
+- ResumeConcurrencyTests: Verify bounded concurrency, out-of-order completion, and cleanup.
+- ResumeConcurrencyTests.test_window_and_completion_order: Prove three pages overlap execution with
+  window replenished upon completion.
+- ResumeConcurrencyTests.test_failure_cancels_siblings: Failure stops replenishment and cancels
+  other in-flight pages.
+- ResumeConcurrencyTests.test_consumer_close_cancels_pending: Consumer closes after one output,
+  releasing sibling tasks.
 
-关键变量：
-（无模块级变量。）
+Variable Index:
+None
 """
 
 import asyncio
@@ -73,7 +95,9 @@ from interviews.resume_vision import ResumeVision
 
 
 def make_pdf(pages=1, encrypted=False):
-    """输入页数与加密标志，输出内存 PDF；两列文字固定，不含真实候选人数据。"""
+    """Input page count and encryption flag, output in-memory PDF; two columns fixed, no real
+    candidate data included.
+    """
     writer = PdfWriter()
     font = DictionaryObject(
         {
@@ -102,15 +126,21 @@ def make_pdf(pages=1, encrypted=False):
 
 
 async def collect(stream):
-    """输入异步字节事件流，输出解码事件；只在测试中全量收集，不访问外部网络。"""
+    """Input asynchronous byte event stream, output decoded events; collect fully only in test, no
+    external network access.
+    """
     return [json.loads(line) async for line in stream]
 
 
 class ResumePdfTests(SimpleTestCase):
-    """功能：覆盖真实 pypdf/PDFium 边界；约束：全内存合成数据，无外部服务。"""
+    """Function: Cover real pypdf/PDFium boundaries; constraint: fully in-memory synthesis, no
+    external services.
+    """
 
     def test_rules_and_render(self):
-        """双栏前提下保留两个文本列及原文，PNG 最长边受限且具真实内容。"""
+        """Under dual-column premise, preserve two text columns and original text; PNG longest edge
+        bounded and contains realistic content.
+        """
         data = make_pdf(2)
         pages = extract_pdf(data)
         self.assertEqual([page.number for page in pages], [1, 2])
@@ -124,18 +154,22 @@ class ResumePdfTests(SimpleTestCase):
             self.assertNotEqual(image.convert("L").getextrema(), (255, 255))
 
     def test_scanned_page(self):
-        """图像 PDF 不含文本层，规则结果保留空页并提示视觉，渲染仍成功。"""
+        """The image PDF contains no text layer; rule results retain empty pages and prompt
+        visually, yet rendering still succeeds.
+        """
         with Image.new("RGB", (600, 800), "white") as image:
             ImageDraw.Draw(image).text((50, 50), "Alex / Python / Project", fill="black")
             output = BytesIO()
             image.save(output, format="PDF")
         pages = extract_pdf(output.getvalue())
         self.assertFalse(pages[0].text.strip())
-        self.assertIn("扫描页", "".join(pages[0].warnings))
+        self.assertIn("scanned", "".join(pages[0].warnings))
         self.assertTrue(render_pages(output.getvalue(), pages)[0].image_png)
 
     def test_invalid_inputs(self):
-        """边界输入不截断、不尝试解密、不转为成功的空文本。"""
+        """Boundary inputs are neither truncated nor attempted to be decrypted, nor converted into
+        successful empty text.
+        """
         for data in (
             b"",
             b"not pdf",
@@ -148,7 +182,9 @@ class ResumePdfTests(SimpleTestCase):
                 extract_pdf(data)
 
     def test_conservative_normalization(self):
-        """仅修复明确排版连字，保留缩进、多空格、断词和数值。"""
+        """Only explicitly formatted ligatures are repaired; indentation, multiple spaces, line
+        breaks, and numerical values are preserved.
+        """
         self.assertEqual(
             normalize_text("  \ufb01le\u00a0   2024-2025  \r\ndata-\r\nbase"),
             "  file    2024-2025\ndata-\nbase",
@@ -156,13 +192,19 @@ class ResumePdfTests(SimpleTestCase):
 
 
 class ResumeFlowTests(SimpleTestCase):
-    """功能：检查异步业务流与取消；逻辑：视觉端口替身，不验证真实模型准确率。"""
+    """Function: Check asynchronous business flow and cancellation; Logic: Visual port proxy, does
+    not validate actual model accuracy.
+    """
 
     def setUp(self):
-        """显式模拟沙箱边界，原解析算法在独立单元测试与沙箱联调中验证。"""
+        """Explicitly simulate sandbox boundary; original parsing algorithm is verified in
+        independent unit tests and sandbox integration.
+        """
 
         async def local_parse(data):
-            """仅供流程测试返回既有算法的页面，不属于生产备用路径；不调用外部服务。"""
+            """For process testing only, return existing algorithm's pages; this is not a production
+            fallback path; external services are not invoked.
+            """
             return render_pages(data, extract_pdf(data))
 
         stub = patch("interviews.resume_api.parse_pdf", side_effect=local_parse)
@@ -170,7 +212,9 @@ class ResumeFlowTests(SimpleTestCase):
         self.addCleanup(stub.stop)
 
     async def test_no_changes_preserves_baseline(self):
-        """含缩进、换行和疑点的基线在模型未提出修改时逐字不变。"""
+        """Baseline with indentation, line breaks, and ambiguities remains unchanged
+        character-by-character when the model does not propose modifications.
+        """
         text = "  Alex    Python\n2024-2025  "
         port = SimpleNamespace(
             review=AsyncMock(
@@ -188,7 +232,9 @@ class ResumeFlowTests(SimpleTestCase):
         self.assertEqual(result.uncertainties, ["日期不清晰，保留原文"])
 
     async def test_precise_corrections(self):
-        """有效编号范围只替换选中行；越界、逆序、重叠和无依据补丁仍明确拒绝。"""
+        """Valid number range replaces only selected lines; out-of-range, reverse-order,
+        overlapping, and unsupported patches are explicitly rejected.
+        """
         port = SimpleNamespace(review=AsyncMock())
         page = ResumePage(1, "", "  Pyth0n / SQL / 30%\n  日期 2026\n", image_png=b"png")
         correction = LineCorrection(
@@ -219,7 +265,8 @@ class ResumeFlowTests(SimpleTestCase):
         )
         result = await ResumeCleanupAgent(port).clean_page(ResumePage(1, "", "", image_png=b"png"))
         self.assertEqual(result.text, "扫描文字")
-        # 两条实际补录占据同一个虚拟空行，不能因字符范围长度为零而绕过重叠检查。
+        # Two actual insertions occupy the same virtual blank line; they cannot bypass overlap
+        # checks due to zero-length character ranges.
         port.review.return_value = PageReview(
             number=1,
             corrections=[
@@ -232,7 +279,9 @@ class ResumeFlowTests(SimpleTestCase):
             await ResumeCleanupAgent(port).clean_page(ResumePage(1, "", "", image_png=b"png"))
 
     async def test_unchanged_suggestions_preserve_baseline(self):
-        """模拟视觉同文建议；真实 Agent 保留字符/空白/疑点，changed 为 false 且补丁为空。"""
+        """Simulate visual same-text suggestion; real Agent retains
+        characters/whitespace/ambiguities, changed is false, and patch is empty.
+        """
         page = ResumePage(1, "", "  Python / SQL\n", image_png=b"png")
         port = SimpleNamespace(
             review=AsyncMock(
@@ -253,7 +302,9 @@ class ResumeFlowTests(SimpleTestCase):
         port.review.assert_awaited_once()
 
     async def test_unchanged_suggestions_with_real_changes(self):
-        """同文区间不阻止真实替换；无效行号和空理由仍拒绝，模型仅调用一次。"""
+        """Same-text intervals do not block real replacement; invalid line numbers and empty reasons
+        are still rejected, model called only once.
+        """
         page = ResumePage(1, "", " Pyth0n / SQL\n", image_png=b"png")
         correction = LineCorrection(
             start_line=1, end_line=1, text=" Python / SQL", reason="图中为字母 o"
@@ -282,7 +333,9 @@ class ResumeFlowTests(SimpleTestCase):
                 await ResumeCleanupAgent(port).clean_page(page)
 
     async def test_line_ranges_preserve_unedited_repeated_text(self):
-        """重复基线不需模型复制定位文本；修改第二行，保留第一行与最后一行全部字符。"""
+        """Repeated baselines do not require model repositioning of text; modify second line,
+        preserve all characters in first and last lines.
+        """
         page = ResumePage(1, "", "  SQL\r\n  SQL\r\nTAIL", image_png=b"png")
         port = SimpleNamespace(
             review=AsyncMock(
@@ -299,7 +352,8 @@ class ResumeFlowTests(SimpleTestCase):
         )
         result = await ResumeCleanupAgent(port).clean_page(page)
         self.assertEqual(result.text, "  SQL\r\n  Python\r\nTAIL")
-        # 模型提供 LF 时仍恢复范围末端原有 CRLF，保留后续未选中的字符。
+        # Model provides LF but still restores original CRLF at range end, preserving unselected
+        # characters afterward.
         port.review.return_value = PageReview(
             number=1,
             corrections=[
@@ -311,7 +365,9 @@ class ResumeFlowTests(SimpleTestCase):
         self.assertEqual(result.text, "SQL\nPython\r\nTAIL")
 
     async def test_vision_order_and_close(self):
-        """原算法文本与编号行补丁按页合并；第一条进度先于模型构造，SDK 为显式替身。"""
+        """Original algorithm text and numbered line patches are merged by page; first progress
+        precedes model construction, SDK is explicit proxy.
+        """
         baseline = extract_pdf(make_pdf())[0].text
         lines = baseline.splitlines(keepends=True)
         target_line = next(i for i, line in enumerate(lines, 1) if "Data pipeline" in line)
@@ -352,7 +408,9 @@ class ResumeFlowTests(SimpleTestCase):
         provider.close.assert_awaited_once()
 
     async def test_failure_no_fallback(self):
-        """模拟供应商异常包含敏感文本；响应只显示固定错误且不发送成功终态。"""
+        """Simulate vendor exception containing sensitive text; response displays fixed error only
+        and does not send success final state.
+        """
         provider = SimpleNamespace(
             review=AsyncMock(side_effect=RuntimeError("private-resume")), close=AsyncMock()
         )
@@ -364,7 +422,9 @@ class ResumeFlowTests(SimpleTestCase):
         self.assertNotIn("private-resume", json.dumps(events))
 
     async def test_failure_codes_are_specific_and_redacted(self):
-        """真实流程配合显式视觉替身；验证定位失败/超时提示和有限错误码，原文与任意异常消息不公开。"""
+        """Real process pairs with explicit visual proxy; verify positioning failure/timeout prompts
+        and limited error codes; original text and any exception messages are not disclosed.
+        """
         timeout = APITimeoutError(request=Request("POST", "https://example.test"))
         timeout.__cause__ = ReadTimeout("private-network-cause")
         for error, expected in [
@@ -385,7 +445,9 @@ class ResumeFlowTests(SimpleTestCase):
         provider.close.assert_awaited_once()
 
     async def test_cancellation_closes_client(self):
-        """视觉调用被取消时，不返回错误替代取消，取消已启动的同窗口任务并释放客户端。"""
+        """When visual call is cancelled, do not return error as substitute for cancellation; cancel
+        ongoing tasks in the same window and release client.
+        """
         provider = SimpleNamespace(
             review=AsyncMock(side_effect=asyncio.CancelledError), close=AsyncMock()
         )
@@ -396,7 +458,9 @@ class ResumeFlowTests(SimpleTestCase):
         provider.close.assert_awaited_once()
 
     async def test_agent_rejects_mismatch_and_omission(self):
-        """输入和模型输出的页身份不可错配，非空规则页不可无说明地遗漏。"""
+        """Input and model output page identities must not mismatch; non-empty rule pages must not
+        be omitted without explanation.
+        """
         port = SimpleNamespace(review=AsyncMock())
         agent = ResumeCleanupAgent(port)
         with self.assertRaisesRegex(ValueError, "image_required"):
@@ -415,7 +479,9 @@ class ResumeFlowTests(SimpleTestCase):
                 await agent.clean_page(ResumePage(1, "x", "x", image_png=b"png"))
 
     async def test_http_contract(self):
-        """真实 Django 路由配合视觉替身；验证非法模式拒绝、显式 advanced 调用和流返回。"""
+        """Real Django routing pairs with visual proxy; verify rejection of illegal patterns,
+        explicit advanced calls, and stream returns.
+        """
         client = AsyncClient(headers={"host": "127.0.0.1"})
         response = await client.get("/api/resume/parse/")
         self.assertEqual(response.status_code, 405)
@@ -442,7 +508,9 @@ class ResumeFlowTests(SimpleTestCase):
         self.assertEqual(response["Cache-Control"], "no-store")
 
     async def test_default_traditional_has_no_model_call(self):
-        """真实路由与原规则算法、沙箱替身；缺省模式不创建视觉客户端，返回规则文本和风险提示。"""
+        """Real routing with original rule algorithm and sandbox proxy; default mode does not create
+        visual client, returns rule text and risk warning.
+        """
         client = AsyncClient(headers={"host": "127.0.0.1"})
         with patch("interviews.resume_api.ResumeVision") as constructor:
             response = await client.post(
@@ -463,16 +531,22 @@ class ResumeFlowTests(SimpleTestCase):
 
 
 class ResumeProviderTests(SimpleTestCase):
-    """功能：验证 SDK 边界；约束：所有模型请求被 AsyncMock 接管，不能证明供应商可用。"""
+    """Function: Verify SDK boundary; Constraint: All model requests are handled by AsyncMock,
+    cannot prove vendor availability.
+    """
 
     def test_explicit_configuration(self):
-        """面试模型即使存在也不能隐式承担图片输入。"""
+        """Interview model, even if present, cannot implicitly assume responsibility for image
+        input.
+        """
         with patch.dict("os.environ", {"DASHSCOPE_MODEL": "qwen-plus"}, clear=True):
             with self.assertRaises(ValueError):
                 ResumeVision()
 
     async def test_multimodal_payload(self):
-        """实际适配器将 PNG 编码为图像类型而非普通文字；只发一次并关闭连接。"""
+        """Actual adapter encodes PNG as image type rather than plain text; send only once and close
+        connection.
+        """
         sdk = SimpleNamespace(
             chat=SimpleNamespace(
                 completions=SimpleNamespace(
@@ -529,7 +603,9 @@ class ResumeProviderTests(SimpleTestCase):
         sdk.close.assert_awaited_once()
 
     async def test_invalid_output_is_not_retried(self):
-        """模型截断和非法 JSON 均明确失败，SDK 调用次数恒为一。"""
+        """Model truncation and invalid JSON both result in explicit failure; SDK call count remains
+        exactly one.
+        """
         for finish_reason, content in (("length", "{}"), ("stop", "not json")):
             sdk = SimpleNamespace(
                 chat=SimpleNamespace(
@@ -570,10 +646,14 @@ class ResumeProviderTests(SimpleTestCase):
 
 
 class ControlledAgent:
-    """功能：模拟受控的页校对；逻辑：事件决定完成时间；约束：无真实模型或睡眠。"""
+    """Function: Simulate controlled page proofreading; Logic: Events determine completion time;
+    Constraint: No real model or sleep involved.
+    """
 
     def __init__(self, failure=None):
-        """输入可选失败页号；建立四页闸门、started 队列、active/peak 及 cancelled 记录。"""
+        """Input optionally includes failed page number; establish four-page gate, started queue,
+        active/peak, and cancelled records.
+        """
         self.failure = failure
         self.gates = {number: asyncio.Event() for number in range(1, 5)}
         self.started = asyncio.Queue()
@@ -582,7 +662,9 @@ class ControlledAgent:
         self.cancelled = set()
 
     async def clean_page(self, page):
-        """输入页对象，待测试开闸后返回页号；记录峰值，失败/取消时都减少在途计数。"""
+        """Input page object, return page number after test gate opens; record peak, reduce
+        in-flight count on failure/cancellation.
+        """
         self.active += 1
         self.peak = max(self.peak, self.active)
         self.started.put_nowait(page.number)
@@ -599,10 +681,14 @@ class ControlledAgent:
 
 
 class ResumeConcurrencyTests(SimpleTestCase):
-    """功能：验证调度边界；逻辑：真实 asyncio 任务与事件替身；约束：不证明模型速度。"""
+    """Function: Verify scheduling boundary; Logic: Real asyncio task with event proxy; Constraint:
+    Does not prove model speed.
+    """
 
     async def test_window_and_completion_order(self):
-        """四页输入先启动三页，第三页先完成后才补第四页；返回实际完成顺序。"""
+        """Four-page input starts three pages first; fourth page added only after third completes;
+        return actual completion order.
+        """
         agent = ControlledAgent()
         pages = [SimpleNamespace(number=number) for number in range(1, 5)]
         stream = review_pages(agent, pages)
@@ -628,7 +714,9 @@ class ResumeConcurrencyTests(SimpleTestCase):
             await stream.aclose()
 
     async def test_failure_cancels_siblings(self):
-        """第一项失败后第二三项必须被取消，尚未进入窗口的第四项不能启动。"""
+        """After first item fails, second and third must be cancelled; fourth item, not yet in
+        window, must not start.
+        """
         agent = ControlledAgent(failure=1)
         stream = review_pages(agent, [SimpleNamespace(number=n) for n in range(1, 5)])
         first = asyncio.create_task(anext(stream))
@@ -642,7 +730,9 @@ class ResumeConcurrencyTests(SimpleTestCase):
         self.assertEqual(agent.active, 0)
 
     async def test_consumer_close_cancels_pending(self):
-        """模拟外层已收到一页后断开流，aclose 必须取消其他在途页并阻止第四页启动。"""
+        """Simulate outer layer receiving one page then disconnecting stream; aclose must cancel
+        other in-flight pages and prevent fourth page from starting.
+        """
         agent = ControlledAgent()
         stream = review_pages(agent, [SimpleNamespace(number=n) for n in range(1, 5)])
         first = asyncio.create_task(anext(stream))

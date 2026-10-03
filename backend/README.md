@@ -1,61 +1,49 @@
-# Backend 后端、MVP Agent 与流式传输测试
+# Backend, MVP Agent and streaming diagnostics
 
-Django + DRF 提供题库、练习场次、单题记录接口，默认 SQLite、生产 PostgreSQL 保存业务数据。流式测试的媒体与统计只在内存中处理，不写数据库或本地文件。
-同一 ASGI 服务提供 WebSocket 回传接口与浏览器测试页面，用于验证 ping/pong、二进制和音视频分片传输。
-本目录已接入根目录的 Agent MVP，通过 `/ws/agent/` 提供简历文本解析、逐题面试、评价与最终报告，测试页面位于 `/agent/`。
-Agent 与 CLI 共用 Plan and Execute：默认 30 分钟，Planner 规划目标和时间，Question Agent 生成问题。
-文字面试现在通过行为安全网关后才返回模型结果，包含资料预览、问题及附带评价、评分事件和最终报告。检查失败或超时停止会话；历史只公开已检响应。检测使用既有项目模型和 5 秒安全预算，详见 [输入输出接入约定](../docs/modules/AI_SECURITY_BEHAVIOR.md)。工具和内部评分提交暂不拦截。
+Django and Django REST Framework provide question-bank, practice-session and per-question record APIs. Development uses SQLite; production explicitly uses PostgreSQL. Transport diagnostic media and counters stay in memory.
 
-`start.duration_minutes` 指定分钟时长；三个 `max_questions*` 参数仅为安全上限。
-从首题准备完毕开始计时，包含后续输入和模型等待；题目提交后检查是否收尾，不强制中断输入。
-后端练习接口继续保留原有 10 秒准备和 90 秒回答配置，两条流程独立运行。
-`/agent/` 为面试工作台：题目在上方、数字人面试官在中央、摄像头预览在右上角，下方提供语音/文字回答及版本/岗位/预算设置。
-摄像头需显式点击开启，仅本地预览；数字人通过 UE Pixel Streaming 接入，支持问题朗读、打断、麦克风回答及编辑转录，确认后才提交。
-面试页只选择本人已就绪版本，保留真实进度、实际计时、评分先行和报告随后补齐。
-后端 prepare 协议仍供独立客户端使用；面试页面不再提供重复资料维护，start 使用版本 UUID。
-优化边界与需要 Agent 团队配合的事项见 [性能优化说明](docs/performance.md)。
-`/resumes/` 为统一个人中心：维护姓名/邮箱、上传 PDF 或文本、解析和管理历史版本。
-默认传统提取，可选高级多模态校对；核对后可设置当前版本或直接使用指定版本面试。
-配置、数据流和限制见 [PDF 简历解析](docs/resume-pdf.md)。
-PDF 提取/渲染现运行于 Linux/WSL 沙箱；新增同机面试连接和 PDF 上传容量控制。
-首次使用 PDF 前请按 [隔离环境与资源限制](sandbox/README.md) 配置运行目录。
+The same ASGI service exposes WebSockets and browser diagnostic pages for ping/pong, binary chunks and audio/video transport. The root MVP Agent is available at `/ws/agent/`; its interview workspace is `/agent/`. The web and CLI clients share Plan and Execute: the default budget is 30 minutes, the Planner allocates goals/time and the Question Agent generates questions.
 
-已接入支持缺失资料的v4-B双向排序模型，提供`/api/recommendations/jobs/`与
-`/api/recommendations/candidates/`两个本地接口，权重随仓库发布，无需Kaggle或LLM密钥。
-这是未通过整体效果门槛的实验能力，不输出录用概率；输入契约、调用示例、
-安装依赖及实验限制见[缺失资料推荐说明](docs/recommendation.md)。
+Interview model output passes the behavioral safety gateway before delivery, including profile previews, question/assessment payloads, score events and final reports. Failed or timed-out checks stop the session; history exposes only checked responses. The gateway uses the existing project model and a five-second safety budget. See [the behavioral security contract](../docs/modules/AI_SECURITY_BEHAVIOR.md). Tool calls and internal assessment commits are outside that gateway.
 
-## Coding Agent 必须遵循的开发原则
+`start.duration_minutes` defines the time budget. The three `max_questions*` parameters are safety limits. Timing starts when the first question is ready and includes later user input and model waits. Completion is checked after answer submission; active input is not forcibly interrupted. The separate practice APIs retain their ten-second preparation and ninety-second answer settings.
 
-所有 Coding Agent 在新增、修改、重构或删除 `backend/` 内代码时，必须遵循以下要求：
+The interview workspace provides questions, a digital interviewer, local camera preview, speech/text answers and resume/job/budget selection. Camera preview starts only after an explicit action. UE Pixel Streaming supports the digital interviewer, question speech, interruption, microphone answers and editable transcription. Only ready resume versions owned by the current user are selectable. Real progress and elapsed timing remain visible; scores can arrive before report text. The backend `prepare` protocol remains available to independent clients, while the workspace starts interviews with a selected version UUID. See [performance boundaries](docs/performance.md).
 
-1. **学术风格的实现注释**：在函数、方法及关键代码块处提供准确、严谨、可核验的注释，说明功能、输入与输出、实现逻辑、设计依据和适用约束；涉及状态转换、边界条件、异常或副作用时，应说明其处理方式。注释应解释实现原因与逻辑关系，避免仅复述代码，也不得编造学术引用或未经验证的结论。
-2. **文件顶部的功能说明与目录**：每个代码文件顶部必须说明文件职责、主要实现逻辑及与相关模块的关系，并列出文件中实际实现的函数、类与关键方法，以及关键变量、常量和配置项的名称与用途，供 Coding Agent 和开发者快速定位。目录应与当前实现一致，不保留已删除或重命名的条目。
-3. **代码与注释同步原子修改**：代码实现、对应注释和文件顶部目录必须作为同一逻辑变更单元同步更新、检查和交付；如提交代码，必须纳入同一次提交。修改函数签名、行为、数据流、关键变量或模块职责时，必须同时修订受影响的说明；删除或替换实现时，必须同步清理失效注释及目录引用。不得先交付代码，再以“后续补充”为由延迟更新注释。
-4. **完成前检查一致性**：交付前逐项核对变更涉及的注释和目录，确认其准确反映实际行为，并运行 `python tools/check_docs.py` 检查声明注释、目录及模块变量索引。修改检查器时还须运行 `python -m unittest discover -s tools -p "test_*.py"`。检查器对 Python 定义和 JavaScript 函数（含匿名回调）、类分别要求声明处注释与顶部关联条目，并反向检查残留条目。自动检查不能替代对功能说明、实现逻辑、关键状态与代码一致性的人工核对，也不能证明 Git 提交原子性。
+`/resumes/` provides profile details, PDF/text upload, parsing, an editor and version history. Traditional extraction is the default; advanced multimodal review is optional. Confirmed versions can become current or be selected for an interview. See [PDF processing](docs/resume-pdf.md). PDF extraction/rendering uses a Linux/WSL sandbox, with host-level interview and upload capacity limits. Configure [the sandbox runtime](sandbox/README.md) before processing PDFs.
 
-具体注释格式及模块职责参见 [代码阅读指南](docs/code-guide.md)。
+The fixed v4-B bidirectional ranker accepts incomplete profiles and exposes `/api/recommendations/jobs/` and `/api/recommendations/candidates/`. Weights ship with the repository; local inference needs neither Kaggle nor LLM credentials. This experimental model did not meet the overall research acceptance threshold and does not report hiring probabilities. See [the recommendation contract and limitations](docs/recommendation.md).
 
-## 技术栈与环境
+## Engineering and documentation requirements
 
-| 技术 | 已验证版本 | 用途 |
+Write new backend implementation comments and developer documentation in English. All coding agents changing this directory must follow these requirements:
+
+1. Provide accurate, verifiable implementation comments for functions, methods and important code blocks. Explain functionality, inputs, outputs, logic, rationale and constraints, including relevant state transitions, boundary cases, exceptions and side effects. Avoid restating code or inventing academic citations.
+2. Start each code file with responsibilities, implementation, related modules, a declaration index and a variable index. Index only declarations actually implemented in that file and document key variables/constants/configuration. Use the English `Declaration Index:` and `Variable Index:` markers, `- symbol: description` entries and `None` for empty indexes.
+3. Update code, comments and indexes as one logical unit. When committing, include them in one commit. Signature, behavior, state and data-flow changes require corresponding documentation changes; deleted implementations require removing obsolete documentation.
+4. Manually review descriptions and run `python tools/check_docs.py` from this directory. Checker changes also require `python tools/test_check_docs.py` and `python -m unittest discover -s tools -p "test_*.py"`. Python declarations and JavaScript declarations, including anonymous callbacks, need both declaration comments and exact header entries. Checks reject stale entries. Automated structural checks do not establish semantic accuracy or commit atomicity.
+
+See [the code guide](docs/code-guide.md) for the exact format and module responsibilities.
+
+## Stack and environment
+
+| Technology | Previously verified version | Purpose |
 | --- | --- | --- |
-| Python | 3.12.14 | 后端运行环境 |
-| Django | 5.2.17 | ORM、迁移、HTTP 路由 |
-| Django REST Framework | 3.18.1 | JSON 接口、序列化、参数校验 |
-| SQLite | 3.53.4（本机） | 默认存储，文件 `backend/db.sqlite3` |
-| Uvicorn | 0.52.4 | HTTP 与 WebSocket 的 ASGI 服务 |
-| websockets | 16.1.1 | WebSocket 协议支持，本次补充安装 |
-| 浏览器原生 API | WebSocket / MediaRecorder / Web Audio / Canvas | 前端测试，无 npm 构建依赖 |
+| Python | 3.12.14 | Backend runtime |
+| Django | 5.2.17 | ORM, migrations and HTTP routing |
+| Django REST Framework | 3.18.1 | JSON APIs, serializers and validation |
+| SQLite | 3.53.4 locally | Default storage at `backend/db.sqlite3` |
+| Uvicorn | 0.52.4 | ASGI HTTP/WebSocket server |
+| websockets | 16.1.1 | WebSocket protocol support |
+| Native browser APIs | WebSocket / MediaRecorder / Web Audio / Canvas | Frontend diagnostics without an npm build |
 
-后端 Python 直接依赖固定在本目录的 `requirements.txt`，使用 `python -m pip install -r requirements.txt` 安装即可，无需指定环境管理工具。可按个人习惯使用 Python 自带的 `venv` 或已有 Python 环境；以下命令中的 `python` 应指向你选择的解释器。
-本目录 `requirements.txt` 通过 `-r ../requirements.txt` 引用已有 MVP 依赖，安装一次即可运行后端与 Agent；保留完整仓库目录。根目录的 `pyproject.toml` 与 `uv.lock` 继续管理终端 MVP 环境。
-默认开发配置使用 SQLite；服务器通过独立的 `config.production` 显式使用 PostgreSQL，
-连接失败不会回退。HTTPS、用户账号认证、systemd 与维护命令见[部署说明](../deploy/README.md)。
+Direct backend dependencies are pinned in `requirements.txt`. Install them with `python -m pip install -r requirements.txt`; use a Python environment of your choice. The examples assume `python` refers to that interpreter. The file includes root MVP dependencies through `-r ../requirements.txt`, so keep the complete repository. Root `pyproject.toml` and `uv.lock` still manage the CLI MVP environment.
 
-## 启动
+Development defaults to SQLite. Production explicitly selects PostgreSQL via `config.production`; connection failures do not switch databases. HTTPS, accounts, systemd and maintenance commands are in [the deployment guide](../deploy/README.md).
 
-在 PowerShell 中进入本目录，然后运行：
+## Starting the service
+
+From this directory in PowerShell:
 
 ```powershell
 python -m pip install -r requirements.txt
@@ -65,126 +53,117 @@ python manage.py migrate
 python -m uvicorn config.asgi:application --host 127.0.0.1 --port 8765 --ws websockets-sansio
 ```
 
-打开 [统一主页](http://127.0.0.1:8765/)，选择文字面试或开发诊断。
-也可直接进入 [流式测试页面](http://127.0.0.1:8765/stream-demo/) 或 [健康检查](http://127.0.0.1:8765/api/health/)。
-测试 AI 面试请打开 [MVP Agent 测试页](http://127.0.0.1:8765/agent/)，并先按下节配置模型密钥。
-必须使用 ASGI 启动命令；`manage.py runserver` 不能提供这里的 WebSocket 路由。
-`DJANGO_SECRET_KEY` 必须在环境变量或仓库根目录 `.env` 中显式设置，上面的命令仅为当前开发 shell 生成随机值，源码不包含应用密钥。
-可显式设置 `INTERVIEW_DB_PATH` 指向其他 SQLite 文件；默认数据库及本地秘密文件已加入 `.gitignore`。
-迁移会创建数据表，并初始化原有两道通用练习题，已有题目不会被覆盖。
+Open [the workspace](http://127.0.0.1:8765/), [transport diagnostics](http://127.0.0.1:8765/stream-demo/) or [the health endpoint](http://127.0.0.1:8765/api/health/). Open [the interview workspace](http://127.0.0.1:8765/agent/) after configuring model credentials.
 
-## 界面语言
+Use the ASGI command; `manage.py runserver` does not serve these WebSocket routes. `DJANGO_SECRET_KEY` must be set in the process environment or repository-root `.env`. The example creates a random value for the current shell; source code includes no application secret. `INTERVIEW_DB_PATH` can explicitly select another SQLite path. Local databases and secret files are ignored by Git. Migrations create tables and seed the original two generic practice questions without overwriting existing questions.
 
-主页 `/`、文字面试 `/agent/` 和传输诊断 `/stream-demo/` 均提供语言选择器：中文、English 和跟随系统。
-选择会保存在浏览器的 `localStorage` 中；跟随系统时，中文浏览器使用中文，其他浏览器使用 English，并响应浏览器的语言变化事件。
-语言层只翻译界面、状态和诊断提示，不改变 WebSocket 协议、API 字段、评分逻辑或模型请求内容。
+## Interface language
 
-## Agent 模型配置
+English is the default when no valid browser preference is stored. The language selector retains English, Chinese and follow-system choices. Explicit preferences are stored in `localStorage`. Follow-system selects Chinese for a Chinese browser and English otherwise, and responds to browser language changes.
 
-简历版本管理、面试绑定及历史状态接口见 [简历版本接口](docs/resume-versions.md)。新增资源使用登录会话及本人权限，不修改 Agent 的出题或评分策略。
+Initial page markup uses English before scripts run. English translation lookups do not use Chinese strings for missing entries. System-generated resume headings and the bundled catalog's source label use English. User-authored resume text, answers, uploaded filenames and intentional bilingual recognition data keep their original language.
 
-API key 存放在 **仓库根目录 `.env`**。首次使用可在仓库根目录复制 `.env.example`；已有文件请直接编辑，避免覆盖。
-OpenAI 填写 `LLM_PROVIDER=openai`、`OPENAI_API_KEY`、`OPENAI_MODEL`；千问填写 `LLM_PROVIDER=dashscope`、`DASHSCOPE_API_KEY`、`DASHSCOPE_MODEL`。
-后端自动读取该文件，进程环境变量优先；修改后重启。`.env` 已被 Git 忽略，模板不含密钥。
-完整配置示例、网络协议与取消限制见 [MVP Agent 接入说明](docs/agent-integration.md)。
+The language layer changes interface text, statuses and diagnostic messages; WebSocket commands, API field names, scoring and experimental model inputs retain their existing contracts. Browser language selection does not itself translate user data or change the shared interview model's language policy.
 
-## 流式测试
+## Agent model configuration
 
-1. **Ping / Pong**：确认匹配的消息 ID，显示往返延迟。
-2. **二进制分片测试**：12 个 32 KiB 分片依次发送，页面在连接结束前实时更新校验计数。
-3. **合成音视频测试**：画布视频 + 合成音调，录制约 3 秒 WebM，经 MediaRecorder 分片回传；结束后可播放回传数据组成的媒体。
-4. **真实设备测试**：点击麦克风或摄像头按钮并由使用者授权，手动停止或 30 秒后停止。
+Resume-version, interview-binding and history contracts are in [the version API guide](docs/resume-versions.md). Resources use authenticated sessions and ownership checks without changing question-generation or assessment strategy.
 
-前端按发送顺序处理 Blob 转换、SHA-256 和回传，等待最后一个分片校验完成才发送 finish。
-编码不支持、权限拒绝、超时、断线、过大分片或校验失败都会显示错误，不自动重连、重试、丢帧或降级格式。
-录制目标分片间隔为 250 ms，浏览器不保证精确间隔。完成后播放用于验证重组可解码，尚未实现远端边录边播。
+Place API credentials in the **repository-root `.env`**. For initial setup, copy `.env.example` if no file exists; edit an existing file without overwriting it. OpenAI uses `LLM_PROVIDER=openai`, `OPENAI_API_KEY` and `OPENAI_MODEL`. DashScope uses `LLM_PROVIDER=dashscope`, `DASHSCOPE_API_KEY` and `DASHSCOPE_MODEL`.
 
-## 目录与文档
+The backend loads that file automatically, with existing process environment values taking precedence. Restart after configuration changes. Git ignores `.env`; the template contains no credentials. See [Agent integration](docs/agent-integration.md) for configuration, protocol and cancellation limits.
+
+## Transport diagnostics
+
+1. **Ping/pong:** Correlates message IDs and displays round-trip latency.
+2. **Binary chunks:** Sends twelve 32 KiB chunks and updates verification counts before closing.
+3. **Synthetic audio/video:** Records canvas video and a generated tone for about three seconds as WebM, returns MediaRecorder chunks and plays the reconstructed result.
+4. **Real devices:** Requests microphone/camera access after a user action and stops manually or after thirty seconds.
+
+Blob conversion, SHA-256 checks and returned chunks are processed in order. The client waits for final verification before sending `finish`. Unsupported codecs, denied permission, deadlines, disconnects, oversized chunks and verification failures surface errors without automatic reconnect, retries, dropped frames or format substitution.
+
+Recording targets a 250 ms chunk interval; browsers do not guarantee exact cadence. Playback after completion verifies reconstruction/decoding. Remote playback while recording is not implemented.
+
+## Directory and documentation map
 
 ```text
 backend/
-  config/                 Django 设置、URL 与 ASGI 入口
+  config/                    Django settings, URLs, ASGI and Celery
   interviews/
-    models.py             三张业务表
-    services.py           场次事务和状态转换
-    agent_provider.py     后端模型配置、脱敏日志与客户端释放
-    agent_session.py      MVP 用例的逐轮网络适配，注入数据库仓库
-    agent_models.py       Agent 面试、请求、题目、回答和提交日志 schema
-    agent_repository.py   单轮状态/评价/动作的原子提交与版本冲突检查
-    agent_records.py      请求持久化去重、结果提交和中断记录
-    agent_socket.py       文字面试命令、并发限制与连接生命周期
-    resume_pdf.py         PDF 规则提取与有界页面渲染
-    resume_api.py         multipart 上传与 NDJSON 阶段流
-    resume_vision.py      独立异步视觉模型适配器
-    access.py             HTTP/WebSocket 共用访问策略
-    middleware.py         HTTP 请求拦截
-    demo.py               测试页资源白名单
-    api/                  REST 序列化、视图与路由
-    streaming/            协议状态校验与 ASGI 连接管理
-    migrations/           Schema 与初始题目
-    tests/                Django / ASGI 测试
-  frontend/               app 调度、view 展示、media 采集、stream-client 协议、interview-camera 本地预览
-  docs/                   Schema、协议与测试说明
-  tests/                  Node 客户端测试、真实服务器联调
-  tools/check_docs.py     声明注释、符号目录和模块变量索引检查
-  tools/javascript_docs.py Tree-sitter 语法树与声明处 JSDoc 关联
-  tools/test_check_docs.py 检查器独立回归测试，不加载业务应用
-  tools/test_docs_contract.py 双位置关联、语法边界及进程退出测试
-  requirements-docs.txt   注释检查的固定开发依赖，服务运行不需要
+    models.py                Practice tables
+    services.py              Practice transactions and state transitions
+    agent_provider.py        Model configuration, redacted logs and cleanup
+    agent_session.py         Per-turn MVP network adapter and database repository
+    agent_models.py           Interview/request/question/answer/commit schemas
+    agent_repository.py       Atomic state, assessment and action commits
+    agent_records.py          Request reservation, response storage and interruption records
+    agent_socket.py           Interview commands and connection lifecycle
+    answer_mcp.py             Completion receipts and existing answer submission
+    resume_pdf.py             PDF text extraction and bounded rendering
+    resume_api.py             Multipart uploads and NDJSON stages
+    resume_vision.py          Async vision-model adapter
+    access.py                 Shared HTTP/WebSocket access policy
+    middleware.py             HTTP access checks
+    demo.py                   Page/asset allowlist
+    api/                      REST serializers, views and routes
+    streaming/                Protocol validation and ASGI connections
+    speech/                   ASR/TTS and independent completion detection
+    migrations/               Schema history and initial questions
+    tests/                    Django/ASGI tests
+  frontend/                   Backend-served pages and browser modules
+  docs/                       Schema, APIs, implementation and test notes
+  tests/                      Node client tests and live-server harnesses
+  tools/check_docs.py          Declaration comments and index consistency
+  tools/javascript_docs.py    Tree-sitter declarations and adjacent JSDoc
+  tools/test_check_docs.py     Isolated documentation-checker regression tests
+  tools/test_docs_contract.py  Header/declaration, parsing and exit-code contracts
+  requirements-docs.txt       Pinned development-only parser dependencies
 ```
 
-查阅入口：[代码阅读指南](docs/code-guide.md)、[Schema](docs/schema.md)、[接口协议](docs/api.md)、[测试说明](docs/testing.md)。
+Start with [the code guide](docs/code-guide.md), [schema](docs/schema.md), [API contract](docs/api.md) and [test notes](docs/testing.md).
 
-## 测试
+## Tests
 
-注释检查使用 Python AST 与 Tree-sitter JavaScript 语法树。在本目录先安装 `python -m pip install -r requirements-docs.txt`；这两项依赖只供开发检查，不影响服务运行。未安装解析器或源码解析失败会明确报错，不跳过检查，也不会回退到正则识别。
+Documentation checks use Python AST and Tree-sitter JavaScript parsing. Install `requirements-docs.txt` first. Missing parsers or parse errors fail explicitly; checks do not skip files or substitute regex parsing.
 
 ```powershell
-# 当前 shell 先按启动步骤设置 DJANGO_SECRET_KEY。
+# Set DJANGO_SECRET_KEY for this shell as shown in the startup instructions.
 python manage.py check
 python manage.py makemigrations --check --dry-run
 python manage.py test interviews
 python tools/check_docs.py
+python tools/test_check_docs.py
 python -m unittest discover -s tools -p "test_*.py"
 
-# 需要 Node.js 22+；使用临时 SQLite 和临时端口，不写入开发数据库。
+# Node.js 22+; harnesses use temporary SQLite databases and ports.
 python tests/run_e2e.py
-python tests/run_agent_e2e.py  # 真实 ASGI + 离线模型替身，不调用收费模型
-node --test tests/interview-camera.test.mjs  # 模拟权限、设备中断与媒体释放，不访问真实摄像头
+python tests/run_agent_e2e.py  # Real ASGI with an offline model double.
+node --test tests/*.test.mjs frontend/digital-human/tests/*.test.mjs
 ```
 
-## 当前边界
+Mocked microphone/camera and provider tests do not verify actual devices or external services.
 
-- 默认开发模式限制回环地址及同源访问，启动时只绑定 `127.0.0.1`。服务器模式经同机 Nginx 提供 HTTPS，应用仍只绑定回环；Django 会话保护网页、API 和 WebSocket，每个账号的面试与练习记录独立，题库共用，见[部署说明](../deploy/README.md)。
-- 音视频、字节数与校验统计只在内存中处理，不写数据库或媒体文件；不提供流式历史查询。
-- 每次连接使用临时 connection_id，断开后服务端不保留结果。页面日志仅保留最近 30 行；服务端日志输出到控制台，启动时不要重定向到文件。
-- 浏览器仅保留当前回放的临时 Blob URL，点击“清空结果与媒体缓存”、开始下一次测试或离开页面时释放。没有 localStorage、IndexedDB、下载或文件写入逻辑。
-- verified_chunks 是客户端报告的校验数量，属于诊断指标，不是对恶意客户端的可信证明。
-- Agent 文字面试已接入数据库，保存解析后资料、题目、回答、状态、决策及成功响应；`/api/agent-interviews/` 提供本机只读历史。原始简历文本和 PDF 不新增持久化，Django 可能使用自动清理的临时上传文件。清空页面不删除历史，断线续接尚未提供。已提供百炼语音识别与合成、数字人 WebRTC 串流；尚未提供视频存储或 MySQL 适配；评分与策略仍由根目录模块负责。
-- Agent 当前返回完整问题和报告，没有逐 token 输出。沿用 MVP 的既有模型重试与问题/报告备用逻辑；断开连接不能保证已发送的同步模型请求在供应商处停止。
+## Current boundaries
 
-## 协议参考
+- Development requires loopback access and same origin, and binds to `127.0.0.1`. Production uses a same-host Nginx HTTPS proxy; the application still binds to loopback. Django sessions protect pages, APIs and WebSockets. Accounts own separate interview/practice records; the question bank is shared.
+- Diagnostic media, byte counts and verification counters stay in memory. Connections use temporary IDs. Page logs retain thirty lines, and server logs use the console. Playback Blob URLs are released on clearing, the next diagnostic run or page exit. Diagnostic media is not stored in browser databases or downloaded.
+- `verified_chunks` is a client-reported diagnostic count, not proof against malicious clients.
+- Agent interviews persist parsed profiles, questions, answers, state, decisions and checked responses. Read-only history APIs enforce access and ownership. Original resume/PDF handling and temporary upload files follow the existing version/upload contracts; clearing the page does not delete interview history. Disconnect recovery is not implemented.
+- DashScope ASR/TTS and digital-human WebRTC are integrated. Video storage and MySQL adaptation are not implemented. Scoring and planning remain owned by shared root modules.
+- Questions and reports arrive as complete payloads rather than token streams. The existing MVP model-repair and question/report fallback behavior remains unchanged. Disconnecting cannot guarantee that a synchronous remote request stops provider-side execution or billing.
 
-- [MDN：MediaRecorder dataavailable](https://developer.mozilla.org/en-US/docs/Web/API/MediaRecorder/dataavailable_event)：分片事件与末尾数据处理。
-- [MDN：WebSocket binaryType](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket/binaryType)：浏览器接收 ArrayBuffer。
-- [Django：SQLite notes](https://docs.djangoproject.com/en/5.2/ref/databases/#sqlite-notes)：SQLite 并发与事务限制。
+## Protocol references
 
-## 注册与登录
+- [MediaRecorder dataavailable](https://developer.mozilla.org/en-US/docs/Web/API/MediaRecorder/dataavailable_event): chunk events and final data.
+- [WebSocket binaryType](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket/binaryType): browser ArrayBuffer delivery.
+- [Django SQLite notes](https://docs.djangoproject.com/en/5.2/ref/databases/#sqlite-notes): concurrency and transaction limits.
 
-生产入口 `/register/` 和 `/login/` 只填写用户名与密码，注册后直接登录；不要求邮箱、验证码或密码组合。用户名最多 150 字符、密码最多 128 字符，均不能为空。密码使用 Django 默认哈希，退出为带 CSRF token 的 POST `/logout/`。
+## Registration and login
 
-生产配置强制登录；默认回环开发模式保留匿名访问。网页未登录时跳转登录页，API 返回 401，WebSocket 从 session Cookie 校验账号并在后续消息时重新检查会话有效性。写接口使用 session 与 CSRF token；PDF 客户端从页面读取 token 并随请求发送。用户只能查询或修改自己的面试、子请求和练习，跨账号 ID 返回 404。迁移前没有归属的记录保持空归属，不自动分配给新账号。
+Production `/register/` and `/login/` require a username and password. Registration logs in immediately; email, verification codes and password-composition rules are not required. Usernames are nonempty and at most 150 characters; passwords are nonempty and at most 128 characters. Django hashes passwords. Logout is a CSRF-protected POST to `/logout/`.
 
-## 后台 PDF 任务
+Production requires login; default loopback development permits anonymous access. Anonymous pages redirect to login; APIs return 401. WebSockets validate session cookies and recheck sessions on later messages. Writes require session/CSRF validation; the PDF client reads the page token and sends it with requests. Cross-account interview/request/practice IDs return 404. Pre-ownership records remain unassigned.
 
-生产 PDF 通过 Redis/Celery 在独立 worker 执行；前端沿用上传 NDJSON、真实进度与取消。默认开发模式 inline 不要求 Redis；显式 celery 模式无故障回退或任务重试。Redis 短期键只向后端开放，账号验证与 CSRF 在入队前执行，客户端不能提供任务 ID。部署及 main 自动发布见 [部署说明](../deploy/README.md)。
+## Background PDF tasks
 
-## 数字人语音面试
-
-当前数字人播放器与语音交互代码位于 `backend/frontend/`，TTS/STT 位于 `interviews/speech/`。
-配置统一使用仓库根目录 `.env`，角色、场景和本机串流工具位于 `DigitalHuman/`。
-语音复用现有 `DASHSCOPE_API_KEY`；`SPEECH_REGION=singapore` 保持原有默认，使用北京 Key 时在本地设置 `beijing`。
-TTS/STT 地址一起随地域切换，不从文字模型 HTTP 地址推断，不改变文字模型配置。
-本机准备与启动见 [数字人操作说明](../docs/guides/DIGITAL_HUMAN_SETUP.md)。
-
-个人中心现支持独立在线编辑稿、九个文本单元及用户确认的推荐槽位；接口与单位约束见 [简历版本说明](docs/resume-versions.md#在线编辑稿与推荐资料)。原 PDF 与旧稿保留，每次保存创建新版本。
+Production uses Redis/Celery workers for PDF processing while retaining NDJSON progress and cancellation. Inline development needs no Redis. Explicit Celery mode has no fault fallback or business-task retries. Short-lived Redis keys are backend-only; ownership and CSRF checks run before enqueueing. Clients cannot choose task IDs. Production deployment and automatic publication from `main` are documented in [the deployment guide](../deploy/README.md).

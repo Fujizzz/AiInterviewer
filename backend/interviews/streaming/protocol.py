@@ -1,38 +1,34 @@
-"""WebSocket 回传协议的确定性状态与校验。
+"""Responsibilities: Validate the deterministic state and control messages of the WebSocket echo
+protocol.
+Implementation: Enforce connection, MIME, chunk, byte, and completion-count boundaries using bounded
+metadata only.
+Related Modules: streaming.websocket dispatches protocol operations and sends responses over ASGI.
 
-目录：
-- ProtocolError：
-  携带稳定错误码、可展示说明和 WebSocket 关闭码的协议异常。
-- ProtocolError.__init__：
-  保存响应所需字段；默认关闭码 1008 表示违反应用协议。
-- parse_control：
-  将有界 UTF-8 JSON 控制消息转换为字典。
-- EchoState：
-  单连接状态容器；只保存常数规模元数据，不持有原始媒体。
-- EchoState.hello：
-  构造握手公告，将连接 ID、容量和空闲超时显式提供给客户端。
-- EchoState.start：
-  验证测试模式与 MIME 元数据，并将连接标记为已声明模式。
-- EchoState.accept_chunk：
-  校验一个二进制消息、更新计数并生成 ACK。
-- EchoState.finish：
-  确认客户端校验计数与服务端计数一致，构造完成响应。
-- EchoState.summary：
-  生成协议公开统计，显式列字段以避免内部状态意外进入响应。
+Declaration Index:
+- ProtocolError: Carry a stable error code, display detail, and WebSocket close code.
+- ProtocolError.__init__: Store response fields; default close code 1008 represents an application
+  protocol violation.
+- parse_control: Decode a bounded UTF-8 JSON control message into a dictionary.
+- EchoState: Hold constant-size metadata for one connection without retaining raw media.
+- EchoState.hello: Build the handshake notice with connection ID, capacity, and idle timeout.
+- EchoState.start: Validate the declared test mode and MIME metadata.
+- EchoState.accept_chunk: Validate one binary message, update counters, and build its ACK.
+- EchoState.finish: Match client-reported counts with server counts and build the completion
+  response.
+- EchoState.summary: Return explicit public protocol statistics.
 
-关键变量：
-- IDLE_TIMEOUT_SECONDS：
-  流式诊断接收等待上限，单位秒，不适用于 Agent 答题等待。
-- MAX_CHUNK_BYTES：
-  单个二进制净载荷上限，单位 bytes，不包括四字节序号头。
-- MAX_CONTROL_BYTES：
-  流式控制 JSON 按 UTF-8 编码计算的大小上限。
-- MAX_TOTAL_BYTES：
-  单连接累计净载荷上限，单位 bytes。
+Variable Index:
+- IDLE_TIMEOUT_SECONDS: Stream-diagnostic receive timeout in seconds; it does not apply to Agent
+  response time.
+- MAX_CHUNK_BYTES: Maximum binary payload bytes, excluding the four-byte sequence header.
+- MAX_CONTROL_BYTES: Maximum UTF-8 encoded size of a stream control JSON message.
+- MAX_TOTAL_BYTES: Maximum cumulative payload bytes per connection.
 
-关键状态说明：
-EchoState.connection_id 标识当前连接，status/mode/mime_type 描述诊断状态；chunk_count/byte_count
-只在合法分片后更新；verified_chunks 来自客户端完成报告，不能视为恶意客户端的可信证明。
+State and Constraints:
+EchoState.connection_id identifies the connection; status/mode/mime_type describe diagnostic state.
+chunk_count/byte_count update only after valid chunks.
+verified_chunks comes from the client completion report and is not trusted proof from a potentially
+malicious client.
 """
 
 import hashlib
@@ -48,19 +44,23 @@ MAX_CONTROL_BYTES = 4096
 
 
 class ProtocolError(Exception):
-    """携带稳定错误码、可展示说明和 WebSocket 关闭码的协议异常。"""
+    """Carry a stable error code, display detail, and WebSocket close code.
+    """
 
     def __init__(self, code, detail, close_code=1008):
-        """保存响应所需字段；默认关闭码 1008 表示违反应用协议。"""
+        """Store response fields; default close code 1008 represents an application protocol
+        violation.
+        """
         super().__init__(detail)
         self.code, self.detail, self.close_code = code, detail, close_code
 
 
 def parse_control(text):
-    """将有界 UTF-8 JSON 控制消息转换为字典。
+    """Decode a bounded UTF-8 JSON control message into a dictionary.
 
-    方法：先按编码后字节数限流，再解析 JSON，最后拒绝数组和标量。
-    返回：字典。超限、格式错误分别抛出带既有 code 的 ProtocolError。
+    Enforce the encoded-byte limit before parsing and reject arrays or scalars. Size, encoding, and
+    JSON failures raise
+    ProtocolError with the established error code.
     """
     if len(text.encode("utf-8")) > MAX_CONTROL_BYTES:
         raise ProtocolError("invalid_message", "Control messages must not exceed 4096 bytes.")
@@ -75,7 +75,8 @@ def parse_control(text):
 
 @dataclass
 class EchoState:
-    """单连接状态容器；只保存常数规模元数据，不持有原始媒体。"""
+    """Hold constant-size metadata for one connection without retaining raw media.
+    """
 
     connection_id: str = field(default_factory=lambda: str(uuid4()))
     status: str = "disconnected"
@@ -87,7 +88,8 @@ class EchoState:
     error_code: str = ""
 
     def hello(self):
-        """构造握手公告，将连接 ID、容量和空闲超时显式提供给客户端。"""
+        """Build the handshake notice with connection ID, capacity limits, and idle timeout.
+        """
         return {
             "type": "hello",
             "connection_id": self.connection_id,
@@ -97,10 +99,11 @@ class EchoState:
         }
 
     def start(self, message):
-        """验证测试模式与 MIME 元数据，并将连接标记为已声明模式。
+        """Validate mode and MIME metadata, then mark this connection's mode as declared.
 
-        输入：含 mode、mime_type 的字典；每个连接只允许成功声明一次。
-        返回：started 响应；重复声明或字段错误抛出 ProtocolError。
+        Input is a dictionary containing mode and mime_type; each connection may declare a mode
+        once.
+        Return a started response. Duplicate declarations or invalid fields raise ProtocolError.
         """
         mode, mime = message.get("mode"), message.get("mime_type")
         if self.mode:
@@ -118,11 +121,13 @@ class EchoState:
         return {"type": "started", "mode": mode}
 
     def accept_chunk(self, binary):
-        """校验一个二进制消息、更新计数并生成 ACK。
+        """Validate one binary message, update counters, and return ACK metadata.
 
-        方法：依次检查 start、非空载荷、容量和大端 uint32 序号，随后计算哈希。
-        返回：包含 sequence、bytes、sha256 的 ACK。原消息由传输层原样回传。
-        副作用：仅增加内存计数；任何校验失败均不改变计数。
+        Require start, a non-empty payload, limits, and a contiguous big-endian uint32 sequence
+        before hashing.
+        The ACK contains sequence, byte count, and SHA-256; the transport layer echoes the original
+        message unchanged.
+        Only in-memory counters change, and validation failures leave them unchanged.
         """
         if not self.mode:
             raise ProtocolError("not_started", "Send start before binary frames.")
@@ -154,10 +159,11 @@ class EchoState:
         }
 
     def finish(self, message):
-        """确认客户端校验计数与服务端计数一致，构造完成响应。
+        """Verify client-reported counts against server counts and build the completion response.
 
-        方法：严格检查整数类型，避免将布尔值视为计数；不要求 start，支持纯 ping。
-        返回：finished 响应；计数不匹配抛出 ProtocolError，不写数据库。
+        Require exact integers so booleans cannot act as counts. A start is not required, supporting
+        ping-only connections.
+        Return a finished response; count mismatches raise ProtocolError. No database writes occur.
         """
         verified, verified_bytes = message.get("verified_chunks"), message.get("verified_bytes")
         if (
@@ -174,7 +180,9 @@ class EchoState:
         return {"type": "finished", "connection_id": self.connection_id, **self.summary()}
 
     def summary(self):
-        """生成协议公开统计，显式列字段以避免内部状态意外进入响应。"""
+        """Return public protocol statistics using explicit fields to prevent internal state
+        leakage.
+        """
         return {
             "status": self.status,
             "mode": self.mode,

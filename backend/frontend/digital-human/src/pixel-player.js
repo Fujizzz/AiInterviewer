@@ -1,34 +1,35 @@
 /**
  * @module pixel-player
- * UE 5.8 官方播放器包装；语音识别模块独立管理麦克风。
+ * Responsibilities: Wrap the official UE 5.8 pixel-streaming player; voice recognition manages the microphone separately.
+ * Implementation: Validate local signalling URLs, suppress device/game input, probe controller readiness, and release the single active connection.
+ * Related Modules: interview-voice.js owns speech capture and playback coordination; i18n.js provides localized status messages.
+ * Declaration Index:
+ * - AvatarPlayer: Manage one avatar stream connection and its control messages.
+ * - AvatarPlayer.constructor: Store the container, event callbacks, and initial connection state.
+ * - AvatarPlayer.text: Return localized status copy with an English fallback.
+ * - AvatarPlayer.connect: Validate the local URL, configure the player, and register connection events.
+ * - AvatarPlayer.connect.callback1: Parse UE responses and record controller readiness.
+ * - AvatarPlayer.connect.callback2: Start a bounded readiness probe after WebRTC connects.
+ * - AvatarPlayer.connect.callback2.callback1: Send a ping and report when controller probing reaches its limit.
+ * - AvatarPlayer.connect.callback3: Clean up on disconnection and notify the voice interface.
+ * - AvatarPlayer.connect.callback4: Clean up after connection failure and notify the voice interface.
+ * - AvatarPlayer.connect.callback5: Prompt the user to enable playback after autoplay is rejected.
+ * - AvatarPlayer.connect.callback6: Forward valid frame-rate statistics to the page.
+ * - AvatarPlayer.failed: Clear readiness, release the connection, and report disconnection.
+ * - AvatarPlayer.send: Send an interaction only after the controller is ready.
+ * - AvatarPlayer.close: Stop the probe timer and release the player.
  *
- * 目录：
- * - AvatarPlayer：管理单个数字人串流连接及控制消息。
- * - AvatarPlayer.constructor：保存容器、事件回调和连接状态。
- * - AvatarPlayer.connect：验证本机地址并建立播放连接，关闭设备和游戏输入上行。
- * - AvatarPlayer.connect.callback1：解析 UE 回应并确认面试控制器已经就绪。
- * - AvatarPlayer.connect.callback2：连接建立后启动有次数上限的控制器探测。
- * - AvatarPlayer.connect.callback2.callback1：发送 ping 并在探测超限时提示绑定检查。
- * - AvatarPlayer.connect.callback3：断开时清理播放器并通知语音降级。
- * - AvatarPlayer.connect.callback4：连接失败时清理播放器并通知语音降级。
- * - AvatarPlayer.connect.callback5：自动播放被拒绝时提示用户点击播放。
- * - AvatarPlayer.connect.callback6：将有效视频帧率转交给页面统计。
- * - AvatarPlayer.failed：撤销就绪状态、释放连接并上报断开事件。
- * - AvatarPlayer.send：仅在控制器就绪后发送交互消息。
- * - AvatarPlayer.close：停止探测计时器并释放播放器。
+ * Variable Index:
+ * None
  *
- * 关键变量：
- * （无模块级变量。）
- *
- * 关键状态说明：
- * ready 仅由 avatar_ready 确认；pingTimer 属于当前连接。
- * UseMic 与 MouseInput 均关闭；页面麦克风和 UE 音频播放分别管理。
+ * Constraints:
+ * ready is set only by avatar_ready; pingTimer belongs to the active connection. UseMic and MouseInput remain disabled.
  */
 import { Config, PixelStreaming } from "@epicgames-ps/lib-pixelstreamingfrontend-ue5.8";
 
 /** Minimal official UE 5.8 player. The separate STT capture owns the microphone. */
 export class AvatarPlayer {
-  /** 保存容器、事件回调和连接状态。 */
+  /** Functionality: Initialize the player wrapper. Inputs: DOM container and event/status callbacks. Outputs: None; creates an unconnected wrapper. Constraints: Does not request devices or network access. */
   constructor(container, onEvent, onStatus) {
     this.container = container;
     this.onEvent = onEvent;
@@ -38,7 +39,7 @@ export class AvatarPlayer {
     this.pingTimer = null;
   }
 
-  /** 验证本机地址并建立播放连接，关闭设备和游戏输入上行。 */
+  /** Functionality: Connect to the local signalling server. Inputs: WebSocket URL. Outputs: None; configures the player and event handlers. Logic: Reject non-local or non-ws URLs and disable microphone, camera, and game input. Constraints: Only local signalling hosts are accepted. */
   connect(url) {
     const endpoint = new URL(url);
     if (endpoint.protocol !== "ws:" || !["127.0.0.1", "localhost"].includes(endpoint.hostname)) {
@@ -57,37 +58,37 @@ export class AvatarPlayer {
     }});
     const player = new PixelStreaming(config, { videoElementParent: this.container });
     this.player = player;
-    /** 解析 UE 回应并确认面试控制器已经就绪。 */
+    /** Parse UE responses and record whether the interviewer controller is ready. */
     player.addResponseEventListener("interviewer", (payload) => {
       try {
         const event = JSON.parse(payload);
         if (event.type === "avatar_ready") {
           this.ready = !event.detail;
           clearInterval(this.pingTimer);
-          this.onStatus(this.ready ? "数字人已连接" : event.detail);
+          this.onStatus(this.ready ? this.text("avatar_ready") : event.detail);
         }
         this.onEvent(event);
-      } catch { this.onStatus("数字人返回了无效消息"); }
+      } catch { this.onStatus(this.text("avatar_invalid_message")); }
     });
-    /** 连接建立后启动有次数上限的控制器探测。 */
+    /** Start a bounded controller-readiness probe after WebRTC connects. */
     player.addEventListener("webRtcConnected", () => {
       let attempts = 0;
-      this.pingTimer = setInterval(/** 发送 ping 并在探测超限时提示绑定检查。 */ () => {
+      this.pingTimer = setInterval(/** Send a ping and report when the bounded probe cannot confirm readiness. */ () => {
         player.emitUIInteraction({ type: "ping" });
         if (++attempts >= 10) {
           clearInterval(this.pingTimer);
-          if (!this.ready) this.onStatus("画面已连接，但面试控制器未响应；请检查 L_Interview 中的控制器。");
+          if (!this.ready) this.onStatus(this.text("avatar_controller_unresponsive"));
         }
       }, 500);
-      this.onStatus("画面已连接，正在检查面试控制器…");
+      this.onStatus(this.text("avatar_checking_controller"));
     });
-    /** 断开时清理播放器并通知语音降级。 */
-    player.addEventListener("webRtcDisconnected", () => this.failed("数字人已断开，使用语音／文字模式"));
-    /** 连接失败时清理播放器并通知语音降级。 */
-    player.addEventListener("webRtcFailed", () => this.failed("数字人连接失败，使用语音／文字模式"));
-    /** 自动播放被拒绝时提示用户点击播放。 */
-    player.addEventListener("playStreamRejected", () => this.onStatus("点击连接／播放按钮启用声音"));
-    /** 将有效视频帧率转交给页面统计。 */
+    /** Release player state on disconnect and notify the voice interface. */
+    player.addEventListener("webRtcDisconnected", () => this.failed(this.text("avatar_disconnected")));
+    /** Release player state on connection failure and notify the voice interface. */
+    player.addEventListener("webRtcFailed", () => this.failed(this.text("avatar_connection_failed")));
+    /** Prompt the user to enable playback after autoplay is rejected. */
+    player.addEventListener("playStreamRejected", () => this.onStatus(this.text("avatar_enable_audio")));
+    /** Forward valid video frame-rate measurements to page metrics. */
     player.addEventListener("statsReceived", ({ data }) => {
       const fps = data.aggregatedStats.inboundVideoStats.framesPerSecond;
       if (typeof fps === "number" && Number.isFinite(fps)) this.onEvent({ type: "avatar_stats", fps });
@@ -95,7 +96,21 @@ export class AvatarPlayer {
     player.connect();
   }
 
-  /** 撤销就绪状态、释放连接并上报断开事件。 */
+  /** Functionality: Resolve one localized player status. Inputs: i18n message key. Outputs: Localized text or the key when localization is unavailable. Constraints: English fallback keeps standalone use readable. */
+  text(key) {
+    const english = {
+      avatar_ready: "Avatar connected",
+      avatar_invalid_message: "The avatar returned an invalid message",
+      avatar_controller_unresponsive: "Video connected, but the interviewer controller did not respond. Check the controller in L_Interview.",
+      avatar_checking_controller: "Video connected. Checking the interviewer controller…",
+      avatar_disconnected: "Avatar disconnected. Using voice/text mode.",
+      avatar_connection_failed: "Avatar connection failed. Using voice/text mode.",
+      avatar_enable_audio: "Select Connect / play to enable audio.",
+    };
+    return window.AppI18n?.t(key) ?? english[key] ?? key;
+  }
+
+  /** Functionality: Handle terminal player failure. Inputs: localized failure message. Outputs: None; releases resources and emits avatar_disconnected. Constraints: Does not retry or reconnect. */
   failed(message) {
     this.ready = false;
     clearInterval(this.pingTimer);
@@ -106,12 +121,12 @@ export class AvatarPlayer {
     player?.disconnect();
   }
 
-  /** 仅在控制器就绪后发送交互消息。 */
+  /** Functionality: Send an interaction to UE. Inputs: JSON-compatible interaction object. Outputs: None. Constraints: Throws unless the controller has confirmed readiness. */
   send(message) {
     return this.ready && this.player?.emitUIInteraction(message);
   }
 
-  /** 停止探测计时器并释放播放器。 */
+  /** Functionality: Release the current player. Inputs: None; uses instance state. Outputs: None. Logic: Clear the probe timer and destroy player resources. Constraints: Safe when no player is active. */
   close() {
     this.ready = false;
     clearInterval(this.pingTimer);

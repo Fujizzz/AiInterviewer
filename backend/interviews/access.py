@@ -1,18 +1,17 @@
-"""HTTP 和 WebSocket 共用的回环代理与同源访问策略。
+"""Responsibilities: Apply shared loopback, proxy-host, and same-origin access checks to HTTP and
+WebSocket entry points.
+Implementation: Require loopback peers and read the Host allowlist from Django settings; localhost
+remains the default.
+Related Modules: Production settings may allow configured public Hosts; session_socket verifies
+identity separately.
 
-实现：连接对端始终必须为回环；Host 白名单来自 Django 设置，默认仍仅允许本机。
-关联：production 设置允许指定公网 Host，session_socket 验证会话身份；不直接信任外部客户端。
+Declaration Index:
+- is_loopback: Determine whether a textual IPv4 or IPv6 address belongs to the loopback network.
+- same_origin: Compare a browser Origin with the request scheme, host, and port.
+- websocket_allowed: Validate the host, peer address, and Origin from an ASGI scope.
 
-目录：
-- is_loopback：
-  判断字符串地址是否属于回环网络。
-- same_origin：
-  比较浏览器 Origin 与请求的 scheme、host、端口。
-- websocket_allowed：
-  根据 ASGI scope 验证 WebSocket 的主机、连接地址及 Origin。
-
-关键变量：
-（无模块级变量。）
+Variable Index:
+None
 """
 
 from ipaddress import ip_address
@@ -23,10 +22,8 @@ from django.http.request import validate_host
 
 
 def is_loopback(address):
-    """判断字符串地址是否属于回环网络。
-
-    方法：使用标准库解释 IPv4/IPv6，不依赖字符串前缀匹配。
-    返回：合法回环地址为 True，非法地址和非回环地址为 False。
+    """Return whether address parses as an IPv4/IPv6 loopback address; invalid and non-loopback
+    values return False.
     """
     try:
         return ip_address(address).is_loopback
@@ -35,11 +32,11 @@ def is_loopback(address):
 
 
 def same_origin(origin, host, scheme):
-    """比较浏览器 Origin 与请求的 scheme、host、端口。
+    """Compare Origin with the request scheme, host, and port; None permits clients that omit
+    Origin.
 
-    参数：origin 可为空，此时表示未发送 Origin 的非浏览器客户端。
-    方法：保留既有严格比较规则，不自动改写端口或放宽来源限制。
-    返回：来源匹配时为 True；不产生 I/O 副作用。
+    Preserve strict equality without rewriting ports or widening the allowed origins. This function
+    performs no I/O.
     """
     if origin is None:
         return True
@@ -48,12 +45,13 @@ def same_origin(origin, host, scheme):
 
 
 def websocket_allowed(scope):
-    """根据 ASGI scope 验证 WebSocket 的主机、连接地址及 Origin。
+    """Validate WebSocket Host, peer address, and Origin from ASGI headers/client/scheme and Django
+    settings.
 
-    输入：ASGI scope 中的 headers、client 和 scheme；Host 白名单读取 Django 设置。
-    方法：检查配置的主机白名单与客户端回环地址，再应用同源规则。
-    返回：可接受连接时为 True。生产代理须清除客户端转发地址并覆写可信协议头。
-    约束：缺失 Host 明确拒绝；此函数不执行认证或 I/O，身份由上游 session_socket 负责。
+    Return True only when the Host allowlist, loopback-peer, and same-origin checks pass. Production
+    proxies must replace
+    forwarded addresses and trusted scheme headers. Missing Host is rejected; authentication is
+    handled upstream by session_socket.
     """
     headers = {
         key.decode("latin1").lower(): value.decode("latin1") for key, value in scope["headers"]

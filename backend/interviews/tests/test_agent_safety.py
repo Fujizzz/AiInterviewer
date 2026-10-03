@@ -1,31 +1,42 @@
-"""职责：验证真实 ASGI、输入绑定、输出检查、数据库及历史公开边界的闭环。
-实现：仅替换业务模型和安全模型；保留实际状态机、网关、事务、协议及 HTTP 历史处理。
-关联：agent_safety/agent_socket/agent_records/agent_history；复用已有确定性业务测试资料。
+"""Responsibilities: verify real ASGI, input binding, output checking, database, and historical
+public boundary closure.
+Implementation: replace only business and safety models; retain actual state machine, gateway,
+transaction, protocol, and HTTP history handling.
+Related Modules: agent_safety/agent_socket/agent_records/agent_history; reuse existing deterministic
+business test data.
 
-目录：
-- ScriptedReviewer：可控审查端口，覆盖拒绝、异常、取消和完整覆盖验证。
-- ScriptedReviewer.__init__：记录目标输出、故障模式和同步屏障。
-- ScriptedReviewer.assess：记录真实审查请求，按模式给出结论或等待取消。
-- IOSafetyTests：隔离数据库中的输入输出闭环测试，不证明真实模型检测效果。
-- IOSafetyTests.setUp：注入显式业务/安全替身，注册清理。
-- IOSafetyTests.terminal：读取进度直至业务结果或固定错误。
-- IOSafetyTests.close_error：验证终止关闭及无后续输出。
-- IOSafetyTests.test_allowed_round_trip_and_sources：验证四种输出、整包审查、来源标签和历史一致。
-- IOSafetyTests.test_denial_at_each_output：逐出口拒绝，不保存成功正文且历史不可绕过。
-- IOSafetyTests.test_review_failures_stop_output：异常、超时和不完整结果不放行、不重试。
-- IOSafetyTests.test_real_deadline_stops_output：等待真实五秒预算，验证任务取消与错误关闭。
-- IOSafetyTests.test_cancel_or_disconnect_during_review：审查挂起时取消/断线，不产生延迟输出。
-- IOSafetyTests.test_input_budget_precedes_business_model：输入超预算在任何业务模型调用前拒绝。
-- IOSafetyTests.test_ownership_and_commit_version：归属不符不能绑定，过期凭据不能提交。
-- IOSafetyTests.test_history_requires_intact_receipt：未检和篡改结果不能经两类历史接口公开。
-- IOSafetyTests.test_progress_cannot_carry_model_text：固定进度字段不能夹带任意文本。
+Declaration Index:
+- ScriptedReviewer: controlled review port, covers rejection, exception, cancellation, and full
+  coverage verification.
+- ScriptedReviewer.__init__: record target output, fault modes, and synchronization barrier.
+- ScriptedReviewer.assess: record real review request, provide conclusion or wait for cancellation
+  according to mode.
+- IOSafetyTests: closed-loop testing in isolated database, does not prove real model detection
+  effectiveness.
+- IOSafetyTests.setUp: inject explicit business/safety stand-ins, register cleanup.
+- IOSafetyTests.terminal: read progress until business result or fixed error.
+- IOSafetyTests.close_error: verify termination close and no subsequent output.
+- IOSafetyTests.test_allowed_round_trip_and_sources: verify four outputs, full package review,
+  source tagging, and historical consistency.
+- IOSafetyTests.test_denial_at_each_output: reject at each output, do not save successful text, and
+  prevent bypassing history.
+- IOSafetyTests.test_review_failures_stop_output: exceptions, timeouts, and incomplete results do
+  not pass through, no retry.
+- IOSafetyTests.test_real_deadline_stops_output: wait for real five-second budget, verify task
+  cancellation and error closure.
+- IOSafetyTests.test_cancel_or_disconnect_during_review: cancel/disconnect during pending review, no
+  delayed output generated.
+- IOSafetyTests.test_input_budget_precedes_business_model: input over budget rejected before any
+  business model call.
+- IOSafetyTests.test_ownership_and_commit_version: mismatched ownership cannot bind, expired
+  credentials cannot submit.
+- IOSafetyTests.test_history_requires_intact_receipt: unverified or tampered results cannot be
+  publicly exposed via either history interface.
+- IOSafetyTests.test_progress_cannot_carry_model_text: fixed progress field cannot carry arbitrary
+  text.
 
-关键变量：
-（无模块级变量。）
-
-约束说明：
-替身只证明边界被调用和执行语义，不是攻击召回率、模型性能或供应商取消验证。
-ScriptedReviewer.requests 保存虚构输入，仅供测试断言；不进入生产日志或配置。
+Variable Index:
+None
 """
 
 import asyncio
@@ -53,16 +64,22 @@ from .test_agent_progress import connect, disconnect, send_command
 
 
 class ScriptedReviewer:
-    """功能：可控审查故障；逻辑：按操作选择结果；约束：模拟端口而非真实安全判断。"""
+    """Function: controllable review fault; logic: select result based on operation; constraint:
+    simulate port, not real safety judgment.
+    """
 
     def __init__(self, target=None, mode="allow"):
-        """输入目标操作和模式；初始化请求记录及进入/取消事件，不联网。"""
+        """Input target operation and mode; initialize request record and enter/cancel events, no
+        network involved.
+        """
         self.target, self.mode = target, mode
         self.requests = []
         self.entered, self.cancelled = asyncio.Event(), asyncio.Event()
 
     async def assess(self, request):
-        """输入真实请求；记录副本，返回完整/不完整结论或注入故障；等待模式仅由取消结束。"""
+        """Input real request; record copy, return complete/incomplete conclusion or inject fault;
+        wait mode ends only by cancellation.
+        """
         self.requests.append(request.model_copy(deep=True))
         requirements = tuple(r.requirement_id for r in request.boundary.requirements)
         if self.target in (None, request.proposal.operation):
@@ -96,10 +113,14 @@ class ScriptedReviewer:
 
 
 class IOSafetyTests(TransactionTestCase):
-    """功能：回归真实闭环；逻辑：独立数据库和可控端口；约束：不改变生产模型参数和五秒预算。"""
+    """Function: regression of real closed loop; logic: independent database and controllable port;
+    constraint: no change to production model parameters or five-second budget.
+    """
 
     def setUp(self):
-        """无外部输入；逐测试构造替身并注册 patch 清理；端口之外使用真实实现。"""
+        """No external input; construct stand-ins one-by-one and register patch cleanup; use real
+        implementation outside port.
+        """
         super().setUp()
         self.reviewer, self.llm = ScriptedReviewer(), FixtureLLM()
         for name, instance in (
@@ -111,7 +132,9 @@ class IOSafetyTests(TransactionTestCase):
             self.addCleanup(patcher.stop)
 
     async def terminal(self, comm, kind, *, timeout=3):
-        """输入通道、期望类型和测试等待时间；跳过固定控制消息，错误立即返回供断言。"""
+        """Input channel, expected type, and test wait time; skip fixed control messages, return
+        error immediately for assertion.
+        """
         for _ in range(50):
             packet = await comm.receive_output(timeout=timeout)
             self.assertEqual(packet["type"], "websocket.send")
@@ -122,7 +145,9 @@ class IOSafetyTests(TransactionTestCase):
         self.fail("missing terminal response")
 
     async def close_error(self, comm, response, code):
-        """输入终态错误及预期代码；检查固定消息、关闭码、任务结束和发送队列空。"""
+        """Input terminal error and expected code; check fixed message, close code, task end, and
+        empty send queue.
+        """
         self.assertEqual(response["type"], "error")
         self.assertEqual(response["code"], code)
         self.assertNotIn("private-provider-body", json.dumps(response))
@@ -133,7 +158,9 @@ class IOSafetyTests(TransactionTestCase):
         self.assertTrue(comm.output_queue.empty())
 
     async def test_allowed_round_trip_and_sources(self):
-        """虚构简历→两道问题/评价→先行评分→报告；完整受检正文与网络/历史相同，来源不混淆。"""
+        """Synthetic resume → two questions/evaluations → preliminary scoring → report; fully
+        inspected text matches network/history, sources not confused.
+        """
         comm = await connect()
         await send_command(comm, "prepare", resume_text=RESUME)
         self.assertEqual((await self.terminal(comm, "prepared"))["type"], "prepared")
@@ -181,7 +208,9 @@ class IOSafetyTests(TransactionTestCase):
         self.assertEqual(public["response"]["result"], finished["result"])
 
     async def test_denial_at_each_output(self):
-        """逐一拒绝四类业务输出；Agent 内部可能已提交，但拒绝正文不可公开。"""
+        """Reject each of four business outputs individually; Agent may have already submitted
+        internally, but rejected text cannot be published.
+        """
         for kind in ("prepared", "question", "assessment", "finished"):
             with self.subTest(kind=kind):
                 self.reviewer.target, self.reviewer.mode = f"publish_{kind}", "deny"
@@ -219,7 +248,9 @@ class IOSafetyTests(TransactionTestCase):
                 )
 
     async def test_review_failures_stop_output(self):
-        """供应商异常、主动 TimeoutError、不确定及覆盖不全均失败关闭；一次请求仅检查一次。"""
+        """Vendor exceptions, active TimeoutError, uncertainty, and incomplete coverage all fail and
+        close; one request checked only once.
+        """
         for mode in ("error", "timeout", "uncertain", "incomplete"):
             with self.subTest(mode=mode):
                 self.reviewer.mode = mode
@@ -233,7 +264,9 @@ class IOSafetyTests(TransactionTestCase):
                 self.assertIsNone((await AgentRequest.objects.aget(id=rid)).response)
 
     async def test_real_deadline_stops_output(self):
-        """实际等待网关既有五秒 deadline，不缩短生产策略；到期取消审查且不交付正文。"""
+        """Actually wait for gateway's five-second deadline, do not shorten production policy;
+        cancel review upon expiry, no text delivered.
+        """
         self.reviewer.mode = "wait"
         comm = await connect()
         await send_command(comm, "prepare", resume_text=RESUME)
@@ -244,7 +277,9 @@ class IOSafetyTests(TransactionTestCase):
         self.assertEqual(len(self.reviewer.requests), 1)
 
     async def test_cancel_or_disconnect_during_review(self):
-        """由同步事件确认已进入检查，再取消或断线；本地审查结束且请求中断，无延迟正文。"""
+        """Confirm entry into inspection via synchronous event, then cancel or disconnect; local
+        review ends and request interrupted, no delayed text.
+        """
         for cancel in (True, False):
             self.reviewer.mode = "wait"
             self.reviewer.entered.clear()
@@ -267,7 +302,9 @@ class IOSafetyTests(TransactionTestCase):
             self.assertTrue(comm.output_queue.empty())
 
     async def test_input_budget_precedes_business_model(self):
-        """仍低于协议字节限制、但超过既有安全字符预算的输入明确拒绝，不调用业务模型或检测模型。"""
+        """Input clearly rejected if below protocol byte limit but exceeds existing safety character
+        budget, without calling business or detection models.
+        """
         comm = await connect()
         await send_command(comm, "prepare", resume_text="x" * 100001)
         await self.close_error(
@@ -277,7 +314,9 @@ class IOSafetyTests(TransactionTestCase):
         self.assertEqual(self.reviewer.requests, [])
 
     async def test_ownership_and_commit_version(self):
-        """真实数据库归属不符不能绑定；与记录版本不符的批准凭据也不能进入成功状态。"""
+        """Real database ownership mismatch cannot bind; approval credentials with version mismatch
+        also cannot enter success state.
+        """
         iid = uuid4()
         command = Prepare(type="prepare", request_id=uuid4(), resume_text=RESUME)
         await reserve_request(iid, command)
@@ -297,7 +336,9 @@ class IOSafetyTests(TransactionTestCase):
         self.assertEqual((await AgentRequest.objects.aget(id=command.request_id)).status, "running")
 
     async def test_history_requires_intact_receipt(self):
-        """旧无凭据及篡改结果均隐藏；验证成功时只公开获准副本，不公开原始 context。"""
+        """Old no-credentials and tampered results hidden; verify that only approved copies are
+        publicly exposed upon success, not original context.
+        """
         interview = await AgentInterview.objects.acreate()
         payload = {"type": "prepared", "candidate_profile": {"name": "approved-person"}}
         record = await AgentRequest.objects.acreate(
@@ -328,7 +369,9 @@ class IOSafetyTests(TransactionTestCase):
             self.assertNotIn("unreviewed-secret", json.dumps([saved, detail]))
 
     def test_progress_cannot_carry_model_text(self):
-        """保留固定阶段/状态及非负耗时，未知字段、阶段或正文不能借进度通道绕过模型审查。"""
+        """Preserve fixed stage/status and non-negative duration; unknown fields, stages, or text
+        cannot bypass model review via progress channel.
+        """
         valid = {"type": "progress", "stage": "resume_parsing", "state": "running"}
         self.assertEqual(validate_progress(valid), valid)
         for extra in ({"text": "unreviewed"}, {"stage": "model text"}, {"duration_ms": True}):

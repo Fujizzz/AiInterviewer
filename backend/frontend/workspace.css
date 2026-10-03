@@ -1,11 +1,19 @@
 /*
- * 职责：产品页面共用的导航、阅读宽度、间距、焦点与响应式布局。
- * 实现：顶部固定导航，任务卡片分区，面试主画面与侧栏并列；移动端按 DOM 顺序呈现。
- * 关联：workspace-nav.html 与 home/resumes/agent/interview-review/account/index.html；不参与业务状态；空播放器以 :empty 显示品牌占位，媒体挂载后自动让位。
- * 目录：设计变量；共用框架；导航与账号菜单；概览；简历分区；面试双栏；响应式。
- * 函数和类声明：None。
- * 变量索引：--ws-ink 文本；--ws-muted 次级文本；--ws-line 边界；--ws-accent 主操作；--ws-surface 页面底色。
- * 约束：hidden 强制隐藏，导航独立滚动，不裁剪表单正文；样式不改变 disabled 或设备权限。
+ * Responsibilities: Provide shared navigation, reading width, spacing, focus and responsive workspace layout.
+ * Implementation: Arrange task cards and interview main/sidebar columns; render mobile content in DOM order. :empty shows the brand placeholder until player media mounts.
+ * Related Modules: workspace-nav.html and home/resumes/agent/interview-review/account/index.html.
+ * Declaration Index:
+ * None
+ * Variable Index:
+ * - --ws-ink: Primary text color.
+ * - --ws-muted: Secondary text color.
+ * - --ws-line: Border color.
+ * - --ws-accent: Primary action color.
+ * - --ws-surface: Page surface color.
+ * Style Groups:
+ * Common frame, navigation/account menu, overview, resume panels, interview columns and responsive rules.
+ * Constraints:
+ * hidden enforces hiding; navigation scrolls independently and form bodies remain readable. Styles alter no disabled state, device permissions or business state.
  */
 .workspace-page { --ws-ink: #20333c; --ws-muted: #60727c; --ws-line: #dfe6eb; --ws-accent: #236b5a; --ws-surface: #f5f7fa; background: var(--ws-surface); color: var(--ws-ink); font-size: 14px; line-height: 1.65; }
 .workspace-page [hidden] { display: none !important; }

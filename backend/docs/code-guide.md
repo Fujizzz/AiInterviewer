@@ -1,104 +1,111 @@
-# 后端代码阅读指南
+# Backend code guide
 
-本目录提供练习 API、流式传输验证及 MVP Agent 文字面试。`agent_session.py` 调用根目录 `InterviewAgentService`，复用既有模型、评价及报告实现。业务库保存练习题目和作答；Agent 会话与流式诊断数据只存在于内存中。
+The backend provides practice APIs, transport diagnostics and the MVP Agent interview. `agent_session.py` calls the shared `InterviewAgentService` and reuses its planning, assessment and reporting implementations. Django stores practice records, Agent state, completed responses and resume versions. Diagnostic media remains in memory.
 
-## 阅读顺序与职责
+## Reading order and responsibilities
 
-| 顺序 | 文件或目录 | 功能及主要入口 |
+| Order | File or directory | Responsibility and main entry points |
 | --- | --- | --- |
-| 1 | `config/asgi.py`、`config/urls.py` | ASGI 生命周期、HTTP/WebSocket 分流和 URL 组合 |
-| 2 | `interviews/access.py`、`middleware.py` | 共用回环地址、Host 和同源检查；HTTP 中间件实施拦截 |
-| 3 | `interviews/models.py`、`docs/schema.md` | 三张业务表、状态字段、唯一性和一致性约束 |
-| 4 | `interviews/api/serializers.py` | 明确输入字段、拒绝未知字段、校验动作及定义响应 |
-| 5 | `interviews/api/views.py`、`services.py` | 视图适配 HTTP；业务服务执行事务和状态转换 |
-| 6 | `interviews/errors.py` | 统一预期错误结构和异常上下文日志 |
-| 7 | `interviews/streaming/protocol.py` | `EchoState` 校验模式、序号、容量、校验计数；生成响应 |
-| 8 | `interviews/streaming/websocket.py` | 接收循环、消息调度、ACK/二进制发送和异常关闭 |
-| 9 | `interviews/demo.py` | 测试页资源白名单和禁止缓存响应 |
-| 10 | `frontend/stream-client.js` | 请求关联、超时、SHA-256 校验、完成确认和取消 |
-| 11 | `frontend/media.js` | 媒体来源、录制、串行分片队列及资源释放 |
-| 12 | `frontend/view.js`、`app.js` | DOM 与 Blob URL 管理；按钮、测试流程和页面生命周期 |
-| 13 | `interviews/tests/`、`tests/` | 业务与协议边界、客户端失败语义、真实服务联调 |
-| 14 | `interviews/agent_provider.py` | 显式模型配置、复用 MVP 供应商调用、脱敏日志及客户端释放 |
-| 15 | `interviews/agent_session.py` | 将 MVP 用例适配为初始化、回答、报告三步，复用原有决策和计时 |
-| 16 | `interviews/agent_socket.py` | `/ws/agent/` 严格命令校验、单请求执行、断线清理 |
-| 17 | `frontend/agent.html`、`agent.js`、`agent.css` | 文字面试测试页，不在浏览器保存密钥或持久化结果 |
-| 18 | `frontend/interview-voice.js`、`speech-capture.js` | 数字人语音状态、麦克风采集、实时字幕与显式结束提交 |
-| 19 | `frontend/digital-human/` | Pixel Streaming SDK 包装、播放器构建与语音前端测试 |
+| 1 | `config/asgi.py`, `config/urls.py` | ASGI lifecycle, HTTP/WebSocket dispatch and URL composition |
+| 2 | `interviews/access.py`, `middleware.py`, `session_socket.py`, `accounts.py` | Loopback proxy, Host/origin checks and account/session boundaries |
+| 3 | `interviews/models.py`, `agent_models.py`, `resume_models.py`, `docs/schema.md` | Practice, interview and resume records, state fields and database constraints |
+| 4 | `interviews/api/serializers.py` | Explicit input fields, unknown-field rejection, action validation and response definitions |
+| 5 | `interviews/api/views.py`, `services.py` | HTTP adaptation, transactions and state transitions |
+| 6 | `interviews/errors.py` | Expected error structures and contextual exception logs |
+| 7 | `interviews/streaming/protocol.py` | `EchoState` validation of modes, sequences, capacity and verification counts |
+| 8 | `interviews/streaming/websocket.py` | Receive loop, message dispatch, acknowledgements, binary delivery and closure |
+| 9 | `interviews/demo.py` | Page/asset allowlist and responses that disable caching |
+| 10 | `frontend/stream-client.js` | Request correlation, deadlines, SHA-256 checks, completion confirmation and cancellation |
+| 11 | `frontend/media.js` | Media sources, recording, serial chunk delivery and resource cleanup |
+| 12 | `frontend/view.js`, `app.js` | DOM and Blob URLs, buttons, diagnostic flows and page lifecycle |
+| 13 | `interviews/tests/`, `tests/` | Business/protocol boundaries, client failure semantics and live-server integration |
+| 14 | `interviews/agent_provider.py` | Explicit provider configuration, shared MVP calls, redacted logs and client cleanup |
+| 15 | `interviews/agent_session.py` | Preparation, answering and reporting with the existing decision order and timing |
+| 16 | `interviews/agent_socket.py`, `agent_records.py`, `agent_repository.py` | Strict commands, request ordering, persistence and connection lifecycle |
+| 17 | `frontend/agent.html`, `agent.js`, `agent.css` | Interview workspace; browser code does not store provider credentials |
+| 18 | `frontend/interview-voice.js`, `speech-capture.js`, `interviews/speech/` | Speech state, microphone capture, transcription and completion receipts |
+| 19 | `frontend/digital-human/` | Pixel Streaming SDK wrapper, player build and speech client tests |
+| 20 | `interviews/answer_mcp.py` | Authenticated completion receipts and submission through the existing assessment flow |
+| 21 | `interviews/resume_editor.py`, `resume_slots.py`, `api/resume_versions.py` | Resume units, confirmed recommendation fields, versions and editions |
+| 22 | `frontend/i18n.js` | English defaults and explicit Chinese/system-language selection |
 
-当前前端修改统一维护在本目录的 `frontend/` 中；后续由后端开发人员迁入仓库根目录 `frontend/`。
-播放器构建、文件结构及测试命令见 [前端维护说明](../frontend/README.md)。
+Frontend source for backend-served pages remains under `backend/frontend/`. Player maintenance and build commands are in [the frontend guide](../frontend/README.md).
 
-## 三条数据路径
+## Data paths
 
-REST 写请求经过访问检查、序列化校验后进入业务服务。更新先用版本条件 UPDATE 竞争写入资格，再检查单题状态并提交；任何验证失败都回滚版本和业务修改。SQLite 下不依赖行级锁的行为。创建场次时显式选择只查询所需题目；默认选择最多读取 101 条，第 101 条仅用于判定原有 100 题上限。
+REST writes pass access checks and serializer validation before entering the service layer. Updates claim a version with a conditional `UPDATE`, then validate question state and commit. Validation failures roll back both version and business changes. SQLite correctness does not depend on row-level locking. Session creation queries only required questions; default selection reads at most 101 rows so the final row can detect the existing 100-question limit.
 
-流式请求经过独立握手检查后进入连接循环。协议对象只保留计数与元数据，校验分片后先发 ACK，再原样返回二进制消息。客户端串行校验哈希和载荷，最后确认双方计数一致。服务端不保存分片；浏览器只为当前回放保留 Blob，清空、开始下一测试或离开页面时释放 URL。
+Diagnostic WebSockets pass a separate handshake check before the receive loop. The protocol retains counters and metadata, acknowledges validated chunks and returns binary payloads unchanged. The client serializes hash/payload verification and confirms final counts. The server does not store chunks. The browser owns only the current playback Blob URL and releases it on clearing, a new test or page exit.
 
-Agent 连接经过同一来源策略后，先通过 `agent_records` 持久化预留请求，再调用连接内的应用组合。
-`agent_models` 将 Agent 数据与固定练习表分开；`agent_repository` 按版本原子提交上下文、问题、回答评价、动作和决策。
-MVP 适配器仍执行简历解析和评价，Agent 核心保持原决策策略，报告沿用原计算方式。
-一个连接同时只处理一个命令，数据库也约束同场最多一条 running 请求；成功响应在发送前保存。
-异常或断线结束本地流程并保留历史，尚不提供自动续接；在途同步 SDK 调用完成后释放客户端。
-`api/agent_history.py` 只读查询历史，仍受本机访问策略限制，列表不读取完整 JSON 正文。
+Agent connections pass origin and session checks before `agent_records` reserves requests in the database. `agent_models` separates Agent records from fixed practice tables. `agent_repository` commits context, questions, answer assessments, actions and decisions atomically by version. Shared MVP components still parse resumes and assess answers; planning and reporting retain their existing policies. Each connection processes one command at a time, and the database permits at most one running request per interview. A successful response is stored before delivery. Exceptions and disconnections end local work and preserve history; automatic reconnection is not implemented. In-flight synchronous SDK calls release clients after returning. History queries enforce ownership, and list queries avoid loading full JSON bodies.
 
-## 注释格式
+Resume uploads, editor drafts and recommendation profiles have distinct boundaries. User text remains user data; system-generated section labels and source labels use English. Chinese heading aliases remain valid input. Confirmed recommendation values keep the same units, preprocessing and model contract. The research catalog retains its experimental status and never implies current vacancies.
 
-每个 Python 文件以模块文档字符串说明功能、依赖关系与实现边界，使用独立的 `目录：` 和 `关键变量：` 段。目录列出本文件实际定义的类、函数和方法，使用限定名，例如 `AgentSession.answer`；嵌套函数也需列出，例如 `AgentTests.test_busy_cancel_and_disconnect_release_session.slow_start`。导入的函数和子模块放在“设计说明”中，不作为本文件实现。
+## Documentation format
 
-“关键变量”逐项列出模块级赋值的名称与用途。类成员、实例属性和关键局部变量在“关键状态说明”中解释，重点包括状态域、计量单位、资源所有权和不变量；没有对应定义的段显式标记“无”。不必把每个循环临时变量机械列入目录。
+Write new implementation comments and documentation in English. Each Python file starts with a module docstring; JavaScript files start with an `@module` header. Include responsibilities, implementation, related modules, a declaration index and a variable index. The checker requires these exact section markers on separate lines:
 
 ```python
-"""本文件的职责、依赖与实现边界。
+"""Responsibilities: Describe this file's role and boundaries.
+Implementation: Describe the principal algorithm or data flow.
+Related Modules: Name collaborators and the interfaces used.
 
-目录：
-- Session：
-  管理单次会话。
-- Session.close：
-  释放该会话拥有的资源。
+Declaration Index:
+- Session: Manage resources owned by one session.
+- Session.close: Release the resources owned by that session.
 
-关键变量：
-- LIMIT：
-  该限制的含义与计量单位。
+Variable Index:
+- LIMIT: Describe the limit, its unit and its purpose.
 
-关键状态说明：
-Session.active 表示资源仍可使用；说明变更时机与约束。
+State:
+Session.active indicates whether resources are usable; explain transitions and constraints.
 """
 ```
 
-以上只是格式示意，条目须替换为本文件真实符号。条目使用 `- 名称：说明`，或把说明放在下一条缩进行；不得保留空说明、重复条目或已删除符号。
+Use only real declarations, including nested functions and implemented methods. Qualified names must be locatable, for example `AgentSession.answer` or `AgentTests.test_busy_cancel_and_disconnect_release_session.slow_start`. Imported implementations belong in related-module descriptions. Each entry has the form `- symbol: description`; a description may continue on a following line indented by at least two spaces. Do not retain empty descriptions, duplicate entries or deleted symbols. Use `None` for an empty section. The English contract replaces the previous Chinese markers; there is no parallel legacy format.
 
-函数和方法的 docstring 应给出职责；复杂业务方法进一步说明输入、返回值、前置条件、主要步骤、异常、事务边界和资源副作用。简单查询或测试辅助函数可用准确的一句话说明，避免无信息量的模板堆叠。测试注释说明输入场景与验证的不变量。
+The variable index lists module-level assignments and their purposes. Describe class members, instance attributes and important local state near the relevant implementation, including units, ownership and invariants. Do not mechanically index every loop variable.
 
-JavaScript 文件以 `@module` 文件头提供同样的目录与模块变量索引。目录使用限定名，例如 `StreamClient.connect`、`createDeviceSource.cleanup`，不同作用域不得共用同名条目。函数、箭头函数、类和方法前使用独立、紧邻且具有职责说明的 JSDoc；文件头不能兼作第一个声明的 JSDoc。HTML/CSS 文件头列出页面区域、关键元素或选择器与样式分组，并明确无函数定义的情况。
+Functions and methods document functionality, actual inputs, outputs, logic and constraints. Explain relevant exceptions, transaction boundaries, state changes and side effects. A simple helper can use a precise sentence; complex methods need enough detail to verify their contract. Test documentation identifies prerequisites, mocking boundaries and the invariant verified. Comments explain rationale and relationships without invented citations or unsupported performance claims.
 
-JavaScript 匿名函数也执行相同的双位置检查。未获得静态绑定名称的函数在所属作用域内按源码顺序命名为 `callback1`、`callback2` 等；无绑定对象使用 `object1` 等作为其属性方法的上下文。因此 `StreamClient.waitFor.callback1.object1.resolve` 表示等待器中 Promise 回调内对象的 resolve 方法。匿名编号不依赖行号，增删或移动同层回调后必须重新核对目录中的用途说明。
+JavaScript declaration comments use independent, adjacent, nonempty JSDoc. A module header cannot also document the first declaration. Qualified names distinguish scopes, such as `StreamClient.connect` and `createDeviceSource.cleanup`. Anonymous functions receive `callback1`, `callback2`, etc. in lexical order within their scope; unbound objects use `object1`, etc. Thus `StreamClient.waitFor.callback1.object1.resolve` identifies an object method inside a Promise callback. Numbering does not depend on line numbers. Adding, removing or moving callbacks requires reviewing index descriptions.
 
-变量、静态属性或赋值目标绑定的函数使用绑定名称；getter/setter 分别添加 `.get` 和 `.set`，私有方法保留 `#`。函数表达式内部别名不另建一份目录。动态计算方法名或重复限定名会报错，不能以歧义目录通过检查。匿名默认导出类采用同层 `callbackN` 合成名称。
+Functions bound to variables, static properties or assignment targets use the binding name. Getters/setters add `.get`/`.set`; private methods retain `#`. Internal aliases of function expressions do not create duplicate entries. Dynamic computed names or duplicate qualified names fail inspection. Anonymous default-export classes use a synthetic `callbackN` name.
 
-匿名函数的 JSDoc 可直接写在函数表达式前；当独立注册语句恰好只有一个直接函数参数时，也允许放在整个注册语句前，例如 `/** 验证场景。 */ test("case", () => {});`。多回调注册必须各自注释，纯标签、空 JSDoc 或被其他注释隔开的 JSDoc 均不合格。
+A JSDoc can precede a function expression directly. When a registration statement has exactly one direct function argument, its JSDoc may precede the whole statement, for example `/** Verify the scenario. */ test("case", () => {});`. Statements with multiple callbacks need separate comments. Empty comments, labels without descriptions and intervening comments fail the adjacency contract.
 
-注释采用可查证的技术说明，不引入学术引用或未经验证的复杂度、性能结论。修改行为时应同步更新契约、注释及测试，尤其不得使注释与实际失败语义脱节。
+HTML/CSS headers identify page regions, key elements/selectors and style groups. They explicitly state when there are no function/class declarations. Their semantics, key code blocks, class/member state and comment accuracy require manual review.
 
-在 backend 目录安装 `python -m pip install -r requirements-docs.txt`，运行 `python tools/check_docs.py` 可检查：
+## Checks and maintenance
 
-- Python 所有 AST 分支中的类、函数及方法是否有 docstring；目录是否缺失或残留符号。
-- 模块级赋值变量是否具有对应索引；目录条目是否重复或缺少说明。
-- JavaScript 全部函数、匿名回调、类与方法是否有 JSDoc 和限定名目录；覆盖多行签名、行内对象方法、生成器、类字段及模板插值中的函数。
-- JavaScript 模块变量按语法作用域提取，不依赖缩进；包括模块直属声明及顶层块中的 `var`，解构只计绑定名称。块级 `let/const`、类字段和函数局部状态另作说明。
+Install documentation dependencies and run checks from `backend/`:
 
-每个声明同时满足“声明处有注释”和“顶部有非空目录条目”才算通过；目录存在不代表声明处可以省略注释。目录反向差集发现删除或重命名后的残留条目；重复段、重复条目、错误分隔符和空说明也会失败。退出码 0 表示通过，1 表示存在问题，可由 CI 调用；本次未修改仓库共享 CI 或 Git hooks。
+```text
+python -m pip install -r requirements-docs.txt
+python tools/check_docs.py
+python tools/test_check_docs.py
+python -m unittest discover -s tools -p "test_*.py"
+```
 
-检查器不加载业务模块或 `.env`，并在遍历前排除虚拟环境、第三方依赖和测试输出。Python 使用标准库 AST，JavaScript 使用固定版本的 Tree-sitter 及官方 JavaScript 语法库；解析器缺失、错误恢复节点或不可索引的方法都会明确失败。它不是 JavaScript 运行时或完整语言语义验证器，仍应运行 Node 语法检查及业务测试。Python lambda 不属于具名定义，HTML/CSS 注释、关键代码块、类成员与局部状态说明、注释语义，以及代码和注释是否在同一逻辑变更中交付，仍由人工核对。
+The checker verifies:
 
-修改检查器时运行 `python -m unittest discover -s tools -p "test_*.py"`，验证双位置四种组合、嵌套定义、目录过期、匿名回调、同名作用域、变量归属、JSDoc 缺失、语法错误与缺失依赖等边界。不要通过排除业务文件或降低校验规则来隐藏缺失项。
+- Python declarations in all AST branches have docstrings and exact, nonempty index entries.
+- Module assignments have indexed descriptions; duplicate, malformed, empty and stale entries fail.
+- JavaScript functions, anonymous callbacks, classes and methods have adjacent JSDoc and qualified index entries, including multiline signatures, object methods, generators, class fields and functions in template interpolations.
+- JavaScript module bindings follow syntax scopes rather than indentation. Direct module declarations and top-level-block `var` bindings are included; destructuring counts only bound names. Block-level `let`/`const`, class fields and function locals are documented separately.
 
-实现依据：[Tree-sitter Python 官方接口](https://github.com/tree-sitter/py-tree-sitter)、[JavaScript 官方语法库](https://github.com/tree-sitter/tree-sitter-javascript)。调研中也核对了 [eslint-plugin-jsdoc 的 require-jsdoc 规则](https://github.com/gajus/eslint-plugin-jsdoc/blob/main/docs/rules/require-jsdoc.md)：可用于声明处 JSDoc 要求；本项目额外需要中文文件目录的双向关联，因此沿用 Python 检查入口并使用语法树扩展，避免再建立一套 Node 开发依赖。
+A declaration must pass both checks: a declaration comment and a header index entry. Bidirectional comparison detects removed/renamed declarations. Duplicate sections, incorrect separators and missing descriptions also fail. Exit code 0 means no structural problems; exit code 1 means problems were found.
 
-## 清理与兼容边界
+The checker does not import business modules or load `.env`. It excludes environments, third-party dependencies and test outputs before traversal. Python uses the standard AST; JavaScript uses pinned Tree-sitter dependencies. Missing parsers, syntax error recovery and unindexable methods fail explicitly. Structural checks do not prove runtime correctness, comment meaning or commit atomicity. Run language syntax checks and relevant business tests, and manually review behavior descriptions. Python lambdas are not named declarations. Code, comments and indexes must be delivered together; when committed, include them in the same commit.
 
-原平铺的 REST 文件已迁入 `api/`，旧流式大文件已替换为 `streaming/` 包；调用点均使用新路径，没有保留重复入口。访问判断、客户端控制请求和待处理请求清理使用共用实现。
+Checker tests cover the four combinations of declaration/header documentation, nested definitions, stale entries, anonymous callbacks, repeated names in separate scopes, variable ownership, missing JSDoc, syntax errors and missing dependencies. Do not exclude business files or weaken criteria to hide failures.
 
-迁移 `0001`、`0002`、`0003` 保留完整历史。`0001` 中的旧诊断表由 `0003` 删除，当前模型中不存在该表；保留历史是为了让已有开发数据库正常升级，不应直接删除或改写已应用迁移。
+Implementation references: [Tree-sitter Python API](https://github.com/tree-sitter/py-tree-sitter) and [official JavaScript grammar](https://github.com/tree-sitter/tree-sitter-javascript). The project's additional bidirectional file-index contract is maintained by its Python checker. These links identify implementation references, rather than claiming independent validation of the current change.
 
-原有练习和媒体计时、容量、编码、超时与失败规则不变。Agent 使用独立连接并沿用 MVP 的每题 120 秒预算、模型重试和备用逻辑，不与练习计时合并。Agent 配置和协议见 `agent-integration.md`。
+## Compatibility boundaries
+
+REST implementations live in `api/`, and streaming implementations live in `streaming/`. Call sites use those paths; obsolete duplicate entry points are removed. Access checks and pending-request cleanup are shared.
+
+Historical migrations remain complete. The legacy diagnostic table created by `0001` is removed by `0003` and is absent from current models. Historical migrations remain so existing databases can upgrade. Translation of migration comments does not authorize rewriting applied schema or seeded data.
+
+Language changes preserve practice/media deadlines, capacity, encoding, scoring, extraction and failure semantics. Agent timing and existing model recovery behavior remain owned by shared MVP modules. English is the default browser interface; explicit Chinese and system preferences remain available. User-authored data and intentional bilingual recognition/test inputs keep their original language.

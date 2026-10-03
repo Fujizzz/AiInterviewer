@@ -1,8 +1,12 @@
-"""Speech presentation adapters; interview reasoning remains in the Agent module.
+"""Responsibilities: Package speech presentation adapters while leaving interview reasoning in the
+Agent module.
+Implementation: Provide speech service, HTTP, and WebSocket boundaries.
+Related Modules: Agent modules own interview reasoning; speech modules adapt synthesis and
+recognition providers.
 
-目录：
-（无本地函数或类定义。）
+Declaration Index:
+None
 
-关键变量：
-（无模块级变量。）
+Variable Index:
+None
 """

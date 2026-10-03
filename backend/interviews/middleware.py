@@ -1,15 +1,14 @@
-"""HTTP 本机访问中间件。复用 access 策略并在业务处理前拒绝非本机或跨源请求。
+"""Responsibilities: Reject non-local or cross-origin HTTP requests before business processing.
+Implementation: Reuse the shared access policy and delegate accepted requests unchanged.
+Related Modules: interviews.access implements loopback and Origin checks.
 
-目录：
-- LocalOnlyMiddleware：
-  可调用中间件：本机检查通过后才交给下一处理器，保持原响应不变。
-- LocalOnlyMiddleware.__init__：
-  保存 Django 下游处理器；构造阶段不执行网络或数据库操作。
-- LocalOnlyMiddleware.__call__：
-  功能：请求进入业务层前执行地址及 Origin 检查。
+Declaration Index:
+- LocalOnlyMiddleware: Apply local-origin validation to each Django HTTP request.
+- LocalOnlyMiddleware.__init__: Save the downstream Django handler without network or database work.
+- LocalOnlyMiddleware.__call__: Validate request address and Origin before dispatch.
 
-关键变量：
-（无模块级变量。）
+Variable Index:
+None
 """
 
 from django.http import JsonResponse
@@ -18,15 +17,20 @@ from .access import is_loopback, same_origin
 
 
 class LocalOnlyMiddleware:
-    """可调用中间件：本机检查通过后才交给下一处理器，保持原响应不变。"""
+    """Delegate requests only after local-origin checks pass, preserving the downstream response.
+    """
 
     def __init__(self, get_response):
-        """保存 Django 下游处理器；构造阶段不执行网络或数据库操作。"""
+        """Store the downstream Django handler without performing network or database operations.
+        """
         self.get_response = get_response
 
     def __call__(self, request):
-        """功能：请求进入业务层前执行地址及 Origin 检查。
-        返回：拒绝时为带 local_only 代码的 403 JSON；通过时原样委派 get_response。"""
+        """Validate the remote address and Origin before business handling.
+
+        Return a 403 JSON response with code local_only on rejection; otherwise delegate the request
+        unchanged.
+        """
         if not is_loopback(request.META.get("REMOTE_ADDR", "")) or not same_origin(
             request.headers.get("Origin"), request.get_host(), request.scheme
         ):

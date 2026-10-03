@@ -1,52 +1,49 @@
 """Offline STT completion/MCP integration tests; no model or microphone access.
 
-Responsibilities: verify server silence, flush revocation, signed receipts and real Agent
-dispatch.
-Implementation: replace only ASR/classifier/business-provider boundaries; run real sockets,
-completion state, MCP validation, safety gateway and isolated database persistence.
+Responsibilities: verify server silence, flush revocation, signed receipts and real Agent dispatch.
+Implementation: Replace only ASR, classifier, and business-provider boundaries; run actual ASGI
+socket handlers in process, along with completion state, MCP validation, safety gateway, and
+isolated database persistence.
 Related Modules: speech.socket, answer_mcp, agent_socket and explicit agent_fixtures.
 
-目录：
-- socket_scope：Construct a same-origin local ASGI scope.
-- read_json：Read one bounded JSON protocol event.
-- send_json：Send one encoded ASGI text message.
-- initialize_mcp：Perform the actual connection-level MCP handshake.
-- EndRecognition：Offline ASR fixture with independently controlled supplementary text.
-- EndRecognition.__init__：Store callback and bilingual hints, never construct SDK.
-- EndRecognition.start：Complete offline startup without I/O.
-- EndRecognition.feed：Emit one final end-intent utterance, then optional supplemental draft.
-- EndRecognition.stop：Optionally append late finalized words before provider completion.
-- CompletionSpeechTests：Run real STT socket/observer with an explicit binary classifier
-  double.
-- CompletionSpeechTests.capture：Start opt-in ASR and consume its initial final-sentence draft.
-- CompletionSpeechTests.test_three_second_silence_issues_bound_final_receipt：Verify real timer
-  and text receipt.
-- CompletionSpeechTests.test_paraphrase_is_sent_without_keyword_filtering：
-  Verify unrestricted final wording reaches inference.
-- CompletionSpeechTests.test_supplement_revokes_before_and_during_flush：Verify draft and
-  late-final revocation.
-- CompletionSpeechTests.test_voice_without_transcript_revokes_decision：Verify audible PCM
+Declaration Index:
+- socket_scope: Construct a same-origin local ASGI scope.
+- read_json: Read one bounded JSON protocol event.
+- send_json: Send one encoded ASGI text message.
+- initialize_mcp: Perform the actual connection-level MCP handshake.
+- EndRecognition: Offline ASR fixture with independently controlled supplementary text.
+- EndRecognition.__init__: Store callback and bilingual hints, never construct SDK.
+- EndRecognition.start: Complete offline startup without I/O.
+- EndRecognition.feed: Emit one final end-intent utterance, then optional supplemental draft.
+- EndRecognition.stop: Optionally append late finalized words before provider completion.
+- CompletionSpeechTests: Run real STT socket/observer with an explicit binary classifier double.
+- CompletionSpeechTests.capture: Start opt-in ASR and consume its initial final-sentence draft.
+- CompletionSpeechTests.test_three_second_silence_issues_bound_final_receipt: Verify real timer and
+  text receipt.
+- CompletionSpeechTests.test_paraphrase_is_sent_without_keyword_filtering: Verify unrestricted final
+  wording reaches
+  inference.
+- CompletionSpeechTests.test_supplement_revokes_before_and_during_flush: Verify draft and late-final
+  revocation.
+- CompletionSpeechTests.test_voice_without_transcript_revokes_decision: Verify audible PCM
   independently revokes.
-- CompletionSpeechTests.test_classifier_failure_is_explicit：Verify failure terminates capture
+- CompletionSpeechTests.test_classifier_failure_is_explicit: Verify failure terminates capture
   without a receipt.
-- CompletionReceiptTests：Check exact owner/question/text bindings and expiry without external
-  I/O.
-- CompletionReceiptTests.test_receipt_binding_expiry_and_tampering：Reject misuse of a signed
+- CompletionReceiptTests: Check exact owner/question/text bindings and expiry without external I/O.
+- CompletionReceiptTests.test_receipt_binding_expiry_and_tampering: Reject misuse of a signed
   boundary.
-- CompletionMCPTests：Use real Agent/safety/persistence with offline provider outputs.
-- CompletionMCPTests.test_tool_advances_once_and_stale_calls_are_rejected：Verify MCP ->
-  evaluation -> next step.
-- CompletionMCPTests.test_invalid_receipt_never_starts_business_model：Verify admission before
+- CompletionMCPTests: Use real Agent/safety/persistence with offline provider outputs.
+- CompletionMCPTests.test_tool_advances_once_and_stale_calls_are_rejected: Verify MCP -> evaluation
+  -> next step.
+- CompletionMCPTests.test_invalid_receipt_never_starts_business_model: Verify admission before
   billable execution.
 
-关键变量：
-（无模块级变量。）
+Variable Index:
+None
 
-约束：
-Synthetic classifier output does not establish Qwen accuracy. Real 3s waits test timing
-without
-changing production thresholds; temporary Django test database prevents changes to user
-interviews.
+Constraints:
+Synthetic classifier output does not establish Qwen accuracy. Real 3s waits test timing without
+changing production thresholds; temporary Django test database prevents changes to user interviews.
 """
 
 import asyncio
@@ -90,7 +87,8 @@ async def read_json(comm, timeout=4):
 
 
 async def send_json(comm, message):
-    """Inputs: communicator/JSON data. Outputs: None; no retries or remote network access."""
+    """Inputs: communicator/JSON data. Outputs: None; no retries or remote network access.
+    """
     await comm.send_input({"type": "websocket.receive", "text": json.dumps(message)})
 
 
@@ -139,7 +137,8 @@ class EndRecognition:
         assert language_hints == ["zh", "en"]
 
     def start(self):
-        """Inputs: fixture state. Outputs: None; explicitly avoid SDK/network startup."""
+        """Inputs: fixture state. Outputs: None; explicitly avoid SDK/network startup.
+        """
 
     def feed(self, pcm):
         """Inputs: valid PCM bytes. Outputs: callback events; second frame may reveal new draft

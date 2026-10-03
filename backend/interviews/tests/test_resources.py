@@ -1,27 +1,39 @@
-"""职责：验证同机容量、真实 ASGI 上传边界及沙箱返回数据的拒绝语义。
-实现：操作系统锁使用真实子进程；HTTP 使用实际 Django ASGI；视觉和沙箱输出显式模拟。
-关联：capacity、resource_gate、pdf_sandbox；测试不调用模型、不修改生产数据库。
+"""Responsibilities: Verify same-machine capacity, real ASGI upload boundary, and sandbox return
+data rejection semantics.
+Implementation: Use real OS process locks; HTTP uses actual Django ASGI; visual and sandbox outputs
+explicitly simulated.
+Related Modules: capacity, resource_gate, pdf_sandbox; tests do not invoke models or modify
+production database.
 
-目录：
-- ResourceTests：以独立临时目录测试资源边界。
-- ResourceTests.setUp：为每个测试配置独立容量目录与单名额测试上限。
-- ResourceTests.test_process_lock_and_death：跨进程满额且进程死亡后自动释放。
-- ResourceTests.test_retained_lease：请求结束后借用引用仍占名额。
-- ResourceTests.test_http_capacity_before_body：满额在读取上传前明确拒绝。
-- ResourceTests.test_websocket_capacity：握手前满额不启动 Agent。
-- ResourceTests.test_cancel_releases_slot：下游取消后归还请求名额。
-- ResourceTests.test_cancel_releases_slot.blocked：保持下游在可控等待点。
-- ResourceTests.test_header_limit：超大 Content-Length 不读取正文。
-- ResourceTests.test_actual_asgi_chunked_limit：实际 Django 入口累计无长度或虚假长度上传。
-- ResourceTests.test_invalid_sandbox_output：拒绝错序、非法编码和尺寸超限。
-- ResourceTests.test_missing_sandbox_configuration：缺配置直接失败，不启动非隔离解析。
-- ResourceTests.test_output_limit：输出超过上限时明确失败，不交付部分数据。
+Declaration Index:
+- ResourceTests: Test resource boundaries in independent temporary directories.
+- ResourceTests.setUp: Configure independent capacity directories and single-slot test limits per
+  test.
+- ResourceTests.test_process_lock_and_death: Full capacity across processes, process death releases
+  lock automatically.
+- ResourceTests.test_retained_lease: Lease remains held after request completion, still occupying
+  slot.
+- ResourceTests.test_http_capacity_before_body: Full capacity rejects immediately before reading
+  upload body.
+- ResourceTests.test_websocket_capacity: Full capacity prevents Agent startup before handshake.
+- ResourceTests.test_cancel_releases_slot: Downstream cancellation returns request slot.
+- ResourceTests.test_cancel_releases_slot.blocked: Maintain downstream at controlled wait point.
+- ResourceTests.test_header_limit: Excessive Content-Length rejected without reading body.
+- ResourceTests.test_actual_asgi_chunked_limit: Actual Django entry rejects cumulative or
+  fake-length uploads without length.
+- ResourceTests.test_invalid_sandbox_output: Reject out-of-order, invalid encoding, and oversized
+  output.
+- ResourceTests.test_missing_sandbox_configuration: Missing configuration fails immediately, no
+  non-isolated parsing initiated.
+- ResourceTests.test_output_limit: Exceeding output limit causes explicit failure, no partial data
+  delivered.
 
-关键变量：
-（无模块级变量。）
+Variable Index:
+None
 
-约束：
-测试中的容量 1 与微型读取上限仅用于构造边界，不修改生产默认值。
+Constraints:
+Test capacity 1 and micro read limit are used solely for boundary construction, not modifying
+production defaults.
 """
 
 import asyncio
@@ -44,10 +56,14 @@ from interviews.resume_pdf import MAX_BYTES, PdfInputError
 
 
 class ResourceTests(SimpleTestCase):
-    """以独立临时目录测试资源边界；不需要数据库或外部模型凭据。"""
+    """Test resource boundaries in independent temporary directories; no database or external model
+    credentials required.
+    """
 
     def setUp(self):
-        """为每个测试配置独立容量目录与单名额测试上限；清理顺序先恢复环境再删目录。"""
+        """Configure independent capacity directories and single-slot test limits per test; clean up
+        by restoring environment before deleting directories.
+        """
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         environment = patch.dict(
@@ -63,7 +79,9 @@ class ResourceTests(SimpleTestCase):
         self.scope = {"type": "http", "method": "POST", "path": "/api/resume/parse/", "headers": []}
 
     def test_process_lock_and_death(self):
-        """真实子进程持锁时父进程满额，强制结束子进程后内核释放锁，无需清理锁文件。"""
+        """Parent process blocked at full capacity while real subprocess holds lock; force-terminate
+        subprocess so kernel releases lock without cleaning lock files.
+        """
         source = (
             "from interviews.capacity import take_slot; "
             "import sys; lease=take_slot('pdf',1); print('ready',flush=True); sys.stdin.read()"
@@ -83,13 +101,16 @@ class ResourceTests(SimpleTestCase):
             with self.assertRaises(CapacityExceeded):
                 take_slot("pdf", 1)
         finally:
-            # sys.executable 是实际解释器，避免 Windows venv 启动器派生进程树。
+            # sys.executable is the actual interpreter, avoiding Windows venv launcher spawning
+            # derived process trees.
             child.kill()
             child.communicate(timeout=10)
         take_slot("pdf", 1).release()
 
     def test_retained_lease(self):
-        """模拟同步调用借用引用；请求结束后仍拒绝新请求，实际调用完成才释放。"""
+        """Simulate synchronous call holding reference; new requests still rejected after request
+        ends, release only after actual call completes.
+        """
         lease = take_slot("agent", 1)
         lease.retain()
         lease.release()
@@ -101,7 +122,9 @@ class ResourceTests(SimpleTestCase):
         take_slot("agent", 1).release()
 
     async def test_http_capacity_before_body(self):
-        """原 PDF、版本上传与版本解析共享原名额；满额返回 503，不读取正文或调用模型。"""
+        """Original PDF, version upload, and version parsing share original slot; full capacity
+        returns 503, no body read or model invoked.
+        """
         lease = take_slot("pdf", 1)
         app, receive, send = AsyncMock(), AsyncMock(), AsyncMock()
         try:
@@ -118,7 +141,9 @@ class ResourceTests(SimpleTestCase):
         receive.assert_not_called()
 
     async def test_websocket_capacity(self):
-        """握手前满额只读取 connect 后关闭，不运行 Agent；实际 HTTP 握手状态由服务器决定。"""
+        """Full capacity before handshake reads only connect and closes, does not run Agent; actual
+        HTTP handshake state determined by server.
+        """
         lease = take_slot("agent", 1)
         app, send = AsyncMock(), AsyncMock()
         receive = AsyncMock(return_value={"type": "websocket.connect"})
@@ -132,11 +157,15 @@ class ResourceTests(SimpleTestCase):
         app.assert_not_called()
 
     async def test_cancel_releases_slot(self):
-        """请求被取消时执行 finally 并归还名额，不将取消改成成功响应。"""
+        """On request cancellation, execute finally and return slot; do not convert cancellation
+        into success response.
+        """
         entered = asyncio.Event()
 
         async def blocked(*args):
-            """保持下游在可控等待点；外部取消是本测试的唯一退出方式。"""
+            """Maintain downstream at controlled wait point; external cancellation is the only exit
+            method in this test.
+            """
             entered.set()
             await asyncio.Future()
 
@@ -150,7 +179,8 @@ class ResourceTests(SimpleTestCase):
         take_slot("pdf", 1).release()
 
     async def test_header_limit(self):
-        """超大 Content-Length 在 Django 正文暂存前被拒绝，不读取任何请求分片。"""
+        """Excessive Content-Length rejected before Django body buffering, no request chunk read.
+        """
         app, receive, send = AsyncMock(), AsyncMock(), AsyncMock()
         self.scope["headers"] = [(b"content-length", str(MAX_BYTES + 65537).encode())]
         await limited_application(app, self.scope, receive, send)
@@ -159,7 +189,9 @@ class ResourceTests(SimpleTestCase):
         receive.assert_not_called()
 
     async def test_actual_asgi_chunked_limit(self):
-        """实际 Django ASGI 正文暂存遇到累计超限返回 413，验证不是被框架转换成 500。"""
+        """Actual Django ASGI body buffering hits cumulative limit and returns 413; verify not
+        converted to 500 by framework.
+        """
         from config.asgi import application
 
         for lengths in ([], [(b"content-length", b"1")]):
@@ -190,7 +222,9 @@ class ResourceTests(SimpleTestCase):
             take_slot("pdf", 1).release()
 
     async def test_invalid_sandbox_output(self):
-        """模拟恶意工作进程输出，拒绝错序、非法编码和过大 PNG 头，不在父进程解码图像。"""
+        """Simulate malicious worker output; reject out-of-order, invalid encoding, and oversized
+        PNG headers; do not decode image in parent process.
+        """
         header = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR" + struct.pack(">II", 1801, 1) + b"\0" * 9
         page = {"number": 1, "raw_text": "x", "text": "x", "warnings": [], "image_png": "!"}
         for changes in ({"number": 2}, {}, {"image_png": base64.b64encode(header).decode()}):
@@ -201,7 +235,9 @@ class ResourceTests(SimpleTestCase):
                     await parse_pdf(b"test")
 
     async def test_missing_sandbox_configuration(self):
-        """缺沙箱专用配置时直接失败，明确没有启动本机解析或备用进程。"""
+        """Missing sandbox-specific configuration causes immediate failure; no local parsing or
+        backup process started.
+        """
         with (
             patch.dict(os.environ, {"PDF_SANDBOX_RUNTIME": ""}),
             patch("interviews.pdf_sandbox.asyncio.create_subprocess_exec") as launch,
@@ -211,7 +247,9 @@ class ResourceTests(SimpleTestCase):
             launch.assert_not_called()
 
     async def test_output_limit(self):
-        """读取超过指定上限时不返回部分输出，保护父进程缓冲。"""
+        """Do not return partial output when exceeding specified limit; protect parent process
+        buffer.
+        """
         reader = asyncio.StreamReader()
         reader.feed_data(b"12345")
         reader.feed_eof()

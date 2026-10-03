@@ -1,40 +1,50 @@
-"""REST 数据契约。严格验证可写字段、题目顺序和动作参数；响应包含不可变题目快照。
+"""Responsibilities: Define the REST request and response contracts.
+Implementation: Strictly validate writable fields, preserve requested question order, constrain
+action parameters, and expose immutable question snapshots.
+Related Modules: api.views invokes the transaction services after serializer validation; api.urls
+registers the view adapters.
 
-目录：
-- StrictInputMixin：
-  严格输入策略：未知字段与只读字段一律拒绝，避免默默忽略调用错误。
-- StrictInputMixin.to_internal_value：
-  功能：在 DRF 类型转换前验证字段白名单。
-- QuestionSerializer：
-  题库读写契约，主键与创建/更新时间由服务端管理。
-- QuestionSerializer.Meta：
-  声明外部字段及只读字段，保持题库写入范围可审计。
-- SessionQuestionSerializer：
-  单题只用于响应展示，包含题目快照、作答与服务端时间。
-- SessionQuestionSerializer.Meta：
-  显式列出单题响应字段，避免新增模型内部字段被自动暴露。
-- SessionSerializer：
-  场次响应契约，按模型顺序嵌套只读单题列表。
-- SessionSerializer.Meta：
-  显式公开状态、版本、固定时长及单题快照。
-- CreateSessionSerializer：
-  创建请求契约：可选非空 UUID 序列，最多 100 项。
-- CreateSessionSerializer.validate_question_ids：
-  用集合长度检查重复 ID；成功时原样返回列表，保留用户指定顺序。
-- VersionSerializer：
-  需要变更场次的请求基类，要求 version 为大于等于 1 的整数。
-- ItemCommandSerializer：
-  单题动作契约，约束动作枚举、答案长度与可选时长范围。
-- ItemCommandSerializer.validate：
-  交叉验证动作与答案字段：只有 complete 接受答案与时长，其余组合明确拒绝。
+Declaration Index:
+- StrictInputMixin:
+  Strict input policy: reject unknown and read-only fields to avoid silently ignoring call errors.
+- StrictInputMixin.to_internal_value:
+  Function: Validate field whitelist before DRF type conversion.
+- QuestionSerializer:
+  Question bank read-write contract; primary key and creation/update timestamps managed by server.
+- QuestionSerializer.Meta:
+  Declare external and read-only fields, maintaining auditability of question bank write scope.
+- SessionQuestionSerializer:
+  Single-question use only for response display, including question snapshot, answer, and server
+  time.
+- SessionQuestionSerializer.Meta:
+  Explicitly list response fields for single questions, preventing automatic exposure of new
+  internal model fields.
+- SessionSerializer:
+  Session response contract, nesting read-only question lists in model order.
+- SessionSerializer.Meta:
+  Explicitly expose status, version, fixed duration, and question snapshots.
+- CreateSessionSerializer:
+  Creation request contract: optional non-empty UUID sequence, up to 100 items.
+- CreateSessionSerializer.validate_question_ids:
+  Check for duplicate IDs using set length; on success, return list unchanged, preserving
+  user-specified order.
+- VersionSerializer:
+  Request base class requiring version to be an integer ≥ 1 when changing session.
+- ItemCommandSerializer:
+  Single-question action contract, constraining action enumeration, answer length, and optional
+  duration range.
+- ItemCommandSerializer.validate:
+  Cross-validate action and answer fields: only complete accepts answer and duration; other
+  combinations are explicitly rejected.
 
-关键变量：
-（无模块级变量。）
+Variable Index:
+None
 
-关键状态说明：
-各 Meta.fields 明确公开字段；read_only_fields 限制写入。
-VersionSerializer.version 控制并发；ItemCommandSerializer.action 约束状态动作。
-answer_text/duration_ms 只允许随 complete 提交。
+Key State Explanations:
+All Meta.fields explicitly declare public fields; read_only_fields restrict writing.
+VersionSerializer.version controls concurrency; ItemCommandSerializer.action constrains state
+actions.
+answer_text/duration_ms allowed only with complete submission.
 """
 
 from rest_framework import serializers
@@ -43,12 +53,16 @@ from ..models import PracticeSession, Question, SessionQuestion
 
 
 class StrictInputMixin:
-    """严格输入策略：未知字段与只读字段一律拒绝，避免默默忽略调用错误。"""
+    """Strict input policy: reject unknown and read-only fields to avoid silently ignoring call
+    errors.
+    """
 
     def to_internal_value(self, data):
-        """功能：在 DRF 类型转换前验证字段白名单。
-        方法：允许集合来自非只读字段；多余键组成字段级 ValidationError。
-        返回：DRF 转换结果；非字典输入交给 DRF 原有类型校验。"""
+        """Function: Validate field whitelist before DRF type conversion.
+        Method: Allow sets from non-read-only fields; excess keys form field-level ValidationError.
+        Return: DRF conversion result; non-dictionary inputs passed to DRF’s original type
+        validation.
+        """
         if isinstance(data, dict):
             allowed = {name for name, field in self.fields.items() if not field.read_only}
             unknown = set(data) - allowed
@@ -60,10 +74,14 @@ class StrictInputMixin:
 
 
 class QuestionSerializer(StrictInputMixin, serializers.ModelSerializer):
-    """题库读写契约，主键与创建/更新时间由服务端管理。"""
+    """Question bank read-write contract; primary key and creation/update timestamps managed by
+    server.
+    """
 
     class Meta:
-        """声明外部字段及只读字段，保持题库写入范围可审计。"""
+        """Declare external and read-only fields, maintaining auditability of question bank write
+        scope.
+        """
 
         model = Question
         fields = ["id", "text", "position", "enabled", "created_at", "updated_at"]
@@ -71,10 +89,14 @@ class QuestionSerializer(StrictInputMixin, serializers.ModelSerializer):
 
 
 class SessionQuestionSerializer(serializers.ModelSerializer):
-    """单题只用于响应展示，包含题目快照、作答与服务端时间。"""
+    """Single-question use only for response display, including question snapshot, answer, and
+    server time.
+    """
 
     class Meta:
-        """显式列出单题响应字段，避免新增模型内部字段被自动暴露。"""
+        """Explicitly list response fields for single questions, preventing automatic exposure of
+        new internal model fields.
+        """
 
         model = SessionQuestion
         fields = [
@@ -91,12 +113,14 @@ class SessionQuestionSerializer(serializers.ModelSerializer):
 
 
 class SessionSerializer(serializers.ModelSerializer):
-    """场次响应契约，按模型顺序嵌套只读单题列表。"""
+    """Session response contract, nesting read-only question lists in model order.
+    """
 
     items = SessionQuestionSerializer(many=True, read_only=True)
 
     class Meta:
-        """显式公开状态、版本、固定时长及单题快照。"""
+        """Explicitly expose status, version, fixed duration, and question snapshots.
+        """
 
         model = PracticeSession
         fields = [
@@ -112,27 +136,33 @@ class SessionSerializer(serializers.ModelSerializer):
 
 
 class CreateSessionSerializer(StrictInputMixin, serializers.Serializer):
-    """创建请求契约：可选非空 UUID 序列，最多 100 项。"""
+    """Creation request contract: optional non-empty UUID sequence, up to 100 items.
+    """
 
     question_ids = serializers.ListField(
         child=serializers.UUIDField(), required=False, allow_empty=False, max_length=100
     )
 
     def validate_question_ids(self, value):
-        """用集合长度检查重复 ID；成功时原样返回列表，保留用户指定顺序。"""
+        """Check for duplicate IDs using set length; on success, return list unchanged, preserving
+        user-specified order.
+        """
         if len(set(value)) != len(value):
             raise serializers.ValidationError("Duplicate question IDs are not allowed.")
         return value
 
 
 class VersionSerializer(StrictInputMixin, serializers.Serializer):
-    """需要变更场次的请求基类，要求 version 为大于等于 1 的整数。"""
+    """Request base class requiring version to be an integer ≥ 1 when changing session.
+    """
 
     version = serializers.IntegerField(min_value=1)
 
 
 class ItemCommandSerializer(VersionSerializer):
-    """单题动作契约，约束动作枚举、答案长度与可选时长范围。"""
+    """Single-question action contract, constraining action enumeration, answer length, and optional
+    duration range.
+    """
 
     action = serializers.ChoiceField(choices=["start", "complete", "skip"])
     answer_text = serializers.CharField(
@@ -141,7 +171,9 @@ class ItemCommandSerializer(VersionSerializer):
     duration_ms = serializers.IntegerField(required=False, min_value=0, max_value=2147483647)
 
     def validate(self, attrs):
-        """交叉验证动作与答案字段：只有 complete 接受答案与时长，其余组合明确拒绝。"""
+        """Cross-validate action and answer fields: only complete accepts answer and duration; other
+        combinations are explicitly rejected.
+        """
         if attrs["action"] != "complete" and ({"answer_text", "duration_ms"} & attrs.keys()):
             raise serializers.ValidationError("Answer fields are accepted only for complete.")
         return attrs

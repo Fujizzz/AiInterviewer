@@ -1,24 +1,26 @@
-"""One bounded STT task with an opt-in independent completion observer.
+"""Responsibilities: Run one bounded speech-to-text task with an opt-in independent completion
+observer.
 
 Implementation: copy transcripts to an observer which coalesces settled final snapshots;
 Model semantics determine end intent; PCM/text changes revoke it. After three silent seconds
 ask the browser to flush; issue an MCP receipt only if the final transcript remains unchanged.
-Related modules: agents.answer_completion classifies; answer_mcp signs the final boundary.
+Related Modules: answer_completion classifies intent; answer_mcp signs the final transcript
+boundary.
 
-目录：
-- stt_socket：
+Declaration Index:
+- stt_socket:
   Bridge PCM and SDK callbacks, returning final text after stop; the UI owns answer confirmation.
-- stt_socket.output：
+- stt_socket.output:
   Send one UTF-8 JSON event, with no original audio payload.
-- stt_socket.enqueue：
+- stt_socket.enqueue:
   Run on the loop thread and detect callback backlog explicitly.
-- stt_socket.emit：
+- stt_socket.emit:
   Safely dispatch provider-thread callbacks to the ASGI loop.
-- pcm_has_voice：Detect audible activity in existing signed 16-bit mono PCM frames.
+- pcm_has_voice: Detect audible activity in existing signed 16-bit mono PCM frames.
 
-关键变量：
-- logger：Speech/observer failures and receipt lifecycle metadata, never audio or text.
-- VOICE_RMS_FLOOR：New completion-only activity floor (0.015 full scale); does not alter ASR audio.
+Variable Index:
+- logger: Speech/observer failures and receipt lifecycle metadata, never audio or text.
+- VOICE_RMS_FLOOR: New completion-only activity floor (0.015 full scale); does not alter ASR audio.
 """
 
 import asyncio
@@ -84,18 +86,21 @@ async def stt_socket(scope, receive, send):
     completion_text = None
 
     async def output(message):
-        """Send one UTF-8 JSON event, with no original audio payload."""
+        """Send one UTF-8 JSON event, with no original audio payload.
+        """
         await send({"type": "websocket.send", "text": json.dumps(message)})
 
     def enqueue(message):
-        """Run on the loop thread and detect callback backlog explicitly."""
+        """Run on the loop thread and detect callback backlog explicitly.
+        """
         if events.full():
             overflow.set()
         else:
             events.put_nowait(message)
 
     def emit(message):
-        """Safely dispatch provider-thread callbacks to the ASGI loop."""
+        """Safely dispatch provider-thread callbacks to the ASGI loop.
+        """
         if not loop.is_closed():
             with contextlib.suppress(RuntimeError):
                 loop.call_soon_threadsafe(enqueue, message)

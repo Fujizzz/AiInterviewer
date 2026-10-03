@@ -1,39 +1,46 @@
 <!doctype html>
 <!--
-职责：求职练习工作台概览，提供简历、语音面试、岗位与复盘的明确任务入口。
-实现：静态语义卡片与同源链接；开发诊断折叠为次级入口，不伪造统计或健康状态。
-关联：workspace-nav.html、workspace.css、home.css、i18n.js；/ 路由通过 demo_asset 渲染。
-目录：共享顶部导航；页面标题；主要练习入口；三步流程；快捷卡片；折叠诊断；页脚。
-函数和类：None。变量索引：user/request/csrf_token 为共享导航的模板上下文；data-i18n 为文案键；main-content 为跳过导航目标。
-约束：不调用模型、不创建面试、不申请设备权限；会话数据边界说明对应现有语音流程。
+Responsibilities: Provide workspace entry points for resume preparation, interviews, job matches and review.
+Implementation: Render semantic cards and same-origin links; keep development diagnostics secondary without fabricated counters or health results.
+Related Modules: demo_asset serves /; workspace-nav.html, workspace.css, home.css and i18n.js supply shared presentation.
+Declaration Index:
+None
+Variable Index:
+None
+Template Context:
+user/request/csrf_token serve shared navigation; data-i18n identifies text keys; main-content is the skip-link target.
+Page Regions:
+Navigation, title, interview entry, preparation/practice/review sequence, quick links, collapsible diagnostics and footer.
+Constraints:
+Rendering does not invoke models, create interviews or request device permissions.
 -->
-<html lang="zh-CN" data-page-title="home_title">
+<html lang="en" data-page-title="home_title">
 <head>
 <meta charset="utf-8"><meta id="csrf-token" name="csrf-token" content="{{ csrf_token }}"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>AI Interviewer · 主页</title>
+<title>AI Interviewer · Home</title>
 <script type="module" src="/stream-demo/i18n.js"></script>
 <link rel="stylesheet" href="/stream-demo/style.css"><link rel="stylesheet" href="/stream-demo/home.css"><link rel="stylesheet" href="/stream-demo/account.css"><link rel="stylesheet" href="/stream-demo/workspace.css">
 </head>
 <body class="home-page workspace-page">
-<a class="skip-link" href="#main-content" data-i18n="home_skip">跳转到主要内容</a>
+<a class="skip-link" href="#main-content" data-i18n="home_skip">Skip to main content</a>
 {% include "workspace-nav.html" %}
 <main id="main-content">
-<header class="workspace-heading"><span class="eyebrow">YOUR WORKSPACE</span><h1 data-i18n="ws_welcome">你的求职练习工作台</h1><p data-i18n="ws_intro">准备好简历，练习真实表达，回顾每一次进步。</p></header>
+<header class="workspace-heading"><span class="eyebrow">YOUR WORKSPACE</span><h1 data-i18n="ws_welcome">Your interview workspace</h1><p data-i18n="ws_intro">Prepare your resume, practice your answers, and review each session.</p></header>
 <div class="overview-grid">
-<section class="practice-card" aria-labelledby="practice-title"><span class="eyebrow" data-i18n="home_practice">你的面试练习</span><h2 id="practice-title" data-i18n="ws_practice_heading">从一次有准备的练习开始</h2><p data-i18n="home_description">围绕简历中的项目展开问答，根据你的回答继续追问，帮助你梳理技术思路、个人贡献与决策依据。</p><div class="actions"><a class="primary-link" href="/agent/" data-i18n="home_start">开始模拟面试 ↗</a><a class="secondary-link" href="/resumes/" data-i18n="ws_resumes">我的简历</a></div><p class="hint" data-i18n="home_note">上传并核对简历，选择保存版本开始练习。</p></section>
-<section class="workflow-card" aria-labelledby="workflow-title"><h2 id="workflow-title" data-i18n="ws_workflow">练习流程</h2><ol class="workflow-list">
-<li><a href="/resumes/"><span class="step-number">01</span><div><strong data-i18n="home_step_prepare_title">导入简历</strong><p data-i18n="ws_resume_hint">上传原件、核对内容，保存用于面试与推荐的版本。</p></div></a></li>
-<li><a href="/agent/"><span class="step-number">02</span><div><strong data-i18n="ws_practice">模拟面试</strong><p data-i18n="home_step_dialogue_text">用语音说明你的思路，说完点击“结束回答”。</p></div></a></li>
-<li><a href="/interview-review/"><span class="step-number">03</span><div><strong data-i18n="review_nav">面试复盘</strong><p data-i18n="ws_review_hint">回看题目、回答和评价，找到下一次练习的重点。</p></div></a></li>
+<section class="practice-card" aria-labelledby="practice-title"><span class="eyebrow" data-i18n="home_practice">Your interview practice</span><h2 id="practice-title" data-i18n="ws_practice_heading">Start with a prepared conversation</h2><p data-i18n="home_description">Answer questions about your resume projects and follow up on your answers to clarify your technical thinking, ownership, and decisions.</p><div class="actions"><a class="primary-link" href="/agent/" data-i18n="home_start">Start mock interview ↗</a><a class="secondary-link" href="/resumes/" data-i18n="ws_resumes">My resumes</a></div><p class="hint" data-i18n="home_note">Upload or paste your resume in My resumes, review its content, then select a saved version for your interview.</p></section>
+<section class="workflow-card" aria-labelledby="workflow-title"><h2 id="workflow-title" data-i18n="ws_workflow">Your practice flow</h2><ol class="workflow-list">
+<li><a href="/resumes/"><span class="step-number">01</span><div><strong data-i18n="home_step_prepare_title">Import your resume</strong><p data-i18n="ws_resume_hint">Upload an original, review its content, and save a version for practice and matching.</p></div></a></li>
+<li><a href="/agent/"><span class="step-number">02</span><div><strong data-i18n="ws_practice">Mock interview</strong><p data-i18n="home_step_dialogue_text">Answer out loud, then select Finish answer to submit.</p></div></a></li>
+<li><a href="/interview-review/"><span class="step-number">03</span><div><strong data-i18n="review_nav">Interview review</strong><p data-i18n="ws_review_hint">Review questions, answers, and feedback to focus your next practice.</p></div></a></li>
 </ol></section>
 </div>
-<section class="workspace-shortcuts" aria-label="快捷入口" data-i18n-attr="aria-label:ws_overview">
-<a href="/resumes/"><span class="eyebrow">01 / RESUME</span><h2 data-i18n="ws_resumes">我的简历</h2><p data-i18n="ws_resume_hint">上传原件、核对内容，保存用于面试与推荐的版本。</p></a>
-<a href="/resumes/#job-recommendations"><span class="eyebrow">02 / MATCH</span><h2 data-i18n="ws_jobs">岗位推荐</h2><p data-i18n="ws_jobs_hint">根据已保存简历查看匹配岗位和推荐理由。</p></a>
-<a href="/interview-review/"><span class="eyebrow">03 / REVIEW</span><h2 data-i18n="review_nav">面试复盘</h2><p data-i18n="ws_review_hint">回看题目、回答和评价，找到下一次练习的重点。</p></a>
+<section class="workspace-shortcuts" aria-label="Overview" data-i18n-attr="aria-label:ws_overview">
+<a href="/resumes/"><span class="eyebrow">01 / RESUME</span><h2 data-i18n="ws_resumes">My resumes</h2><p data-i18n="ws_resume_hint">Upload an original, review its content, and save a version for practice and matching.</p></a>
+<a href="/resumes/#job-recommendations"><span class="eyebrow">02 / MATCH</span><h2 data-i18n="ws_jobs">Job matches</h2><p data-i18n="ws_jobs_hint">Explore matching jobs and recommendations based on your saved resume.</p></a>
+<a href="/interview-review/"><span class="eyebrow">03 / REVIEW</span><h2 data-i18n="review_nav">Interview review</h2><p data-i18n="ws_review_hint">Review questions, answers, and feedback to focus your next practice.</p></a>
 </section>
-<p class="session-note" data-i18n="home_session_note">简历和回答会发送给已配置的模型服务。资料、回答和报告保存在服务端；离开后暂不支持续接面试。</p>
-<details id="diagnostics" class="workspace-diagnostics"><summary data-i18n="home_tools">开发工具</summary><p data-i18n="home_diagnostics_text">用于开发调试，检查连接与独立媒体传输。</p><div class="diagnostic-links"><a class="secondary-link" href="/stream-demo/" data-i18n="home_stream">进入传输诊断 ↗</a><a class="health-link" href="/api/health/" data-i18n="home_health">查看服务健康信息（JSON）</a></div></details>
+<p class="session-note" data-i18n="home_session_note">Your resume and answers are sent to the configured model service. Materials, answers, and reports are stored in the server database; clearing the page does not delete history, and interrupted sessions cannot yet be resumed.</p>
+<details id="diagnostics" class="workspace-diagnostics"><summary data-i18n="home_tools">Developer tools</summary><p data-i18n="home_diagnostics_text">Development tools for connection and media transport checks.</p><div class="diagnostic-links"><a class="secondary-link" href="/stream-demo/" data-i18n="home_stream">Open transport diagnostics ↗</a><a class="health-link" href="/api/health/" data-i18n="home_health">View service health (JSON)</a></div></details>
 </main>
-<footer class="home-footer"><span>AI Interviewer</span><span data-i18n="home_footer">自适应提问 · 基于回答证据的反馈</span></footer>
+<footer class="home-footer"><span>AI Interviewer</span><span data-i18n="home_footer">Adaptive questions · Evidence-based feedback</span></footer>
 </body></html>

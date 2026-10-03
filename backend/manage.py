@@ -1,11 +1,11 @@
-"""Django 管理命令入口。设置模块路径后将命令参数交给框架，不包含业务逻辑。
-
-目录：
-- main：
-  配置设置模块并委派 Django 命令行；参数由 sys.argv 原样传入，不隐式修改环境。
-
-关键变量：
-（无模块级变量。）
+"""Responsibilities: Provide the Django management command entry point.
+Implementation: Select the settings module and delegate command arguments to Django unchanged.
+Related Modules: config.settings supplies application configuration; Django management handles
+commands.
+Declaration Index:
+- main: Set the settings module and invoke Django's command-line dispatcher.
+Variable Index:
+None
 """
 
 import os
@@ -13,7 +13,12 @@ import sys
 
 
 def main():
-    """配置设置模块并委派 Django 命令行；参数由 sys.argv 原样传入，不隐式修改环境。"""
+    """Functionality: Configure Django settings and delegate the management command.
+    Inputs: Command arguments from sys.argv and the process environment.
+    Outputs: Returns through Django's command dispatcher.
+    Logic: Set DJANGO_SETTINGS_MODULE only when absent, then pass sys.argv unchanged.
+    Constraints: Does not alter command arguments or overwrite an existing environment setting.
+    """
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
     from django.core.management import execute_from_command_line
 

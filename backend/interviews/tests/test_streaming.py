@@ -1,35 +1,47 @@
-"""ASGI 回传协议回归测试。SimpleTestCase 禁止数据库访问，模拟接收与发送事件。
+"""Responsibilities: Verify the streaming WebSocket protocol, frame validation, and storage-free
+echo path.
 
-目录：
-- StreamingTests：
-  禁止数据库访问的 ASGI 测试集合，用事件队列验证协议及无存储边界。
-- StreamingTests.connect：
-  构造带来源和客户端地址的 ASGI scope，发送连接事件并返回通信器。
-- StreamingTests.accepted：
-  要求握手成功及 hello 公告，返回通信器和临时连接 ID。
-- StreamingTests.message：
-  编码一条 JSON 控制消息并读取下一条 JSON 响应，复用协议测试步骤。
-- StreamingTests.test_ping_stream_and_in_memory_summary：
-  验证 ping、多个二进制哈希及原样回传，最后检查内存统计和正常关闭。
-- StreamingTests.test_foreign_origin_and_remote_peer_denied：
-  构造跨源或非本机握手，验证连接在接受前被拒绝。
-- StreamingTests.test_protocol_errors_are_explicit：
-  逐一传入损坏 JSON、数组和未知类型，验证稳定错误码及 1008 关闭。
-- StreamingTests.test_binary_before_start_rejected：
-  未声明模式即发送分片，要求 not_started 错误而非隐式选择模式。
-- StreamingTests.test_out_of_order_frame_rejected：
-  首帧使用序号 2，验证严格顺序约束且不自动重排。
-- StreamingTests.test_oversize_frame_rejected：
-  构造刚超过既定上限的载荷，要求 size_limit 及 1009 关闭。
-- StreamingTests.test_incorrect_finish_counts_rejected：
-  提交不匹配计数，验证连接不会报告虚假完成。
-- StreamingTests.test_disconnect_is_not_success：
-  模拟异常断线，验证任务退出且不额外发送成功消息。
-- StreamingTests.test_stream_works_with_files_and_database_access_forbidden：
-  禁止文件打开和 SQLite 连接后完成分片回传，证明数据路径不依赖存储。
+Implementation: Use SimpleTestCase and ApplicationCommunicator to drive the ASGI handler in process;
+the suite does not use a database or external service.
+Related Modules: interviews.streaming.protocol, interviews.streaming.websocket, and
+asgiref.testing.ApplicationCommunicator.
 
-关键变量：
-（无模块级变量。）
+Declaration Index:
+- StreamingTests:
+  ASGI test suite without database access, validates protocol and storage-free boundaries using
+  event queues.
+- StreamingTests.connect:
+  Construct ASGI scope with source and client address, send connect event, return communicator.
+- StreamingTests.accepted:
+  Require successful handshake and hello announcement, return communicator and temporary connection
+  ID.
+- StreamingTests.message:
+  Encode one JSON control message and read next JSON response, reusing protocol test steps.
+- StreamingTests.test_ping_stream_and_in_memory_summary:
+  Validate ping, multiple binary hashes, and exact echo-back, finally check memory stats and normal
+  shutdown.
+- StreamingTests.test_foreign_origin_and_remote_peer_denied:
+  Construct cross-origin or non-local handshake, verify connection rejected before acceptance.
+- StreamingTests.test_protocol_errors_are_explicit:
+  Pass damaged JSON, arrays, and unknown types one by one, validate stable error codes and 1008
+  closure.
+- StreamingTests.test_binary_before_start_rejected:
+  Sending chunks without declaring mode requires not_started error, not implicit mode selection.
+- StreamingTests.test_out_of_order_frame_rejected:
+  First frame uses sequence number 2, validate strict ordering constraint without automatic
+  reordering.
+- StreamingTests.test_oversize_frame_rejected:
+  Construct payload just exceeding preset limit, require size_limit and 1009 closure.
+- StreamingTests.test_incorrect_finish_counts_rejected:
+  Submit mismatched counts, validate connection does not report false completion.
+- StreamingTests.test_disconnect_is_not_success:
+  Simulate abnormal disconnection, validate task exit without extra success message.
+- StreamingTests.test_stream_works_with_files_and_database_access_forbidden:
+  Echo chunks while file opening and SQLite connections are forbidden, checking that this path does
+  not access storage.
+
+Variable Index:
+None
 """
 
 import hashlib
@@ -46,10 +58,14 @@ from interviews.streaming.websocket import echo_socket
 
 class StreamingTests(SimpleTestCase):
     # SimpleTestCase forbids database access: streaming has no persistence dependency.
-    """禁止数据库访问的 ASGI 测试集合，用事件队列验证协议及无存储边界。"""
+    """ASGI test suite without database access, validates protocol and storage-free boundaries using
+    event queues.
+    """
 
     async def connect(self, origin="http://localhost", client="127.0.0.1"):
-        """构造带来源和客户端地址的 ASGI scope，发送连接事件并返回通信器。"""
+        """Construct ASGI scope with source and client address, send connect event, return
+        communicator.
+        """
         comm = ApplicationCommunicator(
             echo_socket,
             {
@@ -64,7 +80,9 @@ class StreamingTests(SimpleTestCase):
         return comm
 
     async def accepted(self):
-        """要求握手成功及 hello 公告，返回通信器和临时连接 ID。"""
+        """Require successful handshake and hello announcement, return communicator and temporary
+        connection ID.
+        """
         comm = await self.connect()
         self.assertEqual((await comm.receive_output())["type"], "websocket.accept")
         hello = json.loads((await comm.receive_output())["text"])
@@ -72,12 +90,15 @@ class StreamingTests(SimpleTestCase):
         return comm, hello["connection_id"]
 
     async def message(self, comm, data):
-        """编码一条 JSON 控制消息并读取下一条 JSON 响应，复用协议测试步骤。"""
+        """Encode one JSON control message and read next JSON response, reusing protocol test steps.
+        """
         await comm.send_input({"type": "websocket.receive", "text": json.dumps(data)})
         return json.loads((await comm.receive_output())["text"])
 
     async def test_ping_stream_and_in_memory_summary(self):
-        """验证 ping、多个二进制哈希及原样回传，最后检查内存统计和正常关闭。"""
+        """Validate ping, multiple binary hashes, and exact echo-back, finally check memory stats
+        and normal shutdown.
+        """
         comm, connection_id = await self.accepted()
         pong = await self.message(comm, {"type": "ping", "id": "test-1"})
         self.assertEqual((pong["type"], pong["id"]), ("pong", "test-1"))
@@ -109,14 +130,18 @@ class StreamingTests(SimpleTestCase):
         self.assertEqual(summary["verified_chunks"], 3)
 
     async def test_foreign_origin_and_remote_peer_denied(self):
-        """构造跨源或非本机握手，验证连接在接受前被拒绝。"""
+        """Construct cross-origin or non-local handshake, verify connection rejected before
+        acceptance.
+        """
         for kwargs in [{"origin": "https://example.com"}, {"client": "192.0.2.1"}]:
             comm = await self.connect(**kwargs)
             self.assertEqual((await comm.receive_output())["type"], "websocket.close")
             await comm.wait()
 
     async def test_protocol_errors_are_explicit(self):
-        """逐一传入损坏 JSON、数组和未知类型，验证稳定错误码及 1008 关闭。"""
+        """Pass damaged JSON, arrays, and unknown types one by one, validate stable error codes and
+        1008 closure.
+        """
         for raw, code in [
             ("{", "invalid_json"),
             ("[]", "invalid_message"),
@@ -129,7 +154,9 @@ class StreamingTests(SimpleTestCase):
             await comm.wait()
 
     async def test_binary_before_start_rejected(self):
-        """未声明模式即发送分片，要求 not_started 错误而非隐式选择模式。"""
+        """Sending chunks without declaring mode requires not_started error, not implicit mode
+        selection.
+        """
         comm, _ = await self.accepted()
         await comm.send_input({"type": "websocket.receive", "bytes": b"\0\0\0\1x"})
         self.assertEqual(json.loads((await comm.receive_output())["text"])["code"], "not_started")
@@ -137,7 +164,9 @@ class StreamingTests(SimpleTestCase):
         await comm.wait()
 
     async def test_out_of_order_frame_rejected(self):
-        """首帧使用序号 2，验证严格顺序约束且不自动重排。"""
+        """First frame uses sequence number 2, validate strict ordering constraint without automatic
+        reordering.
+        """
         comm, _ = await self.accepted()
         await self.message(
             comm, {"type": "start", "mode": "binary", "mime_type": "application/octet-stream"}
@@ -150,7 +179,8 @@ class StreamingTests(SimpleTestCase):
         await comm.wait()
 
     async def test_oversize_frame_rejected(self):
-        """构造刚超过既定上限的载荷，要求 size_limit 及 1009 关闭。"""
+        """Construct payload just exceeding preset limit, require size_limit and 1009 closure.
+        """
         comm, _ = await self.accepted()
         await self.message(
             comm, {"type": "start", "mode": "binary", "mime_type": "application/octet-stream"}
@@ -166,7 +196,8 @@ class StreamingTests(SimpleTestCase):
         await comm.wait()
 
     async def test_incorrect_finish_counts_rejected(self):
-        """提交不匹配计数，验证连接不会报告虚假完成。"""
+        """Submit mismatch count; validation connection will not report false completion.
+        """
         comm, _ = await self.accepted()
         error = await self.message(
             comm, {"type": "finish", "verified_chunks": 1, "verified_bytes": 10}
@@ -176,14 +207,18 @@ class StreamingTests(SimpleTestCase):
         await comm.wait()
 
     async def test_disconnect_is_not_success(self):
-        """模拟异常断线，验证任务退出且不额外发送成功消息。"""
+        """Simulate abnormal disconnection; verify task exits without sending extra success
+        messages.
+        """
         comm, _ = await self.accepted()
         await comm.send_input({"type": "websocket.disconnect", "code": 1006})
         await comm.wait()
         self.assertTrue(await comm.receive_nothing())
 
     async def test_stream_works_with_files_and_database_access_forbidden(self):
-        """禁止文件打开和 SQLite 连接后完成分片回传，证明数据路径不依赖存储。"""
+        """Prohibit file opening and SQLite connection after shard return completion, proving data
+        path does not depend on storage.
+        """
         with (
             patch("builtins.open", side_effect=AssertionError("Streaming must not open files")),
             patch(

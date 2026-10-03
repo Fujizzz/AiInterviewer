@@ -1,60 +1,37 @@
 /**
  * @module app
- * 功能：流式诊断页面入口：协调 StreamClient、媒体采集模块和 DemoView，处理整次测试的生命周期及多语言状态文案。
+ * Responsibilities: Entry point for streaming diagnostics; coordinates StreamClient, media capture, and DemoView through a complete test lifecycle.
+ * Implementation: Run one explicit test at a time, localize status copy, and release connection and media resources on completion or page exit.
+ * Related Modules: media.js captures and echoes media, stream-client.js implements the transport protocol, and view.js owns DOM and playback resources.
+ * Declaration Index:
+ * - appText: Read current-locale diagnostic copy without changing the test protocol.
+ * - registerControls: Store callbacks that stop and release the active media capture.
+ * - runTest: Serialize connection, test execution, and result publication; always clear page-running state.
+ * - runTest.object1.onProgress: Forward verified chunk progress to the view without recalculating counters.
+ * - runTest.object1.onError: Stop active capture after a connection failure so the existing final-chunk drain can run.
+ * - testPing: Verify a ping/pong round trip and show locally measured latency.
+ * - testBinary: Send fixed-size binary chunks and verify the echoed payloads.
+ * - testBinary.callback1: Generate deterministic bytes from the offset and chunk number.
+ * - testBinary.callback2: Preserve the fixed 50 ms interval between test chunks.
+ * - testMedia: Delegate capture, chunk echo, and playback to the media module.
+ * - dispose: Cancel the active test and release media and playback resources.
+ * - callback1: Route the ping control to the shared runTest lifecycle.
+ * - callback2: Route the binary test through the shared connection and cleanup lifecycle.
+ * - callback3: Start the shared lifecycle with the selected media mode.
+ * - callback3.callback1: Pass the current connection and closed-over media mode to capture.
+ * - callback4: Preserve final-chunk draining on stop; page exit releases resources immediately.
+ * - callback5: Clear playback and page results only while no test is active.
+ * Variable Index:
+ * - appText: Localized diagnostic-copy lookup with a key fallback for isolated tests.
+ * - view: DemoView instance for the current document.
+ * - wsUrl: Same-origin echo URL derived from the current page protocol and host.
+ * - client: Active diagnostic connection, or null while idle.
+ * - running: Mutex preventing concurrent tests on this page.
+ * - stopRecording: Stop callback for the active recorder.
+ * - cleanupMedia: Cleanup callback for the active media source.
  *
- * 目录：
- * - appText：读取当前语言诊断文案，不改变测试协议。
- * - registerControls：
- *   保存当前媒体采集的停止与清理回调。
- * - runTest：
- *   串行执行连接、测试和结果发布，finally 解除页面运行状态。
- * - runTest.object1.onProgress：
- *   将已校验分片的进度交给视图，不自行累加计数。
- * - runTest.object1.onError：
- *   连接失败时停止当前采集，让末尾分片进入既有收尾流程。
- * - testPing：
- *   验证 ping/pong 往返并显示本地测得的延迟。
- * - testBinary：
- *   发送既定尺寸的二进制分片并核对回传。
- * - testBinary.callback1：
- *   按偏移与分片序号生成确定性字节，便于检验回传内容。
- * - testBinary.callback2：
- *   通过计时器维持既定的 50 ms 分片测试间隔。
- * - testMedia：
- *   委派媒体模块完成采集、分片回传和播放。
- * - dispose：
- *   取消活动测试并释放媒体与页面回放资源。
- * - callback1：
- *   操作映射：所有测试按钮共用 runTest 生命周期，媒体按钮仅传入明确选择的模式。
- * - callback2：
- *   启动二进制分片测试，共用 runTest 的连接与清理流程。
- * - callback3：
- *   用当前按钮的媒体模式启动统一测试流程。
- * - callback3.callback1：
- *   将本次连接和闭包中的媒体模式传给采集用例。
- * - callback4：
- *   停止保留末尾分片收尾；清空仅在空闲时执行，页面离开则立即请求资源释放。
- * - callback5：
- *   仅在没有活动测试时清除回放和页面结果。
- *
- * 关键变量：
- * - view：
- *   当前文档的 DemoView 展示实例。
- * - wsUrl：
- *   由当前页面协议与主机生成的同源回传地址。
- * - client：
- *   当前诊断连接，无活动测试时为 null。
- * - running：
- *   防止同页重复启动测试的互斥标记。
- * - stopRecording：
- *   当前录制器的停止回调。
- * - cleanupMedia：
- *   当前媒体来源的清理回调。
- * - appText：
- *   读取 i18n.js 的当前语言文案；缺失时保留测试环境兼容键值。
- *
- * 关键状态说明：
- * stream-client 负责网络协议，media 负责设备与录制，view 负责 DOM 与 Blob URL。测试参数、超时和失败语义保持既定行为。
+ * Constraints:
+ * stream-client.js owns networking, media.js owns devices and recording, and view.js owns DOM and Blob URLs. Test parameters, timeouts, and failure semantics remain fixed.
  */
 import { captureAndEcho } from "./media.js";
 import { StreamClient } from "./stream-client.js";
@@ -63,23 +40,25 @@ import { DemoView } from "./view.js";
 const view = new DemoView(document);
 const wsUrl = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/ws/echo/`;
 view.element("endpoint").textContent = wsUrl;
-/** 读取诊断页当前语言文案；缺失国际化模块时保留中文开发测试语义。 */
+/** Read localized diagnostic copy; when i18n.js is absent, return the key used by isolated tests. */
 const appText = (key, values = {}) => window.AppI18n?.t(key, values) ?? key;
 let client = null;
 let running = false;
 let stopRecording = null;
 let cleanupMedia = null;
 
-/** 注册当前采集器的停止与释放操作，供取消、连接错误及 pagehide 统一调用。 */
+/** Register stop and cleanup callbacks for cancellation, connection errors, and pagehide. */
 function registerControls(stop, cleanup) {
   stopRecording = stop;
   cleanupMedia = cleanup;
 }
 
 /**
- * 执行一次显式启动的测试。
- * 方法：建立连接→执行指定测试→等待 finish；finally 解除运行标志和页面引用。
- * 错误：停止网络连接并展示失败；无备用测试、隐式重试或结果持久化。
+ * Functionality: Run one explicitly selected diagnostic test.
+ * Inputs: Mode label and test callback receiving the connected StreamClient.
+ * Outputs: Promise resolving after the result is shown; returns immediately if another test is active.
+ * Logic: Connect, execute the callback, and await finish; finally clear the running lock and client reference.
+ * Constraints: Errors close the connection and display failure; no alternate test, implicit retry, or persistence is used.
  */
 async function runTest(mode, test) {
   if (running) return;
@@ -88,9 +67,9 @@ async function runTest(mode, test) {
   view.reset();
   view.status(appText("status_connecting"));
   client = new StreamClient(wsUrl, {
-    /** 将已校验分片的进度交给视图，不自行累加计数。 */
+    /** Forward verified chunk progress to the view; do not recalculate counters. */
     onProgress: (progress) => view.progress(progress),
-    /** 连接失败时停止当前采集，让末尾分片进入既有收尾流程。 */
+    /** Stop active capture after connection failure and preserve the existing final-chunk drain. */
     onError: () => stopRecording?.(),
   });
   try {
@@ -109,29 +88,29 @@ async function runTest(mode, test) {
   }
 }
 
-/** 发送带唯一 ID 的 ping，并用本地单调时钟测量匹配 pong 的往返时间。 */
+/** Send a uniquely identified ping and measure its matching pong with the local monotonic clock. */
 async function testPing(connection) {
   const rtt = await connection.ping();
   view.element("latency").textContent = rtt.toFixed(1);
   view.log(appText("status_pong", { ms: rtt.toFixed(1) }));
 }
 
-/** 按原条件发送 12 个 32 KiB 确定性载荷，分片之间保留 50 ms 测试间隔。 */
+/** Send twelve deterministic 32 KiB payloads with the existing 50 ms test interval. */
 async function testBinary(connection) {
   await connection.start("binary", "application/octet-stream");
   for (let index = 0; index < 12; index += 1) {
-    const payload = Uint8Array.from({ length: 32768 }, /** 按偏移与分片序号生成确定性字节，便于检验回传内容。 */ (_, offset) => (offset + index) % 256);
+    const payload = Uint8Array.from({ length: 32768 }, /** Generate deterministic bytes from each offset and the chunk number. */ (_, offset) => (offset + index) % 256);
     await connection.sendChunk(payload.buffer);
-    await new Promise(/** 通过计时器维持既定的 50 ms 分片测试间隔。 */ (resolve) => setTimeout(resolve, 50));
+    await new Promise(/** Preserve the fixed 50 ms interval between chunks. */ (resolve) => setTimeout(resolve, 50));
   }
 }
 
-/** 委派媒体采集与回传；只把完整校验后的 Blob 交给界面层，避免部分回放。 */
+/** Delegate media capture and echo; give the view only the fully verified Blob. */
 async function testMedia(connection, mode) {
   view.playback(await captureAndEcho(connection, mode, view, registerControls));
 }
 
-/** 页面离开时终止采集与连接，并释放回放 URL；不写入任何恢复状态。 */
+/** Stop capture and connection and revoke the playback URL on page exit; write no recovery state. */
 function dispose() {
   stopRecording?.();
   cleanupMedia?.();
@@ -139,16 +118,16 @@ function dispose() {
   view.releasePlayback();
 }
 
-/** 操作映射：所有测试按钮共用 runTest 生命周期，媒体按钮仅传入明确选择的模式。 */
+/** Route controls through the shared lifecycle; media controls pass an explicit capture mode. */
 view.element("ping").onclick = () => runTest("ping", testPing);
-/** 启动二进制分片测试，共用 runTest 的连接与清理流程。 */
+/** Start the binary-chunk test through the shared connection and cleanup lifecycle. */
 view.element("binary").onclick = () => runTest("binary", testBinary);
 for (const mode of ["synthetic", "audio", "video"]) {
-  /** 用当前按钮的媒体模式启动统一测试流程。 */
-  view.element(mode).onclick = () => runTest(mode, /** 将本次连接和闭包中的媒体模式传给采集用例。 */ (connection) => testMedia(connection, mode));
+  /** Start the shared test lifecycle with this control's selected media mode. */
+  view.element(mode).onclick = () => runTest(mode, /** Pass the active connection and selected mode into media capture. */ (connection) => testMedia(connection, mode));
 }
-/** 停止保留末尾分片收尾；清空仅在空闲时执行，页面离开则立即请求资源释放。 */
+/** Stop capture while preserving final-chunk draining; page exit requests immediate resource release. */
 view.element("stop").onclick = () => stopRecording?.();
-/** 仅在没有活动测试时清除回放和页面结果。 */
+/** Clear playback and page results only while idle. */
 view.element("clear").onclick = () => { if (!running) view.clear(); };
 window.addEventListener("pagehide", dispose);

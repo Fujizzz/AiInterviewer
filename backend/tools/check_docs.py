@@ -1,32 +1,25 @@
-"""后端源码注释检查：核对符号目录、模块变量索引及声明处注释，不导入业务模块。
-
-目录：
-- iter_definitions：
-  按词法顺序递归产生 (限定名, AST 节点)，包含 if/for/try 内的定义。
-- module_variables：
-  提取模块作用域赋值的名称集合，排除导入符号、函数局部量和类属性。
-- catalog_entries：
-  解析“目录：”或“关键变量：”下的显式条目，返回名称到说明的映射。
-- compare_catalog：
-  比较声明集合与目录集合，分别报告缺少条目和已失效条目，不自动修正源码。
-- source_files：
-  确定性列出后端源码，遍历前剪除环境、依赖和测试输出目录，不跟随符号链接。
-- check_documentation：
-  检查后端源码注释覆盖并返回问题列表及统计。
-- main：
-  输出检查结果；缺失注释时退出码为 1，适合本地和 CI 复用。
-
-关键变量：
-- DEFINITION_TYPES：
-  Python 中需要 docstring 和目录条目的具名函数、异步函数及类节点类型。
-- IGNORED_DIRS：
-  源码遍历前剪除的环境、依赖、缓存、构建产物与测试输出目录名称。
-
-
-设计说明：
-Python 使用 AST；JavaScript 由 javascript_docs 的 Tree-sitter 解析器提取限定名。
-检查器要求声明处注释和文件目录同时存在，并反向拒绝残留目录。
-匿名 JavaScript 回调使用作用域内编号，同样要求两处注释；HTML/CSS、语义及提交原子性由人工核对。
+"""Responsibilities: Validate source declaration and module-variable indexes.
+Implementation: Parse Python with AST and JavaScript with Tree-sitter; report missing, stale,
+malformed, and undocumented entries without importing project code.
+Related Modules: javascript_docs supplies JavaScript symbols; test_check_docs.py and
+test_docs_contract.py verify parser contracts.
+Declaration Index:
+- iter_definitions: Yield Python definitions in lexical order with qualified names, including
+  definitions nested in control flow.
+- module_variables: Collect module-scope assignment names while excluding imports, function locals,
+  and class attributes.
+- catalog_entries: Parse one English index section into a name-to-description mapping and reject
+  malformed or duplicate entries.
+- compare_catalog: Compare documented and actual names in both directions without modifying source.
+- source_files: Yield Python and JavaScript files deterministically while excluding generated and
+  dependency directories.
+- check_documentation: Check module indexes, declaration documentation, and module-variable indexes
+  and return diagnostics with counts.
+- main: Print diagnostics and coverage counts; return a nonzero status when any issue is found.
+Variable Index:
+- IGNORED_DIRS: Directory names excluded from the source traversal.
+- DEFINITION_TYPES: Python AST node types that represent indexed functions, asynchronous functions,
+  and classes.
 """
 
 import ast
@@ -41,10 +34,12 @@ DEFINITION_TYPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
 
 
 def iter_definitions(tree, prefix=""):
-    """按词法顺序递归产生 (限定名, AST 节点)，包含 if/for/try 内的定义。
-
-    prefix 只在进入类或具名函数时扩展；控制流节点不增加名称层级。
-    遍历所有子节点而非仅 body，避免漏掉处理器、else 分支和循环中的测试替身。
+    """Functionality: Yield Python declarations as (qualified_name, AST_node) pairs.
+    Inputs: A parsed AST node and an optional qualified-name prefix.
+    Outputs: A lexical-order iterator including declarations in control-flow branches.
+    Logic: Extend the prefix only for classes and named functions; recurse through every child node.
+    Constraints: Control-flow nodes do not create name components, and imported symbols are not
+    declarations.
     """
     for node in ast.iter_child_nodes(tree):
         if isinstance(node, DEFINITION_TYPES):
@@ -56,10 +51,12 @@ def iter_definitions(tree, prefix=""):
 
 
 def module_variables(tree):
-    """提取模块作用域赋值的名称集合，排除导入符号、函数局部量和类属性。
-
-    条件分支中的模块赋值仍属于模块状态；元组解包递归提取 Name 目标。
-    类成员和关键局部状态由文件头的状态说明人工维护，不混入模块变量索引。
+    """Functionality: Return names assigned in module scope.
+    Inputs: A parsed Python AST node.
+    Outputs: A set of module-level assignment target names.
+    Logic: Visit module and control-flow assignments recursively and extract Name store targets.
+    Constraints: Imports, function locals, and class attributes are excluded; tuple targets are
+    expanded.
     """
     names = set()
     for node in ast.iter_child_nodes(tree):
@@ -79,23 +76,27 @@ def module_variables(tree):
 
 
 def catalog_entries(header, section):
-    """解析“目录：”或“关键变量：”下的显式条目，返回名称到说明的映射。
-
-    格式为 '- 符号名：说明'，说明可在下一缩进行续写；空段使用“（无）”。
-    下一个无缩进中文标题结束当前段。重复条目和空说明作为格式错误明确抛出。
+    """Functionality: Parse a single declaration or variable index section.
+    Inputs: The file-header text and exact section name.
+    Outputs: A mapping from indexed symbol names to nonempty descriptions.
+    Logic: Accept '- symbol: description' entries, indented description continuations, and the exact
+    empty marker 'None'.
+    Constraints: Section titles use an ASCII colon; malformed, duplicate, missing, or repeated
+    sections raise ValueError.
     """
     lines = header.splitlines()
-    marker = section + "："
+    marker = section + ":"
     if marker not in lines:
         raise ValueError(f"missing {section} section")
     if lines.count(marker) != 1:
         raise ValueError(f"duplicate {section} section")
     entries = {}
     name = None
+    empty_marker_count = 0
     for line in lines[lines.index(marker) + 1 :]:
-        if re.fullmatch(r"[^\s\-].*：", line):
+        if re.fullmatch(r"[A-Za-z][A-Za-z ]*:", line):
             break
-        match = re.fullmatch(r"- ([\w$#.]+)：(.*)", line)
+        match = re.fullmatch(r"- ([\w$#.]+):\s*(.*)", line)
         if match:
             name, detail = match.groups()
             if name in entries:
@@ -103,16 +104,31 @@ def catalog_entries(header, section):
             entries[name] = detail.strip()
         elif line.startswith("  ") and name:
             entries[name] += " " + line.strip()
-        elif line.strip() and not re.fullmatch(r"（无[^）]*）[。]?", line):
-            raise ValueError(f"malformed {section} entry: expected '- symbol：description'")
+        elif line.strip() and line.strip() != "None":
+            raise ValueError(
+                f"malformed {section} entry: expected '- symbol: description' or 'None'"
+            )
+        elif line == "None":
+            empty_marker_count += 1
     empty = [name for name, detail in entries.items() if not detail.strip()]
     if empty:
         raise ValueError(f"catalog entries lack descriptions: {', '.join(empty)}")
+    if not entries and empty_marker_count == 0:
+        raise ValueError(f"empty {section} section must contain 'None'")
+    if empty_marker_count > 1:
+        raise ValueError(f"duplicate empty marker in {section} section")
+    if entries and empty_marker_count:
+        raise ValueError(f"{section} section cannot combine entries with 'None'")
     return entries
 
 
 def compare_catalog(header, section, actual):
-    """比较声明集合与目录集合，分别报告缺少条目和已失效条目，不自动修正源码。"""
+    """Functionality: Compare an index with actual declarations.
+    Inputs: Header text, section name, and the set or sequence of actual names.
+    Outputs: Human-readable missing, stale, or format diagnostics.
+    Logic: Compare names in both directions after parsing the section.
+    Constraints: Source text is never modified.
+    """
     try:
         documented = set(catalog_entries(header, section))
     except ValueError as exc:
@@ -126,7 +142,12 @@ def compare_catalog(header, section, actual):
 
 
 def source_files(root):
-    """确定性列出后端源码，遍历前剪除环境、依赖和测试输出目录，不跟随符号链接。"""
+    """Functionality: Yield supported source files below a project root.
+    Inputs: A filesystem root path.
+    Outputs: A deterministic iterator of non-symlink Python, JS, and MJS paths.
+    Logic: Sort directory and file names and prune ignored directories before descent.
+    Constraints: Symbolic links and generated/dependency folders are not traversed.
+    """
     for directory, dirs, files in os.walk(root, followlinks=False):
         dirs[:] = sorted(name for name in dirs if name not in IGNORED_DIRS)
         for name in sorted(files):
@@ -136,11 +157,12 @@ def source_files(root):
 
 
 def check_documentation(root):
-    """检查后端源码注释覆盖并返回问题列表及统计。
-
-    方法：检查头部目录与实际符号双向一致、声明处注释以及模块变量索引。
-    返回：(问题列表, 计数字典)。读取或解析失败计入问题，不跳过后报告成功。
-    副作用：只读源码，不导入业务代码、不加载 .env、不修改文件。
+    """Functionality: Validate source documentation coverage below a project root.
+    Inputs: A filesystem root containing Python and JavaScript source.
+    Outputs: A pair of diagnostic strings and counts by language/declaration kind.
+    Logic: Check indexes bidirectionally, require Python docstrings and adjacent JavaScript JSDoc,
+    and count module variables.
+    Constraints: Reads source only; parse and I/O failures are reported rather than skipped.
     """
     problems = []
     counts = {
@@ -187,7 +209,7 @@ def check_documentation(root):
             for name, line, documented in definitions:
                 if not documented:
                     problems.append(f"{relative}:{line}: undocumented {name}")
-        for section, actual in (("目录", symbols), ("关键变量", variables)):
+        for section, actual in (("Declaration Index", symbols), ("Variable Index", variables)):
             problems.extend(
                 f"{relative}: {problem}" for problem in compare_catalog(header, section, actual)
             )
@@ -195,7 +217,12 @@ def check_documentation(root):
 
 
 def main():
-    """输出检查结果；缺失注释时退出码为 1，适合本地和 CI 复用。"""
+    """Functionality: Run the documentation checker for the backend source tree.
+    Inputs: The location of this file determines the backend root.
+    Outputs: Printed diagnostics and a process status integer, where 1 indicates issues.
+    Logic: Invoke check_documentation, print every finding, and report coverage totals.
+    Constraints: Performs no source writes or application imports.
+    """
     problems, counts = check_documentation(Path(__file__).resolve().parents[1])
     for problem in problems:
         print(problem)

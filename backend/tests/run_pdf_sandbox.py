@@ -1,20 +1,25 @@
-"""职责：显式执行真实 Linux/WSL PDF 沙箱联调，不调用付费视觉模型。
-实现：合成 PDF 对照既有算法；受控慢工作进程验证超时和取消，固定异常验证失败脱敏。
-关联：pdf_sandbox、pdf_worker 及测试 PDF 构造器；需先按 sandbox/README.md 装配环境。
+"""Responsibilities: Explicitly exercise the real Linux/WSL PDF sandbox without calling a paid
+vision model.
+Implementation: Compare synthetic PDF extraction with the existing algorithm and test worker
+timeout, cancellation, crash, and error redaction.
+Related Modules: interviews.pdf_sandbox and pdf_worker; synthetic PDF construction comes from
+test_resume_pdf.py.
+Declaration Index:
+- exercise_worker: Run a controlled temporary worker and verify supervisor cleanup after failure or
+  cancellation.
+- exercise_worker.configured: Substitute only test mount paths and wall-clock limits while
+  preserving isolation launch arguments.
+- exercise_worker.observe: Record bridge startup and delegate to the existing bounded output reader.
+- exercise_worker.launch: Retain the real bridge process for exit assertions after cleanup.
+- exercise_worker.worker_present: Detect this temporary sandbox in a real Linux process snapshot.
+- main: Verify isolation evidence, extraction parity, invalid PDFs, timeout, crash, and
+  cancellation.
+Variable Index:
+- ROOT: Backend root and parent for the ignored test-results directory.
 
-目录：
-- exercise_worker：用临时受控工作进程验证监督器失败和取消后实际退出。
-- exercise_worker.configured：只替换测试挂载与测试墙钟上限，保持真实隔离启动参数。
-- exercise_worker.observe：标记桥接进程已启动，再委派原有有界读取器。
-- exercise_worker.launch：记录真实桥接进程，供清理后的退出断言使用。
-- exercise_worker.worker_present：从真实 Linux 进程快照确认本次临时沙箱是否存在。
-- main：验证真实隔离证据、两页解析一致性、无效 PDF、超时与取消。
-
-关键变量：
-- ROOT：后端根目录，也是测试临时源码的唯一父目录。
-
-约束：
-受控 worker 仅存在于忽略的 test-results 临时目录，生产没有模拟开关或备用实现。
+Constraints:
+The controlled worker is confined to the ignored test-results directory; production has no
+simulation switch or alternate implementation.
 """
 
 import asyncio
@@ -27,7 +32,15 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 async def exercise_worker(source, *, cancel=False, crash=False):
-    """用临时受控工作进程验证监督器失败和取消后实际退出；输入为原工作源码及测试模式。"""
+    """Functionality: Verify the sandbox supervisor exits after a controlled worker failure or
+    cancellation.
+    Inputs: Existing worker source and mutually exclusive test-mode flags.
+    Outputs: None; assertions verify expected failure, observed process cleanup, and bridge exit
+    status.
+    Logic: Write a temporary worker variant and exercise it through the real sandbox launch path.
+    Constraints: Uses real operating-system isolation; temporary test files are confined to
+    test-results.
+    """
     from interviews import pdf_sandbox
 
     original_command = pdf_sandbox.command
@@ -48,7 +61,13 @@ async def exercise_worker(source, *, cancel=False, crash=False):
         (path / "resume_pdf.py").write_bytes((ROOT / "interviews/resume_pdf.py").read_bytes())
 
         def configured(mode):
-            """只替换测试挂载与测试墙钟上限，保持真实隔离启动参数；返回命令、输出限额和秒数。"""
+            """Functionality: Adapt the sandbox command for a temporary worker test.
+            Inputs: Sandbox operation mode.
+            Outputs: Command arguments, output limit, and bounded test wall-clock seconds.
+            Logic: Reuse the production command and replace only the temporary bind path and wall
+            limit.
+            Constraints: Preserve the operating-system isolation arguments and process behavior.
+            """
             args, limit, _ = original_command(mode)
             wall = 10 if cancel else 1
             args[-7] = pdf_sandbox.linux_path(path)
@@ -56,19 +75,39 @@ async def exercise_worker(source, *, cancel=False, crash=False):
             return args, limit, wall
 
         async def observe(reader, limit):
-            """标记桥接进程已启动，再委派原有有界读取器；不把桥接启动等同于解析就绪。"""
-            # 监督器只在工作进程结束后交付结果，不能用 stdout 就绪作为取消前提。
+            """Functionality: Mark bridge-process startup and delegate to the original bounded
+            reader.
+            Inputs: The process output reader and byte limit.
+            Outputs: The original bounded-reader result.
+            Logic: Set the entered event before awaiting the existing reader.
+            Constraints: Bridge startup is not treated as worker readiness; cancellation does not
+            depend on stdout.
+            """
+            # The supervisor delivers results only after worker exit, so stdout readiness cannot
+            # gate cancellation.
             entered.set()
             return await original_reader(reader, limit)
 
         async def launch(*args, **kwargs):
-            """记录真实桥接进程，供清理后的退出断言使用；不替换操作系统隔离行为。"""
+            """Functionality: Record each real subprocess created by the sandbox launch path.
+            Inputs: The original subprocess arguments and keyword arguments.
+            Outputs: The newly created asyncio process.
+            Logic: Delegate unchanged to the original launcher and retain the returned handle.
+            Constraints: Does not replace or simulate operating-system isolation.
+            """
             process = await original_launch(*args, **kwargs)
             processes.append(process)
             return process
 
         async def worker_present():
-            """从真实 Linux 进程快照确认本次临时沙箱是否存在；只匹配唯一测试路径，不输出进程表。"""
+            """Functionality: Check whether the temporary sandbox worker exists in a real Linux
+            process snapshot.
+            Inputs: The current temporary test path captured by exercise_worker.
+            Outputs: True only when a sandbox process command includes the unique test path.
+            Logic: Run the original process snapshot command and inspect its argument rows.
+            Constraints: Do not print the process table; Windows prefixes are preserved for the host
+            command.
+            """
             args, _, _ = original_command("parse")
             prefix = args[:4] if os.name == "nt" else []
             snapshot = await original_launch(
@@ -128,7 +167,15 @@ async def exercise_worker(source, *, cancel=False, crash=False):
 
 
 async def main():
-    """验证真实隔离证据、两页解析一致性、无效 PDF、超时与取消；所有输入均为合成数据。"""
+    """Functionality: Verify real sandbox isolation, extraction parity, invalid inputs, timeouts,
+    crashes, and cancellation.
+    Inputs: Synthetic PDFs and controlled worker source; deployment sandbox configuration comes from
+    the environment.
+    Outputs: None; assertions cover isolation evidence and expected parse/worker outcomes.
+    Logic: Initialize Django, probe isolation, compare two-page extraction with the baseline, reject
+    invalid PDFs, and run worker lifecycle cases.
+    Constraints: All document data is synthetic and no paid vision model is invoked.
+    """
     import sys
 
     sys.path.insert(0, str(ROOT))

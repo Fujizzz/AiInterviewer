@@ -1,9 +1,15 @@
 /*
- * 职责：账号页及跨页面匿名账号入口；复用主页配色与字体，不修改面试组件。
- * 实现：桌面介绍/表单双栏，移动端纵向排列；键盘焦点、错误和输入状态清晰可见。
- * 关联：account.html、account-nav.html、home.css；所有表单数据由 Django 处理。
- * 目录：双栏结构；表单卡片与切换；输入/错误/按钮；匿名账号入口；窄屏布局。
- * 函数/类声明：无。变量索引：无 CSS 自定义变量。关键选择器：.account-layout、.account-card、.account-nav。
+ * Responsibilities: Style account forms and anonymous account navigation.
+ * Implementation: Use introduction/form columns on desktop and stacked sections on mobile; show focus, error and input states.
+ * Related Modules: account.html, account-nav.html and home.css; Django owns form data.
+ * Declaration Index:
+ * None
+ * Variable Index:
+ * None
+ * Style Groups:
+ * .account-layout, .account-card and .account-nav cover layout, form cards, toggles, inputs, errors, buttons and narrow screens.
+ * Constraints:
+ * Presentation does not change authentication, interview components or form submission.
  */
 .account-page .account-layout { min-height: calc(100vh - 168px); display: grid; grid-template-columns: 1.15fr 1fr; align-items: center; gap: 90px; padding: 60px 0 70px; }
 .account-page .account-intro h1 { font-size: clamp(30px, 3.3vw, 43px); line-height: 1.5; }

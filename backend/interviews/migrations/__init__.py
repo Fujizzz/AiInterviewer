@@ -1,12 +1,8 @@
-"""Django 迁移包。按依赖顺序应用 schema 与种子数据；历史迁移用于兼容已有本地库。
-
-目录：
-（无本地函数或类定义。）
-
-关键变量：
-（无模块级变量。）
-
-设计说明：
-模块关系：0001_initial 建表，0002_seed_questions 写入初始题目。
-0003_delete_streamprobe 删除历史诊断表；保留既有迁移顺序。
+"""Responsibilities: Mark the Django migrations package.
+Implementation: Keep ordered schema and seed-data migrations available to Django.
+Related Modules: Migration modules in this package and the interviews app.
+Declaration Index:
+None
+Variable Index:
+None
 """

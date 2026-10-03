@@ -1,35 +1,36 @@
 /**
  * @module interview-history
- * 职责：独立复盘页的本人面试分页列表与只读复盘弹窗。
- * 实现：请求序号隔离迟到结果；安全 DOM 展示已检题目、本人回答、评价、计划与报告。
- * 关联：interview-review.html、interview-history.css、只读 /api/agent-interviews/；不恢复面试或调用模型。
- * 目录：
- * - historyNode：读取模板节点。
- * - historyElement：创建纯文本节点。
- * - historyStatus：生命周期本地化。
- * - historyFetch：读取只读同源接口。
- * - renderHistoryList：绘制列表与分页状态。
- * - loadHistory：读取指定页并隔离迟到请求。
- * - historyParagraph：追加纯文本段落。
- * - historySection：追加标题与 section。
- * - renderHistoryDetail：绘制报告、对话及获准诊断。
- * - openHistory：打开弹窗并读取本人详情。
- * - closeHistory：清空详情并恢复焦点。
- * - historyPrevious：显式读取上一页。
- * - historyNext：显式读取下一页。
- * - historyRefresh：刷新列表或关闭详情。
- * - historyLanguage：重绘内存文案。
- * - historyView：使用本人列表 UUID 打开详情。
- * 关键变量：
- * - historyPage：当前页。
- * - historyListing：列表内存快照。
- * - historyDetail：详情内存快照。
- * - historyListRequest：列表请求序号，拒绝迟到结果。
- * - historyDetailRequest：详情请求序号，关闭或新请求后拒绝迟到结果。
- * - historyInvoker：详情关闭后恢复焦点的按钮。
- * - historyBusy：列表加载锁，禁用分页。
- * 约束：
- * 不在浏览器持久化资料，不将旧记录缺失内容从内部上下文补齐；失败要求显式刷新。
+ * Responsibilities: Paginated list of personal interviews and read-only review popup for standalone review page.
+ * Implementation: Isolate late-arriving results by request sequence number; safely render inspected questions, personal answers, evaluations, plans, and reports.
+ * Related Modules: interview-review.html, interview-history.css, read-only /api/agent-interviews/; does not resume interviews or invoke models.
+ * Declaration Index:
+ * - historyNode: reads template node.
+ * - historyElement: creates plain text node.
+ * - historyStatus: localizes lifecycle state.
+ * - historyFetch: reads read-only same-origin API.
+ * - renderHistoryList: renders list and pagination state.
+ * - loadHistory: reads specified page and isolates late requests.
+ * - historyParagraph: appends plain text paragraph.
+ * - historySection: appends heading and section.
+ * - renderHistoryDetail: renders report, conversation, and approved diagnosis.
+ * - openHistory: opens popup and loads personal detail.
+ * - closeHistory: clears detail and restores focus.
+ * - historyPrevious: explicitly loads previous page.
+ * - historyNext: explicitly loads next page.
+ * - historyRefresh: refreshes list or closes detail.
+ * - historyLanguage: redraws in-memory text.
+ * - historyView: opens detail using personal list UUID.
+ * Variable Index:
+ * - historyPage: current page.
+ * - historyListing: in-memory snapshot of list.
+ * - historyDetail: in-memory snapshot of detail.
+ * - historyListRequest: request sequence number for list, rejects late results.
+ * - historyDetailRequest: request sequence number for detail, rejects late results after close or new request.
+ * - historyInvoker: button that restores focus after detail closes.
+ * - historyBusy: list loading lock, disables pagination.
+ * Constraints:
+ * No browser persistence of data; do not fill missing content from internal context in old records; failure requires explicit refresh.
+ *
  */
 import { reviewText, reviewTopics } from "./interview-progress.js";
 let historyPage = 1;
@@ -39,15 +40,25 @@ let historyListRequest = 0;
 let historyDetailRequest = 0;
 let historyInvoker = null;
 let historyBusy = false;
-/** 输入模板 ID 返回节点；缺失模板在调用处失败，不静默隐藏功能。 */
+/**
+ * Returns node given input template ID; fails at call site if template is missing, does not silently hide functionality.
+ */
 function historyNode(id) { return document.getElementById(id); }
-/** 输入标签与可选正文，创建纯文本节点；模型内容不会进入 HTML 解析器。 */
+/**
+ * Given a tag and optional body text, creates a plain text node; model content will not enter HTML parser.
+ */
 function historyElement(tag, text = "") { const node = document.createElement(tag); node.textContent = text; return node; }
-/** 输入持久化生命周期状态，返回独立本地化标签；未知状态按原始代码呈现。 */
+/**
+ * Given persisted lifecycle state, returns localized label; unknown states rendered as original code.
+ */
 function historyStatus(status) { return reviewText({ completed: "review_completed", active: "review_active", failed: "failed_status" }[status] ?? status); }
-/** 输入同源历史 URL，输出 JSON；HTTP/认证失败原样抛出，不改用其他数据源。 */
+/**
+ * Given same-origin history URL, outputs JSON; HTTP/auth failure thrown verbatim, no fallback data source used.
+ */
 async function historyFetch(url) { const response = await fetch(url, { credentials: "same-origin", cache: "no-store" }); if (!response.ok) { const error = new Error(`HTTP ${response.status}`); error.status = response.status; throw error; } return response.json(); }
-/** 读取内存页绘制安全卡片和分页状态；只读元数据，不请求详情或自动翻页。 */
+/**
+ * Reads in-memory page to render safe cards and pagination status; read-only metadata, no detail request or auto-pagination.
+ */
 function renderHistoryList() {
   historyNode("history-refresh").textContent = reviewText("refresh");
   historyNode("history-previous").textContent = reviewText("previous"); historyNode("history-next").textContent = reviewText("next");
@@ -64,7 +75,9 @@ function renderHistoryList() {
     card.append(copy, button); list.append(card);
   }
 }
-/** 无外部参数；读取当前页并隔离迟到响应，错误显示固定提示和 HTTP 诊断，不记录正文。 */
+/**
+ * No external parameters; reads current page and isolates late responses, displays fixed error message and HTTP diagnostics, does not log body content.
+ */
 async function loadHistory() {
   const request = ++historyListRequest; historyBusy = true; historyListing = null;
   historyNode("history-status").textContent = reviewText("loading"); renderHistoryList();
@@ -75,12 +88,18 @@ async function loadHistory() {
   } catch (error) { if (request === historyListRequest) historyNode("history-status").textContent = reviewText("failed"); console.error("Interview history list failed", { page: historyPage, error: error.name, httpStatus: error.status ?? null }); }
   finally { if (request === historyListRequest) { historyBusy = false; renderHistoryList(); } }
 }
-/** 输入容器、文字和可选类；追加纯文本段落，支持保留模型换行。 */
+/**
+ * Given container, text, and optional class; appends plain text paragraph, supports preserving model line breaks.
+ */
 function historyParagraph(parent, text, className = "") { const p = historyElement("p", text); p.className = className; parent.append(p); }
-/** 输入父容器和标题，追加语义 section/h3 并返回新容器，不使用模板字符串 HTML。 */
+/**
+ * Given parent container and title, appends semantic section/h3 and returns new container, does not use template string HTML.
+ */
 function historySection(parent, title) { const section = historyElement("section"); section.append(historyElement("h3", title)); parent.append(section); return section; }
-/** 输入 v2 或旧版获准详情，绘制报告、题目难度/追问、回答/评价、话题与原始获准诊断。
- * 未完成、无获准输出和未评价答案分别呈现；无评分重新计算，无未经检查的 context 读取。
+/**
+ * Given v2 or legacy approved detail, renders report, question difficulty/ follow-up, answer/evaluation, topics, and raw approved diagnosis.
+ * Unfinished, no approval output, and ungraded answers are displayed separately; no score recalculated, no unverified context read.
+ *
  */
 function renderHistoryDetail(detail) {
   const body = historyNode("history-detail-body"); body.replaceChildren();
@@ -137,7 +156,9 @@ function renderHistoryDetail(detail) {
   const diagnostics = historyElement("details"); diagnostics.append(historyElement("summary", reviewText("diagnostics")));
   diagnostics.append(historyElement("pre", JSON.stringify({ interview_state: detail.interview_state, interview_plan: detail.interview_plan, plan_history: detail.plan_history, topic_progress: detail.topic_progress, decision_logs: detail.decision_logs, competencies: report?.competencies }, null, 2))); body.append(diagnostics);
 }
-/** 输入本人列表的 UUID 和调用按钮；打开只读弹窗并加载详情，关闭/新请求后拒绝迟到结果。 */
+/**
+ * Given personal list UUID and invoking button; opens read-only popup and loads detail, rejects late results after close or new request.
+ */
 async function openHistory(id, invoker) {
   const request = ++historyDetailRequest; historyDetail = null; historyInvoker = invoker;
   historyNode("history-detail-body").replaceChildren(historyElement("p", reviewText("loading")));
@@ -149,17 +170,29 @@ async function openHistory(id, invoker) {
     historyDetail = result; renderHistoryDetail(result);
   } catch (error) { if (request === historyDetailRequest) historyNode("history-detail-body").replaceChildren(historyElement("p", reviewText("failed"))); console.error("Interview history detail failed", { error: error.name, httpStatus: error.status ?? null }); }
 }
-/** 关闭时清除详情内存与正文、使迟到请求失效并恢复调用按钮焦点；不删除数据库记录。 */
+/**
+ * On close, clears detail memory and body, invalidates late requests, and restores focus to invoking button; does not delete database records.
+ */
 function closeHistory() { historyDetailRequest++; historyDetail = null; historyNode("history-detail-body").replaceChildren(); historyInvoker?.focus(); historyInvoker = null; }
-/** 输入按钮事件；只读取其列表 UUID，不从 URL 推断其他用户内容。 */
+/**
+ * Given button event; only reads its list UUID, does not infer other user content from URL.
+ */
 function historyView(event) { openHistory(event.currentTarget.dataset.interviewId, event.currentTarget); }
-/** 无外部参数；空闲且非首页时明确翻到上一页，无自动重试。 */
+/**
+ * No external parameters; explicitly navigates to previous page when idle and not on first page, no automatic retry.
+ */
 function historyPrevious() { if (!historyBusy && historyPage > 1) { historyPage--; loadHistory(); } }
-/** 无外部参数；仅在服务端声明下一页且空闲时翻页。 */
+/**
+ * No external parameters; only advances to next page when server declares it exists and system is idle.
+ */
 function historyNext() { if (!historyBusy && historyListing?.next) { historyPage++; loadHistory(); } }
-/** 输入刷新/关闭按钮事件；关闭详情或显式刷新列表，不恢复 Agent 连接。 */
+/**
+ * Given refresh/close button event; closes detail or explicitly refreshes list, does not restore Agent connection.
+ */
 function historyRefresh(event) { if (event.currentTarget.id === "history-close") historyNode("history-dialog").close(); else loadHistory(); }
-/** 无外部参数；重绘内存快照文案，保持页码和正文，不触发网络或模型调用。 */
+/**
+ * No external parameters; redraws in-memory snapshot text, preserves page number and body, triggers no network or model call.
+ */
 function historyLanguage() { renderHistoryList(); if (historyDetail) renderHistoryDetail(historyDetail); }
 historyNode("history-refresh").addEventListener("click", historyRefresh);
 historyNode("history-close").addEventListener("click", historyRefresh);

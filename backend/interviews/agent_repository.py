@@ -1,27 +1,41 @@
-"""职责：为现有 Agent v1.1 仓库接口提供绑定单场面试的数据库适配器。
+"""Responsibilities: Provide a database adapter binding single interview for existing Agent v1.1
+repository interface.
 
-实现：使用版本条件 UPDATE 抢占单轮提交，再在同一事务写问题、评价、动作和日志。
-关联：AgentSession 注入本适配器；不修改 Agent 策略、评分、问题或逻辑时间参数。
+Implementation: Uses version-conditioned UPDATE to preempt single-round commits, followed by atomic
+writes of questions, feedback, actions, and logs within the same transaction.
+Related Modules: AgentSession injects this adapter; does not modify Agent policy, scoring,
+questions, or logical timing parameters.
 
-目录：
-- DjangoInterviewRepository：绑定面试 ID，禁止跨面试查询或写入。
-- DjangoInterviewRepository.__init__：只保存作用域和待提交评价，不打开数据库或模型连接。
-- DjangoInterviewRepository._scope：验证传入面试标识与适配器作用域一致。
-- DjangoInterviewRepository.get_interview_context：读取并验证最新上下文及关系版本一致性。
-- DjangoInterviewRepository.initialize_interview：将准备状态提升为已初始化上下文，版本只增加一次。
-- DjangoInterviewRepository.accept_answer：在评价前保存回答，验证请求、当前问题和会话归属。
-- DjangoInterviewRepository.commit_turn：原子发布新版本、问题、反馈证据和审计日志。
-- DjangoInterviewRepository.get_processed_feedback_action：只在本面试内查询已提交反馈的动作。
-- DjangoInterviewRepository.get_question：按问题 ID 和面试双条件读取不可变快照。
-- DjangoInterviewRepository.decision_logs_for：按提交版本异步读取本面试决策日志。
+Declaration Index:
+- DjangoInterviewRepository: Binds interview ID, prohibits cross-interview queries or writes.
+- DjangoInterviewRepository.__init__: Only stores scope and pending feedback, does not open database
+  or model connection.
+- DjangoInterviewRepository._scope: Validates incoming interview identifier matches adapter scope.
+- DjangoInterviewRepository.get_interview_context: Reads and validates latest context and
+  relationship version consistency.
+- DjangoInterviewRepository.initialize_interview: Upgrades preparation state to initialized context,
+  version increases only once.
+- DjangoInterviewRepository.accept_answer: Saves answer before evaluation, validates request,
+  current question, and session ownership.
+- DjangoInterviewRepository.commit_turn: Atomically publishes new version, question, feedback
+  evidence, and audit log.
+- DjangoInterviewRepository.get_processed_feedback_action: Queries only submitted feedback actions
+  within the same interview.
+- DjangoInterviewRepository.get_question: Reads immutable snapshot by question ID and interview dual
+  condition.
+- DjangoInterviewRepository.decision_logs_for: Asynchronously reads decision logs for the interview
+  by submission version.
 
-关键变量：
-- logger：记录已提交版本和冲突类别，不记录上下文或回答正文。
+Variable Index:
+- logger: Logs committed version and conflict category, does not record context or answer body.
 
-状态说明：
-pending_feedback 仅暂存本次评价；对应回答已持久化但仍未评分。
-commit_turn 成功后才写入评价及提交版本并清空暂存；失败时事务回滚，不发布半轮结果。
-仅实现 Agent 当前使用的 v1.1 路径，不新增旧版兼容或内存回退。
+State Notes:
+pending_feedback temporarily holds current evaluation; corresponding answer is persisted but not yet
+scored.
+commit_turn writes evaluation and submission version only after success, clearing temporary storage;
+failure rolls back transaction, preventing half-round results.
+Only implements v1.1 path currently used by Agent; no additional legacy compatibility or memory
+fallback.
 """
 
 import logging
@@ -40,21 +54,29 @@ logger = logging.getLogger(__name__)
 
 
 class DjangoInterviewRepository:
-    """绑定面试 ID，禁止跨面试查询或写入。所有 ORM 方法经同步线程执行短事务。"""
+    """Binds interview ID, prohibits cross-interview queries or writes. All ORM methods executed via
+    synchronous threads in short transactions.
+    """
 
     def __init__(self, interview_id):
-        """只保存作用域和待提交评价，不打开数据库或模型连接；输入为服务器面试 ID。"""
+        """Stores only scope and pending feedback, does not open database or model connection; input
+        is server interview ID.
+        """
         self.interview_id = str(interview_id)
         self.pending_feedback = None
 
     def _scope(self, interview_id):
-        """验证传入面试标识与适配器作用域一致；不匹配抛 InvalidAgentState，无 I/O。"""
+        """Validates incoming interview identifier matches adapter scope; mismatch raises
+        InvalidAgentState, no I/O performed.
+        """
         if str(interview_id) != self.interview_id:
             raise InvalidAgentState("Repository interview scope mismatch")
 
     @sync_to_async
     def get_interview_context(self, interview_id):
-        """读取并验证最新上下文及关系版本一致性；未初始化或版本损坏时明确失败。"""
+        """Reads and validates latest context and relationship version consistency; fails explicitly
+        if uninitialized or version corrupted.
+        """
         self._scope(interview_id)
         record = AgentInterview.objects.filter(id=self.interview_id).first()
         if record is None or record.context is None:
@@ -67,10 +89,12 @@ class DjangoInterviewRepository:
 
     @sync_to_async
     def initialize_interview(self, context):
-        """将准备状态提升为已初始化上下文，版本只增加一次。
+        """Upgrades preparation state to initialized context, version increases only once.
 
-        输入为共享 InterviewContext；面试壳必须由已接受请求建立。返回深拷贝后的新上下文。
-        条件更新防止重复初始化；不依赖 SQLite 不支持的行锁，也不在事务内等待模型。
+        Input: shared InterviewContext; interview shell must be established by accepted request.
+        Returns deep copy of new context.
+        Conditional update prevents duplicate initialization; does not rely on SQLite-specific row
+        locking, nor waits for model inside transaction.
         """
         self._scope(context.interview_id)
         saved = context.model_copy(deep=True)
@@ -89,10 +113,13 @@ class DjangoInterviewRepository:
 
     @sync_to_async
     def accept_answer(self, request_id, answer):
-        """在评价前保存回答，验证请求、当前问题和会话归属。
+        """Saves answer before evaluation, validates request, current question, and session
+        ownership.
 
-        输入为已接受请求 UUID 和 CandidateAnswer；返回 None。原始回答持久化但评价保持空。
-        一题一答约束阻止重复消费；不复用失败回答或对其自动重试。
+        Input: accepted request UUID and CandidateAnswer; returns None. Original answer persisted
+        but evaluation remains empty.
+        One-answer-per-question constraint prevents repeated consumption; does not reuse failed
+        answers or auto-retry them.
         """
         self._scope(answer.interview_id)
         with transaction.atomic():
@@ -112,12 +139,14 @@ class DjangoInterviewRepository:
 
     @sync_to_async
     def commit_turn(self, request):
-        """原子发布新版本、问题、反馈证据和审计日志。
+        """Atom publishes new versions, issues, feedback evidence, and audit logs.
 
-        输入为 Agent 已验证的 CommitTurnRequest；返回 CommitTurnResult。先进行版本 CAS 写入，
-        再读取当前上下文，避免 SQLite 先读后升级写锁；后续失败会撤销 CAS 和全部关联写入。
-        反馈必须与本适配器暂存评价及已接收回答匹配。唯一约束冲突转为 StateConflictError，
-        数据库忙或不可用保留原异常，不自动重试或替代评分。
+        Input is a validated CommitTurnRequest; returns CommitTurnResult. First perform a version
+        CAS write, then read the current context to avoid SQLite's read-then-upgrade write lock;
+        subsequent failures will roll back the CAS and all associated writes.
+        Feedback must match the adapter's temporary evaluation and received response. Unique
+        constraint conflicts are converted to StateConflictError; database busy or unavailable
+        errors retain the original exception without automatic retry or alternative scoring.
         """
         self._scope(request.interview_id)
         version = request.expected_state_version
@@ -205,7 +234,9 @@ class DjangoInterviewRepository:
 
     @sync_to_async
     def get_processed_feedback_action(self, interview_id, feedback_request_id):
-        """只在本面试内查询已提交反馈的动作；不存在返回 None，不透露其他面试记录。"""
+        """Query only submitted feedback actions within this interview; return None if not found,
+        without revealing other interview records.
+        """
         self._scope(interview_id)
         row = AgentTurn.objects.filter(
             interview_id=self.interview_id, feedback_request_id=feedback_request_id
@@ -214,7 +245,9 @@ class DjangoInterviewRepository:
 
     @sync_to_async
     def get_question(self, question_id):
-        """按问题 ID 和面试双条件读取不可变快照；越界与不存在均抛 InvalidAgentState。"""
+        """Read an immutable snapshot by problem ID and interview pair; throw InvalidAgentState for
+        out-of-bounds or non-existent entries.
+        """
         row = AgentQuestion.objects.filter(id=question_id, interview_id=self.interview_id).first()
         if row is None:
             raise InvalidAgentState("Question is unavailable in this interview")
@@ -222,7 +255,9 @@ class DjangoInterviewRepository:
 
     @sync_to_async
     def decision_logs_for(self, interview_id):
-        """按提交版本异步读取本面试决策日志；返回独立模型列表，不返回惰性 QuerySet。"""
+        """Asynchronously read the decision log for this interview by commit version; return
+        independent model lists, not lazy QuerySet.
+        """
         self._scope(interview_id)
         return [
             AgentDecisionLog.model_validate(row.decision_log)

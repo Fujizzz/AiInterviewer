@@ -1,31 +1,47 @@
-"""职责：Agent 面试的关系存储，与固定题库练习表分离。
+"""Responsibilities: Store agent interview relationships, separated from fixed question bank
+practice tables.
 
-实现：关系列承载身份、状态、顺序和唯一约束；JSON 保存版本化的 Agent 契约快照。
-关联：models 导入以注册模型；agent_repository 原子提交，agent_records 记录请求生命周期。
+Implementation: Relationship columns carry identity, status, order, and uniqueness constraints; JSON
+stores versioned Agent contract snapshots.
+Related Modules: Models are registered by the app; agent_repository performs atomic commits, and
+agent_records tracks request lifecycle.
 
-目录：
-- AgentInterview：保存最新上下文和服务生命周期，不重复存储完整历史。
-- AgentInterview.Meta：约束上下文版本与终态时间，索引历史列表排序。
-- AgentRequest：持久化已接受命令及结果，不保存原始简历或输入摘要散列。
-- AgentRequest.Meta：约束请求状态与完成时间，索引面试内请求历史。
-- AgentQuestion：保存不可变问题快照，问题 ID 在全库唯一并绑定一场面试。
-- AgentQuestion.Meta：约束同场次题号唯一并按题号排序。
-- AgentAnswer：保存已接受回答；评价与提交版本同时为空或同时存在。
-- AgentAnswer.Meta：约束评价提交标记，待评价回答不作为已评分证据。
-- AgentTurn：保存一次已提交动作与决策日志，按状态版本形成审计序列。
-- AgentTurn.Meta：约束同场次提交版本和反馈请求唯一。
+Declaration Index:
+- AgentInterview: Stores latest context and service lifecycle, without duplicating full history.
+- AgentInterview.Meta: Constrains context version and final state time, indexes historical list for
+  sorting.
+- AgentRequest: Persists accepted commands and results, without storing original resume or input
+  summary hashes.
+- AgentRequest.Meta: Constrains request status and completion time, indexes request history within
+  interviews.
+- AgentQuestion: Stores immutable question snapshots; question ID is globally unique and bound to a
+  single interview.
+- AgentQuestion.Meta: Ensures unique question numbers within the same interview and sorts by
+  question number.
+- AgentAnswer: Stores accepted answers; evaluation and submission versions are either both empty or
+  both present.
+- AgentAnswer.Meta: Constrains evaluation submission flags; unanswered responses do not constitute
+  evidence of scoring.
+- AgentTurn: Stores a submitted action and decision log, forming an audit sequence by state version.
+- AgentTurn.Meta: Ensures unique feedback requests and submission versions within the same
+  interview.
 
-关键变量：
-（无模块级变量。）
+Variable Index:
+None
 
-状态说明：
-AgentInterview.owner 标识创建用户；旧数据为 null，不向注册用户公开或自动认领。
-resume_version 固定本人输入版本；resume_text_snapshot 固定实际输入，context 内的
-candidate_profile 固定实际结构化资料。后续版本切换不修改历史依据，公开资料仍从已检响应读取。
-Interview.status 为 preparing/active/completed/interrupted/failed；与 Agent 内部状态分开。
-Request.status 为 running/succeeded/failed/interrupted；进程骤停可能留下 running，不能自动重放。
-context/state_version 是当前状态唯一来源；Request.response 是发送前存储的不可变响应快照，
-用于确认结果，不表示客户端已经收到。JSON 不用于跨候选人检索或代替关系约束。
+State Notes:
+AgentInterview.owner identifies the creator user; old data is null, not publicly exposed or
+automatically claimed by registered users.
+resume_version fixes the user's input version; resume_text_snapshot fixes the actual input;
+context's candidate_profile fixes the actual structured data. Subsequent version switches do not
+modify historical basis; public data is still read from verified responses.
+Interview.status is preparing/active/completed/interrupted/failed; separate from internal Agent
+state.
+Request.status is running/succeeded/failed/interrupted; abrupt process termination may leave
+requests in running state, which cannot be automatically replayed.
+context/state_version is the sole source of current state; Request.response is a stored immutable
+response snapshot before sending, used to confirm results, not indicating client receipt. JSON is
+not used for cross-candidate retrieval or as a substitute for relationship constraints.
 """
 
 import uuid
@@ -36,10 +52,12 @@ from django.db.models import Q
 
 
 class AgentInterview(models.Model):
-    """保存最新上下文和服务生命周期，不重复存储完整历史。
+    """Stores latest context and service lifecycle, without duplicating full history.
 
-    输入由后端及 Agent 仓库提供；id 沿用后端 UUID，owner 只取已认证的 WebSocket 身份。
-    context 为空表示尚未完成初始化；state_version 与 JSON 内版本由仓库事务同步写入。
+    Input provided by backend and agent repository; id reuses backend UUID, owner takes only
+    authenticated WebSocket identity.
+    context being empty indicates initialization not yet completed; state_version and JSON version
+    synchronized via repository transaction.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -64,7 +82,8 @@ class AgentInterview(models.Model):
     closed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        """约束上下文版本与终态时间，索引历史列表排序。"""
+        """Constrains context version and final state time, indexes historical list for sorting.
+        """
 
         ordering = ["-created_at", "-id"]
         indexes = [models.Index(fields=["-created_at", "-id"], name="agent_history_order")]
@@ -83,10 +102,13 @@ class AgentInterview(models.Model):
 
 
 class AgentRequest(models.Model):
-    """持久化已接受命令及结果，不保存原始简历或输入摘要散列。
+    """Persists accepted commands and results, without storing original resume or input summary
+    hashes.
 
-    id 是客户端 UUID，全库唯一可阻止重连后重复触发调用。重复 ID 不返回其他连接的响应。
-    response 保存成功结果；error_code 仅保存后端固定错误码，不保存供应商异常或密钥。
+    id is client-side UUID, globally unique to prevent duplicate triggering after reconnection.
+    Duplicate IDs do not return responses from other connections.
+    response saves successful result; error_code only records backend-fixed error codes, not vendor
+    exceptions or keys.
     """
 
     id = models.UUIDField(primary_key=True, editable=False)
@@ -101,7 +123,8 @@ class AgentRequest(models.Model):
     finished_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        """约束请求状态与完成时间，索引面试内请求历史。"""
+        """Constrains request status and completion time, indexes request history within interviews.
+        """
 
         ordering = ["created_at", "id"]
         indexes = [
@@ -130,10 +153,13 @@ class AgentRequest(models.Model):
 
 
 class AgentQuestion(models.Model):
-    """保存不可变问题快照，问题 ID 在全库唯一并绑定一场面试。
+    """Stores immutable question snapshots; question ID is globally unique and bound to a single
+    interview.
 
-    id 使用 Agent 的字符串标识而非假定其必为 UUID；payload 保留共享 PlannedQuestion 原值。
-    ordinal 使用 Agent question_index；本表不更改题目顺序、难度或能力维度。
+    id uses Agent’s string identifier rather than assuming it must be UUID; payload retains original
+    value from shared PlannedQuestion.
+    ordinal uses Agent’s question_index; this table does not alter question order, difficulty, or
+    competency dimensions.
     """
 
     id = models.CharField(primary_key=True, max_length=255)
@@ -145,7 +171,8 @@ class AgentQuestion(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        """约束同场次题号唯一并按题号排序。"""
+        """Ensures unique question numbers within the same interview and sorts by question number.
+        """
 
         ordering = ["ordinal", "id"]
         constraints = [
@@ -154,10 +181,13 @@ class AgentQuestion(models.Model):
 
 
 class AgentAnswer(models.Model):
-    """保存已接受回答；评价与提交版本同时为空或同时存在。
+    """Stores accepted answers; evaluation and submission versions are either both empty or both
+    present.
 
-    question 和 request 均一对一，避免一题多答与一条请求多份回答；跨表会话归属由事务层验证。
-    committed_state_version 不为空才表示该回答已进入 Agent 状态；模型失败时保留原回答待诊断。
+    question and request are one-to-one, preventing multiple answers per question or multiple
+    answers per request; session ownership across tables is validated by transaction layer.
+    committed_state_version is non-empty only when the answer enters Agent state; model failures
+    retain original answer for diagnosis.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -169,7 +199,9 @@ class AgentAnswer(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        """约束评价提交标记，待评价回答不作为已评分证据。"""
+        """Constrains evaluation submission flag; unanswered responses do not serve as evidence of
+        scoring.
+        """
 
         constraints = [
             models.CheckConstraint(
@@ -185,10 +217,12 @@ class AgentAnswer(models.Model):
 
 
 class AgentTurn(models.Model):
-    """保存一次已提交动作与决策日志，按状态版本形成审计序列。
+    """Stores a submitted action and decision log, forming an audit sequence by state version.
 
-    action、decision_log 均为 Agent 原始契约；feedback_request 为空表示初始化或阶段转换。
-    数据库事务将本行、当前上下文、问题和回答评价一起提交，避免出现半轮评分。
+    action and decision_log are original Agent contracts; feedback_request being empty indicates
+    initialization or stage transition.
+    Database transaction commits this row, current context, questions, and answer evaluations
+    together, avoiding partial scoring rounds.
     """
 
     interview = models.ForeignKey(
@@ -203,7 +237,8 @@ class AgentTurn(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        """约束同场次提交版本和反馈请求唯一。"""
+        """Constrains unique submission version and feedback request within the same interview.
+        """
 
         ordering = ["state_version"]
         constraints = [

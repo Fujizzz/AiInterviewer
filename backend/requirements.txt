@@ -1,9 +1,13 @@
-# 用途：后端运行依赖，以及复用 MVP Agent 所需的根目录依赖。
-# 目录：Django/DRF（HTTP 与 ORM）；Uvicorn/websockets（ASGI 与双向传输）。
-# DashScope：百炼语音合成与识别。
-# PDFium/Pillow：仅后端 PDF 页面渲染，规则文字提取复用根依赖 pypdf。
-# LightGBM/NumPy/SciPy：固定v4-B人岗排序的本地CPU推理。
-# ONNX Runtime/Tokenizers：服务器上的离线 MiniLM 回答结束粗筛；不安装训练框架。
+# Responsibilities: Declare backend runtime dependencies and reuse the root MVP dependencies.
+# Implementation: Pin HTTP/ORM, ASGI, speech, PDF rendering and local inference packages.
+# Related Modules: config, interviews and the shared root Agent/application modules.
+# Declaration Index: None.
+# Variable Index: Package versions below define the runtime dependency contract.
+# Django/DRF provide HTTP and ORM; Uvicorn/websockets provide ASGI and bidirectional transport.
+# DashScope provides speech synthesis and recognition.
+# PDFium/Pillow render PDF pages; text extraction reuses the root pypdf dependency.
+# LightGBM/NumPy/SciPy provide CPU inference for the fixed v4-B candidate/job ranker.
+# ONNX Runtime/Tokenizers provide the server-side offline MiniLM completion gate, without training packages.
 Django==5.2.17
 djangorestframework==3.18.1
 uvicorn==0.52.4
@@ -11,7 +15,7 @@ websockets==16.1.1
 dashscope==1.27.7
 pypdfium2==5.13.0
 Pillow==12.3.0
-# 缺失资料排序的固定CPU推理依赖；不安装研究训练框架或下载在线模型。
+# Fixed CPU inference dependencies for ranking incomplete profiles; no training framework or online model download.
 lightgbm==4.6.0
 numpy==2.0.2
 scipy==1.14.1
@@ -19,5 +23,5 @@ onnxruntime==1.23.2
 tokenizers==0.22.2
 -r ../requirements.txt
 
-# Redis 仅用于显式 Celery 模式的短期任务与进度；本地 inline 不连接队列。
+# Redis carries short-lived tasks and progress only in explicit Celery mode; local inline mode does not connect.
 celery[redis]==5.6.3

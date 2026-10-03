@@ -1,16 +1,15 @@
-"""服务启动与协议分派。HTTP 交给 Django，WebSocket 提供诊断、Agent 面试和语音识别。
-
-目录：
-- handle_lifespan：
-  响应 ASGI 启停握手；当前无常驻资源，确认 startup/shutdown 后正常返回。
-- application：
-  功能：在 WebSocket 会话认证后进入服务级准入。
-- capacity_application：在身份检查后执行原有资源准入，保持容量与上传限制。
-- route_application：按 ASGI scope 类型选择处理器，保留原业务路由。
-
-关键变量：
-- django_application：
-  初始化后的 Django ASGI HTTP 应用，由协议分流入口调用。
+"""Responsibilities: Start the Django ASGI application and dispatch HTTP and WebSocket protocols.
+Implementation: Authenticate WebSocket sessions, apply resource admission, then route diagnostics,
+interviews, and speech recognition.
+Related Modules: config.settings initializes Django; interviews.session_socket, resource_gate,
+streaming, agent_socket, and speech.socket handle protocol stages.
+Declaration Index:
+- handle_lifespan: Acknowledge ASGI startup and shutdown events; no persistent resources are held.
+- application: Apply WebSocket session authentication before service admission.
+- capacity_application: Apply resource admission after identity checks without changing limits.
+- route_application: Dispatch HTTP, WebSocket, and lifespan scopes to their existing handlers.
+Variable Index:
+- django_application: Initialized Django ASGI HTTP application used by the protocol dispatcher.
 """
 
 import os
@@ -23,7 +22,12 @@ django_application = get_asgi_application()
 
 
 async def handle_lifespan(receive, send):
-    """响应 ASGI 启停握手；当前无常驻资源，确认 startup/shutdown 后正常返回。"""
+    """Functionality: Acknowledge ASGI startup and shutdown events.
+    Inputs: ASGI receive and send callables.
+    Outputs: Completes after sending the shutdown acknowledgement.
+    Logic: Read lifespan events and send the corresponding completion event.
+    Constraints: Holds no persistent resources and follows the ASGI event contract.
+    """
     while True:
         message = await receive()
         if message["type"] == "lifespan.startup":
@@ -34,25 +38,40 @@ async def handle_lifespan(receive, send):
 
 
 async def application(scope, receive, send):
-    """输入输出遵循 ASGI；WebSocket 身份在资源准入前验证，HTTP 身份由 Django 中间件检查。"""
+    """Functionality: Authenticate WebSocket sessions before resource admission.
+    Inputs: Standard ASGI scope, receive, and send values.
+    Outputs: Completes the delegated ASGI request.
+    Logic: Delegate through the session socket gateway.
+    Constraints: HTTP identity remains checked by Django middleware.
+    """
     from interviews.session_socket import authenticated_socket
 
     await authenticated_socket(capacity_application, scope, receive, send)
 
 
 async def capacity_application(scope, receive, send):
-    """在身份检查后执行原有资源准入；标准 ASGI 参数不变，不修改限额与失败语义。"""
-    # settings 完成仓库路径及环境装配后才导入资源层，支持从 backend 独立启动。
+    """Functionality: Apply service resource admission after identity checks.
+    Inputs: Standard ASGI scope, receive, and send values.
+    Outputs: Completes the delegated ASGI request.
+    Logic: Import the resource gate after settings initialize repository paths and environment.
+    Constraints: Preserve existing limits and failure behavior; lazy import supports backend-local
+    startup.
+    """
+    # Import the resource layer after settings initialize repository paths and environment.
     from interviews.resource_gate import limited_application
 
     await limited_application(route_application, scope, receive, send)
 
 
 async def route_application(scope, receive, send):
-    """功能：按 ASGI scope 类型选择处理器。
-    方法：/ws/echo/ 传输诊断、/ws/agent/ 面试、/ws/speech/stt/ PCM 识别。
-    未知 WebSocket 路径明确关闭。
-    返回：异步任务结束；HTTP/流式错误由所属处理层保持既定语义。"""
+    """Functionality: Dispatch an ASGI scope to its protocol handler.
+    Inputs: Standard ASGI scope, receive, and send values.
+    Outputs: Completes when the selected handler finishes.
+    Logic: Route HTTP to Django, supported WebSocket paths to their handlers, and lifespan events to
+    handle_lifespan.
+    Constraints: Unknown WebSocket paths are explicitly closed; downstream layers retain their error
+    semantics.
+    """
     if scope["type"] == "http":
         await django_application(scope, receive, send)
     elif scope["type"] == "websocket":

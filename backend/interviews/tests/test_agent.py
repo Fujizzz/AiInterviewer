@@ -1,49 +1,67 @@
-"""Agent 接入回归：真实 Agent 核心配合离线供应商和隔离测试数据库，不访问真实模型。
+"""Responsibilities: Exercise Agent WebSocket behavior and provider setup using offline fixtures and
+an isolated test database.
 
-目录：
-- AgentTests：
-  使用 ASGI 消息驱动完整面试，TransactionTestCase 隔离持久化数据。
-- AgentTests.connect：
-  建立受相同访问策略约束的测试连接；调用方须等待终态或显式调用 disconnect。
-- AgentTests.accepted：
-  消费握手和公告，验证网络计时契约使用 MVP 的 120 秒。
-- AgentTests.read：
-  读取一条 JSON，超时意味着协议未按预期推进。
-- AgentTests.command：
-  发送唯一 UUID 的命令并读取第一个响应，也支持显式重复 ID。
-- AgentTests.disconnect：
-  发送断线并等待本地协程结束，避免测试遗留挂起任务。
-- AgentTests.test_full_interview_matches_terminal_mvp：
-  同样输入下，网络与原终端的题数、评价、状态预算及报告保持一致。
-- AgentTests.test_invalid_commands_do_not_create_model：
-  损坏 JSON、未知字段、空文本、错误类型及提前回答不触发收费请求。
-- AgentTests.test_duplicate_and_stale_question_rejected_before_model_call：
-  重复 start/answer 及旧问题均明确拒绝，客户端不能重复消费同一轮。
-- AgentTests.test_busy_cancel_and_disconnect_release_session：
-  模型未完成时拒绝第二个命令；取消和断线都取消本地任务并清理会话。
-- AgentTests.test_busy_cancel_and_disconnect_release_session.slow_start：
-  模拟尚未返回的上游任务，finally 证明取消已传递。
-- AgentTests.test_errors_are_redacted_and_terminal：
-  初始化失败或上游失败不能暴露异常正文，也不产生虚假成功。
-- AgentTests.test_errors_are_redacted_and_terminal.fail：
-  制造含敏感标记的异常，验证日志与响应均不回显。
-- AgentTests.test_origin_size_limits_and_static_secret_protection：
-  拒绝外部连接和过大消息；密钥文件不能经静态资源路由读取。
-- AgentTests.test_connections_keep_candidate_state_isolated：
-  两个连接分别建立 Agent 仓库，问题和面试 ID 互不串用。
-- ProviderTests：
-  模型客户端复用 Django 已装载的统一配置，保留 MVP 调用参数与异常行为。
-- ProviderTests.test_missing_config_does_not_initialize_sdk：
-  缺少供应商、模型或 key 时明确停止，不启用默认模型或模拟实现。
-- ProviderTests.test_provider_options_without_reloading_dotenv：
-  只使用已装载环境，验证生成/简历预算与剩余截止时间，保持温度和禁用 SDK 重试。
-- ProviderTests.test_inflight_client_closed_only_after_call_returns：
-  取消不破坏在途同步 SDK；后台返回后才释放客户端和服务名额。
-- ProviderTests.test_inflight_client_closed_only_after_call_returns.blocked：
-  在可控屏障等待，让测试在调用仍执行时请求关闭。
+Implementation: Drive the real ASGI handlers and Agent state machine while replacing vendor calls
+with deterministic doubles; no external model is contacted.
+Related Modules: interviews.agent_socket, interviews.agent_session, interviews.agent_records, and
+.agent_fixtures.
 
-关键变量：
-（无模块级变量。）
+Declaration Index:
+- AgentTests:
+  Use ASGI message-driven full interview, TransactionTestCase isolates persistent data.
+- AgentTests.connect:
+  Establish test connection under same access policy constraints; caller must wait for terminal
+  state or explicitly call disconnect.
+- AgentTests.accepted:
+  Consume handshake and announcement, validate network timing contract using MVP’s 120 seconds.
+- AgentTests.read:
+  Read one JSON; timeout implies protocol did not proceed as expected.
+- AgentTests.command:
+  Send command with unique UUID and read first response; also supports explicit repeated ID.
+- AgentTests.disconnect:
+  Send disconnect and wait for local coroutine to finish, avoiding test leftovers with hanging
+  tasks.
+- AgentTests.test_full_interview_matches_terminal_mvp:
+  Same input yields consistent question count, evaluation, state budget, and report between network
+  and original terminal.
+- AgentTests.test_invalid_commands_do_not_create_model:
+  Corrupted JSON, unknown fields, empty text, wrong type, and premature answers do not trigger paid
+  requests.
+- AgentTests.test_duplicate_and_stale_question_rejected_before_model_call:
+  Duplicate start/answer and stale questions explicitly rejected; client cannot re-consume same
+  round.
+- AgentTests.test_busy_cancel_and_disconnect_release_session:
+  Reject second command if model not complete; cancel and disconnect both cancel local task and
+  clean up session.
+- AgentTests.test_busy_cancel_and_disconnect_release_session.slow_start:
+  Simulate upstream task not yet returned; finally proves cancellation was delivered.
+- AgentTests.test_errors_are_redacted_and_terminal:
+  Initialization or upstream failure must not expose exception body, nor produce false success.
+- AgentTests.test_errors_are_redacted_and_terminal.fail:
+  Generate exception with sensitive markers; verify logs and responses do not echo them.
+- AgentTests.test_origin_size_limits_and_static_secret_protection:
+  Reject external connections and oversized messages; secret key file cannot be read via static
+  resource routing.
+- AgentTests.test_connections_keep_candidate_state_isolated:
+  Two connections establish separate Agent repositories; questions and interview IDs do not leak
+  between them.
+- ProviderTests:
+  Model client reuses Django-loaded unified configuration, preserves MVP call parameters and
+  exception behavior.
+- ProviderTests.test_missing_config_does_not_initialize_sdk:
+  Missing vendor, model, or key stops initialization explicitly; no default model or mock
+  implementation enabled.
+- ProviderTests.test_provider_options_without_reloading_dotenv:
+  Use only loaded environment; validate generation/resume budget and remaining deadline, maintain
+  temperature and disable SDK retries.
+- ProviderTests.test_inflight_client_closed_only_after_call_returns:
+  Cancellation does not break in-flight sync SDK; client and service slot released only after
+  backend returns.
+- ProviderTests.test_inflight_client_closed_only_after_call_returns.blocked:
+  Wait at controlled barrier, request closure while call still executing.
+
+Variable Index:
+None
 """
 
 import asyncio
@@ -69,10 +87,13 @@ from .agent_fixtures import ANSWER, RESUME, FixtureLLM, SafetyTestMixin
 
 
 class AgentTests(SafetyTestMixin, TransactionTestCase):
-    """使用 ASGI 消息驱动完整面试，TransactionTestCase 隔离持久化数据。"""
+    """Use ASGI message-driven full interview, TransactionTestCase isolates persistent data.
+    """
 
     async def connect(self, origin="http://localhost", client="127.0.0.1"):
-        """建立受相同访问策略约束的测试连接；调用方须等待终态或显式调用 disconnect。"""
+        """Establish test connection under same access policy constraints; caller must wait for
+        terminal state or explicitly call disconnect.
+        """
         comm = ApplicationCommunicator(
             agent_socket,
             {
@@ -87,29 +108,38 @@ class AgentTests(SafetyTestMixin, TransactionTestCase):
         return comm
 
     async def accepted(self):
-        """消费握手和公告，验证网络计时契约使用 MVP 的 120 秒。"""
+        """Consume handshake and announcement, validate network timing contract using MVP’s 120
+        seconds.
+        """
         comm = await self.connect()
         self.assertEqual((await comm.receive_output())["type"], "websocket.accept")
         self.assertEqual((await self.read(comm))["seconds_per_question"], 120)
         return comm
 
     async def read(self, comm):
-        """读取一条 JSON，超时意味着协议未按预期推进。"""
+        """Read one JSON; timeout implies protocol did not proceed as expected.
+        """
         return json.loads((await comm.receive_output(timeout=3))["text"])
 
     async def command(self, comm, kind, **fields):
-        """发送唯一 UUID 的命令并读取第一个响应，也支持显式重复 ID。"""
+        """Send command with unique UUID and read first response; also supports explicit repeated
+        ID.
+        """
         payload = {"type": kind, "request_id": str(uuid4()), **fields}
         await comm.send_input({"type": "websocket.receive", "text": json.dumps(payload)})
         return await self.read(comm)
 
     async def disconnect(self, comm):
-        """发送断线并等待本地协程结束，避免测试遗留挂起任务。"""
+        """Send disconnect and wait for local coroutine to finish, avoiding test leftovers with
+        hanging tasks.
+        """
         await comm.send_input({"type": "websocket.disconnect", "code": 1000})
         await comm.wait()
 
     async def test_full_interview_matches_terminal_mvp(self):
-        """同样输入下，网络与原终端的题数、评价、状态预算及报告保持一致。"""
+        """Same input yields consistent question count, evaluation, state budget, and report between
+        network and original terminal.
+        """
         for count in (1, 3):
             with self.subTest(count=count):
                 llm = FixtureLLM()
@@ -155,7 +185,9 @@ class AgentTests(SafetyTestMixin, TransactionTestCase):
                 self.assertTrue(llm.closed)
 
     async def test_invalid_commands_do_not_create_model(self):
-        """损坏 JSON、未知字段、空文本、错误类型及提前回答不触发收费请求。"""
+        """Corrupted JSON, unknown fields, empty text, wrong type, and premature answers do not
+        trigger paid requests.
+        """
         with patch("interviews.agent_socket.AgentSession") as factory:
             comm = await self.accepted()
             for raw in (
@@ -188,7 +220,9 @@ class AgentTests(SafetyTestMixin, TransactionTestCase):
             await self.disconnect(comm)
 
     async def test_duplicate_and_stale_question_rejected_before_model_call(self):
-        """重复 start/answer 及旧问题均明确拒绝，客户端不能重复消费同一轮。"""
+        """Duplicate start/answer and stale questions explicitly rejected; client cannot re-consume
+        same round.
+        """
         llm = FixtureLLM()
         with patch("interviews.agent_session.BackendLLM", return_value=llm):
             comm = await self.accepted()
@@ -236,14 +270,18 @@ class AgentTests(SafetyTestMixin, TransactionTestCase):
             await self.disconnect(comm)
 
     async def test_busy_cancel_and_disconnect_release_session(self):
-        """模型未完成时拒绝第二个命令；取消和断线都取消本地任务并清理会话。"""
+        """Reject second command if model not complete; cancel and disconnect both cancel local task
+        and clean up session.
+        """
         for cancel in (True, False):
             blocked = asyncio.Event()
             stopped = asyncio.Event()
             entered = asyncio.Event()
 
             async def slow_start(command, blocked=blocked, stopped=stopped, entered=entered):
-                """输入测试命令及同步屏障；标记业务已进入，finally 证明取消已传递。"""
+                """Input test command and synchronous barrier; mark business entered, finally prove
+                cancellation was delivered.
+                """
                 try:
                     entered.set()
                     await blocked.wait()
@@ -269,13 +307,17 @@ class AgentTests(SafetyTestMixin, TransactionTestCase):
                 fake.close.assert_called_once()
 
     async def test_errors_are_redacted_and_terminal(self):
-        """初始化失败或上游失败不能暴露异常正文，也不产生虚假成功。"""
+        """Initialization or upstream failure must not expose exception body, nor produce false
+        success.
+        """
         for setup in (True, False):
             fake = Mock(spec=AgentSession)
             fake.interview_id = str(uuid4())
 
             async def fail(command):
-                """制造含敏感标记的异常，验证日志与响应均不回显。"""
+                """Generate exception with sensitive markers; verify logs and responses do not echo
+                them.
+                """
                 raise RuntimeError("secret-input-must-not-leak")
 
             fake.start = fail
@@ -300,7 +342,9 @@ class AgentTests(SafetyTestMixin, TransactionTestCase):
             self.assertNotIn("secret-input", " ".join(logs.output))
 
     async def test_origin_size_limits_and_static_secret_protection(self):
-        """拒绝外部连接和过大消息；密钥文件不能经静态资源路由读取。"""
+        """Reject external connections and excessively large messages; the key file must not be
+        accessible via static resource routing.
+        """
         for kwargs in ({"origin": "https://example.com"}, {"client": "192.0.2.1"}):
             comm = await self.connect(**kwargs)
             self.assertEqual((await comm.receive_output())["type"], "websocket.close")
@@ -316,7 +360,9 @@ class AgentTests(SafetyTestMixin, TransactionTestCase):
         self.assertIn(response.status_code, (403, 404))
 
     async def test_connections_keep_candidate_state_isolated(self):
-        """两个连接分别建立 Agent 仓库，问题和面试 ID 互不串用。"""
+        """Two connections establish separate Agent repositories, with issues and interview IDs
+        strictly isolated from each other.
+        """
         with patch("interviews.agent_session.BackendLLM", side_effect=FixtureLLM):
             first, second = await self.accepted(), await self.accepted()
             await self.command(first, "start", resume_text=RESUME)
@@ -333,11 +379,15 @@ class AgentTests(SafetyTestMixin, TransactionTestCase):
 
 
 class ProviderTests(SimpleTestCase):
-    """模型客户端复用 Django 已装载的统一配置，保留 MVP 调用参数与异常行为。"""
+    """The model client reuses Django's already-loaded unified configuration, preserving MVP call
+    parameters and exception behavior.
+    """
 
     @patch.dict("os.environ", {}, clear=True)
     def test_missing_config_does_not_initialize_sdk(self):
-        """缺少供应商、模型或 key 时明确停止，不启用默认模型或模拟实现。"""
+        """Explicitly halt when supplier, model, or key is missing; do not enable default models or
+        mock implementations.
+        """
         with patch("interviews.agent_provider.OpenAI") as sdk:
             with self.assertRaises(LLMError):
                 BackendLLM()
@@ -354,10 +404,13 @@ class ProviderTests(SimpleTestCase):
         clear=True,
     )
     def test_provider_options_without_reloading_dotenv(self):
-        """SDK 和 dotenv 均模拟，不访问模型；验证后端装配兼容父类的两种超时预算。
+        """Both SDK and dotenv are mocked, avoiding actual model access; verify backend assembly
+        compatibility with two timeout budgets from the parent class.
 
-        输入为隔离环境配置与显式模型调用上下文；断言简历预算、普通生成预算及
-        剩余截止时间限制。finally 恢复上下文，避免污染后续测试，不验证真实供应商。
+        Input is an isolated environment configuration and explicit model invocation context; assert
+        budget for resume, standard generation budget, and remaining deadline constraints.
+        Finally restore context to avoid polluting subsequent tests, without validating real
+        suppliers.
         """
         with (
             patch("interviews.agent_provider.OpenAI") as sdk,
@@ -392,11 +445,15 @@ class ProviderTests(SimpleTestCase):
         clear=True,
     )
     def test_inflight_client_closed_only_after_call_returns(self):
-        """取消不破坏在途同步 SDK；后台返回后才释放客户端和服务名额，模型用屏障模拟。"""
+        """Cancelation does not disrupt ongoing synchronous SDK operations; release client and
+        service slots only after backend response; use barriers to simulate model usage.
+        """
         entered, release = threading.Event(), threading.Event()
 
         def blocked(*args):
-            """在可控屏障等待，让测试在调用仍执行时请求关闭。"""
+            """Wait at a controlled barrier to allow test to request shutdown while calls are still
+            executing.
+            """
             entered.set()
             if not release.wait(3):
                 raise TimeoutError("Test did not release model call")

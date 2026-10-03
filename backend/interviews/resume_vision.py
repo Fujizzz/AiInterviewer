@@ -1,22 +1,25 @@
-"""职责：为简历整理 Agent 实现独立的异步多模态模型适配器。
-实现：读取专用配置，以 Chat Completions JSON 模式传递单页 PNG 和编号原文行，严格校验结构。
-关联：agents.resume_cleanup 定义端口；resume_api 管理本适配器生命周期。
-
-目录：
-- ResumeVision：OpenAI 兼容视觉客户端，显式配置，无自动重试或文字模型回退。
-- ResumeVision.__init__：验证专用视觉配置，创建异步客户端。
-- ResumeVision.review：传递单页图文并验证模型终态及结构。
-- ResumeVision.close：异步释放客户端连接。
-
-关键变量：
-- logger：只记录页码、模型、耗时和异常类型，不记录图像、简历或密钥。
-
-配置说明：
-RESUME_VISION_PROVIDER 必须为 dashscope 或 openai，RESUME_VISION_MODEL 必填；
-凭据复用所选供应商已有 API_KEY，BASE_URL 与对应供应商现有配置一致。
-RESUME_VISION_TIMEOUT_SECONDS 默认 90 秒；每页一次请求、max_retries=0。
-RESUME_VISION_ENABLE_THINKING 可显式填 true/false，仅 DashScope 发送此可选参数。
-未设置时保持供应商行为；不修改已有面试模型、温度或超时配置。
+"""Responsibilities: Implement independent asynchronous multimodal model adapter for resume cleanup
+Agent.
+Implementation: Read dedicated configuration, pass single-page PNG and numbered source lines in Chat
+Completions JSON format, strictly validate structure.
+Related Modules: agents.resume_cleanup defines port; resume_api manages lifecycle of this adapter.
+Declaration Index:
+- ResumeVision: OpenAI-compatible vision client, explicit configuration, no automatic retry or
+  fallback to text model.
+- ResumeVision.__init__: Validate dedicated vision configuration, create async client.
+- ResumeVision.review: Pass single-page image and text, verify final model state and structure.
+- ResumeVision.close: Asynchronously release client connection.
+Variable Index:
+- logger: Logs only page number, model, duration, and exception type, no image, resume, or key data.
+Configuration Notes:
+RESUME_VISION_PROVIDER must be dashscope or openai, RESUME_VISION_MODEL required;
+Credentials reuse existing API_KEY from selected provider, BASE_URL matches provider’s existing
+configuration.
+RESUME_VISION_TIMEOUT_SECONDS defaults to 90 seconds; one request per page, max_retries=0.
+RESUME_VISION_ENABLE_THINKING can be explicitly set true/false, only DashScope accepts this optional
+parameter.
+Unset value retains provider behavior; does not modify existing interview model, temperature, or
+timeout configuration.
 """
 
 import base64
@@ -35,32 +38,39 @@ logger = logging.getLogger(__name__)
 
 
 class ResumeVision:
-    """功能：实现异步视觉端口；逻辑：每页单次调用；约束：错误和取消直接传播。"""
+    """Function: Implement asynchronous vision port; logic: one call per page; constraint: errors
+    and cancellations propagate directly.
+    """
 
     def __init__(self):
-        """读取进程环境配置，输出客户端实例；缺配置抛 ValueError，不发起网络请求。
+        """Read process environment configuration, output client instance; missing config raises
+        ValueError, no network request initiated.
 
-        model/provider 保存选定视觉配置，options 仅含显式 thinking 设置；
-        client 由调用者在 finally 中关闭，密钥不进入日志或响应。
+        model/provider saved selected vision configuration, options contains only explicit thinking
+        setting;
+        client must be closed by caller in finally block, keys not logged or returned in response.
         """
         self.provider = os.environ.get("RESUME_VISION_PROVIDER", "")
         self.model = os.environ.get("RESUME_VISION_MODEL", "").strip()
         if self.provider not in {"dashscope", "openai"} or not self.model:
-            raise ValueError("请配置 RESUME_VISION_PROVIDER 和 RESUME_VISION_MODEL。")
+            raise ValueError("Set RESUME_VISION_PROVIDER and RESUME_VISION_MODEL.")
         prefix = "DASHSCOPE" if self.provider == "dashscope" else "OPENAI"
         key = os.environ.get(f"{prefix}_API_KEY", "")
         if not key:
-            raise ValueError("所选视觉服务缺少 API key，请检查后端环境配置。")
+            raise ValueError(
+                "The selected vision provider has no API key. "
+                "Check the backend environment configuration."
+            )
         timeout = float(os.environ.get("RESUME_VISION_TIMEOUT_SECONDS", "90"))
         if not 0 < timeout <= 600:
-            raise ValueError("RESUME_VISION_TIMEOUT_SECONDS 应在 0 至 600 秒之间。")
+            raise ValueError("RESUME_VISION_TIMEOUT_SECONDS must be between 0 and 600 seconds.")
         thinking = os.environ.get("RESUME_VISION_ENABLE_THINKING", "")
         if thinking not in {"", "true", "false"}:
-            raise ValueError("RESUME_VISION_ENABLE_THINKING 只能填 true 或 false。")
+            raise ValueError("RESUME_VISION_ENABLE_THINKING must be true or false.")
         self.options = {}
         if thinking:
             if self.provider != "dashscope":
-                raise ValueError("RESUME_VISION_ENABLE_THINKING 仅用于 DashScope。")
+                raise ValueError("RESUME_VISION_ENABLE_THINKING is supported only by DashScope.")
             self.options["extra_body"] = {"enable_thinking": thinking == "true"}
         default_url = (
             "https://dashscope.aliyuncs.com/compatible-mode/v1"
@@ -75,13 +85,17 @@ class ResumeVision:
         )
 
     async def review(self, page: ResumePage, prompt: str) -> PageReview:
-        """输入带图像页面及系统提示，输出 schema 校验结果；不尝试修复或重发。
+        """Input image page and system prompt, output schema validation result; no repair or retry
+        attempted.
 
-        图片使用内嵌 PNG，不上传到文件服务；模型必须支持图片与 JSON 模式。
-        拒绝、截断、空输出及非 JSON 均失败。
-        原文行号由 source_lines 与 Agent 共用；仅去掉行分隔符，行内空白保留。
-        日志仅含诊断元数据；供应商响应正文即使异常也不写日志。
-        成功记录修改数量；失败记录安全错误码、HTTP 状态和去除输入值的 schema 路径。
+        Image uses embedded PNG, not uploaded to file service; model must support image and JSON
+        schema.
+        Reject, truncate, empty output, or non-JSON all fail.
+        Source line numbers shared with Agent; only line separators removed, internal whitespace
+        preserved.
+        Logs contain only diagnostic metadata; provider response body, even on error, is not logged.
+        Success records number of modifications; failure records safe error code, HTTP status, and
+        sanitized schema path without input values.
         """
         started = perf_counter()
         logger.info("resume_vision start page=%s model=%s", page.number, self.model)
@@ -161,5 +175,5 @@ class ResumeVision:
             )
 
     async def close(self):
-        """读取 client 并关闭异步 HTTP 连接；不删除文件、不修改模型配置。"""
+        """Close async HTTP connection; no file deletion, no model configuration modification."""
         await self.client.close()

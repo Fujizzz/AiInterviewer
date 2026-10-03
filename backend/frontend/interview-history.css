@@ -1,10 +1,16 @@
 /*
-职责：独立复盘页的只读面试记录列表与详情弹窗；关联 interview-review.html/interview-history.js。
-实现：列表卡片紧凑排列，弹窗独立滚动，正文保持换行及可读行宽；窄屏按钮换行。
-目录：.review-heading/.section-heading/.pagination（独立页面布局）；.history-card；.history-dialog；.history-dialog-header；.history-detail-body；
-.history-turn；.history-meta；.history-notice；.history-score；@media。
-函数/类：None。变量：None；仅布局，不改变 API、排序、评分或面试状态。
-*/
+ * Responsibilities: Style the read-only review list and detail dialog.
+ * Implementation: Use compact cards, independent dialog scrolling, preserved line breaks and bounded reading width; controls wrap on narrow screens.
+ * Related Modules: interview-review.html and interview-history.js.
+ * Declaration Index:
+ * None
+ * Variable Index:
+ * None
+ * Style Groups:
+ * .review-heading/.section-heading/.pagination; .history-card/.history-dialog/.history-dialog-header/.history-detail-body; .history-turn/.history-meta/.history-notice/.history-score; @media.
+ * Constraints:
+ * Styles do not change ownership, APIs, sorting, scores or interview state.
+ */
 .history-card { display: flex; align-items: center; justify-content: space-between; gap: 16px; border-top: 1px solid #e1e8e5; padding: 16px 0; }
 .history-card h3 { margin: 0 0 6px; font-size: 1rem; overflow-wrap: anywhere; }
 .history-card p { margin: 0; font-size: .85rem; color: #586d65; }

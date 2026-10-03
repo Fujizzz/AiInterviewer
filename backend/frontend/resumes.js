@@ -1,107 +1,113 @@
 /**
+ *
  * @module resumes
- * 职责：维护基本资料、原件、单元编辑稿和推荐槽位；保存独立版本后显式推荐岗位，保护未保存修改。
- * 实现：PDF 选择后一次上传，解析仍显式触发；推荐区直接选择全部版本并提示解析/核对/保存；
- * 单操作锁及 CSRF 保护写入；完整 NDJSON 后读持久化详情；哈希分区切换只改变可见性，不清空编辑稿。
- * 关联：resumes.html、i18n.js、/api/resume-versions/ 及其 recommendations 动作；Django session 认证。
- * 目录：
- * - rmWorkspacePanel：按已有锚点映射页面分区。
- * - rmReveal：显示目标分区并同步标题/导航，可显式更新哈希，不读取或保存资料。
- * - rmWorkspaceHash：响应初始 URL 和浏览器前进/后退。
- * - rmWorkspaceLink：拦截同页顶部入口，保留未保存草稿。
- * - rmScroll：先显示目标面板再平滑定位，避免滚动隐藏内容。
- * - rmEl：取得模板元素。
- * - rmText：读取已加载的国际化文案。
- * - rmStatus：显示纯文本操作状态。
- * - rmControls：根据操作与分页状态切换控件。
- * - rmRecommend：仅显式使用所选已保存版本请求岗位推荐，不提交未保存简历。
- * - rmRecommend.recommend：调用本人推荐动作，失败保留明确来源/粗排/精排故障提示。
- * - rmRenderRecommendations：安全展示 LLM 顺序、双语理由、岗位来源和技能交集，不把分数转换成概率。
- * - rmRenderResumePicker：按已读取的完整版本元数据重绘推荐选择器，标注状态和当前版本。
- * - rmChooseResume：用户明确切换推荐版本，沿用未保存确认和详情读取，不修改 current。
- * - rmChooseResume.choose：在操作锁内加载所选持久化版本。
- * - rmReviewRecommendation：展开技能及推荐字段并移动焦点，不修改或保存资料。
- * - rmHasRecommendationDetails：检查已加载槽位是否至少有一项已知，不填补未知值。
- * - rmSource：切换互斥上传表单。
- * - rmChooseFile：打开原生选择器，允许重新选择相同文件，不发送请求。
- * - rmFileSelected：有明确文件选择时保存原件，取消选择不创建版本。
- * - rmRequest：发同源请求，统一认证及业务错误，保留流响应。
- * - rmRun：串行执行操作，显示失败且释放 UI 状态。
- * - rmButton：生成命名版本动作按钮。
- * - rmRender：同步全版本选择器并构造当前页历史卡片，不插入 HTML。
- * - rmLoad：读取历史当前页及其他页元数据，完整成功后更新全版本选择器和历史分页。
- * - rmPreview：查询版本和编辑契约，显示原文及在线单元，返回持久化记录。
- * - rmClearEditor：清空编辑状态并禁用操作，不删除已保存版本。
- * - rmFillEditor：回填单元/确认值及原件待确认建议，标注证据并保护未保存建议，原文只读。
- * - rmDirty：记录单元/槽位输入，清除保存状态。
- * - rmConfirmDiscard：显式确认离开未保存编辑，取消时保持当前内容。
- * - rmReadSlots：读取严格推荐值，不推断缺失字段。
- * - rmSaveEdition：组装单元和槽位，保存独立编辑快照。
- * - rmSaveEdition.save：创建快照后读取新版本，不覆盖原件。
- * - rmParseUploaded：就近解析当前待解析附件。
- * - rmParseUploaded.parse：在操作锁内执行一次明确解析。
- * - rmUseEdition：将已保存且未被编辑的版本设为当前。
- * - rmUseEdition.select：持久化本人当前版本选择。
- * - rmSection：先显示侧栏目标分区，再展开编辑单元并定位。
- * - rmBeforeLeave：未保存修改时触发浏览器离开保护。
- * - rmUpload.save：成功创建后清空上传输入并展示新版本。
- * - rmRefresh.refresh：读取列表和现有选择。
- * - rmPrevious.previous：按编号请求上一页。
- * - rmNext.next：按编号请求下一页。
- * - rmAction.act：在操作锁内执行唯一已确认动作。
- * - rmUpload：保存一个 PDF 或文本版本，随后展示新版本；ready 文本打开编辑分区。
- * - rmSaveProfile：校验表单事件后提交本人姓名/邮箱。
- * - rmSaveProfile.save：PATCH 成功后回填服务端资料并显示保存状态。
- * - rmRefresh：显式刷新当前页与所选详情。
- * - rmPrevious：加载上一页。
- * - rmNext：加载下一页。
- * - rmEvent：处理进度、错误和成功终态，返回疑点数组或 null。
- * - rmParse：消费提取流，完整成功才显示编辑区并声明完成，不重试或采用中间文本。
- * - rmAction：按已加载版本分派预览、当前选择及确认删除；解析只在附件区触发。
- * - rmCancel：取消当前流接收，不承诺外部模型立即停止。
- * - rmLanguage：语言改变时同步分区标题并重绘版本列表，保留当前正文。
- * - rmInit.load：读取列表并打开当前页的已保存 current，没有时保留选择提示。
- * - rmInit：加载初始列表，失败时保留可刷新界面。
- * 关键变量：
- * - RM_WORKSPACE_SECTIONS：分区对应的既有 DOM 元素；附件与版本历史同屏。
- * - RM_WORKSPACE_TITLES：分区标题翻译键，不影响业务状态。
- * - RM_API：同源版本接口前缀。
- * - RM_PROFILE：本人资料同源接口。
- * - RM_UNITS：稳定单元 ID，与后端契约一致。
- * - RM_SLOTS：推荐字段输入类型，与 CandidateInput 保持一致。
- * - rmEl：元素查询函数。
- * - rmBusy：唯一操作锁。
- * - rmController：当前解析 AbortController；页面离开终止接收。
- * - rmVersions：历史当前页元数据，无文件字节。
- * - rmChoiceVersions：推荐选择器的全部分页元数据，无正文或文件字节。
- * - rmPage：当前页编号，从 1 开始。
- * - rmNextPage：服务端声明是否有下一页。
- * - rmSelected：内存中预览版本 ID；不写浏览器存储或隐式设置 current。
- * - rmAttachment：最近选择/上传的原件元数据，用于就近解析。
- * - rmEditorBase：正在编辑的已保存基线版本 ID。
- * - rmEditorDirty：是否有未保存的单元或槽位修改。
- * - rmInitialSlots：表单的确认值与待确认建议；保留未编辑的显式空数组，保存才写入新版本。
- * - rmSlotTouched：被人工修改的槽位名称集合。
- * - rmSuggestedCount：本次载入的待确认建议数量；首次手动修改或重置后清零。
- * - rmRecommendations：所选已保存版本的排序响应；编辑或切换后清空。
- * - rmRecommendationError：推荐区当前故障文案 key；成功或切换时清空。
- * - RM_RECOMMENDATION_ERRORS：稳定服务故障码到中英文文案的允许列表。
- * 约束：
- * 用户文本仅经 value/textContent 显示；每次保存生成新版本，不覆盖原件或改变失败语义。
+ * Responsibilities: Maintain basic information, original documents, unit edit drafts, and recommendation slots; explicitly request job recommendations after saving independent versions, protecting unsaved modifications.
+ * Implementation: Upload PDF once after selection, parsing still triggered explicitly; recommendation area directly selects all saved versions and prompts for parsing/verification/saving;
+ * Single-operation lock and CSRF protection for writes; read persistent details only after full NDJSON; hash-based partition switching changes only visibility, does not clear edit drafts.
+ * Related Modules: resumes.html, i18n.js, /api/resume-versions/ and its recommendations actions; Django session authentication.
+ * Declaration Index:
+ * - rmWorkspacePanel: Maps page partitions based on existing anchors.
+ * - rmReveal: Displays target partition and synchronizes title/navigation, allows explicit hash update, does not read or save data.
+ * - rmWorkspaceHash: Responds to initial URL and browser forward/backward navigation.
+ * - rmWorkspaceLink: Intercepts top-page entries, preserves unsaved drafts.
+ * - rmScroll: Displays target panel first, then smoothly scrolls, avoiding hiding content.
+ * - rmEl: Retrieves template elements.
+ * - rmText: Reads loaded internationalized text.
+ * - rmStatus: Displays plain-text operation status.
+ * - rmControls: Switches controls based on operation and pagination state.
+ * - rmRecommend: Only explicitly uses selected saved versions to request job recommendations, does not submit unsaved resumes.
+ * - rmRecommend.recommend: Calls personal recommendation action, failure retains clear source/coarse-ranking/fine-ranking failure messages.
+ * - rmRenderRecommendations: Safely displays LLM order, bilingual rationales, job sources, and skill intersections, does not convert scores into probabilities.
+ * - rmRenderResumePicker: Redraws recommendation selector based on fully loaded version metadata, labels status and current version.
+ * - rmChooseResume: User explicitly switches recommendation version, reuses un-saved confirmation and detail retrieval, does not modify current.
+ * - rmChooseResume.choose: Loads selected persisted version within operation lock.
+ * - rmReviewRecommendation: Expands skills and recommendation fields and moves focus, does not modify or save data.
+ * - rmHasRecommendationDetails: Checks if at least one slot has known value, does not fill in unknown values.
+ * - rmSource: Switches mutually exclusive upload forms.
+ * - rmChooseFile: Opens native file picker, allows re-selecting same file, does not send request.
+ * - rmFileSelected: Saves original when there is a clear file selection; canceling does not create version.
+ * - rmRequest: Sends same-origin requests, uniformly handles authentication and business errors, retains stream response.
+ * - rmRun: Executes operations serially, shows failure and releases UI state.
+ * - rmButton: Generates named version action buttons.
+ * - rmRender: Synchronizes full version selector and constructs current page history cards, does not insert HTML.
+ * - rmLoad: Reads historical current page and other page metadata, updates full version selector and history pagination only after full success.
+ * - rmPreview: Queries version and edit contract, displays original text and online units, returns persisted record.
+ * - rmClearEditor: Clears edit state and disables operations, does not delete saved versions.
+ * - rmFillEditor: Fills back unit/confirmation values and pending suggestion, marks evidence, protects unsaved suggestions, original text read-only.
+ * - rmDirty: Records unit/slot input, clears save status.
+ * - rmConfirmDiscard: Explicitly confirms leaving unsaved edits, cancels keep current content.
+ * - rmReadSlots: Reads strictly recommended values, does not infer missing fields.
+ * - rmSaveEdition: Assembles units and slots, saves independent edit snapshot.
+ * - rmSaveEdition.save: Reads new version after creating snapshot, does not overwrite original.
+ * - rmParseUploaded: Parses current pending attachment nearby.
+ * - rmParseUploaded.parse: Executes one explicit parsing within operation lock.
+ * - rmUseEdition: Sets an already saved and unedited version as current.
+ * - rmUseEdition.select: Persists personal current version selection.
+ * - rmSection: First displays target sidebar partition, then expands edit unit and positions.
+ * - rmBeforeLeave: Triggers browser leave protection when unsaved modifications exist.
+ * - rmUpload.save: Clears upload input and displays new version after successful creation.
+ * - rmRefresh.refresh: Reads list and existing selection.
+ * - rmPrevious.previous: Requests previous page by number.
+ * - rmNext.next: Requests next page by number.
+ * - rmAction.act: Executes confirmed action within operation lock.
+ * - rmUpload: Saves one PDF or text version, then displays new version; ready text opens edit partition.
+ * - rmSaveProfile: Submits personal name/email after form event validation.
+ * - rmSaveProfile.save: After PATCH success, fills back server-side data and displays save status.
+ * - rmRefresh: Explicitly refreshes current page and selected details.
+ * - rmPrevious: Loads previous page.
+ * - rmNext: Loads next page.
+ * - rmEvent: Handles progress, error, and success terminal states, returns array of concerns or null.
+ * - rmParse: Consumes extraction stream, only shows edit area and declares completion after full success, no retry or use of intermediate text.
+ * - rmAction: Dispatches preview, current selection, and confirmed deletion based on loaded versions; parsing only triggered in attachment area.
+ * - rmCancel: Cancels current stream reception, does not guarantee external model stops immediately.
+ * - rmLanguage: Synchronizes partition titles and redraws version list when language changes, retains current content.
+ * - rmInit.load: Reads list and opens current page's saved current; if none, retains selection prompt.
+ * - rmInit: Loads initial list, retains refreshable interface on failure.
+ * Variable Index:
+ * - RM_WORKSPACE_SECTIONS: DOM elements corresponding to partitions; attachments and version history shown side-by-side.
+ * - RM_WORKSPACE_TITLES: Translation keys for partition titles, does not affect business state.
+ * - RM_API: Base prefix for same-origin version API.
+ * - RM_PROFILE: Same-origin endpoint for personal profile.
+ * - RM_UNITS: Stable unit IDs, consistent with backend contract.
+ * - RM_SLOTS: Recommendation field input types, consistent with CandidateInput.
+ * - rmEl: Element query function.
+ * - rmBusy: Single operation lock.
+ * - rmController: Current parsing AbortController; terminated on page leave.
+ * - rmVersions: Metadata for current history page, no file bytes.
+ * - rmChoiceVersions: Full pagination metadata for recommendation selector, no body or file bytes.
+ * - rmPage: Current page number, starting from 1.
+ * - rmNextPage: Server-declared presence of next page.
+ * - rmSelected: Preview version ID in memory; does not write to browser storage or implicitly set current.
+ * - rmAttachment: Metadata of most recently selected/uploaded original, used for nearby parsing.
+ * - rmEditorBase: ID of currently edited saved baseline version.
+ * - rmEditorDirty: Whether there are unsaved unit or slot modifications.
+ * - rmInitialSlots: Confirmation values and pending suggestions from form; retains explicit empty array if not edited, written to new version only upon save.
+ * - rmSlotTouched: Set of slot names manually modified.
+ * - rmSuggestedCount: Number of pending suggestions loaded this time; reset to zero after first manual modification or reset.
+ * - rmRecommendations: Sorted response from selected saved versions; cleared after edit or switch.
+ * - rmRecommendationError: Current fault message key in recommendation area; cleared on success or switch.
+ * - RM_RECOMMENDATION_ERRORS: Allowed list mapping stable service error codes to Chinese and English messages.
+ * Constraints:
+ * User text is displayed only via value/textContent; each save generates a new version, does not overwrite original or alter failure semantics.
+ *
  */
 const RM_WORKSPACE_SECTIONS = {
   files: ["resume-files", "version-history"], editor: ["resume-editor"], jobs: ["job-recommendations"], profile: ["profile-panel"],
 };
 const RM_WORKSPACE_TITLES = { files: "ws_resumes", editor: "re_editor_heading", jobs: "ws_jobs", profile: "rm_account" };
-/** 输入已有 DOM 锚点，输出分区名；未知或空 URL 显示附件，不修改版本选择或模型参数。 */
+/**
+ *  Input existing DOM anchor, output partition name; show attachments for unknown or empty URL, without modifying version selection or model parameters.
+ */
 function rmWorkspacePanel(id) {
   if (id === "job-recommendations") return "jobs";
   if (id === "profile-panel") return "profile";
   if (id === "resume-editor" || (id.startsWith("section-") && RM_UNITS.includes(id.slice(8)))) return "editor";
   return "files";
 }
-/** 输入锚点及是否更新 URL；只改 hidden、标题与 aria-current，不销毁表单或发请求。
- * URL 使用 replaceState，保留显式浏览器哈希导航；anchor 标记唯一侧栏主入口，不将正文放入地址或日志。
+/**
+ *  Input anchor and whether to update URL; only change hidden, title, and aria-current, without destroying form or sending request.
+ * Use replaceState for URL; preserve explicit browser hash navigation; anchor marks unique sidebar entry point, does not include body in address or logs.
+ *
  */
 function rmReveal(id, navigate = false) {
   const panel = rmWorkspacePanel(id);
@@ -123,18 +129,24 @@ function rmReveal(id, navigate = false) {
   }
   if (navigate) window.history.replaceState(null, "", "#" + id);
 }
-/** 无外部输入；读取当前 URL 哈希并同步分区/编辑单元展开，支持刷新、分享和浏览器历史。 */
+/**
+ *  No external input; read current URL hash and synchronize partition/edit unit expansion, supporting refresh, sharing, and browser history.
+ */
 function rmWorkspaceHash() {
   const id = window.location.hash.slice(1);
   rmReveal(id);
   if (id.startsWith("section-") && RM_UNITS.includes(id.slice(8))) rmEl(id).open = true;
 }
-/** 输入顶部同页入口点击；保留新标签页快捷键，普通点击取消页面重载并显示目标，保留所有输入及离开保护状态。 */
+/**
+ *  Input click on top-of-page entry; preserve shortcut keys for new tab, normal click cancels page reload and displays target, retains all inputs and leave protection state.
+ */
 function rmWorkspaceLink(event) {
   if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
   event.preventDefault(); rmReveal(event.currentTarget.dataset.workspaceLink, true);
 }
-/** 输入已存在元素 ID；先展开所在分区再滚动，用户数据和焦点由调用者处理。 */
+/**
+ *  Input existing element ID; expand containing partition first, then scroll; user data and focus handled by caller.
+ */
 function rmScroll(id) {
   rmReveal(id, true); rmEl(id).scrollIntoView({ behavior: "smooth", block: "start" });
 }
@@ -146,7 +158,9 @@ const RM_SLOTS = {
   gpa: "number", months_experience: "number", academic_level: "select", hours_per_week: "number",
   length_of_commitment: "number", num_publications: "integer", commit_to_summer: "boolean",
 };
-/** 输入模板 ID，返回 DOM 节点；缺失节点明确暴露模板契约错误。 */
+/**
+ *  Input template ID, return DOM node; missing node explicitly exposes template contract error.
+ */
 const rmEl = (id) => document.getElementById(id);
 let rmBusy = false;
 let rmController = null;
@@ -172,14 +186,20 @@ const RM_RECOMMENDATION_ERRORS = {
   resume_not_ready: "rm_unready",
 };
 
-/** 输入翻译 key 与参数，返回当前语言纯文本；i18n.js 是模板显式先加载的依赖。 */
+/**
+ *  Input translation key and parameters, return current language plain text; i18n.js is explicit dependency loaded beforehand.
+ */
 function rmText(key, values = {}) { return window.AppI18n.t(key, values); }
-/** 输入状态与错误标志，输出文本和颜色；不记录用户正文或服务器响应到日志。 */
+/**
+ *  Input status and error flags, output text and color; does not log user text or server responses.
+ */
 function rmStatus(message, error = false) {
   rmEl("operation-status").textContent = message;
   rmEl("operation-status").classList.toggle("error", error);
 }
-/** 读取页面状态设置 disabled/aria-busy；允许取消解析但不允许并发写入。 */
+/**
+ *  Read page state to set disabled/aria-busy; allows cancellation of parsing but disallows concurrent writes.
+ */
 function rmControls() {
   for (const id of ["upload-submit", "choose-file", "upload-kind", "version-label", "resume-file", "resume-text", "parse-mode", "refresh-versions", "profile-save", "profile-name", "profile-email"]) rmEl(id).disabled = rmBusy;
   for (const button of rmEl("versions-list").querySelectorAll("button")) button.disabled = rmBusy;
@@ -205,25 +225,33 @@ function rmControls() {
   rmRenderRecommendations();
   rmEl("versions-list").setAttribute("aria-busy", String(rmBusy));
 }
-/** 读取用户选项，仅显示对应文件/文本输入；不清空另一输入或发送请求。 */
+/**
+ *  Read user options, only display corresponding file/text input; does not clear other input or send request.
+ */
 function rmSource() {
   const pdf = rmEl("upload-kind").value === "pdf";
   rmEl("pdf-input").hidden = !pdf;
   rmEl("text-input").hidden = pdf;
   rmEl("upload-submit").hidden = pdf;
 }
-/** 无外部参数；空置原生输入以允许选择同一文件；忙碌时不打开，不写数据库或自动重试。 */
+/**
+ *  No external parameters; clear native input to allow selecting same file again; do not open when busy, no database write or automatic retry.
+ */
 function rmChooseFile() {
   if (rmBusy) return;
   rmEl("resume-file").value = "";
   rmEl("resume-file").click();
 }
-/** 输入文件选择 change 事件；非空且 PDF 模式才走既有上传校验/CSRF，取消不丢弃在线稿或解析。 */
+/**
+ *  Input file selection change event; only proceed with existing upload validation/CSRF if non-empty and in PDF mode; canceling does not discard online draft or parsed content.
+ */
 async function rmFileSelected(event) {
   if (rmBusy || rmEl("upload-kind").value !== "pdf" || !rmEl("resume-file").files.length) return;
   await rmUpload(event);
 }
-/** 输入接口相对路径、fetch 参数及内部指定 base，返回响应；写操作带 CSRF，错误明确抛出。 */
+/**
+ *  Input relative path to interface, fetch parameters, and internal base, return response; write operations include CSRF, errors thrown explicitly.
+ */
 async function rmRequest(path = "", options = {}, base = RM_API) {
   const headers = new Headers(options.headers);
   if (options.method && options.method !== "GET") headers.set("X-CSRFToken", rmEl("csrf-token").content);
@@ -241,7 +269,9 @@ async function rmRequest(path = "", options = {}, base = RM_API) {
   }
   return response;
 }
-/** 输入无参数异步操作；单操作执行，异常展示并记录类型，finally 释放全部控件。 */
+/**
+ *  Input no-parameter asynchronous operation; execute single operation, display and record exception type, finally release all controls.
+ */
 async function rmRun(operation) {
   if (rmBusy) return;
   rmBusy = true;
@@ -252,7 +282,9 @@ async function rmRun(operation) {
     rmStatus(error.name === "AbortError" ? rmText("rm_cancelled") : error.message, true);
   } finally { rmBusy = false; rmControls(); }
 }
-/** 输入动作、ID 和翻译 key，返回 type=button 的安全 DOM 节点，不触发动作。 */
+/**
+ *  Input action, ID, and translation key, return safe DOM node with type=button, does not trigger action.
+ */
 function rmButton(action, id, key) {
   const button = document.createElement("button");
   button.type = "button";
@@ -262,7 +294,9 @@ function rmButton(action, id, key) {
   button.textContent = rmText(key);
   return button;
 }
-/** 读取完整选择元数据、当前历史页及预览 ID，同步选项/卡片；下载仅用 UUID，不解释用户 HTML。 */
+/**
+ *  Read full selection metadata, current history page, and preview ID, synchronize options/cards; download uses only UUID, does not interpret user HTML.
+ */
 function rmRender() {
   rmRenderResumePicker();
   const list = rmEl("versions-list");
@@ -335,8 +369,9 @@ function rmRender() {
   rmEl("page-number").textContent = rmText("rm_page", { page: rmPage });
   rmControls();
 }
-/** 输入历史页编号；读取全部页元数据以完整列出可选版本，复用目标页响应，不改变后端分页。
- * 所有请求成功才替换列表；失败交给操作锁显示，不截断或回退。仅选择后读取正文和编辑契约。
+/**
+ *  Input the page number of the history; read all page metadata to fully list selectable versions, reuse the target page response without altering backend pagination.
+ * Replace the list only when all requests succeed; failures are handed over to the operation lock for display, without truncation or rollback. Only after selection, read the body and edit contract.
  */
 async function rmLoad(page = rmPage) {
   const data = await (await rmRequest("?page=" + page)).json();
@@ -356,7 +391,9 @@ async function rmLoad(page = rmPage) {
   rmEl("version-count").textContent = String(data.count);
   rmRender();
 }
-/** 输入本人版本 ID 与内部已确认标志，返回详情；切换前确认未保存内容，ready 再读取单元契约，失败不冒充旧结果。 */
+/**
+ *  Input the personal version ID and internal confirmed flag, return details; confirm unsaved content before switching, ready before reading the unit contract, fail without impersonating old results.
+ */
 async function rmPreview(id, discardConfirmed = false) {
   if (!discardConfirmed && !rmConfirmDiscard()) return null;
   rmSelected = id;
@@ -378,7 +415,9 @@ async function rmPreview(id, discardConfirmed = false) {
   rmRender();
   return version;
 }
-/** 清空未保存状态和下载指针，禁用编辑；调用前由动作入口确认丢弃，不删除服务端数据。 */
+/**
+ *  Clear unsaved state and download pointer, disable editing; confirmation of discarding must be made by action entry prior to calling, do not delete server-side data.
+ */
 function rmClearEditor() {
   rmRecommendations = null; rmRecommendationError = null;
   rmEditorBase = null; rmEditorDirty = false; rmInitialSlots = {}; rmSlotTouched.clear(); rmSuggestedCount = 0;
@@ -389,8 +428,9 @@ function rmClearEditor() {
   rmEl("editor-state").textContent = rmText("re_editor_empty");
   rmControls();
 }
-/** 输入授权编辑响应；确认值优先，原件有依据的建议填入待保存草稿并展示证据，编辑稿不重新提取。
- * 自动建议未保存时禁用设 current 并保护离开；未知保持空白，确认过的 0/false/[] 不覆盖。
+/**
+ *  Input the authorized edit response; prioritize confirmed values, insert suggestions with valid basis into the draft to be saved and display evidence, do not re-extract the edited draft.
+ * Disable setting current when automatic suggestion is unsaved and protect against leaving; keep blank for unknown, do not overwrite confirmed 0/false/[] values.
  */
 function rmFillEditor(editor) {
   rmEditorBase = editor.id;
@@ -437,7 +477,9 @@ function rmFillEditor(editor) {
   rmEditorDirty = rmSuggestedCount > 0;
   rmControls();
 }
-/** 输入真实 input/change 事件；标记人工改动，推荐字段本次清空表示未知，不进行自动抽取。 */
+/**
+ *  Input real input/change event; mark manual changes, recommend clearing fields this time to indicate unknown, do not perform automatic extraction.
+ */
 function rmDirty(event) {
   if (!rmEditorBase) return;
   rmRecommendations = null; rmRecommendationError = null;
@@ -447,13 +489,17 @@ function rmDirty(event) {
   rmEl("editor-state").textContent = rmText("re_unsaved");
   rmControls();
 }
-/** 读取未保存状态并返回是否允许切换；只有明确确认才丢弃工作区，无自动保存或重试。 */
+/**
+ *  Read unsaved status and return whether switching is allowed; only explicitly confirmed actions discard the workspace, no auto-save or retry.
+ */
 function rmConfirmDiscard() {
   if (!rmEditorDirty) return true;
   if (!window.confirm(rmText("re_discard"))) return false;
   return true;
 }
-/** 输出 CandidateInput 的可选字段；逗号标签保持大小写，数字严格校验，空白未知不补零。 */
+/**
+ *  Output optional fields of CandidateInput; comma-separated tags preserve case, numbers strictly validated, blanks and unknowns do not pad with zeros.
+ */
 function rmReadSlots() {
   const slots = {};
   for (const [key, kind] of Object.entries(RM_SLOTS)) {
@@ -475,8 +521,9 @@ function rmReadSlots() {
   }
   return slots;
 }
-/** 输入编辑表单事件；校验后保存独立新稿，不覆盖原件/历史或自动设 current。
- * submitter 为推荐区保存按钮时，成功后返回推荐区；其他保存入口保持原编辑位置。
+/**
+ *  Input edit form event; validate and save as a separate new draft, do not overwrite original/history or automatically set current.
+ * When submitter is the recommendation area save button, return to the recommendation area on success; other save entries maintain original edit position.
  */
 async function rmSaveEdition(event) {
   event.preventDefault();
@@ -489,7 +536,9 @@ async function rmSaveEdition(event) {
   const base = rmEditorBase;
   const returnToRecommendations = event.submitter?.id === "recommendation-save";
   const body = JSON.stringify({ label: rmEl("edition-label").value.trim(), units, slots });
-  /** 成功 POST 后才清除未保存状态，读取新稿作为下一次编辑基线；失败保留原输入。 */
+  /**
+ *  Clear unsaved state only after successful POST, read the new draft as the baseline for next edit; retain original input on failure.
+ */
   async function save() {
     const version = await (await rmRequest(encodeURIComponent(base) + "/editions/", { method: "POST", headers: { "Content-Type": "application/json" }, body })).json();
     rmEditorDirty = false;
@@ -499,36 +548,47 @@ async function rmSaveEdition(event) {
   }
   await rmRun(save);
 }
-/** 输入可选按钮事件；只解析当前 uploaded 附件，明确确认未保存稿，不重复解析 ready/failed。
- * 推荐区触发时成功后返回该区；附件原入口保留原位置，不改变解析模式或供应商调用。
+/**
+ *  Input optional button event; parse only the current uploaded attachment, explicitly confirm unsaved draft, do not re-parse ready/failed states.
+ * On recommendation area trigger, return to that area on success; attachment original entry maintains original position, no change in parsing mode or vendor call.
  */
 async function rmParseUploaded(event) {
   if (rmBusy || rmAttachment?.status !== "uploaded" || !rmConfirmDiscard()) return;
   const id = rmAttachment.id;
-  // 原生事件在异步等待后清空 currentTarget；提前保存入口标志以保持解析后的导航位置。
+  // Clear currentTarget after asynchronous wait for native events; save entry flag in advance to preserve navigation position after parsing.
   const returnToRecommendations = event?.currentTarget?.id === "recommendation-parse";
-  /** 保持全页写操作锁，复用一次显式解析的流消费。 */
+  /**
+ *  Maintain full-page write operation lock, reuse one explicit stream consumption.
+ */
   async function parse() { await rmParse(id); }
   await rmRun(parse);
   if (returnToRecommendations && rmEditorBase) rmScroll("job-recommendations");
 }
-/** 只有已保存且未再次改动的版本可设 current；改动需先保存，避免把未保存正文误认为已采用。 */
+/**
+ *  Only saved and unmodified versions can be set as current; modifications must be saved first to avoid mistaking unsaved content for adopted.
+ */
 async function rmUseEdition() {
   if (rmBusy || !rmEditorBase || rmEditorDirty) return;
   const id = rmEditorBase;
-  /** POST 当前选择后刷新元数据，不清空用户已保存编辑内容。 */
+  /**
+ *  Refresh metadata after POSTing the current selection, do not clear user-saved edit content.
+ */
   async function select() {
     await rmRequest(encodeURIComponent(id) + "/current/", { method: "POST" });
     await rmLoad(); rmStatus(rmText("rm_selected"));
   }
   await rmRun(select);
 }
-/** 无外部输入；仅本人已保存且未改动的版本允许请求，CSRF 与全页串行锁沿用版本接口。 */
+/**
+ *  No external input; only personally saved and unmodified versions are allowed to request, CSRF and full-page serial lock reused from version interface.
+ */
 async function rmRecommend() {
   if (rmBusy || !rmEditorBase || rmEditorDirty || !rmHasRecommendationDetails()) return;
   const id = rmEditorBase;
   rmRecommendations = null; rmRecommendationError = null;
-  /** 读取保存快照的真实排序；异常展示稳定文案并交给操作锁记录，不重试或保留过期结果。 */
+  /**
+ *  Read real snapshot sorting; on exception, display stable text and hand over to operation lock for logging, do not retry or retain expired results.
+ */
   async function recommend() {
     rmEl("recommendation-state").textContent = rmText("rj_loading");
     try {
@@ -541,13 +601,16 @@ async function rmRecommend() {
   }
   await rmRun(recommend);
 }
-/** 读取已确认/待确认槽位；至少一个非 null/undefined 项表示已知，[]/0/false 保持既有语义。 */
+/**
+ *  Read confirmed/pending slots; at least one non-null/undefined item indicates known, []/0/false retain existing semantics.
+ */
 function rmHasRecommendationDetails() {
   for (const key of Object.keys(RM_SLOTS)) if (rmInitialSlots[key] !== null && rmInitialSlots[key] !== undefined) return true;
   return false;
 }
-/** 输入全部元数据及当前预览 ID；生成纯文本选项，包含状态、保存时间和 current 标记。
- * 不自动选择最新稿，不改变当前面试简历；语言和选中值同步，所有正文仍按用户选择加载。
+/**
+ *  Input full metadata and current preview ID; generate plain text options including status, save time, and current marker.
+ * Do not automatically select latest draft, do not alter current interview resume; language and selected value synchronized, all body still loaded per user selection.
  */
 function rmRenderResumePicker() {
   const picker = rmEl("recommendation-resume");
@@ -563,11 +626,15 @@ function rmRenderResumePicker() {
   }
   picker.value = rmSelected || "";
 }
-/** 输入用户 change 事件；取消丢弃时还原选择器，批准后串行读取所选详情，不请求推荐或自动保存。 */
+/**
+ *  Input user change event; restore selector on cancel discard, serially read selected details after approval, do not request recommendations or auto-save.
+ */
 async function rmChooseResume(event) {
   const id = event.currentTarget.value;
   if (rmBusy || !id || id === rmSelected || !rmConfirmDiscard()) { rmRenderResumePicker(); return; }
-  /** 已确认切换后加载同一预览/编辑路径，维持保存和权限边界。 */
+  /**
+ *  After confirmed switch, load same preview/edit path, maintain save and permission boundaries.
+ */
   async function choose() {
     await rmPreview(id, true);
     rmScroll("job-recommendations");
@@ -575,7 +642,9 @@ async function rmChooseResume(event) {
   await rmRun(choose);
   if (rmSelected === id) rmEl("recommendation-resume").focus({ preventScroll: true });
 }
-/** 用户显式核对时展开技能和可选推荐字段，滚动及聚焦；不改内容、不进行推断或 API 写入。 */
+/**
+ *  Expand skills and optional recommendation fields when user explicitly verifies, scroll and focus; do not modify content, do not infer or write to API.
+ */
 function rmReviewRecommendation() {
   if (rmBusy || !rmEditorBase) return;
   rmEl("section-skills").open = true;
@@ -584,9 +653,10 @@ function rmReviewRecommendation() {
   rmScroll("section-skills");
   rmEl("slot-skills").focus({ preventScroll: true });
 }
-/** 读取当前选择、保存状态和服务响应，输出下一步动作和纯 DOM 岗位卡。
- * messageKey 按故障、待保存、未就绪、未知资料、可推荐顺序决定提示；最终名次来自 LLM。
- * 原分数不作概率；理由按当前语言以 textContent 输出，语言切换不发 API 请求。
+/**
+ *  Read current selection, save status, and service response, output next action and plain DOM job card.
+ * messageKey determines prompt order: failure, unsaved, not ready, unknown data, recommended; final ranking comes from LLM.
+ * Original score not used as probability; reason output as textContent in current language, language switch does not trigger API request.
  */
 function rmRenderRecommendations() {
   rmEl("recommendation-review").hidden = !rmEditorBase;
@@ -643,7 +713,9 @@ function rmRenderRecommendations() {
     list.append(card);
   }
 }
-/** 输入侧栏点击事件；先显示目标分区，再展开指定编辑单元并滚动；保留新标签页快捷键，不修改文本或请求模型。 */
+/**
+ *  Input sidebar click event; first show target section, then expand specified edit unit and scroll; preserve new tab shortcut, do not modify text or request model.
+ */
 function rmSection(event) {
   const link = event.target.closest("a[href^='#']");
   if (!link || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
@@ -652,9 +724,13 @@ function rmSection(event) {
   if (id.startsWith("section-") && RM_UNITS.includes(id.slice(8))) rmEl(id).open = true;
   rmScroll(id);
 }
-/** 输入 beforeunload 事件；有未保存文本才启用浏览器原生离开提示，不在本地存储内容。 */
+/**
+ *  Input beforeunload event; enable browser-native leave prompt only if unsaved text exists, do not store content locally.
+ */
 function rmBeforeLeave(event) { if (rmEditorDirty) { event.preventDefault(); event.returnValue = ""; } }
-/** 输入文本提交或 PDF 选择事件；验证后保存一次原件，成功才清空输入，ready 文本显示编辑区，不自动解析或切换 current。 */
+/**
+ *  Input text submission or PDF selection event; validate and save original once, clear input only on success, ready text displayed in edit area, do not auto-parse or switch current.
+ */
 async function rmUpload(event) {
   event.preventDefault();
   if (rmBusy) return;
@@ -672,7 +748,9 @@ async function rmUpload(event) {
     body = JSON.stringify({ label, text });
   }
   if (!rmConfirmDiscard()) return;
-  /** 请求成功后才清空输入；正文预览从服务端读取，不把客户端缓存当持久化成功。 */
+  /**
+ *  Clear input only after successful request; text preview read from server, do not treat client cache as persistent success.
+ */
   async function save() {
     rmStatus(rmText("rm_saving"));
     const version = await (await rmRequest("", { method: "POST", headers, body })).json();
@@ -683,12 +761,16 @@ async function rmUpload(event) {
   }
   await rmRun(save);
 }
-/** 输入资料表单事件；仅读取姓名和邮箱，复用操作锁，失败保留填写内容，不修改账号身份。 */
+/**
+ *  Input profile form event; read only name and email, reuse operation lock, retain filled content on failure, do not modify account identity.
+ */
 async function rmSaveProfile(event) {
   event.preventDefault();
   if (rmBusy) return;
   const body = JSON.stringify({ first_name: rmEl("profile-name").value.trim(), email: rmEl("profile-email").value.trim() });
-  /** 提交本人资料并用响应回填字段，只有保存成功才显示完成；不自动重试。 */
+  /**
+ *  Submit personal profile and backfill fields with response, only show completion on successful save; no auto-retry.
+ */
   async function save() {
     rmStatus(rmText("rm_profile_saving"));
     const data = await (await rmRequest("", { method: "PATCH", headers: { "Content-Type": "application/json" }, body }, RM_PROFILE)).json();
@@ -698,26 +780,40 @@ async function rmSaveProfile(event) {
   }
   await rmRun(save);
 }
-/** 显式刷新，不自动重放任何写操作；详情按原选择更新，外部删除错误仍明确展示。 */
+/**
+ *  Explicit refresh, do not auto-replay any write operations; details update per original selection, external deletion errors still clearly displayed.
+ */
 async function rmRefresh() {
   if (!rmConfirmDiscard()) return;
-  /** 刷新列表及已选详情，所有响应来自真实授权接口。 */
+  /**
+ *  Refresh list and selected details, all responses from real authorized interface.
+ */
   async function refresh() { await rmLoad(); if (rmSelected) await rmPreview(rmSelected, true); rmStatus(rmText("rm_refreshed")); }
   await rmRun(refresh);
 }
-/** 向上一页移动；按钮与函数双重检查边界，失败保持当前页。 */
+/**
+ *  Move to previous page; double-check boundary via button and function, fail to keep current page.
+ */
 async function rmPrevious() {
-  /** 使用当前页编号请求上一页，无写入。 */
+  /**
+ *  Use current page number to request previous page, no write operation.
+ */
   async function previous() { await rmLoad(rmPage - 1); }
   if (rmPage > 1) await rmRun(previous);
 }
-/** 仅服务端存在 next 时读取下一页，不跟随任意 URL。 */
+/**
+ *  Read next page only when server-side next exists, do not follow arbitrary URL.
+ */
 async function rmNext() {
-  /** 使用编号构造本地下一页查询，不依赖外部地址。 */
+  /**
+ *  Construct local next page query using number, do not rely on external address.
+ */
   async function next() { await rmLoad(rmPage + 1); }
   if (rmNextPage) await rmRun(next);
 }
-/** 输入解析事件，显示进度/必要疑点；错误抛出且不采用文本，result 返回疑点数组，其余返回 null。 */
+/**
+ *  Input parsing event, display progress/necessary doubts; throw error and do not use text, result returns array of doubts, others return null.
+ */
 function rmEvent(data) {
   if (data.type === "error") throw new Error(data.detail);
   if (data.type === "progress") rmStatus(data.detail || rmText("rm_parsing"));
@@ -731,7 +827,9 @@ function rmEvent(data) {
   }
   return null;
 }
-/** 输入 uploaded 版本 ID；用当前模式解析，严格消费 UTF-8 NDJSON；取消/失败保持服务端失败语义。 */
+/**
+ *  Input the uploaded version ID; parse using the current mode, strictly consuming UTF-8 NDJSON; cancellation or failure maintains server-side failure semantics.
+ */
 async function rmParse(id) {
   const controller = new AbortController();
   rmController = controller; rmControls();
@@ -782,7 +880,9 @@ async function rmParse(id) {
   rmReveal("resume-editor", true);
   rmStatus(rmText("rm_parsed"));
 }
-/** 输入列表点击事件，预览显示编辑区且只操作已加载 ID；删除需明确确认，引用冲突由后端保持 409。 */
+/**
+ *  Handle list click events with preview display in the edit area, operating only on loaded IDs; deletion requires explicit confirmation, and reference conflicts are maintained by the backend with HTTP 409.
+ */
 async function rmAction(event) {
   const button = event.target.closest("button[data-action]");
   if (!button || rmBusy) return;
@@ -792,7 +892,9 @@ async function rmAction(event) {
   if (!version) return;
   if ((action === "preview" || action === "current" || (action === "delete" && rmSelected === id)) && !rmConfirmDiscard()) return;
   if (action === "delete" && !window.confirm(rmText("rm_delete_confirm"))) return;
-  /** 在操作锁内调用唯一明确动作；不引入自动选择、解析重试或删除绕过。 */
+  /**
+ *  Call a single, unambiguous action within the operation lock; do not introduce automatic selection, parsing retry, or deletion bypass.
+ */
   async function act() {
     if (action === "preview") { await rmPreview(id, true); rmScroll(rmEditorBase ? "resume-editor" : "resume-files"); rmStatus(""); }
     else if (action === "current") {
@@ -812,9 +914,13 @@ async function rmAction(event) {
   }
   await rmRun(act);
 }
-/** 取消唯一解析接收并禁用重复取消；服务端状态刷新在原操作结束后执行，无重试。 */
+/**
+ *  Cancel the sole parsing reception and disable duplicate cancellation; refresh server state after the original operation completes, with no retries.
+ */
 function rmCancel() { if (rmController) { rmController.abort(); rmEl("cancel-parse").disabled = true; } }
-/** 界面语言变化后同步分区标题、卡片、分页与编辑/附件状态文字，不重新读取或改写简历内容。 */
+/**
+ *  After language change, synchronize partition titles, cards, pagination, and edit/attachment status text; do not re-read or rewrite resume content.
+ */
 function rmLanguage() {
   rmWorkspaceHash();
   rmRenderRecommendations();
@@ -822,10 +928,14 @@ function rmLanguage() {
   rmEl("editor-state").textContent = rmSuggestedCount ? rmText("re_suggestions", { count: rmSuggestedCount }) : rmText(rmEditorDirty ? "re_unsaved" : rmEditorBase ? "re_editor_loaded" : "re_editor_empty");
   rmEl("uploaded-file-name").textContent = rmAttachment ? rmAttachment.original_name + " · " + rmText("rm_status_" + rmAttachment.status) : rmText("re_upload_empty");
 }
-/** 初始化上传显隐并加载列表/当前页 current；允许失败后显式刷新，不自动重试。 */
+/**
+ *  Initialize upload visibility and load the list/current page; allow explicit refresh after failure, without automatic retry.
+ */
 async function rmInit() {
   rmSource(); rmClearEditor(); rmLanguage();
-  /** 初始读取已保存 current；没有 current 时保持空编辑提示，不静默选择其他版本。 */
+  /**
+ *  Initially read the saved current; if no current exists, maintain empty edit prompt, without silently selecting another version.
+ */
   async function load() {
     await rmLoad();
     for (const version of rmVersions) if (version.is_current && version.status === "ready") { await rmPreview(version.id); break; }

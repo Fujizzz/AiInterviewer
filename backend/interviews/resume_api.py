@@ -1,26 +1,40 @@
-"""职责：提供 PDF 上传及可取消的阶段流，不写业务数据库或保存简历。
-实现：默认传统提取，advanced 显式启用视觉校对；在 Celery 或开发进程执行；multipart 有界读取；
-PDF 库只在隔离进程解析，视觉最多三页并发并按实际完成数发进度。
-关联：api.urls 注册 /api/resume/parse/；resumes.js 消费版本提取 NDJSON；Agent 校验转写。
+"""Responsibilities: provides PDF upload and cancellable stage stream, without writing to business
+database or saving resumes.
+Implementation: default traditional extraction, advanced explicitly enabled for visual review;
+executed in Celery or development process; multipart bounded reading; PDF library parses only in
+isolated process; visual review at most three pages concurrent, progress sent by actual completion
+count.
+Related Modules:
+- api.urls registers /api/resume/parse/;
+- resumes.js consumes version extraction NDJSON;
+- Agent validates transcription.
 
-目录：
-- event_line：将单个事件编码为 NDJSON 字节。
-- review_pages：按有限滑动窗口调度校对，失败或关闭时清理所有在途任务。
-- parse_resume_pdf：验证上传，返回阶段流或请求错误。
-- resume_events：执行规则后视觉校对、终态和资源释放。
-- resume_failure_code：从固定异常码和安全诊断中识别失败类型，不回显原始异常。
+Declaration Index:
+- event_line: encodes single event into NDJSON bytes.
+- review_pages: schedules visual review with limited sliding window; cleans up all in-flight tasks
+  on failure or closure.
+- parse_resume_pdf: validates upload, returns stage stream or request error.
+- resume_events: executes rules, visual review, final state, and resource release.
+- resume_failure_code: identifies failure type from fixed error codes and safe diagnostics, without
+  echoing original exception.
 
-关键变量：
-- logger：记录请求标识、阶段、页数与耗时，不记录上传文件名或文本。
-- VISION_CONCURRENCY：单份 PDF 最多同时执行的视觉校对请求数，设为 3。
-- VISION_FAILURE_DETAILS：已知视觉失败码的固定中文提示；未知异常仍使用既有通用提示。
+Variable Index:
+- logger: logs request ID, stage, page count, and duration, without upload file name or text.
+- VISION_CONCURRENCY: maximum concurrent visual review requests per PDF, set to 3.
+- VISION_FAILURE_DETAILS: fixed Chinese prompts for known visual failure codes; unknown exceptions
+  use existing generic prompt.
 
-约束说明：
-traditional 仅传统提取；advanced 必须完成规则提取和视觉校对，失败不回退为传统成功。
-流开始后失败通过 error 事件表示，不能依靠 HTTP 200 判定完成。
-Django 上传处理器可能临时落盘，响应关闭时框架删除临时文件；业务不保留文件。
-单份 PDF 使用有界并发；失败或断连取消在途任务并停止调度，随后关闭客户端。
-ASGI 入口限制多份上传总数；已被供应商接收的请求不保证停止计费。
+Constraint Notes:
+traditional: only traditional extraction;
+advanced: must complete rule-based extraction and visual review; failure does not fall back to
+traditional success.
+Stream failure signaled via error event; cannot rely on HTTP 200 to determine completion.
+Django upload processor may temporarily persist file; framework deletes temporary file upon response
+close; business does not retain file.
+Per PDF uses bounded concurrency; failure or disconnection cancels in-flight tasks and stops
+scheduling, then closes client.
+ASGI entry limits total number of uploads; requests already received by vendor are not guaranteed to
+stop billing.
 """
 
 import asyncio
@@ -44,21 +58,36 @@ from .resume_vision import ResumeVision
 logger = logging.getLogger(__name__)
 VISION_CONCURRENCY = 3
 VISION_FAILURE_DETAILS = {
-    "resume_correction_range_invalid": "视觉模型返回的修改行号越界或范围无效，已拒绝采用。",
-    "resume_overlapping_corrections": "视觉模型返回了相互重叠的修改，已拒绝采用。",
-    "resume_empty_correction": "视觉模型返回了缺少依据的修改，已拒绝采用。",
-    "resume_page_mismatch": "视觉模型返回的页码与原页不一致，已拒绝采用。",
-    "resume_page_omitted": "视觉模型的修改会删除整页内容，已拒绝采用。",
-    "resume_image_required": "视觉校对缺少页面图像，请检查 PDF 渲染日志。",
-    "resume_vision_empty_choices": "视觉服务未返回可用结果。",
-    "resume_vision_incomplete_or_refused": "视觉服务返回不完整结果或拒绝了请求，已拒绝采用。",
-    "timeout": "视觉服务请求超时；未采用任何未完成的校对结果。",
-    "invalid_json": "视觉服务响应未通过 JSON 结构校验，已拒绝采用。",
+    "resume_correction_range_invalid": (
+        "The vision model returned an out-of-range or invalid correction; it was rejected."
+    ),
+    "resume_overlapping_corrections": (
+        "The vision model returned overlapping corrections; they were rejected."
+    ),
+    "resume_empty_correction": (
+        "The vision model returned a correction without supporting evidence; it was rejected."
+    ),
+    "resume_page_mismatch": (
+        "The page number returned by the vision model "
+        "does not match the source page; it was rejected."
+    ),
+    "resume_page_omitted": (
+        "The vision model's correction would remove an entire page; it was rejected."
+    ),
+    "resume_image_required": "Visual review requires page images. Check the PDF rendering logs.",
+    "resume_vision_empty_choices": "The vision service returned no usable result.",
+    "resume_vision_incomplete_or_refused": (
+        "The vision service returned an incomplete result or refused the request; it was rejected."
+    ),
+    "timeout": "The vision service request timed out; no incomplete review result was applied.",
+    "invalid_json": "The vision service response failed JSON schema validation; it was rejected.",
 }
 
 
 def resume_failure_code(error):
-    """输入任意异常，输出有限失败码；固定 ValueError 码优先，其余读取安全诊断，无正文或状态修改。"""
+    """Inputs arbitrary exception, outputs limited failure code; fixed ValueError code takes
+    precedence; others read from safe diagnostics, no body or state modification.
+    """
     if isinstance(error, APITimeoutError):
         return "timeout"
     if isinstance(error, ValueError) and str(error) in VISION_FAILURE_DETAILS:
@@ -67,16 +96,22 @@ def resume_failure_code(error):
 
 
 def event_line(kind: str, **data) -> bytes:
-    """输入事件类型和 JSON 字段，输出以换行结束的 UTF-8；不发送网络请求。"""
+    """Inputs event type and JSON fields, outputs UTF-8 bytes ending with newline; no network
+    request sent.
+    """
     return (json.dumps({"type": kind, **data}, ensure_ascii=False) + "\n").encode("utf-8")
 
 
 async def review_pages(agent, pages):
-    """输入 Agent 和原序页面，按完成顺序产生校对结果；单份最多三项在途。
+    """Inputs Agent and original page order, produces review results in completion order; up to
+    three tasks per document in flight.
 
-    先检查同批完成任务是否失败，再交付结果并补充窗口，避免已知失败后继续提交。
-    all_tasks 保存本批全部任务以取回异常；finally 取消并等待未完成项，调用方随后才能
-    关闭共享模型客户端。异步生成器须由调用者使用 aclosing 包裹，确保消费中断也清理。
+    First checks if completed tasks in same batch failed, then delivers results and supplements
+    window, avoiding submission after known failure.
+    all_tasks stores all tasks in batch for exception retrieval; finally cancels and waits for
+    unfinished items; caller can only close shared model client afterward.
+    Async generator must be wrapped with aclosing by caller to ensure cleanup even on consumption
+    interruption.
     """
     remaining = iter(pages)
     pending = set()
@@ -102,20 +137,25 @@ async def review_pages(agent, pages):
         for task in all_tasks:
             if not task.done():
                 task.cancel()
-        # 业务错误由 task.result 原样传播；此处收集取消与同批异常，避免未取回任务异常。
+        # Business errors are propagated verbatim via task.result; here collect cancellation and
+        # batch exceptions to avoid uncollected task exceptions.
         await asyncio.gather(*all_tasks, return_exceptions=True)
 
 
 async def parse_resume_pdf(request):
-    """输入已认证同源 multipart POST，输出 NDJSON 流或固定格式 4xx 错误。
+    """Input is authenticated same-origin multipart POST, output is NDJSON stream or fixed format
+    4xx error.
 
-    接受一个 file 和可选 mode（traditional 默认或 advanced）；内容由规则层再校验。
-    有界读取避免把超限上传载入业务内存；上传解析在工作线程，避免阻塞 ASGI 循环。
-    生产把一次性输入和进度交给 Redis/Celery，流关闭将通知 worker 取消。
-    未修改全局 JSON API 解析器、WebSocket 消息上限和已有面试行为。
+    Accepts one file and optional mode (traditional default or advanced); content is re-validated by
+    rule layer.
+    Bounded reading avoids loading oversized uploads into business memory; upload parsing occurs in
+    worker threads to prevent blocking ASGI loop.
+    Production hands off one-time input and progress to Redis/Celery, stream closure notifies worker
+    cancellation.
+    No changes to global JSON API parser, WebSocket message limit, or existing interview behavior.
     """
     if request.method != "POST":
-        response = JsonResponse({"error": "仅支持 POST。"}, status=405)
+        response = JsonResponse({"error": "POST is the only supported method."}, status=405)
         response["Allow"] = "POST"
         return response
     files = await asyncio.to_thread(getattr, request, "FILES")
@@ -128,13 +168,16 @@ async def parse_resume_pdf(request):
         or len(files.getlist("file")) != 1
     ):
         return JsonResponse(
-            {"error": "请提交一个 file，mode 仅支持 traditional 或 advanced。"}, status=400
+            {"error": "Submit one file. mode must be traditional or advanced."}, status=400
         )
     upload = files["file"]
     if not 0 < upload.size <= MAX_BYTES:
-        return JsonResponse({"error": "PDF 必须非空且不超过 10 MiB。"}, status=413)
+        return JsonResponse(
+            {"error": ("The PDF must be non-empty and no larger than 10 MiB.")}, status=413
+        )
     data = await asyncio.to_thread(upload.read, MAX_BYTES + 1)
-    # 生产队列不可用时由队列层明确失败；开发 inline 是显式模式，绝非故障回退。
+    # When production queue is unavailable, failure is explicitly signaled by queue layer;
+    # development inline is an explicit mode, never a fallback for failure.
     if settings.PDF_TASK_EXECUTION == "celery":
         from .pdf_queue import queued_resume_events
 
@@ -148,12 +191,15 @@ async def parse_resume_pdf(request):
 
 
 async def resume_events(data: bytes, *, mode="traditional"):
-    """输入有界 PDF 和模式（默认 traditional），产生 progress/page/result 或 error。
+    """Input is bounded PDF and mode (default traditional), output is progress/page/result or error.
 
-    traditional 直接返回规则文本与提示，不构造模型；advanced 进行原有有界视觉校对。
-    页面响应不包含内部修改建议；
-    任一页失败不发送 result、不自动回退；取消向上传播且 finally 关闭客户端。
-    错误事件附有限 code 与固定提示；日志记录阶段、请求标识、异常类型及数值状态，不回显正文。
+    Traditional directly returns rule text and prompts without constructing model; advanced performs
+    original bounded visual verification.
+    Page response does not include internal revision suggestions;
+    Any page failure prevents result delivery and does not trigger automatic rollback; cancellation
+    propagates upward and finally closes client.
+    Error events carry limited code and fixed prompt; logs record stage, request identifier,
+    exception type, and numeric status, but do not echo body text.
     """
     request_id = uuid4().hex
     started = perf_counter()
@@ -163,7 +209,11 @@ async def resume_events(data: bytes, *, mode="traditional"):
     try:
         if mode not in {"traditional", "advanced"}:
             raise ValueError("invalid extraction mode")
-        yield event_line("progress", stage=stage, detail="正在隔离环境中提取 PDF 文本并渲染页面")
+        yield event_line(
+            "progress",
+            stage=stage,
+            detail=("Extracting PDF text and rendering pages in the isolated environment."),
+        )
         pages = await parse_pdf(data)
         if mode == "traditional":
             results = [
@@ -194,10 +244,13 @@ async def resume_events(data: bytes, *, mode="traditional"):
             len(pages),
             VISION_CONCURRENCY,
         )
-        yield event_line("progress", stage=stage, detail=f"视觉校对：已完成 0/{len(pages)} 页")
+        yield event_line(
+            "progress", stage=stage, detail=f"Visual review: 0/{len(pages)} pages completed."
+        )
         async with aclosing(review_pages(agent, pages)) as reviews:
             async for result in reviews:
-                # 修改建议仅供内部定位校验；HTTP 只交付修改结果和无法确认的疑点。
+                # Revision suggestions are for internal validation only; HTTP delivers only revision
+                # results and unconfirmed doubts.
                 public = result.model_dump(exclude={"corrections"})
                 results_by_page[result.number] = public
                 logger.info(
@@ -211,7 +264,7 @@ async def resume_events(data: bytes, *, mode="traditional"):
                 yield event_line(
                     "progress",
                     stage=stage,
-                    detail=f"视觉校对：已完成 {len(results_by_page)}/{len(pages)} 页",
+                    detail=f"Visual review: {len(results_by_page)}/{len(pages)} pages completed.",
                 )
         results = [results_by_page[page.number] for page in pages]
         text = "\n\n".join(result["text"] for result in results)
@@ -238,13 +291,22 @@ async def resume_events(data: bytes, *, mode="traditional"):
         detail = (
             str(exc)
             if isinstance(exc, PdfInputError)
-            else "请检查 RESUME_VISION_PROVIDER、RESUME_VISION_MODEL、凭据和可选参数。"
+            else (
+                "Check RESUME_VISION_PROVIDER, "
+                "RESUME_VISION_MODEL, credentials, and optional "
+                "settings."
+            )
             if stage == "configuration"
             else VISION_FAILURE_DETAILS.get(
-                code, "视觉校对失败，请检查模型图片能力、响应格式、服务额度与后端日志。"
+                code,
+                (
+                    "Visual review failed. Check model image "
+                    "support, response format, provider quota, and "
+                    "backend logs."
+                ),
             )
             if stage == "vision"
-            else "PDF 处理失败，请检查或重新导出文件。"
+            else "PDF processing failed. Check the file or export it again."
         )
         yield event_line("error", stage=stage, code=code, detail=detail, request_id=request_id)
     finally:

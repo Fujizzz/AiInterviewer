@@ -1,36 +1,50 @@
-"""职责：提供登录用户的简历原件/编辑版本、单元及推荐槽位、私有下载与显式解析。
-实现：所有资源按 owner 过滤；解析沿用现有规则+视觉管线及显式队列配置。
-关联：resume_editor 校验单元与确认槽位，resume_slots 提取原件待确认字段；
-resume_models 存储私有文件；recommendation.catalog/runtime/rerank 提供岗位来源、粗排及 API 精排；
-resume_api/pdf_queue 负责原有解析，不修改实验参数。
-配置索引：ResumeSummary.Meta.model/fields/read_only_fields 定义公开元数据；ResumeInput 的
-label/file/text 定义输入；ResumeVersionViewSet.queryset 延迟读取文件正文，serializer_class
-指定只读序列化器，permission_classes 强制登录，parser_classes 接受 JSON/multipart，
-http_method_names 不开放原地修改，editions 单独创建快照；
-MAX_BYTES 沿用 PDF 文件限额，不是本模块实现的常量。
-目录：
-- ResumeSummary：公开元数据，不公开原始文件或列表正文。
-- ResumeSummary.Meta：定义只读元数据字段。
-- ResumeInput：校验新版本的互斥文件/文本输入。
-- ResumeInput.validate：校验数量、大小和 PDF 标识，不调用模型。
-- ResumeVersionViewSet：提供版本 API，不开放内容修改。
-- ResumeVersionViewSet.get_queryset：限定本人记录。
-- ResumeVersionViewSet.finalize_response：禁止缓存私有响应。
-- ResumeVersionViewSet.create：创建不可变输入版本。
-- ResumeVersionViewSet.retrieve：返回本人版本正文与面试可用状态。
-- ResumeVersionViewSet.current：事务内切换当前版本。
-- ResumeVersionViewSet.download：返回本人原始 PDF。
-- ResumeVersionViewSet.destroy：拒绝删除被引用或解析中的版本。
-- ResumeVersionViewSet.parse：显式启动一次解析并返回阶段流。
-- ResumeVersionViewSet.editor：读取单元、已确认槽位及原件待确认的全字段提取建议/证据。
-- ResumeVersionViewSet.editions：保存独立编辑稿快照并保护原件与基线。
-- ResumeVersionViewSet.recommendation_profile：输出可直接用于现有推荐 API 的候选人字段。
-- ResumeVersionViewSet.recommendations：用已保存槽位对显式岗位库粗排，再单次 LLM 精排及解释。
-- ResumeVersionViewSet.export：下载独立的 UTF-8 编辑稿/提取文本，不替换原 PDF。
-- version_events：包围既有解析流，持久化成功、失败或中断状态。
-- resolve_resume_version：为 WebSocket 命令解析本人可用版本。
-关键变量：
-- logger：记录版本 ID、归属和状态，不记录文件名、文本或密钥。
+"""Responsibilities: provide login user's resume original/edit version, units and recommendation
+slots, private download and explicit parsing.
+Implementation: all resources filtered by owner; parsing reuses existing rules + visual pipeline and
+explicit queue configuration.
+Related Modules: resume_editor validates units and confirms slots, resume_slots extracts original
+pending fields;
+resume_models stores private files; recommendation.catalog/runtime/rerank provides job sources,
+coarse ranking and API fine-ranking;
+resume_api/pdf_queue handles original parsing, does not modify experimental parameters.
+Configuration Index: ResumeSummary.Meta.model/fields/read_only_fields define public metadata;
+ResumeInput's
+label/file/text define input; ResumeVersionViewSet.queryset delays reading file content,
+serializer_class
+specifies read-only serializer, permission_classes enforce login, parser_classes accept
+JSON/multipart,
+http_method_names do not allow in-place modification, editions create snapshots separately;
+MAX_BYTES reuses PDF file limit, not a constant implemented in this module.
+
+Declaration Index:
+- ResumeSummary: Public metadata, no original files or list content exposed.
+- ResumeSummary.Meta: Define read-only metadata fields.
+- ResumeInput: Validate exclusive file/text input for new versions.
+- ResumeInput.validate: Validate quantity, size, and PDF identification, no model invocation.
+- ResumeVersionViewSet: Provide version API, no content modification allowed.
+- ResumeVersionViewSet.get_queryset: Restrict to own records.
+- ResumeVersionViewSet.finalize_response: Set no-cache for private responses.
+- ResumeVersionViewSet.create: Create immutable input version.
+- ResumeVersionViewSet.retrieve: Return personal version content and interview availability.
+- ResumeVersionViewSet.current: Switch current version within transaction.
+- ResumeVersionViewSet.download: Return personal original PDF.
+- ResumeVersionViewSet.destroy: Reject deletion of referenced or parsing versions.
+- ResumeVersionViewSet.parse: Explicitly start one parsing run and return stage stream.
+- ResumeVersionViewSet.editor: Read units, confirmed slots, and full-field extraction
+  suggestions/evidence from original pending fields.
+- ResumeVersionViewSet.editions: Save independent edit snapshots and protect originals and
+  baselines.
+- ResumeVersionViewSet.recommendation_profile: Output candidate fields directly usable by existing
+  recommendation API.
+- ResumeVersionViewSet.recommendations: Coarse-rank against saved slots from explicit job library,
+  then single LLM fine-rank and explain.
+- ResumeVersionViewSet.export: Download standalone UTF-8 edited draft/extraction text, does not
+  replace original PDF.
+- version_events: Wrap existing parsing stream, persist success, failure, or interruption states.
+- resolve_resume_version: Resolve available version for WebSocket command parsing.
+
+Variable Index:
+- logger: Log version ID, ownership, and status, without recording filename, text, or key.
 """
 
 import json
@@ -72,10 +86,14 @@ logger = logging.getLogger(__name__)
 
 
 class ResumeSummary(serializers.ModelSerializer):
-    """功能：元数据序列化；输入为版本记录，输出只读字段；约束：不加载列表文件或正文。"""
+    """Function: metadata serialization; input is version record, output read-only fields;
+    constraint: do not load list files or content.
+    """
 
     class Meta:
-        """功能：定义公开字段；逻辑：只读版本状态；约束：不暴露 owner 或原文件字节。"""
+        """Function: define public fields; logic: read-only version status; constraint: do not
+        expose owner or original file bytes.
+        """
 
         model = ResumeVersion
         fields = [
@@ -95,14 +113,18 @@ class ResumeSummary(serializers.ModelSerializer):
 
 
 class ResumeInput(serializers.Serializer):
-    """功能：创建输入校验；输入为 label 与单个 file/text，输出规范化输入；约束：无隐式解析。"""
+    """Function: create input validation; input is label and single file/text, output normalized
+    input; constraint: no implicit parsing.
+    """
 
     label = serializers.CharField(max_length=120, required=False, default="", allow_blank=True)
     file = serializers.FileField(required=False)
     text = serializers.CharField(required=False, max_length=200000)
 
     def validate(self, attrs):
-        """输入已解析字段，输出互斥输入；有界读取 PDF 并保存字节；无模型或数据库副作用。"""
+        """Input parsed fields, output exclusive inputs; bounded PDF read and byte storage; no model
+        or database side effects.
+        """
         if set(self.initial_data) - {"label", "file", "text"}:
             raise ValidationError("Unknown fields.")
         if hasattr(self.initial_data, "getlist") and len(self.initial_data.getlist("file")) > 1:
@@ -123,7 +145,9 @@ class ResumeInput(serializers.Serializer):
 
 
 class ResumeVersionViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
-    """功能：本人版本管理；输入为认证请求，输出 JSON/私有文件/流；约束：无匿名版本或自动重试。"""
+    """Function: personal version management; input is authenticated request, output JSON/private
+    file/stream; constraint: no anonymous versions or auto-retry.
+    """
 
     queryset = ResumeVersion.objects.defer("original_pdf", "text", "units", "recommendation_slots")
     serializer_class = ResumeSummary
@@ -132,18 +156,24 @@ class ResumeVersionViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     http_method_names = ["get", "post", "delete", "head", "options"]
 
     def get_queryset(self):
-        """读取认证身份并返回本人查询集；跨用户 ID 由 get_object 返回 404，无副作用。"""
+        """Read authenticated identity and return own queryset; return 404 for cross-user ID lookup,
+        no side effects.
+        """
         return super().get_queryset().filter(owner=self.request.user)
 
     def finalize_response(self, request, response, *args, **kwargs):
-        """输入框架响应，输出禁止缓存与 MIME 嗅探的响应；不改变业务状态或正文。"""
+        """Input framework response, output no-cache and MIME sniffing disabled response; no change
+        to business state or content.
+        """
         response = super().finalize_response(request, response, *args, **kwargs)
         response["Cache-Control"] = "no-store, private"
         response["X-Content-Type-Options"] = "nosniff"
         return response
 
     def create(self, request):
-        """输入有界文件或文本；创建新版本并返回 201 元数据，不隐式切换当前版本或调用模型。"""
+        """Input bounded file or text; create new version and return 201 metadata, no implicit
+        current version switch or model invocation.
+        """
         serializer = ResumeInput(data=request.data)
         serializer.is_valid(raise_exception=True)
         version = ResumeVersion.objects.create(owner=request.user, **serializer.validated_data)
@@ -156,7 +186,9 @@ class ResumeVersionViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         return Response(ResumeSummary(version).data, status=201)
 
     def retrieve(self, request, pk=None):
-        """按本人版本 ID 返回正文及 can_interview；ready 仅表示文本可用，不声称结构化解析完成。"""
+        """Return content and can_interview by personal version ID; ready only indicates text
+        availability, not structural parsing completion.
+        """
         version = self.get_object()
         return Response(
             {
@@ -168,7 +200,9 @@ class ResumeVersionViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
 
     @action(detail=True, methods=["post"])
     def current(self, request, pk=None):
-        """输入版本 ID；锁定用户后切换唯一当前版本；未 ready 返回 400，不改变内容或历史绑定。"""
+        """Input version ID; lock user and switch unique current version; return 400 if not ready,
+        no content or history binding changes.
+        """
         with transaction.atomic():
             get_user_model().objects.select_for_update().get(pk=request.user.pk)
             version = self.get_object()
@@ -184,7 +218,9 @@ class ResumeVersionViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
 
     @action(detail=True, methods=["get"])
     def download(self, request, pk=None):
-        """输入本人版本 ID；返回私有 PDF 附件，文本版本返回 400；不生成公共文件 URL。"""
+        """Input personal version ID; return private PDF attachment, return 400 for text version; do
+        not generate public file URL.
+        """
         version = self.get_object()
         if version.original_pdf is None:
             raise ValidationError("This version has no original PDF.")
@@ -193,7 +229,9 @@ class ResumeVersionViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         return response
 
     def destroy(self, request, pk=None):
-        """输入本人版本 ID；锁内删除未引用且非 parsing 的版本，文件随行删除；冲突返回 409。"""
+        """Input personal version ID; within lock, delete unreferenced and non-parsing versions,
+        files deleted inline; conflict returns 409.
+        """
         with transaction.atomic():
             version = self.get_queryset().select_for_update().get(pk=self.get_object().pk)
             if (
@@ -209,7 +247,9 @@ class ResumeVersionViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
 
     @action(detail=True, methods=["post"])
     def parse(self, request, pk=None):
-        """输入 uploaded PDF 和可选 mode（默认 traditional）；领取解析返回流，重复 409，不重试。"""
+        """Input uploaded PDF and optional mode (default traditional); claim parsing and return
+        stream, return 409 on repeat, no retry.
+        """
         mode = request.data.get("mode", "traditional")
         if set(request.data) - {"mode"} or mode not in ("traditional", "advanced"):
             raise ValidationError("mode must be traditional or advanced.")
@@ -228,8 +268,10 @@ class ResumeVersionViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
 
     @action(detail=True, methods=["get"])
     def editor(self, request, pk=None):
-        """输入本人 ready 版本 ID，返回单元、确认槽位与原件全字段提取建议，不写库或调用模型。
-        原件只依据显式文本提取待确认值；编辑稿不重新提取，保留用户明确清空的字段与历史快照。
+        """Input personal ready version ID, return units, confirmed slots, and full-field extraction
+        suggestions from original pending values, no database write or model call.
+        Original only based on explicit text extraction for pending values; edited drafts do not
+        re-extract, preserve user-cleared fields and historical snapshots.
         """
         version = self.get_object()
         if version.status != "ready":
@@ -261,8 +303,10 @@ class ResumeVersionViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
 
     @action(detail=True, methods=["post"])
     def editions(self, request, pk=None):
-        """输入本人 ready 基线、单元和确认槽位，事务内创建新 ready 快照，原件/旧稿不覆盖。
-        source_version 固定原件根，edited_from 记录基线；不复制 PDF、不自动切换 current 或调用模型。
+        """Input the user's ready baseline, unit, and confirmation slot; create a new ready snapshot
+        within the transaction, without overwriting the original or draft. The source_version is
+        fixed to the original root, and edited_from records the baseline; no PDF copying, no
+        automatic switching of current, or model invocation occurs.
         """
         serializer = ResumeEditionInput(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -293,7 +337,9 @@ class ResumeVersionViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
 
     @action(detail=True, methods=["get"], url_path="recommendation-profile")
     def recommendation_profile(self, request, pk=None):
-        """输入本人 ready 版本 ID，返回 candidate 与槽位关联说明；不执行排序、补值或模型调用。"""
+        """Input the user's ready version ID; return candidate and slot association description; no
+        sorting, value filling, or model invocation is performed.
+        """
         version = self.get_object()
         if version.status != "ready":
             raise ValidationError("Resume is not ready.")
@@ -301,10 +347,13 @@ class ResumeVersionViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
 
     @action(detail=True, methods=["post"])
     def recommendations(self, request, pk=None):
-        """输入本人 ready 版本 ID 和空请求体，返回模型粗排 20 后 LLM 精排的前 5 岗及理由。
-        只读已保存槽位，不采用自动建议/前端未保存值；未知保持未知。登录和 CSRF 沿用
-        ViewSet；仅精排调用既有模型 API，无持久化；记录版本 ID、数量及故障类型。
-        API/配置故障返回 503，非法精排返回 502，不补齐、不回退到粗排；小目录按实际数量。
+        """Input the user's ready version ID and an empty request body; return the top 5 positions
+        after coarse ranking by model (20 items) followed by LLM fine ranking, along with
+        reasoning. Only read saved slots; do not use automatic suggestions or frontend unsaved
+        values; unknown remains unknown. Login and CSRF are inherited from the ViewSet; only fine
+        ranking invokes the existing model API, with no persistence. Record version ID, count,
+        and failure type. API/configuration failures return 503, invalid fine ranking returns
+        502, no filling or fallback to coarse ranking; small directories reflect actual counts.
         """
         version = self.get_object()
         if request.data:
@@ -358,7 +407,9 @@ class ResumeVersionViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
 
     @action(detail=True, methods=["get"])
     def export(self, request, pk=None):
-        """输入本人 ready 版本 ID，输出 UTF-8 文本附件；下载内容为该快照，不修改原件或版本。"""
+        """Input the version ID; output UTF-8 text attachment; downloaded content is the snapshot,
+        without modifying the original or version.
+        """
         version = self.get_object()
         if version.status != "ready":
             raise ValidationError("Resume is not ready.")
@@ -368,8 +419,9 @@ class ResumeVersionViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
 
 
 async def version_events(version_id, data, *, mode="traditional"):
-    """输入版本 ID、PDF 和模式；按配置解析并透传，result 前保存文本，error 保存失败码。
-    取消或提前关闭将 parsing 标为 interrupted；异常记录类型后传播，不增加回退或重试。
+    """Input version ID, PDF, and mode; parse and forward according to configuration; save text
+    before result, error code in error. Canceling or prematurely closing sets parsing status to
+    interrupted; exceptions record type and propagate without additional rollback or retry.
     """
     from ..pdf_queue import queued_resume_events
     from ..resume_api import resume_events
@@ -410,8 +462,10 @@ async def version_events(version_id, data, *, mode="traditional"):
 
 @sync_to_async
 def resolve_resume_version(command, owner_id):
-    """输入协议命令和可信用户 ID；返回填入本人版本文本的命令，不调用模型或改变输入版本。
-    未提供 ID 保持旧文本路径；匿名、跨用户、未 ready 均抛 ValueError，由协议返回固定错误。
+    """Input protocol command and trusted user ID; return the command filled with the user's version
+    text, without invoking model or altering input version. If ID is not provided, retain old
+    text path; raise ValueError for anonymous, cross-user, or non-ready cases, with fixed error
+    returned by protocol.
     """
     version_id = getattr(command, "resume_version_id", None)
     if version_id is None:

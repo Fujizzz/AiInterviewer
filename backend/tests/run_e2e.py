@@ -1,28 +1,23 @@
-"""真实服务器联调入口。临时 SQLite 验证业务持久化，流式部分验证原样回传及数据库不变。
-
-实现与关联：由 run_agent_e2e 复用启动器；隔离模型、数据库与服务容量目录后执行既有断言。
-Windows 虚拟环境解释器可能派生实际运行进程，清理必须结束本测试启动的整棵进程树。
-taskkill 返回不代表每个子进程已释放句柄，删除临时目录前须等待已捕获的进程句柄退出。
-
-目录：
-- request：
-  发送一次有超时限制的 JSON HTTP 请求，返回解码数据；网络错误不重试。
-- check_rest：
-  通过实际 HTTP 完成场次生命周期，并发相同版本更新必须分别得到 200/409。
-- check_rest.start_once：
-  提交一次固定版本的开始动作，将成功或 HTTP 错误统一转换为状态码供断言。
-- check_wav：
-  在内存生成 WAV、分片回传并重组解码，验证媒体字节和计数一致。
-- stop_windows_tree：
-  捕获测试启动进程及后代的句柄，结束后等待全部退出再清理临时日志。
-- main：
-  功能：创建临时业务数据库、启动 Uvicorn，执行 HTTP、WAV 与 Node 联调。
-
-关键变量：
-- HTTP：
-  禁用代理的本机 HTTP opener，避免测试请求经过系统代理。
-- ROOT：
-  后端根目录，作为联调子进程工作目录。
+"""Responsibilities: Launch isolated end-to-end checks against a real local server.
+Implementation: Create a temporary SQLite database, start Uvicorn, and verify HTTP, WebSocket audio,
+and Node client behavior.
+Related Modules: run_agent_e2e reuses this launcher; Django migrations, config.asgi, and the
+frontend StreamClient are exercised.
+Declaration Index:
+- request: Send one bounded JSON HTTP request and return decoded data without retrying network
+  errors.
+- check_rest: Exercise persisted session lifecycle and concurrent stale-version rejection over HTTP.
+- check_rest.start_once: Submit one versioned start action and return success or HTTP error status
+  for assertions.
+- check_wav: Generate a WAV in memory, round-trip chunks through WebSocket, and verify bytes and
+  counts.
+- stop_windows_tree: Capture and stop the spawned Windows process tree, then wait for handles to
+  exit.
+- main: Create isolated resources, launch the server, run protocol checks, and clean up the process
+  tree.
+Variable Index:
+- ROOT: Backend root used as the subprocess working directory.
+- HTTP: Local HTTP opener configured to bypass system proxies.
 """
 
 import concurrent.futures
@@ -50,10 +45,12 @@ HTTP = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
 def request(base, path, data=None, method=None):
-    """发送一次有超时限制的 JSON HTTP 请求，返回解码数据；网络错误不重试。
-
-    输入：本机 base、资源 path、可选 JSON 请求体和 HTTP 方法；不使用系统代理。
-    返回：反序列化后的 JSON；HTTP 错误、超时和非 JSON 响应直接传播给联调用例。
+    """Functionality: Send one JSON HTTP request to the local service.
+    Inputs: Base URL, resource path, optional JSON body, and optional HTTP method.
+    Outputs: The decoded JSON response value.
+    Logic: Serialize an optional body and open the request through the proxy-disabled HTTP opener.
+    Constraints: Uses a five-second timeout and propagates HTTP, timeout, and decoding errors
+    without retry.
     """
     req = urllib.request.Request(
         base + path,
@@ -66,11 +63,16 @@ def request(base, path, data=None, method=None):
 
 
 def check_rest(base):
-    """通过实际 HTTP 完成场次生命周期，并发相同版本更新必须分别得到 200/409。
-
-    前置条件：base 指向已迁移两道种子题的隔离测试数据库。
-    方法：创建场次→并发竞争同一版本→提交答案→结束场次，并核对状态与持久化字段。
-    返回 None；失败以断言或请求异常终止，不自动重试。写入只发生在启动器创建的临时库。
+    """Functionality: Exercise a persisted practice-session lifecycle and optimistic concurrency
+    over HTTP.
+    Inputs: Base URL for a server migrated against an isolated database containing the two seed
+    questions.
+    Outputs: None; assertions verify status, answer persistence, and the 200/409 concurrent-update
+    result.
+    Logic: Create a session, race two updates using one version, submit an answer, and finish the
+    session.
+    Constraints: Failures propagate; no retry occurs and writes are limited to the launcher's
+    temporary database.
     """
     session = request(base, "/api/sessions/", {})
     assert len(session["items"]) == 2
@@ -79,7 +81,12 @@ def check_rest(base):
 
     # Two requests with the same version: exactly one may change state.
     def start_once():
-        """提交一次固定版本的开始动作，将成功或 HTTP 错误统一转换为状态码供断言。"""
+        """Functionality: Attempt one start transition at the fixed session-item version.
+        Inputs: Captured base URL and item path from check_rest.
+        Outputs: HTTP status code, including an error response code.
+        Logic: Send one PATCH request and convert only HTTPError into its status code.
+        Constraints: Other exceptions propagate and the request is not retried.
+        """
         try:
             request(base, path, {"action": "start", "version": 1}, "PATCH")
             return 200
@@ -104,11 +111,14 @@ def check_rest(base):
 
 
 def check_wav(base):
-    """在内存生成 WAV、分片回传并重组解码，验证媒体字节和计数一致。
-
-    输入：已就绪的本机服务 base；构造 16 kHz 单声道静音测试数据，不读取真实录音。
-    方法：编码四字节序号→核对 ACK 摘要及回传→提交累计数→重新解码 WAV 帧数。
-    返回 None；不写媒体文件，协议错误以断言或网络异常传播给启动器。
+    """Functionality: Verify the audio echo protocol using an in-memory synthetic WAV.
+    Inputs: Base URL for the ready local server; the fixture is 16 kHz mono silence.
+    Outputs: None; assertions compare echoed frames, hashes, byte counts, and decoded WAV frame
+    count.
+    Logic: Encode chunks with sequence numbers, verify acknowledgements, finish the stream, and
+    decode the reconstructed bytes.
+    Constraints: Reads no real recording, writes no media file, and propagates protocol/network
+    failures.
     """
     buffer = io.BytesIO()
     with wave.open(buffer, "wb") as output:
@@ -147,11 +157,13 @@ def check_wav(base):
 
 
 def stop_windows_tree(server):
-    """输入本测试 Popen，结束其 Windows 进程树并等待原生进程真正退出。
-
-    先按父 PID 快照收集后代并打开句柄，再 taskkill；句柄等待不受 PID 复用影响。
-    每个进程最多等待 10 秒，异常直接传播；不忽略临时文件占用，不重跑业务测试。
-    PowerShell 隐藏运行，只操作该 Popen 的进程树，不删除任何文件。
+    """Functionality: Stop this test's Windows server process tree and wait for native process exit.
+    Inputs: The Popen object returned for the launched server.
+    Outputs: None; raises if termination or a bounded process wait fails.
+    Logic: Snapshot descendants by parent PID, capture process handles, invoke taskkill, and wait on
+    each handle.
+    Constraints: Operates only on this server tree, waits at most ten seconds per process, and
+    deletes no files.
     """
     script = r"""
 $ErrorActionPreference = 'Stop'
@@ -202,11 +214,15 @@ try {
 
 
 def main(asgi_app="config.asgi:application", agent_check=None):
-    """功能：创建临时业务数据库、启动 Uvicorn，执行 HTTP、WAV 与 Node 联调。
-    方法：仅启动就绪探测允许重复检查；测试调用不重试。流式前后比较数据库字节。
-    输入：可显式指定离线 Agent 测试入口与检查函数；默认仍测试生产入口。
-    副作用：临时业务库、容量锁和服务日志在临时目录；finally 在 Windows 结束本次启动的
-    进程树，其他平台结束直接子进程；清理失败显式报错，不忽略文件占用或削弱测试断言。"""
+    """Functionality: Launch the real ASGI service with temporary resources and run HTTP, WAV, and
+    Node client checks.
+    Inputs: Optional ASGI application path and optional Agent-specific check callback.
+    Outputs: None; reports successful stages and raises on failed assertions or cleanup.
+    Logic: Migrate a temporary SQLite database, start Uvicorn, poll readiness, run checks, then
+    terminate the server in finally.
+    Constraints: Only readiness probing repeats; business requests are not retried, streaming must
+    leave database bytes unchanged, and cleanup failures remain visible.
+    """
     node = shutil.which("node")
     if node is None:
         raise RuntimeError("Node.js 22+ is required to test the actual frontend StreamClient.")
@@ -270,7 +286,8 @@ def main(asgi_app="config.asgi:application", agent_check=None):
                 check_rest(base)
                 if agent_check is not None:
                     agent_check(base)
-                # Agent 持久化是预期写入；仅 WAV/echo 诊断阶段应保持数据库字节不变。
+                # Agent persistence is expected; only the WAV/echo diagnostic stage must leave
+                # database bytes unchanged.
                 database_before_streaming = (task_dir / "test.sqlite3").read_bytes()
                 check_wav(base)
                 subprocess.run(
@@ -293,8 +310,8 @@ def main(asgi_app="config.asgi:application", agent_check=None):
                 print(log_path.read_text(encoding="utf-8"), file=sys.stderr)
                 raise
             finally:
-                # Windows venv 的 python.exe 是启动器；只 terminate 启动器可能让真正的
-                # Uvicorn 子进程继续持有 server.log，导致 TemporaryDirectory 清理失败。
+                # The Windows virtualenv python.exe may be a launcher; terminating it alone can
+                # leave Uvicorn holding server.log.
                 if os.name == "nt" and server.poll() is None:
                     stop_windows_tree(server)
                 elif server.poll() is None:

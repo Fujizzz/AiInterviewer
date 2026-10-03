@@ -1,18 +1,19 @@
-"""事务性业务用例。将题目选择、版本竞争、单题转换和结束场次作为明确事务边界。
+"""Responsibilities: Implement transactional practice-session use cases and their explicit write
+boundaries.
+Implementation: Select questions, claim a session version, transition one item, or finish a session
+atomically.
+Related Modules: API views and serializers validate requests; models define persisted session and
+question state.
 
-目录：
-- create_session：
-  功能：按启用题库或指定 ID 顺序创建归属于调用用户的场次及文字快照。
-- claim_session：
-  功能：为指定版本的 active 场次取得本次事务的写入资格。
-- update_item：
-  功能：执行单题 start、complete 或 skip 状态转换。
-- finish_session：
-  功能：将场次置为 completed，并将尚未完成的题目标记 skipped。
+Declaration Index:
+- create_session: Create an owned session and question snapshots from enabled questions or the
+  requested ID order.
+- claim_session: Claim write access to an active session at the requested version.
+- update_item: Apply a start, complete, or skip transition to one session item.
+- finish_session: Complete a session and mark unfinished items as skipped.
 
-关键变量：
-- logger：
-  当前模块的控制台日志入口；上下文标识及异常处理方式见相应函数。
+Variable Index:
+- logger: Module-level logger for session and item transition metadata.
 """
 
 import logging
@@ -31,10 +32,15 @@ logger = logging.getLogger(__name__)
 
 @transaction.atomic
 def create_session(question_ids=None, *, owner=None):
-    """功能：按启用题库或指定 ID 顺序创建场次及文字快照。
-    输入：可选 question_ids 和已认证 owner；None 仅供未登录的本地开发记录；返回场次。
-    方法：检查 1–100 题边界后，在同一事务中创建场次并批量写入单题。
-    异常：缺失、停用或空选择抛出 ValidationError，事务整体回滚。"""
+    """Create a session and text snapshots from enabled questions or the requested ID order.
+
+    Inputs are optional question_ids and an authenticated owner; None is reserved for local
+    anonymous development.
+    Return the created session. Validate the 1–100 question bound, then create the session and items
+    in one transaction.
+    Missing, disabled, empty, or oversized selections raise ValidationError and roll back the
+    transaction.
+    """
     available = Question.objects.filter(enabled=True)
     if question_ids is not None:
         questions = list(available.filter(pk__in=question_ids))
@@ -43,7 +49,8 @@ def create_session(question_ids=None, *, owner=None):
             raise ValidationError({"question_ids": "Some questions are missing or disabled."})
         questions = [by_id[pk] for pk in question_ids]
     else:
-        # 第 101 条只用于判定既定上限，避免无效大题库被整体载入内存。
+        # Read at most one item beyond the established limit so oversized banks are not loaded into
+        # memory.
         questions = list(available[:101])
     if not questions or len(questions) > 100:
         raise ValidationError({"question_ids": "Select between 1 and 100 enabled questions."})
@@ -59,10 +66,13 @@ def create_session(question_ids=None, *, owner=None):
 
 
 def claim_session(session_id, version):
-    """功能：为指定版本的 active 场次取得本次事务的写入资格。
-    方法：先条件 UPDATE 递增版本，再读回状态，避免依赖 SQLite 行锁。
-    返回：更新后的场次；不存在为 404，未更新任何行则为 Conflict。
-    约束：只从外层原子事务调用，后续验证失败时版本也必须回滚。"""
+    """Claim write access to an active session at version using a conditional version increment.
+
+    Return the updated session; a missing row is 404 and an unchanged version raises Conflict. The
+    caller must hold
+    an outer atomic transaction so later validation failures roll back the version increment as
+    well.
+    """
     changed = PracticeSession.objects.filter(
         pk=session_id, version=version, status="active"
     ).update(version=F("version") + 1)
@@ -77,10 +87,14 @@ def claim_session(session_id, version):
 
 @transaction.atomic
 def update_item(session_id, item_id, command):
-    """功能：执行单题 start、complete 或 skip 状态转换。
-    输入：场次 ID、单题 ID 与已验证动作；返回：更新后的完整场次对象。
-    方法：先竞争版本，再检查归属及状态，最后保存作答与服务端时间。
-    副作用：事务写库及上下文日志；非法转换不产生部分修改。"""
+    """Apply a validated start, complete, or skip command and return the updated session.
+
+    Inputs are session ID, item ID, and validated command. Claim the session version, verify item
+    ownership/state,
+    and save the answer and server timestamps. Database writes and contextual logging occur in the
+    transaction;
+    invalid transitions leave no partial changes.
+    """
     session = claim_session(session_id, command["version"])
     item = get_object_or_404(SessionQuestion, pk=item_id, session=session)
     action = command["action"]
@@ -112,9 +126,12 @@ def update_item(session_id, item_id, command):
 
 @transaction.atomic
 def finish_session(session_id, version):
-    """功能：将场次置为 completed，并将尚未完成的题目标记 skipped。
-    方法：先竞争版本，单次获取结束时间，在一个事务中更新题目和场次。
-    返回：新版本场次；版本冲突、已结束或不存在时保持错误语义。"""
+    """Complete a session and mark all unfinished items skipped using one captured timestamp and one
+    transaction.
+
+    Return the new-version session. Preserve existing errors for version conflicts, completed
+    sessions, and missing rows.
+    """
     session = claim_session(session_id, version)
     now = timezone.now()
     session.items.filter(status__in=["pending", "answering"]).update(

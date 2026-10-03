@@ -1,22 +1,26 @@
-"""职责：通过操作系统文件锁提供同机多进程共享的服务容量，不把计数写入业务数据库。
+"""Responsibilities: Enforce shared same-host service capacity across processes without database
+counters.
+Implementation: Acquire one non-blocking OS lock file per slot and use reference counts so cancelled
+synchronous work retains its slot.
+Related Modules: resource_gate admits ASGI requests; BackendLLM borrows the connection slot until
+the actual call returns.
 
-实现：每个名额对应一个锁文件，非阻塞获取；引用计数使取消后的同步调用仍占用名额。
-关联：resource_gate 在 ASGI 入口准入，BackendLLM 借用连接名额直至实际调用返回。
+Declaration Index:
+- CapacityExceeded: Indicate that all slots are occupied and callers must reject work explicitly.
+- Lease: Hold an OS file lock and a thread-safe reference count.
+- Lease.__init__: Store an acquired file lock with one initial request reference.
+- Lease.retain: Add an in-flight-work reference; released leases cannot be reused.
+- Lease.release: Drop a reference and unlock/close only when the last reference is released.
+- take_slot: Try a bounded set of lock files without queueing or retrying business work.
 
-目录：
-- CapacityExceeded：名额已用尽，调用方须明确拒绝，不能进入 Agent 回退路径。
-- Lease：持有一个内核文件锁及线程安全引用计数。
-- Lease.__init__：保存已加锁文件，初始引用为准入请求本身。
-- Lease.retain：增加在途工作引用，已释放的租约不能重新使用。
-- Lease.release：归还引用，最后一个引用才解锁关闭文件。
-- take_slot：非阻塞尝试有限个共享锁文件，满额时拒绝，不排队或重试业务。
+Variable Index:
+- logger: Records resource name and admission outcome only.
 
-关键变量：
-- logger：只记录资源名称和准入结果。
-
-约束：
-所有 worker 必须使用相同的目录与限额。锁文件不可在服务运行时删除，进程退出由内核释放锁。
-这是同机服务容量限制，不是跨主机配额或供应商计费取消保证。
+Constraints:
+All workers must share the same directory and limit. Do not delete lock files while the service
+runs; the OS releases locks on process exit.
+This is a same-host capacity limit, not a cross-host quota or a guarantee that provider billing can
+be cancelled.
 """
 
 import errno
@@ -29,20 +33,28 @@ logger = logging.getLogger(__name__)
 
 
 class CapacityExceeded(Exception):
-    """名额已用尽，调用方须明确拒绝，不能进入 Agent 回退路径。"""
+    """Indicate that capacity is exhausted and callers must reject instead of using an Agent
+    fallback.
+    """
 
 
 class Lease:
-    """持有一个内核文件锁及线程安全引用计数；文件句柄不会传给子进程。"""
+    """Hold a kernel file lock and thread-safe reference count; the file handle is not passed to
+    child processes.
+    """
 
     def __init__(self, file):
-        """保存已加锁文件，初始引用为准入请求本身；输入只能由 take_slot 提供。"""
+        """Store the locked file with one initial admission reference; take_slot is the only source
+        of this input.
+        """
         self.file = file
         self.references = 1
         self.lock = threading.Lock()
 
     def retain(self):
-        """增加在途工作引用，已释放的租约不能重新使用；返回本租约，不执行模型调用。"""
+        """Add a reference for in-flight work and return this lease; a released lease cannot be
+        reused.
+        """
         with self.lock:
             if self.references == 0:
                 raise RuntimeError("Capacity lease has been released")
@@ -50,7 +62,9 @@ class Lease:
         return self
 
     def release(self):
-        """归还引用，最后一个引用才解锁关闭文件；重复释放是编程错误。"""
+        """Release one reference and close the lock file only for the final reference; duplicate
+        release is a programming error.
+        """
         with self.lock:
             if self.references <= 0:
                 raise RuntimeError("Capacity lease released twice")
@@ -60,10 +74,12 @@ class Lease:
 
 
 def take_slot(name, limit, directory=None):
-    """非阻塞尝试有限个共享锁文件，满额时拒绝，不排队或重试业务。
+    """Try a bounded set of shared lock files without waiting; reject when capacity is exhausted.
 
-    输入为固定资源名、正整数限额及可选测试目录；生产目录由 SERVICE_CAPACITY_DIR 指定。
-    返回 Lease。仅锁竞争视为满额，目录权限或其他错误直接传播，不能跳过资源控制。
+    Inputs are a fixed resource name, positive integer limit, and optional test directory;
+    production uses SERVICE_CAPACITY_DIR.
+    Return a Lease. Only lock contention means full capacity; permission and other errors propagate
+    so the capacity gate cannot be bypassed.
     """
     if name not in {"agent", "pdf"} or type(limit) is not int or limit < 1:
         raise ValueError("Invalid service capacity configuration")

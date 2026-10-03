@@ -1,20 +1,27 @@
-"""职责：提供个人中心的本人基本资料读取和维护，复用 Django 用户表，无额外资料模型。
-实现：session 认证、CSRF 和白名单字段；PATCH 仅更新提交的姓名/邮箱，账号身份与权限只读。
-关联：api.urls 注册 /api/profile/；resumes.html/resumes.js 显示并维护基本资料。
+"""Responsibilities: provide personal center's own basic profile read and maintenance, reuse Django
+user table, no additional profile models.
+Implementation: session authentication, CSRF, and whitelisted fields; PATCH updates only submitted
+name/email, account identity and permissions are read-only.
+Related Modules: api.urls registers /api/profile/; resumes.html/resumes.js displays and maintains
+basic profile.
 
-目录：
-- ProfileSerializer：本人资料序列化及有限字段校验。
-- ProfileSerializer.Meta：公开身份字段与姓名/邮箱编辑字段。
-- ProfileSerializer.validate：拒绝未知字段和只读字段写入。
-- profile：认证 GET/PATCH，本人读取或更新并返回禁止缓存的响应。
+Declaration Index:
+- ProfileSerializer: Serialize personal profile with limited field validation.
+- ProfileSerializer.Meta: Define public identity fields and editable name/email fields.
+- ProfileSerializer.validate: Reject unknown fields and write attempts to read-only fields.
+- profile: Authenticated GET/PATCH, retrieve or update self and return no-cache response.
 
-关键变量：
-- logger：仅记录用户 ID 和更新字段名称，不记录姓名、邮箱或会话信息。
+Variable Index:
+- logger: Log only user ID and updated field names, without recording name, email, or session
+  information.
 
-配置说明：
-ProfileSerializer.Meta.model 使用 Django 用户；fields 为公开字段白名单，read_only_fields
-禁止修改 ID/用户名/注册日期，extra_kwargs 保持模型字段长度并允许姓名/邮箱为空。
-约束：first_name 用作个人中心姓名；邮箱仅为联系方式，不作为已验证邮箱或登录凭据。
+Configuration Notes:
+ProfileSerializer.Meta.model uses Django User; fields are whitelist of public fields,
+read_only_fields
+prevent modification of ID/username/registration date, extra_kwargs maintain model field length and
+allow name/email to be empty.
+Constraints: first_name used as personal center name; email is only contact information, not
+verified email or login credential.
 """
 import logging
 
@@ -28,10 +35,14 @@ logger = logging.getLogger(__name__)
 
 
 class ProfileSerializer(serializers.ModelSerializer):
-    """功能：本人基本资料契约；逻辑：模型长度/邮箱格式校验；约束：不暴露密码和权限字段。"""
+    """Function: personal basic profile contract; logic: model length/email format validation;
+    constraints: do not expose password or permission fields.
+    """
 
     class Meta:
-        """功能：固定资料字段；逻辑：身份只读、姓名和邮箱可空；约束：不新增模型或验证状态。"""
+        """Function: fixed profile fields; logic: identity read-only, name and email nullable;
+        constraints: no new model or validation state added.
+        """
         model = get_user_model()
         fields = ["id", "username", "first_name", "email", "date_joined"]
         read_only_fields = ["id", "username", "date_joined"]
@@ -41,7 +52,9 @@ class ProfileSerializer(serializers.ModelSerializer):
         }
 
     def validate(self, attrs):
-        """输入模型校验后的字段；拒绝输入中任何非编辑字段，输出未额外改写的字典，无写入。"""
+        """Input validated model fields; reject any non-editable fields in input; output unmodified
+        dictionary without write operations.
+        """
         if set(self.initial_data) - {"first_name", "email"}:
             raise serializers.ValidationError("Only first_name and email can be updated.")
         return attrs
@@ -50,10 +63,13 @@ class ProfileSerializer(serializers.ModelSerializer):
 @api_view(["GET", "PATCH"])
 @permission_classes([IsAuthenticated])
 def profile(request):
-    """输入真实认证请求；GET 返回本人资料，PATCH 校验后只更新提交字段并记录字段名。
+    """Input real authenticated request; GET returns personal profile, PATCH validates then updates
+    only submitted fields and logs field names.
 
-    无副本用户 ID 输入；空 PATCH 不写库。格式错误由既有异常处理器返回 400，不部分保存。
-    输出私有禁止缓存 JSON；姓名仅存 first_name，邮箱不触发验证邮件或修改认证方式。
+    No duplicate user ID input; empty PATCH does not write to database. Format errors returned as
+    400 by existing exception handler, no partial save.
+    Output private no-cache JSON; name stored only in first_name, email does not trigger
+    verification email or change authentication method.
     """
     serializer = ProfileSerializer(request.user)
     if request.method == "PATCH":

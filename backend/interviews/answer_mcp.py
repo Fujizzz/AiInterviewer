@@ -1,30 +1,27 @@
 """Connection-scoped MCP tool adapter and server-signed speech completion receipts.
 
-Responsibilities: expose finish_current_answer over the existing authenticated Agent
-WebSocket.
-Implementation: MCP JSON-RPC initialization/discovery/call envelopes map to the existing
-Answer
-command. Only final STT receipts matching owner, question and full text permit automatic
+Responsibilities: Expose finish_current_answer over the existing authenticated Agent WebSocket.
+Implementation: Map MCP JSON-RPC initialization, discovery, and call envelopes to the existing
+Answer command. Only final STT receipts matching owner, question, and full text permit automatic
 calls.
-Related Modules: speech.socket issues receipts; agent_socket retains safety, persistence and
-dedup.
+Related Modules: speech.socket issues receipts; agent_socket retains safety, persistence, and
+deduplication.
 
-目录：
-- transcript_digest：Hash exactly the stripped final transcript for receipt binding.
-- issue_completion_receipt：Mint a short-lived server-signed completion receipt.
-- verify_completion_receipt：Reject changed text, owner/question mismatch and expired receipts.
-- tool_result：Wrap approved business payloads as MCP content and structuredContent.
-- InterviewMCP：One connection's MCP handshake, discovery and fixed tool dispatch.
-- InterviewMCP.__init__：Bind the authenticated owner and initialize handshake state.
-- InterviewMCP.handle：Validate JSON-RPC and return either a control reply or normalized Answer
+Declaration Index:
+- transcript_digest: Hash exactly the stripped final transcript for receipt binding.
+- issue_completion_receipt: Mint a short-lived server-signed completion receipt.
+- verify_completion_receipt: Reject changed text, owner/question mismatch and expired receipts.
+- tool_result: Wrap approved business payloads as MCP content and structuredContent.
+- InterviewMCP: One connection's MCP handshake, discovery and fixed tool dispatch.
+- InterviewMCP.__init__: Bind the authenticated owner and initialize handshake state.
+- InterviewMCP.handle: Validate JSON-RPC and return either a control reply or normalized Answer
   data.
 
-关键变量：
-- RECEIPT_SALT：Domain separation for Django timestamp signing of speech decisions.
-- FINISH_TOOL：Fixed discoverable tool schema; the LLM cannot choose arbitrary backend
-  operations.
+Variable Index:
+- RECEIPT_SALT: Domain separation for Django timestamp signing of speech decisions.
+- FINISH_TOOL: Fixed discoverable tool schema; the LLM cannot choose arbitrary backend operations.
 
-约束：
+Constraints:
 Custom WebSocket transport, not Streamable HTTP; tool call IDs must be UUIDs to
 reuse database deduplication. No global live-session registry or cross-worker memory
 dependency.
@@ -57,6 +54,7 @@ FINISH_TOOL = {
 
 def transcript_digest(text):
     """Inputs: final text. Outputs: SHA-256 digest of stripped UTF-8, with no text logging.
+
     """
     return hashlib.sha256(text.strip().encode("utf-8")).hexdigest()
 

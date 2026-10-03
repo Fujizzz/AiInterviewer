@@ -1,25 +1,33 @@
-"""职责：从简历单元提取待确认推荐字段，完整覆盖 CandidateInput 的业务字段。
-实现：识别显式字段标签和技能单元列表，严格解析类型，保留证据；冲突或不支持的格式为未知。
-关联：resume_editor 提供单元文本，resume_versions.editor 交付建议；
-保存后才由 candidate_payload 用于推荐。
+"""Responsibilities: Extract pending recommendation fields from resume sections across all
+CandidateInput business fields.
+Implementation: Recognize explicit labels and skill lists, parse strict types, and retain evidence;
+conflicts or unsupported formats remain unknown.
+Related Modules: resume_editor supplies section text, resume_versions exposes suggestions, and
+candidate_payload consumes saved values.
 
-目录：
-- parse_value：将带标签的原文值解析为推荐契约类型，不转换 GPA 制或推算日期。
-- collect_slots：扫描单元并汇总建议、原文证据、问题和缺失字段，不写库或调用模型。
+Declaration Index:
+- parse_value: Parse a labelled source value into its recommendation type without GPA conversion or
+  date inference.
+- collect_slots: Aggregate suggestions, source evidence, issues, and missing fields without database
+  writes or model calls.
 
-关键变量：
-- SLOT_LABELS：推荐字段的明确中英文标签与字段名，不包含技能词表或专业映射。
-- LABEL_PATTERN：定位显式标签和值的边界，允许同一行包含多个字段。
-- TAG_FIELDS：以列表表示的字段，保留技能的斜线和大小写。
-- NUMBER_UNITS：各数值字段允许的原始单位，不进行换算。
-- LEVELS：显式中文在读年级到现有学业阶段代码的映射，不按日期或学历推断年级。
-- MODES：显式工作方式到现有类别的对应。
-- BOOLEANS：显式暑期意愿的布尔表示。
-- logger：仅记录提取数量和非法字段名，不记录证据、姓名或联系方式。
+Variable Index:
+- SLOT_LABELS: Explicit field labels in English and Chinese mapped to recommendation fields.
+- LABEL_PATTERN: Locates explicit labels and value boundaries, including multiple fields on one
+  line.
+- TAG_FIELDS: Fields represented as lists; skill spelling, slash separators, and case are preserved.
+- NUMBER_UNITS: Accepted source units for numeric fields; no unit conversion is performed.
+- LEVELS: Maps explicitly stated Chinese academic year labels to existing level codes.
+- MODES: Maps explicit Chinese work-mode labels to existing categories.
+- BOOLEANS: Maps explicit Chinese summer-availability labels to Boolean values.
+- logger: Records extraction counts and invalid field names, never evidence or personal contact
+  data.
 
-约束：
-缺失为 null，明确 0/false 保留；不从联系方式、学校或项目推断偏好/年级/时长。
-技能列表只接受显式列表格式；数值、类别冲突不会静默选择一个。所有证据仅走本人私有接口。
+Constraints:
+Missing values remain null, while explicit 0 and false are preserved. Do not infer preferences,
+year, or duration from contact details, school, or projects.
+Only explicit list formats are accepted for skills; numeric and categorical conflicts are never
+silently resolved. Evidence is available only through the owner's private API.
 """
 
 import logging
@@ -96,9 +104,14 @@ logger = logging.getLogger(__name__)
 
 
 def parse_value(field, raw):
-    """输入推荐字段名及标签后的文本，输出严格类型或 None（无确定解析），未知字段抛 KeyError。
-    列表只分隔明确标点，数字需完整匹配单位；GPA 保留分子及原证据，不归一化或推测成绩制。
-    无副作用；契约限额与枚举由调用方最终使用 CandidateInput 校验。
+    """Parse a recommendation field and the text after its explicit label into a strict type or None
+    if uncertain.
+
+    Unknown fields raise KeyError. Lists split only on explicit separators; numbers must match the
+    complete value and unit.
+    Preserve the GPA numerator and source evidence without normalization or grading-scale inference.
+    This function has no side effects;
+    CandidateInput applies final schema limits and enumerations.
     """
     value = raw.strip().strip(";；").strip()
     if not value:
@@ -110,7 +123,8 @@ def parse_value(field, raw):
         names = list(
             dict.fromkeys(part.strip() for part in re.split(separators, value) if part.strip())
         )
-        # 技能描述段落与技能名称列表是不同输入，禁止把“熟悉 Python 等”整个句子当作模型特征。
+        # Skill description paragraphs and skill name lists are different inputs; forbidden to treat
+        # "familiar with Python etc." as full sentence for model features.
         if field == "skills" and re.search(r"[。！？：:]|熟悉|掌握|精通|了解|擅长|负责", value):
             return None
         return names or None
@@ -139,10 +153,15 @@ def parse_value(field, raw):
 
 
 def collect_slots(units):
-    """输入稳定单元文本字典，返回全部 11 个业务字段的建议、证据、问题和缺失项，不保存确认值。
-    扫描所有单元的显式标签；技能单元允许类别前缀后的逗号列表或独立列表。
-    列表合并原样名称，标量多值/无法支持的明确格式设未知；最终通过实际推荐契约验证。
-    不记录原文日志，不猜测未提供字段；证据为单元、1 起始行号和原文，供本人核对。
+    """Return suggestions, evidence, issues, and missing fields for all 11 business fields without
+    saving confirmed values.
+
+    Scan explicit labels in each section; the skills section also accepts comma lists after a
+    category prefix or standalone lists.
+    Preserve list names verbatim and mark ambiguous scalar values or unsupported formats unknown,
+    then validate against the actual contract.
+    Do not log source text or infer absent fields; evidence contains section, one-based line number,
+    and original line for owner review.
     """
     if set(SLOT_LABELS) != set(CandidateInput.model_fields) - {"candidate_id"}:
         raise RuntimeError("Resume extraction fields do not cover the recommendation contract.")
@@ -165,7 +184,8 @@ def collect_slots(units):
             if unit == "skills" and not matches and line.strip():
                 raw = re.split(r"[:：]", line.strip(), maxsplit=1)[-1].strip()
                 raw = re.sub(r"^[•·*\-]+\s*", "", raw)
-                # 未命名技能仅接受明确的列表行，禁止从正文推断整个段落是技能或给每个单词打标签。
+                # Unnamed skills only accept explicit list lines; forbidden to infer entire
+                # paragraph as skills or tag every word individually.
                 if re.search(r"[,，;；、]", raw) or re.fullmatch(r"[\w.+#-]+", raw):
                     if parse_value("skills", raw) is not None:
                         entries.append(("skills", raw))
@@ -187,7 +207,8 @@ def collect_slots(units):
             issues[field] = "conflicting_values"
         else:
             values[field] = options[0]
-    # 限额或非有限值是确定的解析问题，不截断或用其他实现替代；保留证据要求人工输入。
+    # Limits or non-bounded values are definite parsing issues; do not truncate or substitute with
+    # other implementations; retain evidence requiring manual input.
     for field, value in values.items():
         if value is not None:
             try:

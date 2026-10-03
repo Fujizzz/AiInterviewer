@@ -1,56 +1,60 @@
 /**
- * @module speech-capture
- * 职责：PCM 采集及有界 STT 传输；通过回调交付转写，不直接提交面试回答。
- * 实现：麦克风授权/握手后采集，flush 后发送 stop；可订阅后端独立结束检测及最终凭据。
- * 关联：interview-voice.js 接收部分/最终文本并控制字幕和结束确认。
  *
- * 目录：
- * - SpeechCapture：
+ * @module speech-capture
+ * Responsibilities: PCM capture and bounded STT transmission; deliver transcriptions via callback without directly submitting interview responses.
+ * Implementation: Capture after microphone permission and handshake; send stop after flush; subscribe to backend's independent end detection and final credentials.
+ * Related Modules: interview-voice.js receives partial/final text and controls subtitles and end confirmation.
+ *
+ * Declaration Index:
+ * - SpeechCapture:
  *   Browser PCM capture and one STT task; completion delivers text to the caller, never an interview command.
- * - SpeechCapture.constructor：
+ * - SpeechCapture.constructor:
  *   Store transcript callbacks and initialize one capture session's resources.
- * - SpeechCapture.start：
+ * - SpeechCapture.start:
  *   Obtain microphone permission and start PCM capture after the STT handshake.
- * - SpeechCapture.start.callback1：
+ * - SpeechCapture.start.callback1:
  *   Wait for recognition startup and attach bounded socket lifecycle handlers.
- * - SpeechCapture.start.callback1.callback1：
+ * - SpeechCapture.start.callback1.callback1:
  *   Reject the pending startup after its deadline.
- * - SpeechCapture.start.callback1.socket.onmessage：
+ * - SpeechCapture.start.callback1.socket.onmessage:
  *   Process draft, final and error messages without submitting an interview answer.
- * - SpeechCapture.start.callback1.socket.onerror：
+ * - SpeechCapture.start.callback1.socket.onerror:
  *   Report a recognition transport failure and release the microphone.
- * - SpeechCapture.start.callback1.socket.onclose：
+ * - SpeechCapture.start.callback1.socket.onclose:
  *   Detect a connection that ended without a final transcript.
- * - SpeechCapture.start.this.node.port.onmessage：
+ * - SpeechCapture.start.this.node.port.onmessage:
  *   Forward PCM with a backlog limit and acknowledge worklet flushing.
- * - SpeechCapture.start.callback2：
+ * - SpeechCapture.start.callback2:
  *   End recording automatically at the fixed 120-second capture limit.
- * - SpeechCapture.end：
+ * - SpeechCapture.end:
  *   Flush audio before sending stop, then wait for the provider's final transcript.
- * - SpeechCapture.end.callback1：
+ * - SpeechCapture.end.callback1:
  *   Wait for the worklet's final PCM to precede the stop message.
- * - SpeechCapture.end.callback1.callback1：
+ * - SpeechCapture.end.callback1.callback1:
  *   Fail capture if the worklet cannot flush promptly.
- * - SpeechCapture.end.callback1.this.flushResolve：
+ * - SpeechCapture.end.callback1.this.flushResolve:
  *   Resolve the flush acknowledgement and clear its timer.
- * - SpeechCapture.end.callback2：
+ * - SpeechCapture.end.callback2:
  *   Report a provider that failed to finalize the ended answer.
- * - SpeechCapture.fail：
+ * - SpeechCapture.fail:
  *   Reject startup and release resources after a public error message.
- * - SpeechCapture.releaseAudio：
+ * - SpeechCapture.releaseAudio:
  *   Stop microphone tracks, detach the worklet and close its audio context.
- * - SpeechCapture.releaseAudio.callback1：
+ * - SpeechCapture.releaseAudio.callback1:
  *   Stop one acquired microphone track.
- * - SpeechCapture.close：
+ * - SpeechCapture.close:
  *   Invalidate socket callbacks and end the local capture lifecycle.
  *
- * 关键变量：
- * （无模块级变量。）
+ * Variable Index:
+ * None
+ *
  */
 /** Browser PCM capture and one STT task; completion delivers text to the caller, never an interview command. */
 export class SpeechCapture {
-  /** 输入转写/失败回调和可选 options（questionId、onCompletion）；输出采集实例。
-   * 仅带 questionId 时订阅后端结束检测；最终凭据作为 onFinal 第三个参数，不直接提交。 */ constructor(onPartial, onFinal, onError, options = {}) {
+  /**
+ *  Input transcription/failure callbacks and optional options (questionId, onCompletion); output a capture instance.
+ * Subscribe to backend end detection only when questionId is provided; final credentials are passed as the third argument to onFinal, without direct submission.
+ */ constructor(onPartial, onFinal, onError, options = {}) {
     this.onPartial = onPartial;
     this.onFinal = onFinal;
     this.onError = onError;

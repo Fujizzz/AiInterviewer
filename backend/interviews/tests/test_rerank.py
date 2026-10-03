@@ -1,20 +1,29 @@
-"""职责：验证两阶段推荐的候选边界、结果关联、已知/未知语义及单次 API 错误行为。
-实现：编排测试仅替代 API；传输测试替代 SDK，不访问外部服务或数据库。
-关联：recommendation.rerank 的提示词、输出契约及 BackendLLM 配置复用。
-目录：
-- RerankTests：候选与输出边界测试。
-- RerankTests.setUp：构造 25 个唯一岗位及明确的粗排证据。
-- RerankTests.output：按指定 ID 构造合法双语输出替身。
-- RerankTests.test_shortlist_and_reordered_evidence：验证 20 进 5 出、ID 关联与原分数不变。
-- RerankTests.test_invalid_selections_are_rejected：拒绝越界、重复、大小写变化及数量不足。
-- RerankTests.test_small_catalog：不足 K1/K2 时明确按真实数量推荐。
-- RerankTests.test_api_contract_and_close：验证两供应商单次调用、数据/指令分离和资源关闭。
-- RerankTests.test_invalid_api_output_no_repair：非法 JSON、空/截断输出不格式修复。
-- RerankTests.test_missing_configuration：缺少配置保持明确失败。
-关键变量：
-（无模块级变量。）
-约束：
-SDK 替身只能证明请求构造和失败语义，不能证明真实供应商可用或理由语义正确。
+"""Responsibilities: Verify candidate boundaries, result associations, known/unknown semantics, and
+single API error behavior in two-stage recommendation.
+Implementation: Test orchestration only substitutes API; transmission tests substitute SDK, no
+access to external services or database.
+Related Modules: prompts, output contract, and BackendLLM configuration reuse in
+recommendation.rerank.
+Declaration Index:
+- RerankTests: Candidate and output boundary tests.
+- RerankTests.setUp: Construct 25 unique roles and explicit coarse-ranking evidence.
+- RerankTests.output: Construct valid bilingual output stubs by specified ID.
+- RerankTests.test_shortlist_and_reordered_evidence: Verify 20-to-5 selection, ID association, and
+  original score preservation.
+- RerankTests.test_invalid_selections_are_rejected: Reject out-of-range, duplicate, case variation,
+  and insufficient quantity selections.
+- RerankTests.test_small_catalog: Explicitly recommend based on actual count when below K1/K2.
+- RerankTests.test_api_contract_and_close: Verify single call per supplier, data/instruction
+  separation, and resource closure.
+- RerankTests.test_invalid_api_output_no_repair: Invalid JSON, empty/truncated output not repaired.
+- RerankTests.test_missing_configuration: Missing configuration results in clear failure.
+
+Variable Index:
+None
+
+Constraints:
+SDK stub can only validate request construction and failure semantics, cannot validate real supplier
+availability or rationale semantic correctness.
 """
 
 import json
@@ -35,10 +44,14 @@ from interviews.recommendation.schemas import CandidateInput
 
 
 class RerankTests(SimpleTestCase):
-    """功能：验证编排与 API 契约；逻辑：显式依赖替身；约束：无网络或持久化。"""
+    """Function: Validate orchestration and API contract; Logic: Explicit dependency on stubs;
+    Constraint: No network or persistence.
+    """
 
     def setUp(self):
-        """无外部参数；创建已知空、零、false 与未知字段并存的候选人和 25 岗，不运行模型。"""
+        """No external parameters; create candidates with known empty, zero, false, and unknown
+        fields, and 25 positions without running the model.
+        """
         self.candidate = CandidateInput(
             candidate_id="private-id",
             skills=["Python"],
@@ -80,7 +93,9 @@ class RerankTests(SimpleTestCase):
         }
 
     def output(self, ids):
-        """输入精排 ID 顺序，输出契约对象；合成理由不作为实际模型生成结果。"""
+        """Input ranked IDs, output contract objects; synthesized reasons are not actual model
+        generation results.
+        """
         return RerankOutput.model_validate(
             {
                 "jobs": [
@@ -95,7 +110,9 @@ class RerankTests(SimpleTestCase):
         ), "mock-api"
 
     def test_shortlist_and_reordered_evidence(self):
-        """API 替身返回倒序 20..16；验证只送 1..20、原分数按 ID 关联且未发送身份和正文。"""
+        """Stub API returns reversed order 20..16; verify only 1..20 sent, original scores
+        associated by ID, and identity and body not transmitted.
+        """
         with patch("interviews.recommendation.rerank.request_rerank") as api:
             api.return_value = self.output([f"J{n:04}" for n in range(20, 15, -1)])
             response = rerank_jobs(self.candidate, self.catalog, self.coarse)
@@ -120,7 +137,9 @@ class RerankTests(SimpleTestCase):
         self.assertEqual(self.coarse["results"][19]["rank"], 20)
 
     def test_invalid_selections_are_rejected(self):
-        """替身返回合法结构但越界/重复/少项；每次只调用一次，不补齐或退回粗排。"""
+        """Stub returns valid structure but out-of-bounds/duplicate/missing items; each call occurs
+        only once, no padding or rollback to coarse ranking.
+        """
         for ids in [
             ["J0021", "J0002", "J0003", "J0004", "J0005"],
             ["J0001"] * 5,
@@ -138,7 +157,9 @@ class RerankTests(SimpleTestCase):
                 api.assert_called_once()
 
     def test_small_catalog(self):
-        """显式两岗目录只推荐两岗；不复制岗位或引入替代来源满足五岗上限。"""
+        """Explicit two-position directory only recommends two positions; do not copy positions or
+        introduce alternative sources to meet five-position cap.
+        """
         catalog = self.catalog.model_copy(update={"jobs": self.catalog.jobs[:2]})
         coarse = {**self.coarse, "results": self.coarse["results"][:2]}
         with patch("interviews.recommendation.rerank.request_rerank") as api:
@@ -149,7 +170,9 @@ class RerankTests(SimpleTestCase):
         self.assertEqual(len(response["results"]), 2)
 
     def test_api_contract_and_close(self):
-        """仅模拟 SDK；两供应商使用各自结构化接口，配置参数不变，单次调用后关闭客户端。"""
+        """Simulate SDK only; two vendors use their own structured interfaces, configuration
+        parameters unchanged, client closed after single call.
+        """
         payload = {"shortlist": [{"job_id": "J0001"}], "final_count": 1}
         for provider in ["dashscope", "openai"]:
             with (
@@ -190,7 +213,9 @@ class RerankTests(SimpleTestCase):
                 model.close.assert_called_once()
 
     def test_invalid_api_output_no_repair(self):
-        """SDK 返回缺选择、截断、非法 JSON、空白理由及额外字段；无第二次请求或模型修复。"""
+        """SDK returns missing selection, truncated, invalid JSON, blank reason, and extra fields;
+        no second request or model repair.
+        """
         for content, finish, has_choice in [
             ("broken JSON", "stop", True),
             ("{}", "length", True),
@@ -223,7 +248,9 @@ class RerankTests(SimpleTestCase):
                 model.close.assert_called_once()
 
     def test_missing_configuration(self):
-        """模拟配置初始化失败；保持明确故障，无 SDK 调用；不把此测试当真实配置验证。"""
+        """Simulate configuration initialization failure; maintain explicit fault, no SDK call; do
+        not treat this test as real configuration validation.
+        """
         from app.providers.llm import LLMError
 
         with patch("interviews.recommendation.rerank.BackendLLM", side_effect=LLMError("missing")):
