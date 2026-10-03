@@ -1,0 +1,69 @@
+schema_version: '1.0'
+rubric_version: 1.0.0
+competency: ownership
+name: 责任承担
+description: 依据个人职责、推进动作与结果跟进评估责任承担。
+criteria:
+- criterion_id: ownership.personal_contribution
+  name: 个人贡献
+  description: 区分个人决策和动作与团队共同产出。
+  weight: 1.0
+  required: true
+  anchors:
+  - anchor_id: ownership.personal_contribution.l1
+    level: 1
+    behavior: 把团队产出归为个人贡献，且其描述明确显示相关工作由他人完成。
+  - anchor_id: ownership.personal_contribution.l2
+    level: 2
+    behavior: 能指出负责的任务，但个人动作与协作边界仍不清楚。
+  - anchor_id: ownership.personal_contribution.l3
+    level: 3
+    behavior: 明确个人职责、具体动作和交付物，并区分他人的贡献。
+  - anchor_id: ownership.personal_contribution.l4
+    level: 4
+    behavior: 说明如何主动补足职责间隙、协调依赖并核实交付结果。
+  - anchor_id: ownership.personal_contribution.l5
+    level: 5
+    behavior: 在责任不清的情境下建立清晰分工和验证机制，并说明自身可追责的贡献。
+- criterion_id: ownership.delivery
+  name: 交付推进
+  description: 识别交付风险并采取可追踪的推进动作。
+  weight: 1.0
+  required: true
+  anchors:
+  - anchor_id: ownership.delivery.l1
+    level: 1
+    behavior: 明知关键阻塞仍未处理或沟通，直到交付失败才说明原因。
+  - anchor_id: ownership.delivery.l2
+    level: 2
+    behavior: 在他人提醒后处理阻塞，但没有跟踪依赖或明确完成条件。
+  - anchor_id: ownership.delivery.l3
+    level: 3
+    behavior: 拆解交付任务，主动跟踪关键依赖并及时沟通风险。
+  - anchor_id: ownership.delivery.l4
+    level: 4
+    behavior: 提前识别关键路径风险，协调资源或调整范围并验证交付达成。
+  - anchor_id: ownership.delivery.l5
+    level: 5
+    behavior: 在多方约束下建立可复用的风险跟踪与决策机制，证明其改善了交付。
+- criterion_id: ownership.accountability
+  name: 结果负责
+  description: 对失败和后续影响承担具体责任并闭环。
+  weight: 1.0
+  required: true
+  anchors:
+  - anchor_id: ownership.accountability.l1
+    level: 1
+    behavior: 将已知个人失误完全归责外部，未采取补救动作。
+  - anchor_id: ownership.accountability.l2
+    level: 2
+    behavior: 承认失误并做临时补救，但未确认影响消除。
+  - anchor_id: ownership.accountability.l3
+    level: 3
+    behavior: 解释个人决策的影响，落实补救并核实结果。
+  - anchor_id: ownership.accountability.l4
+    level: 4
+    behavior: 跟进长期影响，改进责任范围内的流程并验证再次发生的风险降低。
+  - anchor_id: ownership.accountability.l5
+    level: 5
+    behavior: 把事件转为跨团队可执行的责任和反馈机制，并用后续结果验证有效性。

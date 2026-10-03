@@ -1,0 +1,443 @@
+{
+  "description": "人工构造的契约示例；分数和权重仅用于序列化测试，不是已校准评分策略。",
+  "question_text": "请说明你如何验证修复没有造成回归。",
+  "resume_claim": "负责高并发系统优化。",
+  "historical_answer": "上一个项目中我增加了超时重试。",
+  "answer": {
+    "interview_id": "interview-example",
+    "question_id": "question-example",
+    "answer_id": "answer-example",
+    "text": "🙂 我先按请求 ID 关联日志。复现时固定了输入。我比较正常与失败请求的调用链，定位到连接池等待。团队上线了修复。"
+  },
+  "result": {
+    "schema_version": "1.0",
+    "request_id": "request-example",
+    "interview_id": "interview-example",
+    "question_id": "question-example",
+    "answer_id": "answer-example",
+    "status": "completed",
+    "analysis": {
+      "status": "partial",
+      "answer_scope": "concrete",
+      "new_information": true,
+      "thread_complete": false,
+      "missing_information": [
+        "如何确认修复有效"
+      ]
+    },
+    "evidence_items": [
+      {
+        "schema_version": "1.0",
+        "evidence_id": "evidence-diagnostic",
+        "answer_id": "answer-example",
+        "question_id": "question-example",
+        "thread_id": "thread-example",
+        "project_id": "project-example",
+        "quote_spans": [
+          {
+            "quote": "我先按请求 ID 关联日志。",
+            "char_start": 2,
+            "char_end": 16
+          },
+          {
+            "quote": "我比较正常与失败请求的调用链，定位到连接池等待。",
+            "char_start": 25,
+            "char_end": 49
+          }
+        ],
+        "normalized_claim": "候选人关联请求日志并比较调用链，定位连接池等待环节。",
+        "evidence_kind": "personal_action",
+        "ownership_scope": "personal",
+        "factuality": "reported_experience",
+        "specificity": "concrete",
+        "related_evidence_ids": [],
+        "relation": "new",
+        "independence_group_id": "project-example:connection-pool-incident",
+        "extraction_version": "fixture-only-1"
+      },
+      {
+        "schema_version": "1.0",
+        "evidence_id": "evidence-team-outcome",
+        "answer_id": "answer-example",
+        "question_id": "question-example",
+        "thread_id": "thread-example",
+        "project_id": "project-example",
+        "quote_spans": [
+          {
+            "quote": "团队上线了修复。",
+            "char_start": 49,
+            "char_end": 57
+          }
+        ],
+        "normalized_claim": "团队上线了修复，个人贡献未说明。",
+        "evidence_kind": "outcome",
+        "ownership_scope": "team_only",
+        "factuality": "reported_experience",
+        "specificity": "partial",
+        "related_evidence_ids": [],
+        "relation": "new",
+        "independence_group_id": "project-example:connection-pool-incident",
+        "extraction_version": "fixture-only-1"
+      }
+    ],
+    "assessments": [
+      {
+        "schema_version": "1.0",
+        "assessment_id": "assessment-diagnostic",
+        "competency": "debugging",
+        "criterion_id": "debugging.diagnostic_method",
+        "rubric_version": "1.0.0",
+        "evidence_ids": [
+          "evidence-diagnostic"
+        ],
+        "assigned_level": 3,
+        "matched_anchor_ids": [
+          "debugging.diagnostic_method.l3"
+        ],
+        "decision": "included",
+        "reason_codes": [
+          "personal_action",
+          "concrete_mechanism"
+        ],
+        "concise_rationale": "说明了请求日志关联与调用链比较的诊断方法，未提供控制干扰变量的验证。",
+        "counter_evidence_ids": []
+      },
+      {
+        "schema_version": "1.0",
+        "assessment_id": "assessment-team-outcome",
+        "competency": "ownership",
+        "criterion_id": "ownership.personal_contribution",
+        "rubric_version": "1.0.0",
+        "evidence_ids": [
+          "evidence-team-outcome"
+        ],
+        "assigned_level": null,
+        "matched_anchor_ids": [],
+        "decision": "excluded",
+        "reason_codes": [
+          "team_only"
+        ],
+        "concise_rationale": "团队修复不能直接证明候选人的个人贡献。",
+        "counter_evidence_ids": []
+      }
+    ],
+    "score_snapshot": {
+      "schema_version": "1.0",
+      "snapshot_id": "snapshot-example",
+      "interview_id": "interview-example",
+      "rubric_version": "1.0.0",
+      "aggregation_policy_version": "fixture-only-1",
+      "competencies": [
+        {
+          "schema_version": "1.0",
+          "competency": "technical_depth",
+          "score": null,
+          "status": "insufficient_evidence",
+          "reason_codes": [
+            "insufficient_criterion_coverage"
+          ],
+          "coverage": 0.0,
+          "reliability": null,
+          "criteria": [
+            {
+              "criterion_id": "technical_depth.mechanism",
+              "criterion_weight": 1.0,
+              "score": null,
+              "status": "insufficient_evidence",
+              "reason_codes": [
+                "missing_evidence"
+              ],
+              "contributions": []
+            },
+            {
+              "criterion_id": "technical_depth.implementation",
+              "criterion_weight": 1.0,
+              "score": null,
+              "status": "insufficient_evidence",
+              "reason_codes": [
+                "missing_evidence"
+              ],
+              "contributions": []
+            },
+            {
+              "criterion_id": "technical_depth.system_limits",
+              "criterion_weight": 1.0,
+              "score": null,
+              "status": "insufficient_evidence",
+              "reason_codes": [
+                "missing_evidence"
+              ],
+              "contributions": []
+            }
+          ]
+        },
+        {
+          "schema_version": "1.0",
+          "competency": "ownership",
+          "score": null,
+          "status": "insufficient_evidence",
+          "reason_codes": [
+            "insufficient_criterion_coverage"
+          ],
+          "coverage": 0.0,
+          "reliability": null,
+          "criteria": [
+            {
+              "criterion_id": "ownership.personal_contribution",
+              "criterion_weight": 1.0,
+              "score": null,
+              "status": "insufficient_evidence",
+              "reason_codes": [
+                "missing_evidence"
+              ],
+              "contributions": []
+            },
+            {
+              "criterion_id": "ownership.delivery",
+              "criterion_weight": 1.0,
+              "score": null,
+              "status": "insufficient_evidence",
+              "reason_codes": [
+                "missing_evidence"
+              ],
+              "contributions": []
+            },
+            {
+              "criterion_id": "ownership.accountability",
+              "criterion_weight": 1.0,
+              "score": null,
+              "status": "insufficient_evidence",
+              "reason_codes": [
+                "missing_evidence"
+              ],
+              "contributions": []
+            }
+          ]
+        },
+        {
+          "schema_version": "1.0",
+          "competency": "decision_making",
+          "score": null,
+          "status": "insufficient_evidence",
+          "reason_codes": [
+            "insufficient_criterion_coverage"
+          ],
+          "coverage": 0.0,
+          "reliability": null,
+          "criteria": [
+            {
+              "criterion_id": "decision_making.framing",
+              "criterion_weight": 1.0,
+              "score": null,
+              "status": "insufficient_evidence",
+              "reason_codes": [
+                "missing_evidence"
+              ],
+              "contributions": []
+            },
+            {
+              "criterion_id": "decision_making.tradeoffs",
+              "criterion_weight": 1.0,
+              "score": null,
+              "status": "insufficient_evidence",
+              "reason_codes": [
+                "missing_evidence"
+              ],
+              "contributions": []
+            },
+            {
+              "criterion_id": "decision_making.validation",
+              "criterion_weight": 1.0,
+              "score": null,
+              "status": "insufficient_evidence",
+              "reason_codes": [
+                "missing_evidence"
+              ],
+              "contributions": []
+            }
+          ]
+        },
+        {
+          "schema_version": "1.0",
+          "competency": "debugging",
+          "score": null,
+          "status": "insufficient_evidence",
+          "reason_codes": [
+            "insufficient_criterion_coverage"
+          ],
+          "coverage": 0.16666666666666666,
+          "reliability": null,
+          "criteria": [
+            {
+              "criterion_id": "debugging.problem_framing",
+              "criterion_weight": 1.0,
+              "score": null,
+              "status": "insufficient_evidence",
+              "reason_codes": [
+                "missing_evidence"
+              ],
+              "contributions": []
+            },
+            {
+              "criterion_id": "debugging.hypotheses",
+              "criterion_weight": 1.0,
+              "score": null,
+              "status": "insufficient_evidence",
+              "reason_codes": [
+                "missing_evidence"
+              ],
+              "contributions": []
+            },
+            {
+              "criterion_id": "debugging.diagnostic_method",
+              "criterion_weight": 1.0,
+              "score": 3.0,
+              "status": "published",
+              "reason_codes": [],
+              "contributions": [
+                {
+                  "assessment_id": "assessment-diagnostic",
+                  "evidence_ids": [
+                    "evidence-diagnostic"
+                  ],
+                  "independence_group_id": "project-example:connection-pool-incident",
+                  "assigned_level": 3,
+                  "effective_weight": 1.0,
+                  "reason_codes": [
+                    "fixture_weight_only"
+                  ]
+                }
+              ]
+            },
+            {
+              "criterion_id": "debugging.root_cause",
+              "criterion_weight": 1.0,
+              "score": null,
+              "status": "insufficient_evidence",
+              "reason_codes": [
+                "missing_evidence"
+              ],
+              "contributions": []
+            },
+            {
+              "criterion_id": "debugging.fix_verification",
+              "criterion_weight": 1.0,
+              "score": null,
+              "status": "insufficient_evidence",
+              "reason_codes": [
+                "missing_evidence"
+              ],
+              "contributions": []
+            },
+            {
+              "criterion_id": "debugging.prevention",
+              "criterion_weight": 1.0,
+              "score": null,
+              "status": "insufficient_evidence",
+              "reason_codes": [
+                "missing_evidence"
+              ],
+              "contributions": []
+            }
+          ]
+        },
+        {
+          "schema_version": "1.0",
+          "competency": "evaluation",
+          "score": null,
+          "status": "insufficient_evidence",
+          "reason_codes": [
+            "insufficient_criterion_coverage"
+          ],
+          "coverage": 0.0,
+          "reliability": null,
+          "criteria": [
+            {
+              "criterion_id": "evaluation.metrics",
+              "criterion_weight": 1.0,
+              "score": null,
+              "status": "insufficient_evidence",
+              "reason_codes": [
+                "missing_evidence"
+              ],
+              "contributions": []
+            },
+            {
+              "criterion_id": "evaluation.experiment_design",
+              "criterion_weight": 1.0,
+              "score": null,
+              "status": "insufficient_evidence",
+              "reason_codes": [
+                "missing_evidence"
+              ],
+              "contributions": []
+            },
+            {
+              "criterion_id": "evaluation.interpretation",
+              "criterion_weight": 1.0,
+              "score": null,
+              "status": "insufficient_evidence",
+              "reason_codes": [
+                "missing_evidence"
+              ],
+              "contributions": []
+            }
+          ]
+        },
+        {
+          "schema_version": "1.0",
+          "competency": "adaptability",
+          "score": null,
+          "status": "insufficient_evidence",
+          "reason_codes": [
+            "insufficient_criterion_coverage"
+          ],
+          "coverage": 0.0,
+          "reliability": null,
+          "criteria": [
+            {
+              "criterion_id": "adaptability.learning",
+              "criterion_weight": 1.0,
+              "score": null,
+              "status": "insufficient_evidence",
+              "reason_codes": [
+                "missing_evidence"
+              ],
+              "contributions": []
+            },
+            {
+              "criterion_id": "adaptability.response_to_change",
+              "criterion_weight": 1.0,
+              "score": null,
+              "status": "insufficient_evidence",
+              "reason_codes": [
+                "missing_evidence"
+              ],
+              "contributions": []
+            },
+            {
+              "criterion_id": "adaptability.transfer",
+              "criterion_weight": 1.0,
+              "score": null,
+              "status": "insufficient_evidence",
+              "reason_codes": [
+                "missing_evidence"
+              ],
+              "contributions": []
+            }
+          ]
+        }
+      ],
+      "overall_coverage": 0.027777777777777776,
+      "overall_score": null,
+      "overall_score_publishable": false,
+      "status": "insufficient_evidence",
+      "reason_codes": [
+        "mandatory_competencies_uncovered"
+      ],
+      "supersedes_snapshot_id": null,
+      "reevaluation_reason": null
+    },
+    "reason_codes": []
+  }
+}

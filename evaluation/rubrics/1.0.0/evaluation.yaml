@@ -1,0 +1,69 @@
+schema_version: '1.0'
+rubric_version: 1.0.0
+competency: evaluation
+name: 效果评估
+description: 依据指标、实验设计和结果解释评估验证方案的能力。
+criteria:
+- criterion_id: evaluation.metrics
+  name: 指标定义
+  description: 使指标对应目标并可重复测量。
+  weight: 1.0
+  required: true
+  anchors:
+  - anchor_id: evaluation.metrics.l1
+    level: 1
+    behavior: 使用与目标无关的指标，或把指标变化方向解释错误。
+  - anchor_id: evaluation.metrics.l2
+    level: 2
+    behavior: 选取相关指标，但缺少口径、测量范围或基线。
+  - anchor_id: evaluation.metrics.l3
+    level: 3
+    behavior: 定义与目标相关的指标、测量口径和比较基线。
+  - anchor_id: evaluation.metrics.l4
+    level: 4
+    behavior: 结合主指标与保护指标说明权衡，并检查分群和时间窗口的差异。
+  - anchor_id: evaluation.metrics.l5
+    level: 5
+    behavior: 验证代理指标与实际目标的关系，识别指标被优化后失真的条件并建立校验机制。
+- criterion_id: evaluation.experiment_design
+  name: 实验设计
+  description: 建立公平比较并控制数据泄漏和干扰因素。
+  weight: 1.0
+  required: true
+  anchors:
+  - anchor_id: evaluation.experiment_design.l1
+    level: 1
+    behavior: 比较条件明显不同却把差异直接归因于方案。
+  - anchor_id: evaluation.experiment_design.l2
+    level: 2
+    behavior: 有比较对象，但未控制主要干扰因素或数据重叠。
+  - anchor_id: evaluation.experiment_design.l3
+    level: 3
+    behavior: 明确基线、样本和比较条件，控制主要干扰因素。
+  - anchor_id: evaluation.experiment_design.l4
+    level: 4
+    behavior: 按场景采用分层、随机化或隔离数据等方法，并检查样本代表性和泄漏风险。
+  - anchor_id: evaluation.experiment_design.l5
+    level: 5
+    behavior: 针对现实约束设计可识别因果或泛化效果的验证方案，并检验关键设计假设。
+- criterion_id: evaluation.interpretation
+  name: 结果解释
+  description: 根据不确定性和失败案例解释结论边界。
+  weight: 1.0
+  required: true
+  anchors:
+  - anchor_id: evaluation.interpretation.l1
+    level: 1
+    behavior: 把单次或个别成功样本当作普遍有效的证明。
+  - anchor_id: evaluation.interpretation.l2
+    level: 2
+    behavior: 报告平均结果，但忽略波动、失败样本或适用条件。
+  - anchor_id: evaluation.interpretation.l3
+    level: 3
+    behavior: 说明结果变化、失败案例和样本限制，避免超出证据的结论。
+  - anchor_id: evaluation.interpretation.l4
+    level: 4
+    behavior: 分析不确定性、分群差异和实际收益，据此提出下一步验证。
+  - anchor_id: evaluation.interpretation.l5
+    level: 5
+    behavior: 用独立数据或重复实验检验结论稳定性，解释相反结果并修正适用边界。

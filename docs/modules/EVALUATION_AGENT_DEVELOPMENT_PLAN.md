@@ -1,0 +1,495 @@
+# Evaluation 证据提取与评分开发计划
+
+## 文档目的
+
+本文档用于指导 AI Interviewer 的正式 Evaluation 模块开发，重点是建立可追溯的 Evidence Extractor、行为锚定 Rubric 评分和确定性分数聚合。本计划以仓库提交 `3f8ad6a` 为基线，供后续开发、评审和任务拆分时持续读取。
+
+核心结论是：评分链路应采用“LLM 提取证据 + LLM 匹配行为锚点 + 程序确定性聚合”的分层架构。模型不直接生成 competency 总分或 overall score；每个可发布分数都必须能反查到候选人回答原文、证据项、rubric criterion、行为锚点和聚合公式。
+
+## 当前基线
+
+当前仓库已具备以下能力：
+
+- `agents/planning/` 已实现基于时间预算的 Interview Planner，每个 topic 包含 `objective`、`completion_criteria`、时间预算和进度状态。
+- `app/adapters/evaluation.py` 已有临时 LLM Evaluation Adapter，能提取对话分析和多能力证据。
+- 证据 quote 必须是当前回答的原文子串。
+- 同一回答不允许重复返回同一 competency。
+- Evaluation 超时、模型失败或证据校验失败时，会保留回答但不产生分数或虚构证据。
+- `agents/evidence.py` 会将当前 `DimensionEvidence` 聚合到 `CompetencyState`。
+- `app/reporting/final_report.py` 使用岗位权重计算 overall score，LLM 只负责报告文案。
+- 第一阶段已完成（2026-10-03）：`evaluation/contracts.py` 提供内部 schema `1.0`；
+  `evaluation/rubric.py` 提供 loader、schema 和 assessment 引用校验；
+  `evaluation/rubrics/1.0.0/` 包含六项能力、21 个 criterion、105 个行为锚点。
+- `tests/evaluation/` 已覆盖新契约、Rubric 和 Evidence → CriterionAssessment →
+  ScoreSnapshot 示例；正式模块尚未接入运行链路，当前分数仍由原 adapter 产生。
+
+与目标架构相比，仍存在以下缺口：
+
+- 正式 `evaluation/` 已有契约和 Rubric，但 Analyzer、Extractor、Resolver、Judge、
+  Aggregator 与持久化仍待后续阶段实现。
+- 一次模型调用同时负责对话分析、证据提取、competency 识别和 rubric level 判定，职责过重。
+- `DimensionEvidence` 缺少原文 span、criterion、rubric 版本、独立性和纳入或排除原因。
+- Agent 核心仍在重新计算 score 和 coverage，与“Evaluation 负责评分”的边界不一致。
+- 当前简单平均没有区分 supported、weak、duplicate 和 disputed evidence。
+- 未覆盖 competency 可能在 overall score 的权重重新归一化中被忽略。
+- 没有 append-only evidence ledger 和可重放的 score snapshot。
+
+## 模块边界
+
+Evaluation 模块负责：
+
+- conversation analysis 的结构化产出；
+- evidence extraction 和 grounding validation；
+- evidence 去重、独立性和关系解析；
+- rubric matching 和 criterion assessment；
+- score、coverage、reliability 和 overall score 发布门槛；
+- evidence ledger 和 score snapshot；
+- 面向报告的可解释评分数据。
+
+Agent 核心负责：
+
+- 消费安全的 conversation feedback；
+- 根据回答状态调整追问、话题和难度；
+- 使用 `thread_complete`、missing information 和 contradiction 驱动 Planner；
+- 通过 Repository 原子提交新状态；
+- 不自行重新计算分数。
+
+Question Agent 不应读取完整 rubric、当前分数或候选人排名。Evaluation 只向它暴露安全的 `missing_information`、`thread_complete`和已落地的矛盾摘要。
+
+## 目标数据流
+
+```text
+Question + Candidate Answer + relevant thread history
+                         |
+                         v
+              Conversation Analyzer
+                         |
+                         v
+              Evidence Extractor Agent
+                         |
+                         v
+            Evidence Validator and Resolver
+                         |
+                         v
+                 Rubric Judge Agent
+                         |
+                         v
+          Deterministic Score Aggregator
+                         |
+                         v
+      Evidence Ledger + Score Snapshot + Report
+```
+
+Conversation Analyzer 和 Evidence Extractor 可以使用同一模型供应商，但必须有独立的 schema、Prompt 和错误边界。Rubric Judge 只读取已通过程序校验的 evidence，Score Aggregator 必须是可确定性重放的纯程序逻辑。
+
+## 核心数据契约
+
+### EvidenceItem
+
+`EvidenceItem` 只表达一个可独立判断的候选人陈述，至少包含：
+
+```text
+evidence_id
+answer_id
+question_id
+thread_id
+project_id
+quote_spans[]
+normalized_claim
+evidence_kind
+ownership_scope
+factuality
+specificity
+related_evidence_ids[]
+relation
+extraction_version
+```
+
+`quote_spans` 必须保存 exact quote、`char_start` 和 `char_end`。一个事实可以引用多个不连续片段，不应被限制为当前的单一 `quote`。
+
+### EvidenceRelation
+
+支持以下关系：
+
+- `new`；
+- `duplicate`；
+- `refines`；
+- `supports`；
+- `contradicts`；
+- `retracts`。
+
+不能按“同一 thread + 同一 competency”直接覆盖。同一项目事件或技术决策的追问补充应当合并到同一 independence group，而不是重复累加 evidence count。
+
+### CriterionAssessment
+
+`CriterionAssessment` 至少包含：
+
+```text
+competency
+criterion_id
+rubric_version
+evidence_ids[]
+assigned_level
+matched_anchor_ids[]
+decision
+reason_codes[]
+concise_rationale
+counter_evidence_ids[]
+```
+
+`decision` 建议限定为 `included`、`insufficient`、`excluded` 或 `disputed`。`concise_rationale` 是可审计的结构化摘要，不保存或要求模型的隐藏思维链。
+
+### ScoreSnapshot
+
+`ScoreSnapshot` 至少包含：
+
+- evaluation schema 和 rubric 版本；
+- 每个 criterion 的有效 evidence 及权重；
+- competency score、coverage 和 reliability；
+- overall coverage；
+- overall score 是否可发布；
+- 未发布的 reason codes；
+- 聚合策略版本；
+- `supersedes_snapshot_id` 和重评原因。
+
+重新评分必须创建新 snapshot，不得覆盖历史分数。
+
+## Evidence Extractor 机制
+
+Evidence Extractor 只接收：
+
+- 当前不可变 Question 快照；
+- 当前 CandidateAnswer；
+- 当前 thread 的有限历史回答；
+- competency taxonomy；
+- 已存在 evidence 的精简索引，用于判断重复、补充或矛盾。
+
+Extractor 不应读取候选人当前分数、岗位权重、最终录用判断或排名。简历 claim 只是待核实线索，不能直接计分。
+
+模型输出后必须执行程序硬校验：
+
+- quote 必须是当前回答的精确子串；
+- span 与 quote 必须一致；
+- quote 不得来自问题、简历或历史回答；
+- `label_only`、yes/ok、拒答不能形成可评分证据；
+- 每条 evidence 必须有明确 claim；
+- 校验失败时 fail closed，不尝试将虚构内容修正成可计分证据。
+
+Evidence ID 应根据 `answer_id + quote spans + normalized claim + evidence kind` 确定性生成，保证同一请求重放时结果稳定。
+
+## Evidence 质量与独立性
+
+不再仅使用单一 `strength: 0..1`。Evidence 质量应拆成可展示的分量：
+
+- grounding；
+- relevance；
+- directness；
+- specificity；
+- outcome support；
+- consistency；
+- independence。
+
+每个分量使用枚举值和 reason code，例如 `personal_action`、`team_only`、`concrete_mechanism`、`measured_result`、`unresolved_contradiction`。内部可以通过版本化的映射转换为权重，但报告必须保留原始分量和原因。
+
+同一经历在多次追问中重复表述，不能被视为多个独立证据。不同问题也不自动表示证据独立。
+
+## Rubric 设计
+
+为以下六个 competency 建立独立行为锚定 rubric：
+
+- `technical_depth`；
+- `ownership`；
+- `decision_making`；
+- `debugging`；
+- `evaluation`；
+- `adaptability`。
+
+每个 competency 必须拆成多个 criterion。例如 debugging 可以包含：
+
+- 问题界定；
+- 假设构建；
+- 诊断方法；
+- 根因验证；
+- 修复验证；
+- 预防与复盘。
+
+每个 criterion 定义专属的 1–5 级行为锚点。不应继续使用同一套“1=识别概念，5=深度洞察”的通用描述来评估所有能力。
+
+岗位 seniority 可以选择不同 rubric pack，但岗位权重只参与最后聚合，不传给 Evidence Extractor 或 Rubric Judge。
+
+## 确定性聚合策略
+
+每个 criterion assessment 的有效权重由版本化策略计算：
+
+```text
+effective_weight =
+    grounding_gate
+  * relevance_gate
+  * directness_weight
+  * specificity_weight
+  * consistency_weight
+  * independence_weight
+```
+
+grounding 或 relevance 不通过时权重为 0。同一 independence group 只保留最高质量证据的完整贡献，其他补充只用于丰富原 evidence，不重复刷分。
+
+Criterion score 的初始公式为：
+
+```text
+criterion_score =
+sum(level * effective_weight) / sum(effective_weight)
+```
+
+但只有在独立证据数、有效权重和矛盾状态达到门槛时才发布分数，否则返回 `score = null`。具体门槛需通过人工标注集校准，不在首版直接写死。
+
+Competency score 和 coverage 分开计算：
+
+```text
+competency_score =
+sum(criterion_score * criterion_weight)
+/ sum(covered criterion weight)
+
+competency_coverage =
+sum(scoreable criterion weight)
+/ sum(all required criterion weight)
+```
+
+缺失证据不直接按 0 分处罚，但 coverage 不足时不允许发布看似完整的 competency score。
+
+Overall score 只在以下条件成立时发布：
+
+- 岗位重要性覆盖率达标；
+- mandatory competency 都满足可评分门槛；
+- 必要 anchor assessment 已完成；
+- 不存在阻断性的未解决矛盾或 Evaluation failure。
+
+不满足时返回：
+
+```text
+overall_score = null
+status = insufficient_evidence
+reason_codes = [...]
+```
+
+问题 difficulty 不直接作为加分乘数。高难度问题只有在回答内容真正匹配更高 rubric anchor 时才会提高分数。
+
+## Planner 集成要求
+
+`thread_complete` 会影响 topic 状态和动态 replan，因此它必须和评分证据解耦：
+
+- Conversation Analyzer 需要读取当前 agenda 的 `objective` 和 `completion_criteria`；
+- `thread_complete=true` 只表示当前 topic 的对话目标已满足；
+- `thread_complete` 不表示 competency 已达到评分覆盖门槛；
+- Evaluation 失败、无法解析或证据不足时不得将 topic 标记为 completed；
+- Planner 只接收 conversation-safe feedback，不接收分数或完整 rubric。
+
+为了保证跨候选人可比性，后续还需要在 Planner 之上定义隐藏的 `AssessmentBlueprint`。它指定 mandatory competency 和 anchor information goal，但只向出题侧提供可观察目标，不暴露分数或详细评分规则。
+
+## 开发阶段
+
+### 阶段一 契约和 Rubric
+
+状态：**已完成（2026-10-03）**。
+
+交付内容：
+
+1. 新增 `evaluation/contracts.py`。
+2. 定义 `EvidenceItem`、`QuoteSpan`、`EvidenceRelation`、`CriterionAssessment`、`CompetencyScore`、`ScoreSnapshot` 和 `EvaluationResult`。
+3. 建立六个 competency 的版本化 rubric 文件。
+4. 实现 rubric loader 和 schema validation。
+5. 添加契约、rubric 及示例 fixture 测试。
+
+该阶段不替换现有评分流程，不修改线上分数。
+
+实际交付与验收：
+
+- 契约包含本阶段要求的全部七类模型/枚举，并增加 criterion 贡献记录、
+  空分数发布状态、失败结果约束及 snapshot 重评关联字段。
+- QuoteSpan 保留 Python Unicode 字符偏移和原始空白；支持不连续片段，
+  可显式针对 CandidateAnswer 校验回答身份和原文，避免仅凭长度判定 grounding。
+- Rubric 文件按 `evaluation/rubrics/1.0.0/` 保存；debugging 包含六项 criterion，
+  其他五项能力各包含三项 criterion。每项均有专属的 1–5 级行为描述。
+- Loader 拒绝缺失能力、混合版本、文件名与能力不符、重复 YAML key、缺失/重复等级、
+  非法权重和多余字段；assessment 校验拒绝跨能力、跨 criterion 或等级不匹配的引用。
+- 示例位于 `tests/evaluation/fixtures/evidence_to_assessment.json`，包含多片段证据、
+  included/excluded assessment、criterion 贡献和 overall score 为 null 的 snapshot。
+- `evaluation/README.md` 记录公开使用方式、内部与共享契约边界、版本迁移方式及未实现范围。
+- 验收：新增 132 项测试通过；全仓 `.venv/bin/pytest -q` 为 **350 passed，5 subtests passed**；
+  `.venv/bin/ruff check .` 通过。回归包含 Evaluation recovery、dialogue evaluation 和
+  interview planning。现有 Adapter、Question Agent、Planner、报告和数据库未修改。
+
+版本与未决策项：
+
+- 内部 evaluation schema `1.0`、Rubric `1.0.0` 与共享 Agent contract `2.0` 分开版本化；
+  无线上数据迁移。后续变更新增 Rubric 版本目录，重评生成新 snapshot，不覆盖历史版本。
+- 首版各 criterion 使用等权 `1.0`，行为锚点待人工标注校准；未设发布阈值。
+  示例中的 `fixture-only-1` 仅标识人工构造的测试数据，不代表聚合策略已实现。
+- reason code 词表、质量分量到权重的映射、seniority pack、独立证据与覆盖率门槛、
+  reliability 算法和岗位权重 trace 的最终结构留待后续阶段确定。
+- 本阶段仅验证结构、原文对齐和 Rubric 引用；语义非回答过滤、真实历史证据关系、
+  去重与独立性、矛盾消解、确定性 ID、分数数学重放及 append-only 持久化尚未实现。
+
+### 阶段二 Conversation Analyzer 和 Evidence Extractor
+
+交付内容：
+
+1. 将对话控制分析与评分证据提取拆分为独立 schema 和 Prompt。
+2. 实现原子 evidence 拆分和多 quote span 输出。
+3. 传入当前 Planner objective 和 completion criteria。
+4. 实现确定性 evidence ID。
+5. 保持现有 fail-closed Evaluation recovery 行为。
+
+### 阶段三 校验、去重和矛盾
+
+交付内容：
+
+1. 实现 quote/span 硬校验。
+2. 实现 normalized claim 和 independence group。
+3. 识别 duplicate、refines、supports、contradicts 和 retracts。
+4. 未解决矛盾只降低相关 criterion 的可评分性，不自动把候选人评为 0 分。
+5. 限制同一 independence group 的重复贡献。
+
+### 阶段四 Rubric Judge 和 Aggregator
+
+交付内容：
+
+1. Rubric Judge 将已验证 evidence 映射到 criterion 和行为锚点。
+2. 实现版本化 effective weight 策略。
+3. 实现 criterion、competency 和 overall 的纯程序聚合。
+4. 实现 coverage、reliability 和 score publish gate。
+5. 输出完整 aggregation trace，支持确定性重放。
+
+### 阶段五 集成和持久化
+
+交付内容：
+
+1. 实现正式 `EvaluationPort`。
+2. 保留当前 adapter 作为过渡兼容层。
+3. 使用 shadow mode 同时运行新旧评分，新结果暂不影响用户界面。
+4. 将 score 和 coverage 聚合从 `agents/evidence.py` 迁移到 Evaluation。
+5. Repository 保存 append-only evidence ledger、criterion assessments 和 score snapshots。
+6. 使用 `base_state_version` 和 CAS 防止基于过期证据计算分数。
+
+### 阶段六 报告和校准
+
+交付内容：
+
+1. 更新最终报告，展示 competency score、coverage、reliability 和 insufficient evidence。
+2. 为每个分数展示 exact quote、criterion、anchor、贡献权重和排除原因。
+3. 区分内部完整评估视图和候选人安全视图。
+4. 建立人工标注数据集并校准证据门槛。
+5. 评估 evidence precision/recall、rubric level agreement、weighted kappa、重放稳定性和分组偏差。
+
+## 建议文件结构
+
+```text
+evaluation/
+|-- contracts.py
+|-- service.py
+|-- analyzer.py
+|-- extractor.py
+|-- validator.py
+|-- resolver.py
+|-- ids.py
+|-- judge.py
+|-- aggregator.py
+|-- policy.py
+|-- explanation.py
+|-- rubrics/
+|   |-- technical_depth.yaml
+|   |-- ownership.yaml
+|   |-- decision_making.yaml
+|   |-- debugging.yaml
+|   |-- evaluation.yaml
+|   `-- adaptability.yaml
+`-- tests/
+    |-- fixtures/
+    |-- test_contracts.py
+    |-- test_extractor.py
+    |-- test_validator.py
+    |-- test_resolver.py
+    |-- test_judge.py
+    |-- test_aggregator.py
+    `-- test_replay.py
+```
+
+实际测试位置应与仓库统一的 `tests/` 结构对齐；上述结构中的 `evaluation/tests/` 只表示逻辑分组，落地前需根据现有测试约定确定最终路径。
+
+## 第一个开发 PR
+
+第一个 PR 只包含：
+
+1. `evaluation/contracts.py`；
+2. 六个 competency rubric 文件；
+3. rubric loader 和 schema validation；
+4. 契约与 rubric 单元测试；
+5. Evidence 到 CriterionAssessment 的示例 fixture；
+6. Evaluation 模块 README 和对外边界说明。
+
+第一个 PR 不包含：
+
+- 不替换现有 Evaluation Adapter；
+- 不修改 Question Agent Prompt；
+- 不修改 Interview Planner；
+- 不改变线上分数；
+- 不修改最终报告；
+- 不做数据库迁移；
+- 不引入新的 Agent 框架。
+
+## 测试要求
+
+单元测试至少覆盖：
+
+- quote 和 span 精确对齐；
+- 问题文本、简历 claim 不能成为回答证据；
+- yes/ok、label-only、拒答和 explicit unknown 不计分；
+- duplicate evidence 不提高 evidence count 或 score；
+- 同一经历的追问补充被合并；
+- 不同独立经历可分别贡献；
+- 矛盾需要两个真实的候选人原文片段；
+- unresolved contradiction 使相关证据 disputed，但不制造 0 分；
+- 同一请求重放产生相同 evidence ID 和 score snapshot；
+- 模型超时、无效 JSON 和非法 quote 时 fail closed；
+- Evaluation 失败时保留回答且不完成 topic；
+- coverage 不足时 overall score 为 `null`；
+- 已发布分数可从 snapshot 确定性重建。
+
+集成回归需继续覆盖：
+
+- Evaluation failure 后 Agent 可继续询问；
+- Planner 不会因评分失败错误关闭 topic；
+- feedback request 幂等；
+- Repository CAS 和原子提交；
+- shadow result 不影响用户当前结果；
+- 新旧合同在过渡期内能够兼容。
+
+## 验收标准
+
+正式 Evaluation 模块完成时必须满足：
+
+- 每一个分数都能追溯到候选人回答的精确原文；
+- 每一条贡献都有 competency、criterion、rubric anchor 和 reason code；
+- 相同输入、相同 rubric 和策略版本可确定性重放；
+- 无效 quote、模型失败和超时不产生分数；
+- 重复表达不提高 evidence count 或 score；
+- 未覆盖关键能力时不输出 overall score；
+- Evaluation 失败不会错误结束 topic 或面试；
+- 重新评分创建新 snapshot，不覆盖历史结果；
+- 最终报告能展示纳入、排除、矛盾和证据缺口；
+- 当前 Evaluation recovery、dialogue evaluation 和 interview planning 回归测试持续通过。
+
+## 暂不开发的内容
+
+在核心契约、rubric 和聚合策略稳定前，不开发：
+
+- 基于分数的自动录用决策；
+- 候选人排名；
+- 将简历 claim 直接作为评分证据；
+- 让 Question Agent 读取完整 rubric 或当前分数；
+- 将 LLM 输出的 competency 总分直接写入报告；
+- 为了评分模块而引入新的 Agent 框架；
+- 在没有人工标注和校准数据前宣称分数可代表录用概率。
+
+## 维护方式
+
+每完成一个阶段，应更新本文档的当前基线、交付状态、未决策项和验收结果。如果契约、rubric 或聚合策略发生变更，必须同时记录版本号和迁移方式，避免历史 score snapshot 无法重放。
