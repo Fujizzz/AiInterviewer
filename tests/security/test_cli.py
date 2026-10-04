@@ -1,15 +1,15 @@
-"""职责：验证唯一行为检查 CLI 的契约、退出码、项目模型装配与脱敏错误。
-实现：临时请求/策略文件和显式异步审查替身，不联网或读取真实模型配置。
-关联：ai_security.__main__ 与真实面试网关共用 BehaviorEngine；不执行拟议业务动作。
+"""Responsibilities: 验证CLI的契约、退出码、模型装配、所属池关闭与脱敏错误。
+Implementation: 临时文件和显式异步审查替身，不联网或读取真实配置。
+Related Modules: ai_security.__main__ 和真实网关共用BehaviorEngine，不执行业务动作。
 
-目录：
-- cli_files：写入临时冻结请求与原有测试策略，设置 CLI 参数。
-- test_cli_decisions：完整合格、越界、检测失败分别返回既定退出码。
-- test_cli_invalid_input：输入错误不创建模型，固定错误输出不含正文。
-- test_cli_rejects_external_factory：拒绝外部 Python 工厂参数，不运行指定代码。
+Declaration Index:
+- cli_files: 写入临时冻结请求与原有测试策略，设置 CLI 参数。
+- test_cli_decisions: 结论返回既定退出码，并释放显式审查替身。
+- test_cli_invalid_input: 输入错误不创建模型，固定错误输出不含正文。
+- test_cli_rejects_external_factory: 拒绝外部 Python 工厂参数，不运行指定代码。
 
-关键变量：
-（无）
+Variable Index:
+None
 """
 
 import json
@@ -43,6 +43,7 @@ def test_cli_decisions(cli_files, monkeypatch, behavior_request, capsys, verdict
         if p.operation == behavior_request.proposal.operation
     )
     reviewer = MagicMock()
+    reviewer.aclose = AsyncMock()
     reviewer.assess = AsyncMock(
         return_value=BehaviorAssessment(
             verdict=verdict,
@@ -57,6 +58,7 @@ def test_cli_decisions(cli_files, monkeypatch, behavior_request, capsys, verdict
     assert result["status"] == {0: "allow", 2: "deny", 3: "error"}[code]
     factory.assert_called_once_with()
     reviewer.assess.assert_awaited_once()
+    reviewer.aclose.assert_awaited_once()
 
 
 def test_cli_invalid_input(cli_files, monkeypatch, capsys):

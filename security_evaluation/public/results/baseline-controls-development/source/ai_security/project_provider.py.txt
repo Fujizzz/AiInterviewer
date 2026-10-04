@@ -1,0 +1,229 @@
+"""Responsibilities: Reuse project LLM configuration for single-shot safety and benchmark calls.
+Implementation: Preserve provider, model, options, timeout and response checks; share transport
+between structured safety assessments and explicit plain-text public benchmark requests.
+Related Modules: behavior_semantic requests assessments; security_evaluation.public.collect
+requests native benchmark responses; BehaviorEngine owns the safety deadline.
+
+Declaration Index:
+- ProjectModelTransport: 与审查语义解耦的单次模型传输。
+- ProjectModelTransport.__init__: 验证配置并初始化脱敏调用统计。
+- ProjectModelTransport.generate: 单次调用并释放客户端，不重试、不修复、不执行工具。
+- ProjectModelTransport.generate_text: Send original benchmark messages without JSON instructions.
+- ProjectModelTransport._request: Perform one SDK call, record status, and close the client.
+- ProjectModelTransport.metadata: 返回可复现实验配置和调用统计，不返回凭据或正文。
+- create_transport: 从统一根目录配置和进程环境创建供行为审查器使用的模型传输。
+
+Variable Index:
+- logger: 仅记录模型、请求序号、异常类型和 HTTP 状态，不记录正文或服务商错误文本。
+
+Constraints:
+复用 LLM_PROVIDER、对应 API_KEY/MODEL/BASE_URL、OPENAI_TEMPERATURE；不修改环境文件。
+DashScope 沿用业务 enable_thinking=False；OpenAI 沿用 Responses 且 store=False。
+sdk_timeout_seconds 为已有 Agent 请求超时；外层安全策略时限继续生效，不自动增大。
+_api_key 仅用于 SDK；_calls 记录无正文的响应模型、token 用量及调用状态，不含远端请求 ID。
+每次调用创建并关闭异步客户端，方便 CLI 生命周期与取消；成本统计可能缺失超时远端用量。
+"""
+
+import asyncio
+import hashlib
+import json
+import logging
+import math
+import os
+from importlib.metadata import version
+from pathlib import Path
+
+from dotenv import dotenv_values
+from openai import AsyncOpenAI
+
+from agents.config import load_agent_settings
+
+logger = logging.getLogger(__name__)
+
+
+class ProjectModelTransport:
+    """功能：对接真实模型；逻辑：配置复用、单次生成；约束：不继承业务重试、不操作业务资源。"""
+
+    def __init__(self, configuration: dict, sdk_timeout_seconds: float):
+        """功能：初始化；输入：显式配置与 SDK 超时；输出：传输实例；缺配置报错且不发请求。
+
+        provider/model/options 与主业务配置相同；空温度不发送参数。统计仅记录本实例的调用。
+        """
+        self.provider = configuration.get("LLM_PROVIDER", "").strip().lower()
+        if self.provider not in {"dashscope", "openai"}:
+            raise ValueError("LLM_PROVIDER must be dashscope or openai")
+        prefix = "DASHSCOPE" if self.provider == "dashscope" else "OPENAI"
+        self._api_key = (configuration.get(f"{prefix}_API_KEY") or "").strip()
+        self.model = (configuration.get(f"{prefix}_MODEL") or "").strip()
+        if not self._api_key or not self.model:
+            raise ValueError("configured provider requires API_KEY and MODEL")
+        default_url = (
+            "https://dashscope.aliyuncs.com/compatible-mode/v1"
+            if self.provider == "dashscope"
+            else "https://api.openai.com/v1"
+        )
+        self._base_url = (configuration.get(f"{prefix}_BASE_URL") or default_url).strip()
+        temperature = (configuration.get("OPENAI_TEMPERATURE", "0") or "").strip()
+        self.options = {"temperature": float(temperature)} if temperature else {}
+        if self.options and not math.isfinite(self.options["temperature"]):
+            raise ValueError("temperature must be finite")
+        if not math.isfinite(sdk_timeout_seconds) or sdk_timeout_seconds <= 0:
+            raise ValueError("SDK timeout must be positive and finite")
+        self.sdk_timeout_seconds = sdk_timeout_seconds
+        self._calls = []
+
+    async def generate(self, instructions: str, payload: dict, schema: dict) -> str:
+        """功能：生成检测 JSON；输入：固定指令、不可信数据与 Schema；输出：原始 JSON 字符串。
+
+        模型拒绝、截断或缺响应均抛错，格式和证据由行为审查器及引擎校验。
+        取消向上传播，finally 关闭 SDK。
+        调用统计区分收到完整响应、异常和取消；received 不代表已通过语义契约验证。
+        """
+        return await self._request(instructions, json.dumps(payload, ensure_ascii=False), schema)
+
+    async def generate_text(self, instructions: str, user_text: str) -> str:
+        """Functionality: Generate a native public benchmark response using existing configuration.
+        Inputs: Original trusted system prompt and original untrusted user text. Outputs: Raw text.
+        Logic: Use the shared single-shot transport without a JSON schema or formatting instruction.
+        Constraints: Explicit benchmark API, never an assessment fallback. No tools, retries,
+        repair, parameter changes or writes; failures and cancellation propagate unchanged.
+        """
+        return await self._request(instructions, user_text, None)
+
+    async def _request(self, instructions: str, user_text: str, schema: dict | None) -> str:
+        """Functionality: Perform one asynchronous provider request and record diagnostic metadata.
+        Inputs: System text, user text, and optional explicit schema. Outputs: Complete raw text.
+        Logic: Schema presence selects structured formatting; both modes share SDK options,
+        response validation, token accounting, cancellation and client cleanup.
+        Constraints: Missing/truncated/refused responses raise; statistics exclude contents,
+        credentials and remote error bodies. Received means transport success, not safe behavior.
+        """
+        call = {"sequence": len(self._calls), "status": "started"}
+        self._calls.append(call)
+        logger.info("Security model start sequence=%s model=%s", call["sequence"], self.model)
+        try:
+            async with AsyncOpenAI(
+                api_key=self._api_key,
+                base_url=self._base_url,
+                timeout=self.sdk_timeout_seconds,
+                max_retries=0,
+            ) as client:
+                messages = [
+                    {"role": "system", "content": instructions},
+                    {"role": "user", "content": user_text},
+                ]
+                if self.provider == "dashscope":
+                    formatting = {}
+                    if schema is not None:
+                        messages[0]["content"] += "\nJSON schema:\n" + json.dumps(schema)
+                        formatting["response_format"] = {"type": "json_object"}
+                    response = await client.chat.completions.create(
+                        model=self.model,
+                        messages=messages,
+                        **formatting,
+                        extra_body={"enable_thinking": False},
+                        **self.options,
+                    )
+                    usage = response.usage
+                    call["usage"] = (
+                        None
+                        if usage is None
+                        else {
+                            "input_tokens": usage.prompt_tokens,
+                            "output_tokens": usage.completion_tokens,
+                            "total_tokens": usage.total_tokens,
+                        }
+                    )
+                    if not response.choices:
+                        raise ValueError("security_model_empty_choices")
+                    choice = response.choices[0]
+                    if choice.finish_reason != "stop" or choice.message.refusal:
+                        raise ValueError("security_model_incomplete_or_refused")
+                    raw = choice.message.content
+                else:
+                    formatting = {}
+                    if schema is not None:
+                        formatting["text"] = {
+                            "format": {
+                                "type": "json_schema",
+                                "name": "security_assessment",
+                                "schema": schema,
+                                "strict": True,
+                            }
+                        }
+                    response = await client.responses.create(
+                        model=self.model,
+                        input=messages,
+                        **formatting,
+                        store=False,
+                        **self.options,
+                    )
+                    usage = response.usage
+                    call["usage"] = (
+                        None
+                        if usage is None
+                        else {
+                            "input_tokens": usage.input_tokens,
+                            "output_tokens": usage.output_tokens,
+                            "total_tokens": usage.total_tokens,
+                        }
+                    )
+                    if response.status != "completed" or any(
+                        part.type == "refusal"
+                        for item in response.output
+                        if item.type == "message"
+                        for part in item.content
+                    ):
+                        raise ValueError("security_model_incomplete_or_refused")
+                    raw = response.output_text
+                if not isinstance(raw, str) or not raw:
+                    raise ValueError("security_model_empty_content")
+                call.update(status="received", response_model=response.model)
+                logger.info("Security model received sequence=%s", call["sequence"])
+                return raw
+        except asyncio.CancelledError:
+            call["status"] = "cancelled"
+            logger.info("Security model cancelled sequence=%s", call["sequence"])
+            raise
+        except Exception as exc:
+            call.update(status="failed", exception_type=type(exc).__name__)
+            status_code = getattr(exc, "status_code", None)
+            if isinstance(status_code, int):
+                call["http_status"] = status_code
+            logger.warning(
+                "Security model failed sequence=%s exception=%s http_status=%s",
+                call["sequence"],
+                type(exc).__name__,
+                call.get("http_status"),
+            )
+            raise
+
+    def metadata(self) -> dict:
+        """功能：导出实验记录；输入：实例配置和累计状态；输出：独立副本；不含密钥、URL 或正文。"""
+        return {
+            "provider": self.provider,
+            "model": self.model,
+            "options": dict(self.options),
+            "enable_thinking": False if self.provider == "dashscope" else None,
+            "sdk_timeout_seconds": self.sdk_timeout_seconds,
+            "sdk_max_retries": 0,
+            "sdk_version": version("openai"),
+            "endpoint_sha256": hashlib.sha256(self._base_url.encode()).hexdigest(),
+            "calls": [
+                dict(call, usage=dict(call["usage"])) if call.get("usage") else dict(call)
+                for call in self._calls
+            ],
+        }
+
+
+def create_transport() -> ProjectModelTransport:
+    """功能：创建端口；输入：根目录 .env、进程环境及已有 Agent 超时。
+    输出：不携带提示词的模型传输。
+
+    进程环境优先，与后端一致；读取文件但不修改全局环境，不加载 Django 或业务会话。
+    """
+    configuration = dict(dotenv_values(Path(__file__).resolve().parents[1] / ".env"))
+    configuration.update(os.environ)
+    return ProjectModelTransport(
+        configuration, load_agent_settings().timeouts.llm_generation_seconds
+    )

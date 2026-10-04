@@ -1,0 +1,109 @@
+{
+  "full_crlf_check_exit_code": 2,
+  "preserved_original_raw_diagnostics": [
+    {
+      "file": "security_evaluation/optimization/results/offline-unified-v6.xml",
+      "line": 14,
+      "kind": "trailing whitespace"
+    },
+    {
+      "file": "security_evaluation/optimization/results/offline-unified-v6.xml",
+      "line": 30,
+      "kind": "trailing whitespace"
+    },
+    {
+      "file": "security_evaluation/optimization/results/offline-unified-v6.xml",
+      "line": 73,
+      "kind": "trailing whitespace"
+    },
+    {
+      "file": "security_evaluation/optimization/results/offline-unified-v6.xml",
+      "line": 89,
+      "kind": "trailing whitespace"
+    },
+    {
+      "file": "security_evaluation/optimization/results/sdk-startup-profile.txt",
+      "line": 32,
+      "kind": "new blank line at EOF"
+    },
+    {
+      "file": "security_evaluation/optimization/results/stream-contract-unified-v8.xml",
+      "line": 29,
+      "kind": "trailing whitespace"
+    },
+    {
+      "file": "security_evaluation/optimization/results/stream-contract-unified-v8.xml",
+      "line": 37,
+      "kind": "trailing whitespace"
+    },
+    {
+      "file": "security_evaluation/optimization/results/stream-contract-unified-v8.xml",
+      "line": 47,
+      "kind": "trailing whitespace"
+    },
+    {
+      "file": "security_evaluation/optimization/results/stream-contract-unified-v8.xml",
+      "line": 67,
+      "kind": "trailing whitespace"
+    },
+    {
+      "file": "security_evaluation/optimization/results/stream-contract-unified-v8.xml",
+      "line": 99,
+      "kind": "trailing whitespace"
+    },
+    {
+      "file": "security_evaluation/optimization/results/stream-contract-unified-v8.xml",
+      "line": 107,
+      "kind": "trailing whitespace"
+    },
+    {
+      "file": "security_evaluation/optimization/results/stream-contract-unified-v8.xml",
+      "line": 117,
+      "kind": "trailing whitespace"
+    },
+    {
+      "file": "security_evaluation/optimization/results/stream-contract-unified-v8.xml",
+      "line": 137,
+      "kind": "trailing whitespace"
+    },
+    {
+      "file": "security_evaluation/results/fixed-invariants.xml",
+      "line": 14,
+      "kind": "trailing whitespace"
+    },
+    {
+      "file": "security_evaluation/results/fixed-invariants.xml",
+      "line": 17,
+      "kind": "trailing whitespace"
+    },
+    {
+      "file": "security_evaluation/results/fixed-invariants.xml",
+      "line": 20,
+      "kind": "trailing whitespace"
+    }
+  ],
+  "excluded_archive_files": [
+    "security_evaluation/optimization/results/offline-unified-v6.xml",
+    "security_evaluation/optimization/results/sdk-startup-profile.txt",
+    "security_evaluation/optimization/results/stream-contract-unified-v8.xml",
+    "security_evaluation/results/fixed-invariants.xml"
+  ],
+  "scope_check_command": [
+    "git",
+    "-c",
+    "core.whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol",
+    "diff",
+    "--cached",
+    "--check",
+    "--",
+    ".",
+    ":(exclude)security_evaluation/optimization/results/offline-unified-v6.xml",
+    ":(exclude)security_evaluation/optimization/results/sdk-startup-profile.txt",
+    ":(exclude)security_evaluation/optimization/results/stream-contract-unified-v8.xml",
+    ":(exclude)security_evaluation/results/fixed-invariants.xml"
+  ],
+  "scope_check_exit_code": 0,
+  "scope_check_stdout": "",
+  "rationale": "Do not normalize immutable failed JUnit/profiler raw evidence. Full check failure is retained and disclosed; source, documentation, configuration, protocols, input data and all other files remain checked under original default whitespace rules plus explicit CRLF recognition. No checker code changed.",
+  "preparation_note": "First path assertion included only optimization/results; corrected to include the existing security_evaluation/results/fixed-invariants.xml raw failure record. No evidence files edited."
+}

@@ -1,0 +1,60 @@
+{
+  "records": [
+    {
+      "command": [
+        ".venv/Scripts/python.exe",
+        "-m",
+        "ruff",
+        "check",
+        "ai_security",
+        "tests/security",
+        "security_evaluation",
+        "backend/interviews/agent_safety.py",
+        "backend/interviews/agent_socket.py",
+        "backend/interviews/tests/agent_fixtures.py",
+        "backend/interviews/tests/test_agent_safety.py"
+      ],
+      "exit_code": 0,
+      "output": "All checks passed!\n"
+    },
+    {
+      "command": [
+        ".venv/Scripts/python.exe",
+        "-m",
+        "ruff",
+        "format",
+        "--check",
+        "ai_security",
+        "tests/security",
+        "security_evaluation",
+        "backend/interviews/agent_safety.py",
+        "backend/interviews/agent_socket.py",
+        "backend/interviews/tests/agent_fixtures.py",
+        "backend/interviews/tests/test_agent_safety.py"
+      ],
+      "exit_code": 0,
+      "output": "45 files already formatted\n"
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "output": ""
+    },
+    {
+      "command": [
+        "ruff",
+        "check",
+        "--stdin-filename",
+        "observer.py",
+        "-"
+      ],
+      "exit_code": 0,
+      "output": "All checks passed!\n"
+    }
+  ],
+  "scope": "45 current runtime/test Python files, current v6 observation driver, current tracked diff whitespace. Historical snapshots remain byte-exact and are not claimed to pass current lint."
+}

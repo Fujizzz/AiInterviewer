@@ -7,6 +7,7 @@ covers rejection and failure behavior.
 Declaration Index:
 - FixtureBehaviorReviewer: Explicit offline reviewer that returns a complete approval result.
 - FixtureBehaviorReviewer.assess: Produce an assessment covering every requested safety requirement.
+- FixtureBehaviorReviewer.aclose: Explicit lifecycle port without external resources.
 - SafetyTestMixin: Isolate business regression tests from the external safety service.
 - SafetyTestMixin.setUp: Patch the safety port for one test lifecycle and register cleanup.
 - complete_fixture_request: Attach an explicit test receipt and persist an offline result for direct
@@ -52,6 +53,13 @@ class FixtureBehaviorReviewer:
     Constraints: This fixture verifies integration wiring only and cannot establish real safety
     detection quality.
     """
+
+    async def aclose(self):
+        """Functionality: Accept explicit owner cleanup. Inputs: No external resources/state.
+        Outputs: None. Logic: Nothing to release in this stand-in. Constraints: This method only
+        preserves the production lifecycle interface; it does not verify real connection closure.
+        """
+        return None
 
     async def assess(self, request):
         """Functionality: Return an approval covering all requested behavior requirements.

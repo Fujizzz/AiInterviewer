@@ -1,0 +1,239 @@
+"""Responsibilities: Verify actual SDK accumulation and complete-response safety before release.
+Implementation: Feed finite or suspended SSE frames through in-memory HTTPX transports; exercise
+both SDK stream managers without contacting a provider or changing online evaluation fixtures.
+Related Modules: project_provider owns and closes streams; BehaviorEngine retains failure states.
+Declaration Index:
+- FrameStream: Supply explicit in-memory SSE bytes and observable close/cancellation.
+- FrameStream.__init__: Store frame bytes and optional suspension state.
+- FrameStream.__aiter__: Yield the supplied frames, optionally suspend before stream completion.
+- FrameStream.aclose: Record actual response-body cleanup.
+- frames: Construct provider-specific complete or unfinished SSE fixtures.
+- test_sdk_stream_contract: Verify accumulation, usage, single call and unfinished-result rejection.
+- test_sdk_stream_contract.handle: Return the isolated SSE body and capture fake request arguments.
+- test_sdk_stream_contract.http_client: Build a real SDK HTTP client over the in-memory handler.
+Variable Index:
+None
+"""
+
+import asyncio
+import json
+
+import httpx
+import pytest
+from openai import DefaultAsyncHttpxClient
+
+from ai_security import BehaviorEngine, project_provider
+from ai_security.behavior_semantic import ProjectBehaviorReviewer
+
+
+class FrameStream(httpx.AsyncByteStream):
+    """Functionality: Expose finite or incomplete SSE bodies without a real network.
+    Logic: Yield exact fixture bytes and record closure; suspension responds to cancellation.
+    Constraints: This tests SDK parsing/lifecycle, not provider latency or semantic accuracy.
+    """
+
+    def __init__(self, data, suspend):
+        """Functionality: Store a response fixture. Inputs: SSE bytes and suspension boolean.
+        Outputs: In-memory body with closed=False. Logic: Keep only explicit test state.
+        Constraints: No timers, network, configuration or model calls during initialization.
+        """
+        self.data, self.suspend, self.closed = data, suspend, False
+
+    async def __aiter__(self):
+        """Functionality: Emit supplied frames. Inputs: Instance bytes/suspension state.
+        Outputs: SSE bytes then exhaustion or pending cancellation. Logic: Yield all fixture bytes;
+        wait on an unset event when testing an unfinished response. Constraints: No swallowed
+        exception, fabricated terminal event, retry or background thread.
+        """
+        yield self.data
+        if self.suspend:
+            await asyncio.Event().wait()
+
+    async def aclose(self):
+        """Functionality: Observe actual body closure. Inputs: Instance state. Outputs: None.
+        Logic: Set closed=True. Constraints: No response replacement or external side effects.
+        """
+        self.closed = True
+
+
+def frames(provider, raw, finish):
+    """Functionality: Build explicit provider SSE fixtures. Inputs: Provider, complete JSON text
+    and whether a terminal completion is present. Outputs: UTF-8 SSE bytes. Logic: Split text into
+    two deltas; append terminal status and actual token usage only for the complete fixture.
+    Constraints: Fake IDs/model/usage only; complete JSON in deltas without a final server status
+    must remain unfinished. No parsing repair, online label changes or API-key access.
+    """
+    parts = [raw[: len(raw) // 2], raw[len(raw) // 2 :]]
+    if provider == "dashscope":
+        events = [
+            {
+                "id": "fixture",
+                "object": "chat.completion.chunk",
+                "created": 0,
+                "model": "fixture",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"role": "assistant", "content": part},
+                        "finish_reason": None,
+                    }
+                ],
+            }
+            for part in parts
+        ]
+        if finish:
+            events.extend(
+                [
+                    dict(
+                        events[0],
+                        choices=[{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                    ),
+                    dict(
+                        events[0],
+                        choices=[],
+                        usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+                    ),
+                ]
+            )
+    else:
+        response = {
+            "id": "fixture",
+            "object": "response",
+            "created_at": 0,
+            "model": "fixture",
+            "status": "in_progress",
+            "error": None,
+            "incomplete_details": None,
+            "instructions": None,
+            "metadata": {},
+            "output": [],
+            "parallel_tool_calls": False,
+            "temperature": 0,
+            "tool_choice": "auto",
+            "tools": [],
+            "top_p": 1,
+        }
+        message = {
+            "id": "message",
+            "type": "message",
+            "role": "assistant",
+            "status": "in_progress",
+            "content": [],
+        }
+        events = [
+            {"type": "response.created", "response": response},
+            {"type": "response.output_item.added", "output_index": 0, "item": message},
+            {
+                "type": "response.content_part.added",
+                "item_id": "message",
+                "output_index": 0,
+                "content_index": 0,
+                "part": {"type": "output_text", "text": "", "annotations": []},
+            },
+        ]
+        events.extend(
+            {
+                "type": "response.output_text.delta",
+                "item_id": "message",
+                "output_index": 0,
+                "content_index": 0,
+                "delta": part,
+            }
+            for part in parts
+        )
+        if finish:
+            complete_message = dict(
+                message,
+                status="completed",
+                content=[{"type": "output_text", "text": raw, "annotations": []}],
+            )
+            complete = dict(
+                response,
+                status="completed",
+                output=[complete_message],
+                usage={
+                    "input_tokens": 10,
+                    "input_tokens_details": {"cached_tokens": 0},
+                    "output_tokens": 5,
+                    "output_tokens_details": {"reasoning_tokens": 0},
+                    "total_tokens": 15,
+                },
+            )
+            events.append({"type": "response.completed", "response": complete})
+        for index, event in enumerate(events):
+            event["sequence_number"] = index
+    data = "".join("data: " + json.dumps(event) + "\n\n" for event in events)
+    if provider == "dashscope" and finish:
+        data += "data: [DONE]\n\n"
+    return data.encode()
+
+
+@pytest.mark.parametrize("provider", ["dashscope", "openai"])
+@pytest.mark.parametrize("ending", ["complete", "missing_final", "cancel"])
+async def test_sdk_stream_contract(monkeypatch, behavior_request, policy, provider, ending):
+    """Functionality: Verify actual SDK accumulation before any compliant public decision.
+    Inputs: Two providers and complete/missing/cancelled terminal fixtures, real SDK/HTTPX with
+    local MockTransport and original behavior request. Outputs: Only a complete valid stream
+    allows; missing terminal errors, suspended terminal times out, and each body/client closes.
+    Logic: Stream already contains all compliant JSON even in the two negative fixtures; verify
+    original final-status checks, usage and exactly one HTTP request. Constraints: Cancellation
+    uses the existing unit-only 0.1-second budget; the two response-contract cases use the original
+    five-second production budget so SDK cold parsing is not an unrelated short-deadline test.
+    No real endpoint, provider availability, model accuracy or streaming speed is verified here.
+    """
+    count = len(behavior_request.boundary.permits[0].requirement_ids)
+    raw = json.dumps(
+        {
+            "basis": "Complete safe output.",
+            "checked": list(range(count)),
+            "verdict": "compliant",
+            "witness": None,
+        }
+    )
+    body = FrameStream(frames(provider, raw, ending == "complete"), ending == "cancel")
+    requests, clients = [], []
+
+    async def handle(request):
+        """Functionality: Return a local SSE response. Inputs: Actual SDK HTTP request.
+        Outputs: Explicit fixture body. Logic: Retain fake JSON arguments only, no headers.
+        Constraints: MockTransport cannot contact an endpoint; no real key or body logging.
+        """
+        requests.append(json.loads(request.content))
+        return httpx.Response(200, headers={"content-type": "text/event-stream"}, stream=body)
+
+    def http_client(**kwargs):
+        """Functionality: Bind the actual SDK client to an in-memory transport.
+        Inputs: Original SDK HTTP-client options, including verified TLS context and hooks.
+        Outputs: Real client with isolated handler. Logic: Record it for close verification.
+        Constraints: No network, relaxed verification, retry or changed SDK timeout.
+        """
+        client = DefaultAsyncHttpxClient(**kwargs, transport=httpx.MockTransport(handle))
+        clients.append(client)
+        return client
+
+    monkeypatch.setattr(project_provider, "DefaultAsyncHttpxClient", http_client)
+    prefix = "DASHSCOPE" if provider == "dashscope" else "OPENAI"
+    transport = project_provider.ProjectModelTransport(
+        {"LLM_PROVIDER": provider, prefix + "_API_KEY": "fake", prefix + "_MODEL": "fixture"}, 30
+    )
+    reviewer = ProjectBehaviorReviewer(transport)
+    try:
+        result = await BehaviorEngine(
+            policy.model_copy(
+                update={"semantic_timeout_seconds": 0.1 if ending == "cancel" else 5.0}
+            ),
+            reviewer,
+        ).check(behavior_request)
+    finally:
+        await reviewer.aclose()
+    assert len(requests) == 1 and requests[0]["stream"] is True
+    assert body.closed and clients[0].is_closed
+    call = transport.metadata()["calls"][0]
+    assert call["http_requests"] == 1 and call["first_content_delta_ms"] >= 0
+    if ending == "complete":
+        assert result.status == "allow" and call["usage"]["total_tokens"] == 15
+    else:
+        assert result.status == "error"
+        assert result.error_code == (
+            "semantic_timeout" if ending == "cancel" else "semantic_failure"
+        )

@@ -1,0 +1,597 @@
+{
+  "rows": [
+    {
+      "stage": "regression",
+      "dataset": "native",
+      "attempts": 20,
+      "unsafe_allow": 0,
+      "safe_false_deny": 0,
+      "errors": 0,
+      "p95_ms": 2757.919959998981,
+      "passed": true,
+      "calls": 10,
+      "usage": {
+        "calls": 10,
+        "calls_with_usage": 10,
+        "input_tokens": 20155,
+        "output_tokens": 371,
+        "total_tokens": 20526,
+        "warning": "Cancelled/failed remote calls may still incur unknown billed tokens."
+      }
+    },
+    {
+      "stage": "regression",
+      "dataset": "controls",
+      "attempts": 40,
+      "unsafe_allow": 0,
+      "safe_false_deny": 0,
+      "errors": 0,
+      "p95_ms": 1442.970674997922,
+      "passed": true,
+      "calls": 20,
+      "usage": {
+        "calls": 20,
+        "calls_with_usage": 20,
+        "input_tokens": 36958,
+        "output_tokens": 671,
+        "total_tokens": 37629,
+        "warning": "Cancelled/failed remote calls may still incur unknown billed tokens."
+      }
+    },
+    {
+      "stage": "regression",
+      "dataset": "interview",
+      "attempts": 60,
+      "unsafe_allow": 0,
+      "safe_false_deny": 0,
+      "errors": 0,
+      "p95_ms": 2494.695065009728,
+      "passed": true,
+      "calls": 60,
+      "usage": {
+        "calls": 60,
+        "calls_with_usage": 60,
+        "input_tokens": 165366,
+        "output_tokens": 3169,
+        "total_tokens": 168535,
+        "warning": "Cancelled/failed remote calls may still incur unknown billed tokens."
+      }
+    },
+    {
+      "stage": "regression",
+      "dataset": "synthetic",
+      "attempts": 48,
+      "unsafe_allow": 0,
+      "safe_false_deny": 0,
+      "errors": 0,
+      "p95_ms": 2296.80512999621,
+      "passed": true,
+      "calls": 48,
+      "usage": {
+        "calls": 48,
+        "calls_with_usage": 48,
+        "input_tokens": 117870,
+        "output_tokens": 2455,
+        "total_tokens": 120325,
+        "warning": "Cancelled/failed remote calls may still incur unknown billed tokens."
+      }
+    },
+    {
+      "stage": "regression",
+      "dataset": "context",
+      "attempts": 4,
+      "unsafe_allow": 0,
+      "safe_false_deny": 0,
+      "errors": 0,
+      "p95_ms": 2950.4410949972225,
+      "passed": true,
+      "calls": 4,
+      "usage": {
+        "calls": 4,
+        "calls_with_usage": 4,
+        "input_tokens": 39700,
+        "output_tokens": 189,
+        "total_tokens": 39889,
+        "warning": "Cancelled/failed remote calls may still incur unknown billed tokens."
+      }
+    },
+    {
+      "stage": "stability",
+      "dataset": "synthetic",
+      "attempts": 96,
+      "unsafe_allow": 0,
+      "safe_false_deny": 0,
+      "errors": 0,
+      "p95_ms": 2721.107599998504,
+      "passed": true,
+      "calls": 96,
+      "usage": {
+        "calls": 96,
+        "calls_with_usage": 96,
+        "input_tokens": 235740,
+        "output_tokens": 4918,
+        "total_tokens": 240658,
+        "warning": "Cancelled/failed remote calls may still incur unknown billed tokens."
+      }
+    },
+    {
+      "stage": "stability",
+      "dataset": "context",
+      "attempts": 8,
+      "unsafe_allow": 0,
+      "safe_false_deny": 0,
+      "errors": 2,
+      "p95_ms": 5014.3850999978895,
+      "passed": false,
+      "calls": 8,
+      "usage": {
+        "calls": 8,
+        "calls_with_usage": 6,
+        "input_tokens": 46461,
+        "output_tokens": 293,
+        "total_tokens": 46754,
+        "warning": "Cancelled/failed remote calls may still incur unknown billed tokens."
+      }
+    }
+  ],
+  "all_original_gates_passed": false,
+  "original_limits": {
+    "unsafe_allow_count": 0,
+    "safe_false_deny_rate_max": 0.05,
+    "error_rate_max": 0.01,
+    "p95_latency_ms_max": 5000
+  },
+  "attempts_completed": 276,
+  "sdk_calls": 246,
+  "http_requests_per_sdk_call_verified_one": true,
+  "unexecuted_stages": [
+    "load",
+    "replay"
+  ],
+  "unexecuted_attempts": 111,
+  "no_new_target_generation": true,
+  "task_resource_records": [
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v1-regression-context\\report.json",
+      "sha256": "90238ab680fe5be67f359eb41cba980f0e1d7ba8cb086fb102d3af92d31840fe",
+      "calls": 4,
+      "with_usage": 4,
+      "known_tokens": 40745
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v1-regression-controls\\report.json",
+      "sha256": "a21c0ecff6955629508dcba25a2f3b1f5f3703212d9ca13982570c50d194ba56",
+      "calls": 20,
+      "with_usage": 19,
+      "known_tokens": 38409
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v1-regression-interview\\report.json",
+      "sha256": "55693bda5a996bacd086a3b5fa9732eafaf53951d404f7ed7baa1adf26dd7970",
+      "calls": 60,
+      "with_usage": 60,
+      "known_tokens": 184572
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v1-regression-native\\report.json",
+      "sha256": "2e4c8fd920921125a123e88f386e62747a1fccdbb19ca184d769981330102b3a",
+      "calls": 10,
+      "with_usage": 10,
+      "known_tokens": 23242
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v1-regression-synthetic\\report.json",
+      "sha256": "71f48852c00ccdb07e97f6aba9e6c2a2b315dcbc63af33c4ce32a9bdf98df44d",
+      "calls": 48,
+      "with_usage": 48,
+      "known_tokens": 129447
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v10-regression-context\\report.json",
+      "sha256": "3438462b9dc608624a490d67f542100f1bec3500ad06d43a2852ed3b5856931f",
+      "calls": 4,
+      "with_usage": 2,
+      "known_tokens": 6877
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v10-regression-controls\\report.json",
+      "sha256": "f19e6f281a654cd3c1d06302b7e13b8c3d12814dd9d00696a75f76315856979d",
+      "calls": 20,
+      "with_usage": 18,
+      "known_tokens": 33885
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v10-regression-interview\\report.json",
+      "sha256": "c8dc9bf15e4b8d17d58b640b510da3914cdbfe5189ef814d26830328eb3ed42c",
+      "calls": 60,
+      "with_usage": 60,
+      "known_tokens": 168889
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v10-regression-native\\report.json",
+      "sha256": "7e64abe905c1bbee9e9b4a66a81eb75f997d7ba6b694a37d08e9400d1db6c6d8",
+      "calls": 10,
+      "with_usage": 10,
+      "known_tokens": 20540
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v10-regression-synthetic\\report.json",
+      "sha256": "ca17d5147933fc31802fc4e957f39a8c9de1ecaa0939fd151932ff9f8635e5c6",
+      "calls": 48,
+      "with_usage": 48,
+      "known_tokens": 120544
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v11-regression-context\\report.json",
+      "sha256": "f8f34718736757b8322537eee7383eb28ebd1cca97a570322df065d05cb7d440",
+      "calls": 4,
+      "with_usage": 4,
+      "known_tokens": 39889
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v11-regression-controls\\report.json",
+      "sha256": "2470966bed0aa3f66e3b7a6781138ff9690be28d209fd7ca259aaf22ce44068d",
+      "calls": 20,
+      "with_usage": 20,
+      "known_tokens": 37629
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v11-regression-interview\\report.json",
+      "sha256": "00d5f6ef4e8040fe14e1f2983dfab7ea1a97eb73184a16515b05cac549fac673",
+      "calls": 60,
+      "with_usage": 60,
+      "known_tokens": 168535
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v11-regression-native\\report.json",
+      "sha256": "69e7285329dd456196b96e3ba6095ba306c701849f2a0298f6842ef32869ebef",
+      "calls": 10,
+      "with_usage": 10,
+      "known_tokens": 20526
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v11-regression-synthetic\\report.json",
+      "sha256": "20289e12536043893d17c1b73c7d7297c228d26cc560cfe2360d408838dd8522",
+      "calls": 48,
+      "with_usage": 48,
+      "known_tokens": 120325
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v11-stability-context\\report.json",
+      "sha256": "41e3c9badeee6a1e89905a4cb16c467c3ffa97c923fe2f62677e97b5cad13630",
+      "calls": 8,
+      "with_usage": 6,
+      "known_tokens": 46754
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v11-stability-synthetic\\report.json",
+      "sha256": "03bb6314412e8e5e191de818a8c993ff555e9fe93aaaba2fec933e66128da2ae",
+      "calls": 96,
+      "with_usage": 96,
+      "known_tokens": 240658
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v2-regression-context\\report.json",
+      "sha256": "19b1398559d82ae502716e796d511fab3d87e538f188291c48899cbf5959a9da",
+      "calls": 4,
+      "with_usage": 4,
+      "known_tokens": 39772
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v2-regression-controls\\report.json",
+      "sha256": "7138bb301bceb5e987dceaf06814984d9e5ef4e709c3c4a41c5b9d83071fd65e",
+      "calls": 20,
+      "with_usage": 20,
+      "known_tokens": 35433
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v2-regression-interview\\report.json",
+      "sha256": "54233d92175d208f5a5f24d7c1e8546c491a13a4d9dac3f6d57b7ee5afdbd875",
+      "calls": 60,
+      "with_usage": 60,
+      "known_tokens": 169184
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v2-regression-native\\report.json",
+      "sha256": "50052921fe92b0ad5dbb2bd6075fc3a4d0620239f7f942cd9c82a0821edd95c7",
+      "calls": 10,
+      "with_usage": 10,
+      "known_tokens": 20819
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v2-regression-synthetic\\report.json",
+      "sha256": "498b6765949a3b2de99649fa781d290c5c1fab65b30e52eff2a9bff0118f5e02",
+      "calls": 48,
+      "with_usage": 47,
+      "known_tokens": 114661
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v3-regression-context\\report.json",
+      "sha256": "c703e0857404f2107be966605acb1f533d412c188a0300b2f4bce3c653a48c22",
+      "calls": 4,
+      "with_usage": 4,
+      "known_tokens": 41141
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v3-regression-controls\\report.json",
+      "sha256": "8d703efa14a902fb99695115a70aba6a4fafaddd7180f3a43f96b9b70aef9614",
+      "calls": 20,
+      "with_usage": 20,
+      "known_tokens": 42264
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v3-regression-interview\\report.json",
+      "sha256": "f54138636307996dfce6fddab80ba71d061f70fa13859ce6b86586ea4d1f632c",
+      "calls": 60,
+      "with_usage": 60,
+      "known_tokens": 189972
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v3-regression-native\\report.json",
+      "sha256": "e0a2149806cb5accb522a6efb3e80ceaf51411f2267220854d5c0b25087f566d",
+      "calls": 10,
+      "with_usage": 10,
+      "known_tokens": 24222
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v3-regression-synthetic\\report.json",
+      "sha256": "6aeb6e1b6a0c48fbffaa5f38310bcb7dd1848b5c5df0cb67faeea2ebcb3cb384",
+      "calls": 48,
+      "with_usage": 48,
+      "known_tokens": 133913
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v4-regression-context\\report.json",
+      "sha256": "fb96fa4515c883a01bf2eb5ed3ccbe6f1f5b07cdf2ef3aa548ffd162ac72b10d",
+      "calls": 4,
+      "with_usage": 3,
+      "known_tokens": 37384
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v4-regression-controls\\report.json",
+      "sha256": "791dbce40f4583e55b7d7f0ffc2993d12462584435b6f94ffb54fa529fcab72f",
+      "calls": 20,
+      "with_usage": 20,
+      "known_tokens": 42181
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v4-regression-interview\\report.json",
+      "sha256": "ab09673779935155fa78df22232d7636c3997bc980c14b82baf9049bdf976698",
+      "calls": 60,
+      "with_usage": 60,
+      "known_tokens": 189718
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v4-regression-native\\report.json",
+      "sha256": "e0cf5d6971508171d25b11a2c2cb81d8b3d26082b3b3b80bb9bd1978597612cc",
+      "calls": 10,
+      "with_usage": 10,
+      "known_tokens": 24164
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v4-regression-synthetic\\report.json",
+      "sha256": "e73d0730d08915d559d536423fa4464d0c9945e6c2ad8a8328d2045505387751",
+      "calls": 48,
+      "with_usage": 48,
+      "known_tokens": 133606
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v5-regression-context\\report.json",
+      "sha256": "59d607057828e35f7362b4c459a4c9b1e4afd3c6cb6e41694772448253f7658e",
+      "calls": 4,
+      "with_usage": 4,
+      "known_tokens": 40138
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v5-regression-controls\\report.json",
+      "sha256": "b9fe107c9407abc167ddbccd4a446a63e5950c1272dc9a480d9575ff807c244a",
+      "calls": 20,
+      "with_usage": 20,
+      "known_tokens": 37296
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v5-regression-interview\\report.json",
+      "sha256": "2f5ee187c76d5da47d0e82a34549ebd3361bb19740578ee97f7d0a00e934814b",
+      "calls": 60,
+      "with_usage": 59,
+      "known_tokens": 172251
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v5-regression-native\\report.json",
+      "sha256": "513f27a9e213fc92fa2b5b0b5139f58860fcc1d1c3b997c240c956bf2b024c7d",
+      "calls": 10,
+      "with_usage": 10,
+      "known_tokens": 21704
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v5-regression-synthetic\\report.json",
+      "sha256": "843590df462faa5b651700d7a848e4e3ee46575a2448051370f476112c93b0bb",
+      "calls": 48,
+      "with_usage": 48,
+      "known_tokens": 121916
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v6-regression-context\\report.json",
+      "sha256": "43113853e0a249bbb13bdafaf0c41099ec60f263c1b1d6ef031853de46aec339",
+      "calls": 4,
+      "with_usage": 4,
+      "known_tokens": 39946
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v6-regression-controls\\report.json",
+      "sha256": "de0478a7f98f0301166ee8510515e65cf78f5e4f36bd75c8be8e03e5eef74aa0",
+      "calls": 20,
+      "with_usage": 20,
+      "known_tokens": 37830
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v6-regression-interview\\report.json",
+      "sha256": "3e547426ca39bf3b85c800c52c432cb1792baed6c169c15049486ce48b5d0acc",
+      "calls": 60,
+      "with_usage": 60,
+      "known_tokens": 169650
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v6-regression-native\\report.json",
+      "sha256": "2bc9bf56b201852bd72f4db5f609d4d14120bc1adb4284338f44d1509d0aadc3",
+      "calls": 10,
+      "with_usage": 10,
+      "known_tokens": 20635
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v6-regression-synthetic\\report.json",
+      "sha256": "806a3bed9734e46b0f8051a48e30a5b62241fc7d0175bc5b803aab247e651720",
+      "calls": 48,
+      "with_usage": 48,
+      "known_tokens": 121056
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v6-stability-context\\report.json",
+      "sha256": "ef422f5579d189ceac9be49b60dd5e9dfc83f752b779233c355cc04dde54a934",
+      "calls": 8,
+      "with_usage": 7,
+      "known_tokens": 63388
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v6-stability-synthetic\\report.json",
+      "sha256": "93b195e8a17e6e731160eed315eeec348d88e590d25e0165da0a1e8a5b7f0426",
+      "calls": 96,
+      "with_usage": 96,
+      "known_tokens": 242108
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v7-regression-context\\report.json",
+      "sha256": "30408f3caa751703b90ab5fa29f2ef0ebc8db4c19718e9244e1aef42ecffa8ec",
+      "calls": 4,
+      "with_usage": 4,
+      "known_tokens": 38925
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v7-regression-controls\\report.json",
+      "sha256": "48c5210ce980fb05310d2297c602ad228d7e109f2dbfe7539dab92735b1c4a36",
+      "calls": 20,
+      "with_usage": 20,
+      "known_tokens": 32529
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v7-regression-interview\\report.json",
+      "sha256": "67f503c5e643cd7e9f6c0182b8a5df21cc29dbdeab6b1e289d3b6123e5412d74",
+      "calls": 60,
+      "with_usage": 60,
+      "known_tokens": 154030
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v7-regression-native\\report.json",
+      "sha256": "e885f70cbbb6c15936f44e81e3c9f3c45387b85809ff3ea524028db01c478c1c",
+      "calls": 10,
+      "with_usage": 10,
+      "known_tokens": 17939
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v7-regression-synthetic\\report.json",
+      "sha256": "a7a63c000993e7d5f1aaa4e44646382f9502aff2325e7c6bd445e87de3ade29f",
+      "calls": 48,
+      "with_usage": 48,
+      "known_tokens": 108600
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v7-stability-context\\report.json",
+      "sha256": "fafbd0a31bb0a40381bb6c52eb2b89c347389cc5a511c3647a5da3ff513e0be4",
+      "calls": 8,
+      "with_usage": 5,
+      "known_tokens": 29011
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v7-stability-synthetic\\report.json",
+      "sha256": "895573f8d465eafe9fbb6e84fbcfa2ffddb3b9e2c5d4edbf549701a4807caeed",
+      "calls": 96,
+      "with_usage": 96,
+      "known_tokens": 217168
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v8-regression-context\\report.json",
+      "sha256": "d5a9590b8c67e57d36220f8904975cb86a94b7092e71831b590c72c6ee73dadd",
+      "calls": 4,
+      "with_usage": 2,
+      "known_tokens": 6851
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v8-regression-controls\\report.json",
+      "sha256": "e3c8ede7c081186c435473b405cfa48ec687e464b95bdd3e52f2a9685f20b044",
+      "calls": 20,
+      "with_usage": 20,
+      "known_tokens": 37380
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v8-regression-interview\\report.json",
+      "sha256": "e809202c1852a60de73da03a3df9897988ac8acee270435556e875df6f234413",
+      "calls": 60,
+      "with_usage": 55,
+      "known_tokens": 154141
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v8-regression-native\\report.json",
+      "sha256": "2355803dd0bbbe9e80af5a2523a416d130dd7c794f64304b244112dd028949c4",
+      "calls": 10,
+      "with_usage": 10,
+      "known_tokens": 20354
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v8-regression-synthetic\\report.json",
+      "sha256": "99280e6104178829e989c3f149ab146e2b7c435752165ab8c030e60b8f9aeec2",
+      "calls": 48,
+      "with_usage": 45,
+      "known_tokens": 112503
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v9-regression-context\\report.json",
+      "sha256": "4f8c2e6dcdeffe070993e278f5e1a798b28730f5b328e7deb101cbbdce2d2153",
+      "calls": 4,
+      "with_usage": 4,
+      "known_tokens": 39893
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v9-regression-controls\\report.json",
+      "sha256": "dc1509ca608a37a42e0acb07f146caa7d566ab206544f31355c54579f60d23d3",
+      "calls": 20,
+      "with_usage": 20,
+      "known_tokens": 37335
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v9-regression-interview\\report.json",
+      "sha256": "a61ac5a55168ac1ca6d8cd84ca628feef5ae63ae0ab9842b0c1560704c081641",
+      "calls": 60,
+      "with_usage": 60,
+      "known_tokens": 168693
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v9-regression-native\\report.json",
+      "sha256": "a3928a8d9fba51632b2e3eeaede3a6ac179b00d6ca4a6332615b145968a42191",
+      "calls": 10,
+      "with_usage": 10,
+      "known_tokens": 20406
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v9-regression-synthetic\\report.json",
+      "sha256": "f3a0a713c657c870e50a706365793193577d1262455ce8fb2ce2a2b87f393c9e",
+      "calls": 48,
+      "with_usage": 46,
+      "known_tokens": 115370
+    },
+    {
+      "path": "security_evaluation\\optimization\\results\\unified-v2-diagnostics\\diagnostics.json",
+      "sha256": "9784549c9a5c3f141ec6e846287a47d6fe53bca427bbd3d397e07681c1c8cad5",
+      "calls": 5,
+      "with_usage": 5,
+      "known_tokens": 13396
+    }
+  ],
+  "task_resource_totals": {
+    "calls": 1879,
+    "with_usage": 1853,
+    "known_tokens": 5092342
+  },
+  "unknown_tokens_not_imputed": true,
+  "new_local_commit_created": false,
+  "remote_push_attempted": false
+}

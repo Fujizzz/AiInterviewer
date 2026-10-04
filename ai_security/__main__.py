@@ -1,14 +1,15 @@
-"""职责：提供单次行为合格性检查的本地 JSON CLI，不执行拟议业务操作。
-实现：显式读取行为请求、策略和项目模型配置；输出脱敏决策与确定退出码。
-关联：python -m ai_security 使用与面试网关相同的 BehaviorEngine 和项目模型工厂。
+"""Responsibilities: 单次行为检查CLI，输出脱敏决策及退出码，不执行拟议业务操作。
+Implementation: 加载显式文件；在同一事件循环完成检查并关闭安全连接池。
+Related Modules: BehaviorEngine 与真实面试网关共用项目模型工厂。
 
-目录：
-- main：加载并检查行为，捕获配置/输入故障而不回显正文。
+Declaration Index:
+- _check: 在同一事件循环进行一次检查并释放所属模型连接池。
+- main: 加载显式请求/策略，捕获配置/输入故障而不回显正文。
 
-关键变量：
-（无）
+Variable Index:
+None
 
-约束说明：
+Constraints:
 退出码 0=allow、2=deny、3=检查失败、4=输入/配置异常；argparse 缺参另以 2 退出。
 请求与策略文件由开发者本地提供；模型只读取项目已有配置，不接受外部指定的 Python 工厂。
 """
@@ -25,8 +26,22 @@ from .behavior_semantic import create_behavior_reviewer
 from .policy import SecurityPolicy
 
 
+async def _check(request, policy):
+    """Functionality: Check and release the owned reviewer. Inputs: Validated request/policy.
+    Outputs: Decision. Logic: Construct the project reviewer and close in finally in the same loop.
+    Constraints: Errors propagate to main; no retry or business execution, including cancellation.
+    """
+    reviewer = create_behavior_reviewer()
+    try:
+        return await BehaviorEngine(policy, reviewer).check(request)
+    finally:
+        await reviewer.aclose()
+
+
 def main() -> int:
-    """功能：检查一个行为；输入：命令行路径和工厂；输出：JSON 与退出码；不发送或执行业务。"""
+    """功能：检查一个行为；输入：显式请求/策略文件路径及项目配置；输出：JSON 与退出码。
+    逻辑：一次异步检查与所属连接池关闭；约束：不发送或执行业务，异常只输出有限类型信息。
+    """
     parser = argparse.ArgumentParser(description="Check proposed interview behavior.")
     parser.add_argument("--request", type=Path, required=True)
     parser.add_argument("--policy", type=Path, required=True)
@@ -34,8 +49,7 @@ def main() -> int:
     try:
         request = BehaviorRequest.model_validate_json(args.request.read_text(encoding="utf-8"))
         policy = SecurityPolicy.model_validate_json(args.policy.read_text(encoding="utf-8"))
-        reviewer = create_behavior_reviewer()
-        decision = asyncio.run(BehaviorEngine(policy, reviewer).check(request))
+        decision = asyncio.run(_check(request, policy))
     except Exception as exc:
         print(
             json.dumps(

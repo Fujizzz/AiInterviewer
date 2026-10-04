@@ -1,20 +1,20 @@
-"""职责：验证项目模型适配器的请求、单次调用、资源释放及脱敏边界，不访问真实供应商。
-实现：用异步 SDK 替身模拟正常返回、截断、拒绝、错误及取消，并经安全引擎执行契约检查。
-关联：project_provider 读取真实配置的代码通过临时模拟隔离，测试不读取本地凭据。
+"""Responsibilities: 验证模型适配器的请求、单次调用、资源释放及脱敏边界，不访问真实供应商。
+Implementation: 用异步 SDK 替身模拟正常返回、截断、拒绝、错误及取消，检查私有审查响应。
+Related Modules: project_provider 配置读取通过临时模拟隔离；behavior_semantic 验证违规引用。
 
-目录：
-- provider_config：提供虚构供应商配置。
-- provider_policy：将行为许可用于供应商测试，保持既有 0.1 秒取消测试时限。
-- sdk_stub：创建可观测的异步 SDK 替身。
-- test_provider_request：检查两供应商的参数、数据隔离、用量和客户端释放。
-- test_provider_failure：检查拒绝、截断、空响应、非法 JSON 与错误不重试。
-- test_provider_cancellation：检查超时取消进入 SDK 并释放客户端。
-- test_provider_cancellation.wait_response：接受 SDK 参数并等待取消。
-- test_factory_precedence：确认只读取统一根目录配置，进程环境覆盖文件且不改变环境。
-- test_missing_credentials：缺少凭据时立即失败。
+Declaration Index:
+- provider_config: 提供虚构供应商配置。
+- provider_policy: 将行为许可用于供应商测试，保持既有 0.1 秒取消测试时限。
+- sdk_stub: 创建可观测的异步 SDK/HTTP客户端替身，无真实网络资源。
+- test_provider_request: 检查两供应商的参数、数据隔离、用量和客户端释放。
+- test_provider_failure: 检查拒绝、截断、空响应、非法 JSON 与错误不重试。
+- test_provider_cancellation: 检查超时取消进入 SDK 并释放客户端。
+- test_provider_cancellation.wait_response: 接受 SDK 参数并等待取消。
+- test_factory_precedence: 确认只读取统一根目录配置，进程环境覆盖文件且不改变环境。
+- test_missing_credentials: 缺少凭据时立即失败。
 
-关键变量：
-（无）
+Variable Index:
+None
 """
 
 import asyncio
@@ -27,7 +27,6 @@ import pytest
 from ai_security import BehaviorEngine
 from ai_security import project_provider as module
 from ai_security.behavior_semantic import ProjectBehaviorReviewer
-from shared.contracts.behavior import BehaviorAssessment
 
 
 @pytest.fixture
@@ -52,8 +51,7 @@ def provider_policy(policy):
 def sdk_stub(monkeypatch, raw):
     """功能：模拟 SDK；输入：monkeypatch 和响应文本；输出：客户端/构造器；不发送网络请求。"""
     client = MagicMock()
-    client.__aenter__ = AsyncMock(return_value=client)
-    client.__aexit__ = AsyncMock(return_value=False)
+    client.close = AsyncMock()
     response = SimpleNamespace(
         choices=[
             SimpleNamespace(
@@ -76,6 +74,7 @@ def sdk_stub(monkeypatch, raw):
     client.responses.create = AsyncMock(return_value=response)
     constructor = MagicMock(return_value=client)
     monkeypatch.setattr(module, "AsyncOpenAI", constructor)
+    monkeypatch.setattr(module, "DefaultAsyncHttpxClient", MagicMock())
     return client, constructor
 
 
@@ -85,18 +84,28 @@ async def test_provider_request(monkeypatch, provider_config, behavior_request, 
     provider_config["LLM_PROVIDER"] = provider
     client, constructor = sdk_stub(
         monkeypatch,
-        BehaviorAssessment(
-            verdict="compliant",
-            checked_requirement_ids=tuple(
-                p.requirement_ids
-                for p in behavior_request.boundary.permits
-                if p.operation == behavior_request.proposal.operation
-            )[0],
-            violated_requirement_ids=(),
-        ).model_dump_json(),
+        json.dumps(
+            {
+                "basis": "The output satisfies the selected requirements.",
+                "verdict": "compliant",
+                "checked": list(
+                    range(
+                        len(
+                            next(
+                                p.requirement_ids
+                                for p in behavior_request.boundary.permits
+                                if p.operation == behavior_request.proposal.operation
+                            )
+                        )
+                    )
+                ),
+                "witness": None,
+            }
+        ),
     )
     reviewer = ProjectBehaviorReviewer(module.ProjectModelTransport(provider_config, 30))
     result = await reviewer.assess(behavior_request)
+    await reviewer.aclose()
     assert result.verdict == "compliant"
     assert constructor.call_args.kwargs["max_retries"] == 0
     assert constructor.call_args.kwargs["timeout"] == 30
@@ -111,7 +120,7 @@ async def test_provider_request(monkeypatch, provider_config, behavior_request, 
         assert kwargs["extra_body"] == {"enable_thinking": False}
     else:
         assert kwargs["store"] is False and kwargs["text"]["format"]["strict"] is True
-    client.__aexit__.assert_awaited_once()
+    client.close.assert_awaited_once()
     metadata = reviewer.metadata()
     assert metadata["calls"][0]["usage"]["total_tokens"] == 15
     assert "PRIVATE-TEST-KEY" not in json.dumps(metadata)
@@ -136,9 +145,10 @@ async def test_provider_failure(
         client.chat.completions.create.side_effect = RuntimeError("PRIVATE-NETWORK-ERROR")
     reviewer = ProjectBehaviorReviewer(module.ProjectModelTransport(provider_config, 30))
     result = await BehaviorEngine(provider_policy, reviewer).check(behavior_request)
+    await reviewer.aclose()
     assert result.status == "error" and result.error_code == "semantic_failure"
     client.chat.completions.create.assert_awaited_once()
-    client.__aexit__.assert_awaited_once()
+    client.close.assert_awaited_once()
     assert "PRIVATE" not in caplog.text + json.dumps(reviewer.metadata())
 
 
@@ -155,9 +165,10 @@ async def test_provider_cancellation(
     client.chat.completions.create.side_effect = wait_response
     reviewer = ProjectBehaviorReviewer(module.ProjectModelTransport(provider_config, 30))
     result = await BehaviorEngine(provider_policy, reviewer).check(behavior_request)
+    await reviewer.aclose()
     assert result.error_code == "semantic_timeout"
     assert reviewer.metadata()["calls"][0]["status"] == "cancelled"
-    client.__aexit__.assert_awaited_once()
+    client.close.assert_awaited_once()
 
 
 def test_factory_precedence(monkeypatch, provider_config):

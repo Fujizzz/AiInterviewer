@@ -15,6 +15,7 @@ Declaration Index:
 - InterviewIOGateway: Per-connection input and output safety boundary.
 - InterviewIOGateway.__init__: Create independent reviewers and explicit policy without calling a
   model.
+- InterviewIOGateway.aclose: Close the gateway-owned safety pool after connection tasks stop.
 - InterviewIOGateway.bind_input: Bind a validated command to real backend state before business
   model calls.
 - InterviewIOGateway._request: Build a behavior request from the complete response and current
@@ -35,6 +36,8 @@ Variable Index:
 State and Constraints:
 The gateway keeps a copy of this connection's raw input in memory only; once _failed is set,
 publication is disabled.
+The optional _owned_reviewer is closed after connection tasks stop; injected reviewers remain
+caller-owned. Engine and reviewer share the gateway's event loop without a global connection pool.
 It does not classify prompt attacks, rewrite or redact bodies, retry, or generate replacement
 answers.
 Every business output is inspected as a whole, including attached assessments, plans, and diagnostic
@@ -287,11 +290,29 @@ class InterviewIOGateway:
             allowed_actions=tuple(f"publish_{kind}" for kind in OUTPUT_FIELDS),
             semantic_timeout_seconds=5.0,
         )
+        self._owned_reviewer = create_behavior_reviewer() if reviewer is None else None
         self.engine = BehaviorEngine(
-            self.policy, reviewer if reviewer is not None else create_behavior_reviewer()
+            self.policy, reviewer if reviewer is not None else self._owned_reviewer
         )
         self._command = None
         self._failed = False
+
+    async def aclose(self):
+        """Functionality: Release the gateway-owned safety pool after pending reviews stop.
+        Inputs: Optional owned project reviewer. Outputs: None. Logic: Close only the reviewer
+        created by this gateway; injected ports remain caller-owned. Constraints: Same event loop,
+        no retry or model call; closure errors are logged without content and propagated.
+        """
+        if self._owned_reviewer is not None:
+            try:
+                await self._owned_reviewer.aclose()
+            except BaseException as exc:
+                logger.error(
+                    "Safety gateway close failed interview=%s exception=%s",
+                    self.interview_id,
+                    type(exc).__name__,
+                )
+                raise
 
     async def bind_input(self, command):
         """Bind a protocol-validated command to isolated backend state before running the Agent.

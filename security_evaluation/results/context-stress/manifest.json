@@ -1,0 +1,59 @@
+{
+  "started_utc": "2026-10-03T18:55:04.472066+00:00",
+  "timezone_user": "Asia/Shanghai",
+  "python": "3.12.7",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "git_head": "14e190223b45bf4643bc16ad709cc04b2ddd2fee",
+  "dataset": "security_evaluation\\data\\context_stress_v1.jsonl",
+  "dataset_sha256": "086a86a00bfcf015b1011aaa7dc65381c167a44bcb6a5434029e659a14f7a3b3",
+  "policy": {
+    "policy_version": "agent-io-v1",
+    "max_scan_chars": 100000,
+    "allowed_actions": [
+      "publish_prepared",
+      "publish_question",
+      "publish_assessment",
+      "publish_finished"
+    ],
+    "semantic_timeout_seconds": 5.0
+  },
+  "policy_sha256": "50e1cd7beeec4d75cae84839a2e0702d23c15bcbd9613beb523dc323f563e03d",
+  "instructions_sha256": "07252c6ab9bd62739133acecc78f68854adb45f1d2469b24cec747be6bd190d5",
+  "source_sha256": {
+    "ai_security\\__init__.py": "64bc942873c1a2e6a6792d258bd16e76a47cae5d5188fca5b795d7a272a4ef44",
+    "ai_security\\__main__.py": "f4f26c451a1a1a9136a9ced00bd27a49f7a81f80f367c582480fc6874ae67201",
+    "ai_security\\behavior.py": "c165b09500b545969b7023f708f8c501f54c1cb87e169cc179f91ab44a708e1e",
+    "ai_security\\behavior_bounds.py": "a113a0d399e93422e42facdd8c9e400673004b0bc7a0e8169d82aa34c65f8e52",
+    "ai_security\\behavior_semantic.py": "1b1dfb3f5391c2253d3e4f0f0033ae75b483a302e4de8ae20e1aa2e335480b8b",
+    "ai_security\\errors.py": "2e3d940d25979383e4dc0a19ab686242ee10a2df854533a458b960f2e7dd3d5b",
+    "ai_security\\policy.py": "f2e5e7f27a4898725edf15cadb4bef9c949247e88b6766f22429c2337253fb33",
+    "ai_security\\project_provider.py": "ab311c49e294320338594d9381b23b6918b0791bcf751618dfdaf8fa1d2370bf",
+    "shared\\contracts\\security.py": "0a26e11ec2611f7d71db10bccc4f768ae451c4b123666bb2bc716fe1356874fc",
+    "shared\\contracts\\behavior.py": "a1cb0bbd52b3d915b20a1067b67993d629ba4ce125c26750658e4ea0ddd208b4",
+    "backend\\interviews\\agent_safety.py": "ffdfd5b842391099aae866ea1935ea1289a2ee3ff2cd784184c025ccfa71c90a",
+    "security_evaluation\\run.py": "bae06b996c546ee24ea1df1a396b420a377f5b31ae8efc428696120de771f985",
+    "security_evaluation\\metrics.py": "f477df341df3acb9c37a482fcc0538b93dbfb0b2ae7e6012359c4e0c57bfdb08"
+  },
+  "reviewer": {
+    "provider": "dashscope",
+    "model": "qwen-plus",
+    "options": {
+      "temperature": 0.0
+    },
+    "enable_thinking": false,
+    "sdk_timeout_seconds": 30.0,
+    "sdk_max_retries": 0,
+    "sdk_version": "2.54.0",
+    "endpoint_sha256": "5891aed827c4e67b2d7c0c73ea819327ce3f2b6ef72213cd79669486a26b1ead",
+    "calls": [],
+    "review_type": "behavior-v1",
+    "instructions_sha256": "07252c6ab9bd62739133acecc78f68854adb45f1d2469b24cec747be6bd190d5",
+    "message_layout": "system-boundary-user-data-v2"
+  },
+  "cases": 4,
+  "repeats": 2,
+  "concurrency": 1,
+  "order": "tasks submitted in fixture order; semaphore admits in order; repeats sequential",
+  "labels": "author-reviewed synthetic diagnostics; no independent adjudication or holdout claim",
+  "scope": "fixed-proposal guard evaluation; not end-to-end agent attack success"
+}

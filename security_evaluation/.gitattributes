@@ -1,0 +1,6 @@
+# Responsibilities: Preserve byte-exact frozen evaluation inputs, reports and source snapshots.
+# Implementation: Disable Git newline conversion within this independent evaluation directory.
+# Related Modules: prepare/run record raw SHA256; tests validate those exact bytes after checkout.
+# Declaration Index: None
+# Variable Index: text controls Git newline normalization; unset preserves recorded raw bytes.
+* -text

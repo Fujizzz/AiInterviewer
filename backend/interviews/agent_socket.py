@@ -283,8 +283,8 @@ async def agent_socket(scope, receive, send):
     retry or fallback answer generation.
     If receive and business task complete simultaneously, handle disconnection first; other commands
     judged by latest state after business result published.
-    Exit: cancel and wait for local tasks, then request client close; in-flight sync model calls may
-    continue.
+    Exit: cancel and wait for local tasks, release database session state, and close the owned
+    safety pool even if database cleanup fails; in-flight sync model calls may continue.
     Return None; transport or cleanup exceptions propagated to ASGI server; this layer does not
     reconnect, queue, or retransmit billing requests.
     """
@@ -708,17 +708,21 @@ async def agent_socket(scope, receive, send):
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
-        if session is not None:
-            try:
-                await interrupt_interview(session.interview_id)
-            except Exception as exc:
-                logger.error(
-                    "Agent cleanup storage failed interview=%s exception=%s; "
-                    "pending requests require review",
-                    session.interview_id,
-                    type(exc).__name__,
-                )
-                raise
-            finally:
-                session.close()
+        try:
+            if session is not None:
+                try:
+                    await interrupt_interview(session.interview_id)
+                except Exception as exc:
+                    logger.error(
+                        "Agent cleanup storage failed interview=%s exception=%s; "
+                        "pending requests require review",
+                        session.interview_id,
+                        type(exc).__name__,
+                    )
+                    raise
+                finally:
+                    session.close()
+        finally:
+            if safety is not None:
+                await safety.aclose()
         logger.info("Agent disconnected connection=%s", connection_id)

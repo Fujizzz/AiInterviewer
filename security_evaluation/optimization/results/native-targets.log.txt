@@ -1,0 +1,25 @@
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "D:\my_files\NUS_teamwork\IRS-PracticeModule\AiInterviewer\security_evaluation\optimization\collect.py", line 135, in <module>
+    main()
+  File "D:\my_files\NUS_teamwork\IRS-PracticeModule\AiInterviewer\security_evaluation\optimization\collect.py", line 131, in main
+    asyncio.run(collect(args.output.resolve()))
+  File "D:\tool_softwares\anaconda\installed\Lib\asyncio\runners.py", line 194, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "D:\tool_softwares\anaconda\installed\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\tool_softwares\anaconda\installed\Lib\asyncio\base_events.py", line 687, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "D:\my_files\NUS_teamwork\IRS-PracticeModule\AiInterviewer\security_evaluation\optimization\collect.py", line 66, in collect
+    freeze(output / "source" / (path.name + ".txt"), path.read_bytes())
+  File "D:\my_files\NUS_teamwork\IRS-PracticeModule\AiInterviewer\security_evaluation\public\prepare.py", line 97, in freeze
+    with path.open("xb") as stream:
+         ^^^^^^^^^^^^^^^
+  File "D:\tool_softwares\anaconda\installed\Lib\pathlib.py", line 1013, in open
+    return io.open(self, mode, buffering, encoding, errors, newline)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileExistsError: [Errno 17] File exists: 'D:\\my_files\\NUS_teamwork\\IRS-PracticeModule\\AiInterviewer\\security_evaluation\\optimization\\results\\native-targets\\source\\collect.py.txt'

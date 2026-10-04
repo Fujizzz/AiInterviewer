@@ -1,0 +1,125 @@
+"""Responsibilities: Retain exact private model responses for observed public-fixture validation.
+Implementation: Observe the unchanged generation port in memory; write after each complete stage.
+Related Modules: optimization.suite retains standard metrics; run owns and closes the real reviewer.
+Declaration Index:
+- observed_reviewer: Wrap the actual reviewer with an observation-only generation callback.
+- observed_reviewer.capture: Preserve exact results/errors without changing messages or verdicts.
+- validate: Verify frozen conditions and execute all declared stages, stopping on failed gates.
+Variable Index:
+- ROOT: Calling repository root.
+- HERE: Optimization fixtures and protocols.
+- PREFIX: Exclusive v10 output prefix.
+- PROFILE: Pre-measurement source/input/model/condition record.
+- ORIGINAL_FACTORY: Actual project reviewer factory; never an alternative checker.
+- OBSERVATIONS: One in-memory response list per actual reviewer in the current stage.
+"""
+
+import asyncio
+import json
+from pathlib import Path
+
+from ai_security.behavior_bounds import canonical_json
+from security_evaluation import run as evaluation
+from security_evaluation.optimization.suite import source_paths, suite
+from security_evaluation.public.prepare import digest, freeze
+
+ROOT = Path.cwd()
+HERE = ROOT / "security_evaluation/optimization"
+PREFIX = "unified-v10"
+PROFILE = json.loads((HERE / "protocol-unified-v10.json").read_bytes())
+ORIGINAL_FACTORY = evaluation.create_behavior_reviewer
+OBSERVATIONS = []
+
+
+def observed_reviewer():
+    """Functionality: Observe the original mandatory model port. Inputs: Original project factory
+    and current-stage observation list. Outputs: The same owned reviewer with an observed callback.
+    Logic: Retain the bound generator and forward every invocation once. Constraints: Only the
+    driver's frozen public/synthetic datasets; no production patch, alternate reviewer or retries.
+    """
+    reviewer = ORIGINAL_FACTORY()
+    generate = reviewer._generate
+    records = []
+    OBSERVATIONS.append(records)
+
+    async def capture(instructions, payload, schema):
+        """Functionality: Observe one unchanged generation result. Inputs: Exact authoritative
+        instructions, data and schema from the reviewer. Outputs: Original raw result or exception.
+        Logic: Assign the actual transport sequence before its synchronous call registration;
+        keep input hashes and the public-fixture response in memory. Constraints: No labels or
+        extra inputs forwarded, exception swallowing, parsing/repair or output modification.
+        Hashing/observation overhead remains inside the same five-second engine deadline; no body
+        logging. Public synthetic credentials are artifacts, never real project configuration.
+        """
+        record = {
+            "sequence": len(reviewer._transport._calls),
+            "instructions_sha256": digest(instructions),
+            "payload_sha256": digest(json.dumps(payload, ensure_ascii=False)),
+            "schema_sha256": digest(canonical_json(schema)),
+            "status": "pending",
+        }
+        records.append(record)
+        try:
+            raw = await generate(instructions, payload, schema)
+        except BaseException as exc:
+            record.update(
+                status="cancelled" if isinstance(exc, asyncio.CancelledError) else "error",
+                exception_type=type(exc).__name__,
+            )
+            raise
+        record.update(status="received", raw_assessment=raw)
+        return raw
+
+    reviewer._generate = capture
+    return reviewer
+
+
+def validate():
+    """Functionality: Measure the declared complete stages with exact public response evidence.
+    Inputs: Frozen source/input hashes and stage order. Outputs: Standard reports plus separate
+    private public-fixture observation artifacts. Logic: Check integrity before and after each
+    stage, verify one observer record per SDK call, freeze records after checks, stop on any failed
+    gate. Constraints: No unseen-acceptance claim; original data/labels/thresholds/requests
+    preserved.
+    File writes happen outside individual engine checks; production imports remain untouched.
+    """
+    evaluation.create_behavior_reviewer = observed_reviewer
+    for stage in PROFILE["stages"]:
+        OBSERVATIONS.clear()
+        assert {
+            str(p.relative_to(ROOT)): digest(p.read_bytes()) for p in source_paths()
+        } == PROFILE["source_sha256"]
+        assert all(
+            digest((ROOT / name).read_bytes()) == expected
+            for name, expected in PROFILE["input_sha256"].items()
+        )
+        asyncio.run(suite(stage, PREFIX))
+        result = json.loads((HERE / f"results/{PREFIX}-{stage}-gates.json").read_bytes())
+        assert len(OBSERVATIONS) == len(result["results"])
+        for row, records in zip(result["results"], OBSERVATIONS, strict=True):
+            report = json.loads((ROOT / row["path"] / "report.json").read_bytes())
+            calls = report["model"]["calls"]
+            assert len(records) == len(calls)
+            assert [record["sequence"] for record in records] == list(range(len(calls)))
+        freeze(
+            HERE / f"results/{PREFIX}-{stage}-private.json",
+            {
+                "scope": "Observed public/synthetic fixtures only; no production body logging.",
+                "driver_sha256": PROFILE["observer_driver_sha256"],
+                "observation_overhead_in_original_deadline": True,
+                "groups": [
+                    {"dataset": row["dataset"], "records": records}
+                    for row, records in zip(result["results"], OBSERVATIONS, strict=True)
+                ],
+            },
+        )
+        assert {
+            str(p.relative_to(ROOT)): digest(p.read_bytes()) for p in source_paths()
+        } == PROFILE["source_sha256"]
+        if not result["all_passed"]:
+            raise SystemExit("Failed stage retained; no unchanged-code retry: " + stage)
+    print("All four declared validation stages passed unchanged gates")
+
+
+if __name__ == "__main__":
+    validate()

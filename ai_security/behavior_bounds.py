@@ -1,15 +1,15 @@
-"""职责：检查拟执行行为是否满足后端的操作、状态、数据及参数许可。
-实现：逐项确定性比较与来源受众交集；不判断输入文本是否包含攻击。
-关联：BehaviorEngine 在模型前调用；主后端仍负责认证、真实数据权限和提交事务。
+"""Responsibilities: 检查操作、状态、数据、参数许可及明确后端保密值的实际披露。
+Implementation: 逐项比较许可和来源受众；附加严格声明的明文凭据披露检查，不分类输入攻击。
+Related Modules: BehaviorEngine 在模型前调用；behavior_confidentiality 编译明确保密声明。
 
-目录：
-- canonical_json：精确比较 JSON 值，区分布尔值与整数。
-- inspect_behavior_bounds：返回越界检查项 ID；无违反项只表示可继续语义检查。
+Declaration Index:
+- canonical_json: 精确比较 JSON 值，区分布尔值与整数。
+- inspect_behavior_bounds: 返回越界/明文披露项 ID；无违反项只表示可继续语义检查。
 
-关键变量：
-（无）
+Variable Index:
+None
 
-约束说明：
+Constraints:
 fields 必须对应执行器真实读写/投影字段；不得检查小范围后执行大范围。
 资源、受众和来源标签来自后端。未声明的隐式数据流和任意回调行为无法被本模块发现。
 """
@@ -18,6 +18,7 @@ import json
 
 from shared.contracts.behavior import BehaviorRequest
 
+from .behavior_confidentiality import disclosed_literal_requirements
 from .policy import SecurityPolicy
 
 
@@ -33,6 +34,7 @@ def inspect_behavior_bounds(request: BehaviorRequest, policy: SecurityPolicy) ->
 
     字符预算覆盖整个请求，包含后端要求和参数；沿用显式 max_scan_chars，不改默认数值。
     读取证据本身不意味着向收件人披露；只传播提案声明的派生来源和引用的证据受众。
+    程序许可通过后，按选定后端明确保密声明检查提案明文；不存在明文披露仍必须语义检查。
     """
     failures = []
     boundary, proposal = request.boundary, request.proposal
@@ -90,4 +92,6 @@ def inspect_behavior_bounds(request: BehaviorRequest, policy: SecurityPolicy) ->
         allowed.intersection_update(readers[parent])
     if proposal.recipient not in allowed:
         failures.append("PROVENANCE_DISCLOSURE")
+    if not failures:
+        failures.extend(disclosed_literal_requirements(request))
     return tuple(dict.fromkeys(failures))
