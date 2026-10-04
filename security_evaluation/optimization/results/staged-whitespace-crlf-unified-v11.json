@@ -1,0 +1,17 @@
+{
+  "command": [
+    "git",
+    "-c",
+    "core.whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol",
+    "diff",
+    "--cached",
+    "--check"
+  ],
+  "exit_code": 2,
+  "stdout_bytes": 1680,
+  "stdout_sha256": "354e22f644f56a772ab6db5f05f202e1e3a11e985c3bc7757d9ede7e233d1a8c",
+  "stderr_bytes": 0,
+  "diagnostic_excerpt": "security_evaluation/optimization/results/offline-unified-v6.xml:14: trailing whitespace.\n+    \r\nsecurity_evaluation/optimization/results/offline-unified-v6.xml:30: trailing whitespace.\n+.venv\\Lib\\site-packages\\_pytest\\runner.py:361: \r\nsecurity_evaluation/optimization/results/offline-unified-v6.xml:73: trailing whitespace.\n+    \r\nsecurity_evaluation/optimization/results/offline-unified-v6.xml:89: trailing whitespace.\n+.venv\\Lib\\site-packages\\_pytest\\runner.py:361: \r\nsecurity_evaluation/optimization/results/sdk-startup-profile.txt:32: new blank line at EOF.\nsecurity_evaluation/optimization/results/stream-contract-unified-v8.xml:29: trailing whitespace.\n+    \r\nsecurity_evaluation/optimization/results/stream-contract-unified-v8.xml:37: trailing whitespace.\n+    \r\nsecurity_evaluation/optimization/results/stream-contract-unified-v8.xml:47: trailing whitespace.\n+    \r\nsecurity_evaluation/optimization/results/stream-contract-unified-v8.xml:67: trailing whitespace.\n+E             \r\nsecurity_evaluation/optimization/results/stream-contract-unified-v8.xml:99: trailing whitespace.\n+    \r\nsecurity_evaluation/optimization/results/stream-contract-unified-v8.xml:107: trailing whitespace.\n+    \r\nsecurity_evaluation/optimization/results/stream-contract-unified-v8.xml:117: trailing whitespace.\n+    \r\nsecurity_evaluation/optimization/results/stream-contract-unified-v8.xml:137: trailing whitespace.\n+E             \r\nsecurity_evaluation/results/fixed-invariants.xml:14: trailing whitespace.\n+E       ",
+  "interpretation": "Explicit per-command Windows CRLF recognition; original three default whitespace rules retained. No global configuration, file normalization, gate or source changes.",
+  "official_reference": "https://git-scm.com/docs/git-config#Documentation/git-config.txt-corewhitespace"
+}

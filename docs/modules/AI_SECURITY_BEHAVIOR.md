@@ -21,11 +21,39 @@
 | `agent_safety.py` | 数据库状态与来源绑定、固定要求、整体响应检查、交付回调 |
 | `BehaviorEngine` | 程序边界与语义检查、完整覆盖、脱敏决策日志 |
 | `ProjectBehaviorReviewer` | 把边界、证据和实际提案分离后调用独立模型传输 |
-| `ProjectModelTransport` | 沿用项目供应商、模型、温度、SDK 超时，单次异步请求并清理客户端 |
+| `ProjectModelTransport` | 沿用项目模型配置和零重试，在同一所属事件循环复用并显式关闭连接池 |
 | `agent_records.py` | 幂等请求、带版本的获准结果提交、有限错误及中断状态 |
 | `api/agent_history.py` | 归属隔离与已检结果公开 |
 
 覆盖 prepared、question（含 last_evaluation）、assessment、finished。检查整个 JSON，包括附带计划和诊断信息；不只检查显示在页面上的正文。进度仅允许固定阶段、状态和非负耗时，握手、started、取消及固定错误等协议信息不调用模型。
+
+2026-10-04 的安全审查加固将后端许可放入 system 指令区段，证据和完整提案放入 user
+数据区段；审查模型 JSON 出现重复字段时返回检查失败，不采用最后一个值。
+这次角色分离保持当时的固定规则、完整请求、模型配置和 5 秒时限。独立评测和误拒见
+[`security_evaluation/`](../../security_evaluation/README.md)；消息角色分离不构成模型准确率保证。
+
+随后接入的公开数据实验见 [`public/`](../../security_evaluation/public/README.md)。该轮修正
+安全语义层的任务约束归属：只判断后端选定要求，面试例子作为条件化说明；按实际正文
+检查保密值，拒绝措辞不自动消除披露。规则文本有明确版本哈希和前后源码快照；模型、
+权限契约、完整数据、5秒时限及失败语义保持原值。调用增加脱敏阶段耗时统计。
+
+后续优化见 [`optimization/`](../../security_evaluation/optimization/README.md)。程序边界增加
+从选定后端要求编译的明确明文保密规则，仅用于拒绝已发生的输出披露；未命中不能放行。
+语义审查的私有响应要求一条指向程序生成的实际提案片段的违规引用，再适配为原有
+公开评估契约。确定性比较不能覆盖所有编码或间接泄露，片段引用也不能证明语义正确。
+完整提案仍传给模型；索引视图仅发送来源、路径及字符位置，原片段保留在服务端，
+避免重复发送正文。响应Schema省略说明性注解，原类型、必填字段及运行时校验保留。
+私有JSON结论前要求简短事实依据，区分实际动作、拒绝措辞和安全讨论；不进入公开决策
+或日志，也不作为程序证明。保留8192字符整体响应上限。
+原始提案和证据完整保留，新增片段视图增加输入token；模型仅返回索引，不复制正文。
+客户端复用已验证TLS配置，并在初始化阶段加载SDK资源；启动和池关闭成本单独报告，
+取消清理当前HTTP流。CLI、评测或网关在停止在途任务后于同一事件循环关闭安全池。
+原模型与预算保持。报告保留所有失败原型及独立新任务验收，旧留出样本作为回归使用。
+
+当前统一使用一套固定审查指令`BEHAVIOR_INSTRUCTIONS`，不再根据任务选择专用提示词。
+动态后端要求决定审查义务，输入证据不能增加权限；明文拒绝和片段校验仍保留。
+已观察的63条公开验收提案仅在`replay`阶段作为回归复测，不能重新称为新留出集。
+详情见[统一提示词及清理验证](../../security_evaluation/optimization/UNIFIED_RESULTS.md)。
 
 ## 可调用接口
 
@@ -34,9 +62,13 @@
 ```python
 # ID 与 owner_id 来自服务端；命令已校验并预留请求。
 gateway = InterviewIOGateway(interview_id, owner_id=owner_id, connection_id=connection_id)
-command = await gateway.bind_input(command)
-payload = await business_handler(command)
-await gateway.publish(payload, delivery)
+try:
+    command = await gateway.bind_input(command)
+    payload = await business_handler(command)
+    await gateway.publish(payload, delivery)
+finally:
+    # 所属调用者须先停止并等待所有在途任务；关闭发生在同一事件循环。
+    await gateway.aclose()
 ```
 
 `delivery(checked_payload, receipt)` 必须使用收到的已检正文。最终保存须调用 `complete_request(..., receipt=receipt, owner_id=owner_id)`，成功后发送相同正文。数据库校验不能由安全模型替代，回调不能附带未检文本。实际接线见 `agent_socket` 的 `run`、`progress` 和 `deliver_result`。

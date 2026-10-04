@@ -1,26 +1,26 @@
-"""职责：提供面向系统行为合格性的检查与执行接口，而非给用户输入贴攻击标签。
-实现：快照→确定性边界→必需语义检查→完整要求覆盖→重读绑定→业务操作。
-关联：behavior_bounds 负责程序约束，BehaviorReviewer 负责语义约束；事务仍由业务持有。
+"""Responsibilities: 检查系统拟执行行为并提供检查后执行接口，不分类用户攻击。
+Implementation: 快照、确定性边界、必需语义检查、完整覆盖、重读绑定和业务操作。
+Related Modules: behavior_bounds 负责程序约束，BehaviorReviewer 提供语义审查端口。
 
-目录：
-- BehaviorReviewer：可替换的异步行为审查端口。
-- BehaviorReviewer.assess：审查拟执行行为，返回要求级结果。
-- BehaviorBlocked：行为明确不合格。
-- BehaviorBlocked.__init__：保存脱敏拒绝决策。
-- BehaviorCheckFailed：无法完成行为检查。
-- BehaviorCheckFailed.__init__：保存失败决策。
-- behavior_digest：计算完整请求的稳定摘要。
-- BehaviorEngine：组合程序边界与语义合格性。
-- BehaviorEngine.__init__：冻结策略并验证端口。
-- BehaviorEngine.check：检查提案，不执行或修改提案。
-- BehaviorEngine.require_allowed：只返回 allow，否则抛明确异常。
-- execute_behavior_checked：检查、刷新并调用一次受保护业务操作。
+Declaration Index:
+- BehaviorReviewer: 可替换的异步行为审查端口。
+- BehaviorReviewer.assess: 审查拟执行行为，返回要求级结果。
+- BehaviorBlocked: 行为明确不合格。
+- BehaviorBlocked.__init__: 保存脱敏拒绝决策。
+- BehaviorCheckFailed: 无法完成行为检查。
+- BehaviorCheckFailed.__init__: 保存失败决策。
+- behavior_digest: 计算完整请求的稳定摘要。
+- BehaviorEngine: 组合程序边界与语义合格性。
+- BehaviorEngine.__init__: 冻结策略并验证端口。
+- BehaviorEngine.check: 检查提案，不执行或修改提案。
+- BehaviorEngine.require_allowed: 只返回allow，否则抛明确异常。
+- execute_behavior_checked: 检查、刷新并调用一次受保护业务操作。
 
-关键变量：
-- logger：有限标识、阶段、违反项、异常类型和耗时日志。
-- Result：业务回调结果类型。
+Variable Index:
+- logger: 有限标识、阶段、违反项、异常类型和耗时日志。
+- Result: 业务回调结果类型。
 
-约束说明：
+Constraints:
 _policy 是独立快照，_reviewer 为必需端口。无模型失败回退、自动重试或静默修复。
 输入中的恶意指令不是拒绝依据；拒绝依据是提案违反后端边界。error 不视为攻击命中。
 operation 必须按已检快照执行，并在数据库事务或发送协调边界再次核对状态和授权。

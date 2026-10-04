@@ -11,6 +11,7 @@ Declaration Index:
 - ScriptedReviewer.__init__: record target output, fault modes, and synchronization barrier.
 - ScriptedReviewer.assess: record real review request, provide conclusion or wait for cancellation
   according to mode.
+- ScriptedReviewer.aclose: Record explicit gateway lifecycle release without external resources.
 - IOSafetyTests: closed-loop testing in isolated database, does not prove real model detection
   effectiveness.
 - IOSafetyTests.setUp: inject explicit business/safety stand-ins, register cleanup.
@@ -75,6 +76,14 @@ class ScriptedReviewer:
         self.target, self.mode = target, mode
         self.requests = []
         self.entered, self.cancelled = asyncio.Event(), asyncio.Event()
+        self.close_calls = 0
+
+    async def aclose(self):
+        """Functionality: Record test pool release. Inputs: Instance close counter. Outputs: None.
+        Logic: Increment once per explicit gateway close. Constraints: No SDK/network resources;
+        the fixed stand-in may be reused by other test connections and is not a real client pool.
+        """
+        self.close_calls += 1
 
     async def assess(self, request):
         """Input real request; record copy, return complete/incomplete conclusion or inject fault;
@@ -278,9 +287,11 @@ class IOSafetyTests(TransactionTestCase):
 
     async def test_cancel_or_disconnect_during_review(self):
         """Confirm entry into inspection via synchronous event, then cancel or disconnect; local
-        review ends and request interrupted, no delayed text.
+        review ends and request interrupted, no delayed text. Gateway-owned reviewer closure
+        must follow task cancellation; the stand-in records lifecycle calls without networking.
         """
         for cancel in (True, False):
+            closes_before = self.reviewer.close_calls
             self.reviewer.mode = "wait"
             self.reviewer.entered.clear()
             self.reviewer.cancelled.clear()
@@ -298,6 +309,7 @@ class IOSafetyTests(TransactionTestCase):
             else:
                 await disconnect(comm)
             self.assertTrue(self.reviewer.cancelled.is_set())
+            self.assertEqual(self.reviewer.close_calls, closes_before + 1)
             self.assertEqual((await AgentRequest.objects.aget(id=rid)).status, "interrupted")
             self.assertTrue(comm.output_queue.empty())
 

@@ -1,0 +1,435 @@
+Creating test database for alias 'default'...
+
+2026-10-04 20:29:51,670 INFO interviews.agent_socket Agent connected connection=f91546a4-b5de-4db7-857c-2648dbda159b
+2026-10-04 20:29:51,671 INFO interviews.agent_socket Agent initialized connection=f91546a4-b5de-4db7-857c-2648dbda159b interview=1df2e757-cbdd-4e5b-aad6-9478f10a2509
+2026-10-04 20:29:51,673 INFO interviews.agent_records Agent request accepted interview=1df2e757-cbdd-4e5b-aad6-9478f10a2509 request=4b5cec52-b11b-436d-9d88-ed68b256f978 kind=prepare
+2026-10-04 20:29:51,673 INFO interviews.agent_safety Security input bound interview=1df2e757-cbdd-4e5b-aad6-9478f10a2509 request=4b5cec52-b11b-436d-9d88-ed68b256f978 kind=prepare state_version=0
+2026-10-04 20:29:51,673 INFO interviews.agent_session Agent stage started interview=1df2e757-cbdd-4e5b-aad6-9478f10a2509 stage=resume_parsing
+2026-10-04 20:29:51,678 INFO interviews.agent_session Agent stage completed interview=1df2e757-cbdd-4e5b-aad6-9478f10a2509 stage=resume_parsing duration_ms=5
+2026-10-04 20:29:51,679 INFO ai_security.behavior Behavior check starting request=4b5cec52-b11b-436d-9d88-ed68b256f978 operation=publish_prepared
+2026-10-04 20:29:51,679 INFO ai_security.behavior Behavior decision request=4b5cec52-b11b-436d-9d88-ed68b256f978 decision=4bbe259541a04a118d813ee61d3b0ed8 status=allow coverage=semantic violations=() error=None latency_ms=0.47
+2026-10-04 20:29:51,679 INFO ai_security.behavior Behavior execution starting request=4b5cec52-b11b-436d-9d88-ed68b256f978 decision=4bbe259541a04a118d813ee61d3b0ed8 state_version=0
+2026-10-04 20:29:51,682 INFO interviews.agent_records Agent request saved interview=1df2e757-cbdd-4e5b-aad6-9478f10a2509 request=4b5cec52-b11b-436d-9d88-ed68b256f978
+2026-10-04 20:29:51,683 INFO ai_security.behavior Behavior execution completed request=4b5cec52-b11b-436d-9d88-ed68b256f978
+2026-10-04 20:29:51,683 INFO interviews.agent_socket Agent response connection=f91546a4-b5de-4db7-857c-2648dbda159b request=4b5cec52-b11b-436d-9d88-ed68b256f978 type=prepared
+2026-10-04 20:29:51,683 INFO interviews.agent_socket Agent initialized connection=f91546a4-b5de-4db7-857c-2648dbda159b interview=1df2e757-cbdd-4e5b-aad6-9478f10a2509
+2026-10-04 20:29:51,683 INFO interviews.agent_records Agent request accepted interview=1df2e757-cbdd-4e5b-aad6-9478f10a2509 request=e5049ece-eebb-4859-8280-b689e6eed490 kind=start
+2026-10-04 20:29:51,686 INFO interviews.agent_safety Security input bound interview=1df2e757-cbdd-4e5b-aad6-9478f10a2509 request=e5049ece-eebb-4859-8280-b689e6eed490 kind=start state_version=0
+2026-10-04 20:29:51,686 INFO interviews.agent_session Agent resume reused interview=1df2e757-cbdd-4e5b-aad6-9478f10a2509
+2026-10-04 20:29:51,687 INFO interviews.agent_session Agent stage started interview=1df2e757-cbdd-4e5b-aad6-9478f10a2509 stage=question_generation
+2026-10-04 20:29:51,709 INFO interviews.agent_repository Agent turn committed interview=1df2e757-cbdd-4e5b-aad6-9478f10a2509 version=2
+2026-10-04 20:29:51,710 INFO interviews.agent_session Agent stage completed interview=1df2e757-cbdd-4e5b-aad6-9478f10a2509 stage=question_generation duration_ms=22
+2026-10-04 20:29:51,711 INFO interviews.agent_session Agent question ready interview=1df2e757-cbdd-4e5b-aad6-9478f10a2509 question_index=1 generation_reason=LLM_GENERATED generation_ms=13 planner_ms=0 retrieval_ms=0
+2026-10-04 20:29:51,714 INFO ai_security.behavior Behavior check starting request=e5049ece-eebb-4859-8280-b689e6eed490 operation=publish_question
+2026-10-04 20:29:51,714 INFO ai_security.behavior Behavior decision request=e5049ece-eebb-4859-8280-b689e6eed490 decision=14da77eb7fa14d7bafb8c9dc92a4e962 status=allow coverage=semantic violations=() error=None latency_ms=0.58
+2026-10-04 20:29:51,715 INFO ai_security.behavior Behavior execution starting request=e5049ece-eebb-4859-8280-b689e6eed490 decision=14da77eb7fa14d7bafb8c9dc92a4e962 state_version=2
+2026-10-04 20:29:51,716 INFO interviews.agent_records Agent request saved interview=1df2e757-cbdd-4e5b-aad6-9478f10a2509 request=e5049ece-eebb-4859-8280-b689e6eed490
+2026-10-04 20:29:51,716 INFO ai_security.behavior Behavior execution completed request=e5049ece-eebb-4859-8280-b689e6eed490
+2026-10-04 20:29:51,717 INFO interviews.agent_socket Agent response connection=f91546a4-b5de-4db7-857c-2648dbda159b request=e5049ece-eebb-4859-8280-b689e6eed490 type=question
+2026-10-04 20:29:51,718 INFO interviews.agent_records Agent request accepted interview=1df2e757-cbdd-4e5b-aad6-9478f10a2509 request=29cc1faf-2f3b-402c-a029-b55dc8bc9120 kind=answer
+2026-10-04 20:29:51,719 INFO interviews.agent_safety Security input bound interview=1df2e757-cbdd-4e5b-aad6-9478f10a2509 request=29cc1faf-2f3b-402c-a029-b55dc8bc9120 kind=answer state_version=2
+2026-10-04 20:29:51,721 INFO interviews.agent_session Agent stage started interview=1df2e757-cbdd-4e5b-aad6-9478f10a2509 stage=answer_evaluation
+2026-10-04 20:29:51,725 INFO interviews.agent_session Agent stage completed interview=1df2e757-cbdd-4e5b-aad6-9478f10a2509 stage=answer_evaluation duration_ms=4
+2026-10-04 20:29:51,725 INFO interviews.agent_session Agent stage started interview=1df2e757-cbdd-4e5b-aad6-9478f10a2509 stage=next_action
+2026-10-04 20:29:51,772 INFO interviews.agent_repository Agent turn committed interview=1df2e757-cbdd-4e5b-aad6-9478f10a2509 version=3
+2026-10-04 20:29:51,773 INFO interviews.agent_session Agent stage completed interview=1df2e757-cbdd-4e5b-aad6-9478f10a2509 stage=next_action duration_ms=48
+2026-10-04 20:29:51,775 INFO interviews.agent_session Agent question ready interview=1df2e757-cbdd-4e5b-aad6-9478f10a2509 question_index=2 generation_reason=CANDIDATE_SPECIFIC_FALLBACK generation_ms=38 planner_ms=0 retrieval_ms=0
+2026-10-04 20:29:51,776 INFO ai_security.behavior Behavior check starting request=29cc1faf-2f3b-402c-a029-b55dc8bc9120 operation=publish_question
+2026-10-04 20:29:51,776 INFO ai_security.behavior Behavior decision request=29cc1faf-2f3b-402c-a029-b55dc8bc9120 decision=4f63374d7af746cc9f1c952671f6c55e status=allow coverage=semantic violations=() error=None latency_ms=0.56
+2026-10-04 20:29:51,780 INFO ai_security.behavior Behavior execution starting request=29cc1faf-2f3b-402c-a029-b55dc8bc9120 decision=4f63374d7af746cc9f1c952671f6c55e state_version=3
+2026-10-04 20:29:51,781 INFO interviews.agent_records Agent request saved interview=1df2e757-cbdd-4e5b-aad6-9478f10a2509 request=29cc1faf-2f3b-402c-a029-b55dc8bc9120
+2026-10-04 20:29:51,781 INFO ai_security.behavior Behavior execution completed request=29cc1faf-2f3b-402c-a029-b55dc8bc9120
+2026-10-04 20:29:51,782 INFO interviews.agent_socket Agent response connection=f91546a4-b5de-4db7-857c-2648dbda159b request=29cc1faf-2f3b-402c-a029-b55dc8bc9120 type=question
+2026-10-04 20:29:51,782 INFO interviews.agent_records Agent request accepted interview=1df2e757-cbdd-4e5b-aad6-9478f10a2509 request=7a52ff22-4c01-4f28-99db-f887a7cf88e3 kind=answer
+2026-10-04 20:29:51,783 INFO interviews.agent_safety Security input bound interview=1df2e757-cbdd-4e5b-aad6-9478f10a2509 request=7a52ff22-4c01-4f28-99db-f887a7cf88e3 kind=answer state_version=3
+2026-10-04 20:29:51,785 INFO interviews.agent_session Agent stage started interview=1df2e757-cbdd-4e5b-aad6-9478f10a2509 stage=answer_evaluation
+2026-10-04 20:29:51,789 INFO interviews.agent_session Agent stage completed interview=1df2e757-cbdd-4e5b-aad6-9478f10a2509 stage=answer_evaluation duration_ms=4
+2026-10-04 20:29:51,789 INFO interviews.agent_session Agent stage started interview=1df2e757-cbdd-4e5b-aad6-9478f10a2509 stage=next_action
+2026-10-04 20:29:51,796 INFO interviews.agent_repository Agent turn committed interview=1df2e757-cbdd-4e5b-aad6-9478f10a2509 version=4
+2026-10-04 20:29:51,796 INFO interviews.agent_session Agent stage completed interview=1df2e757-cbdd-4e5b-aad6-9478f10a2509 stage=next_action duration_ms=7
+2026-10-04 20:29:51,798 INFO ai_security.behavior Behavior check starting request=7a52ff22-4c01-4f28-99db-f887a7cf88e3 operation=publish_assessment
+2026-10-04 20:29:51,798 INFO ai_security.behavior Behavior decision request=7a52ff22-4c01-4f28-99db-f887a7cf88e3 decision=faa6ddc1efba4b2aa2a6eacc8c8c1a2b status=allow coverage=semantic violations=() error=None latency_ms=0.46
+2026-10-04 20:29:51,801 INFO ai_security.behavior Behavior execution starting request=7a52ff22-4c01-4f28-99db-f887a7cf88e3 decision=faa6ddc1efba4b2aa2a6eacc8c8c1a2b state_version=4
+2026-10-04 20:29:51,801 INFO ai_security.behavior Behavior execution completed request=7a52ff22-4c01-4f28-99db-f887a7cf88e3
+2026-10-04 20:29:51,801 INFO interviews.agent_session Agent stage started interview=1df2e757-cbdd-4e5b-aad6-9478f10a2509 stage=report_generation
+2026-10-04 20:29:51,802 INFO interviews.agent_session Agent stage completed interview=1df2e757-cbdd-4e5b-aad6-9478f10a2509 stage=report_generation duration_ms=0
+2026-10-04 20:29:51,804 INFO ai_security.behavior Behavior check starting request=7a52ff22-4c01-4f28-99db-f887a7cf88e3 operation=publish_finished
+2026-10-04 20:29:51,804 INFO ai_security.behavior Behavior decision request=7a52ff22-4c01-4f28-99db-f887a7cf88e3 decision=2d62333ae201418696ebd5f1fe3edb2b status=allow coverage=semantic violations=() error=None latency_ms=0.53
+2026-10-04 20:29:51,804 INFO ai_security.behavior Behavior execution starting request=7a52ff22-4c01-4f28-99db-f887a7cf88e3 decision=2d62333ae201418696ebd5f1fe3edb2b state_version=4
+2026-10-04 20:29:51,808 INFO interviews.agent_records Agent request saved interview=1df2e757-cbdd-4e5b-aad6-9478f10a2509 request=7a52ff22-4c01-4f28-99db-f887a7cf88e3
+2026-10-04 20:29:51,808 INFO ai_security.behavior Behavior execution completed request=7a52ff22-4c01-4f28-99db-f887a7cf88e3
+2026-10-04 20:29:51,808 INFO interviews.agent_socket Agent response connection=f91546a4-b5de-4db7-857c-2648dbda159b request=7a52ff22-4c01-4f28-99db-f887a7cf88e3 type=finished
+2026-10-04 20:29:51,809 INFO interviews.agent_socket Agent disconnected connection=f91546a4-b5de-4db7-857c-2648dbda159b
+2026-10-04 20:29:51,817 INFO interviews.api.agent_history Agent history read interview=1df2e757-cbdd-4e5b-aad6-9478f10a2509 schema=2 approved_requests=4 visible_questions=2
+.2026-10-04 20:29:51,842 INFO interviews.agent_socket Agent connected connection=3b56bbc1-83fa-4667-9270-fba3a9d2c975
+2026-10-04 20:29:51,842 INFO interviews.agent_socket Agent initialized connection=3b56bbc1-83fa-4667-9270-fba3a9d2c975 interview=f0f9a22f-d1e3-46f0-939e-93574c5e0a43
+2026-10-04 20:29:51,845 INFO interviews.agent_records Agent request accepted interview=f0f9a22f-d1e3-46f0-939e-93574c5e0a43 request=8cfcbd4d-e5ee-4614-be76-349020a2f5ce kind=prepare
+2026-10-04 20:29:51,846 INFO interviews.agent_safety Security input bound interview=f0f9a22f-d1e3-46f0-939e-93574c5e0a43 request=8cfcbd4d-e5ee-4614-be76-349020a2f5ce kind=prepare state_version=0
+2026-10-04 20:29:51,846 INFO interviews.agent_session Agent stage started interview=f0f9a22f-d1e3-46f0-939e-93574c5e0a43 stage=resume_parsing
+2026-10-04 20:29:51,849 INFO interviews.agent_session Agent stage completed interview=f0f9a22f-d1e3-46f0-939e-93574c5e0a43 stage=resume_parsing duration_ms=3
+2026-10-04 20:29:51,850 INFO ai_security.behavior Behavior check starting request=8cfcbd4d-e5ee-4614-be76-349020a2f5ce operation=publish_prepared
+2026-10-04 20:29:51,850 INFO ai_security.behavior Behavior check cancelled request=8cfcbd4d-e5ee-4614-be76-349020a2f5ce
+2026-10-04 20:29:51,850 INFO ai_security.behavior Behavior execution cancelled request=8cfcbd4d-e5ee-4614-be76-349020a2f5ce stage=inspection
+2026-10-04 20:29:51,850 WARNING interviews.agent_safety Security output stopped interview=f0f9a22f-d1e3-46f0-939e-93574c5e0a43 request=8cfcbd4d-e5ee-4614-be76-349020a2f5ce exception=CancelledError
+2026-10-04 20:29:51,851 INFO interviews.agent_records Agent interview interrupted interview=f0f9a22f-d1e3-46f0-939e-93574c5e0a43
+2026-10-04 20:29:51,851 INFO interviews.agent_socket Agent disconnected connection=3b56bbc1-83fa-4667-9270-fba3a9d2c975
+2026-10-04 20:29:51,853 INFO interviews.agent_socket Agent connected connection=7952b82d-a00f-4e84-8c43-d4bfd4128d1d
+2026-10-04 20:29:51,853 INFO interviews.agent_socket Agent initialized connection=7952b82d-a00f-4e84-8c43-d4bfd4128d1d interview=543bdb5b-8462-4d8e-bf48-9e1485493aa2
+2026-10-04 20:29:51,854 INFO interviews.agent_records Agent request accepted interview=543bdb5b-8462-4d8e-bf48-9e1485493aa2 request=960d45c1-3b2d-4d12-9ad3-955d25a787b0 kind=prepare
+2026-10-04 20:29:51,854 INFO interviews.agent_safety Security input bound interview=543bdb5b-8462-4d8e-bf48-9e1485493aa2 request=960d45c1-3b2d-4d12-9ad3-955d25a787b0 kind=prepare state_version=0
+2026-10-04 20:29:51,855 INFO interviews.agent_session Agent stage started interview=543bdb5b-8462-4d8e-bf48-9e1485493aa2 stage=resume_parsing
+2026-10-04 20:29:51,858 INFO interviews.agent_session Agent stage completed interview=543bdb5b-8462-4d8e-bf48-9e1485493aa2 stage=resume_parsing duration_ms=3
+2026-10-04 20:29:51,859 INFO ai_security.behavior Behavior check starting request=960d45c1-3b2d-4d12-9ad3-955d25a787b0 operation=publish_prepared
+2026-10-04 20:29:51,859 INFO ai_security.behavior Behavior check cancelled request=960d45c1-3b2d-4d12-9ad3-955d25a787b0
+2026-10-04 20:29:51,859 INFO ai_security.behavior Behavior execution cancelled request=960d45c1-3b2d-4d12-9ad3-955d25a787b0 stage=inspection
+2026-10-04 20:29:51,859 WARNING interviews.agent_safety Security output stopped interview=543bdb5b-8462-4d8e-bf48-9e1485493aa2 request=960d45c1-3b2d-4d12-9ad3-955d25a787b0 exception=CancelledError
+2026-10-04 20:29:51,859 INFO interviews.agent_records Agent interview interrupted interview=543bdb5b-8462-4d8e-bf48-9e1485493aa2
+2026-10-04 20:29:51,859 INFO interviews.agent_socket Agent disconnected connection=7952b82d-a00f-4e84-8c43-d4bfd4128d1d
+.2026-10-04 20:29:51,870 INFO interviews.agent_socket Agent connected connection=8667d78c-8853-46e7-93b1-c9a48f62161b
+2026-10-04 20:29:51,870 INFO interviews.agent_socket Agent initialized connection=8667d78c-8853-46e7-93b1-c9a48f62161b interview=d7ce671a-797e-448f-80b5-d7c1a25f0046
+2026-10-04 20:29:51,871 INFO interviews.agent_records Agent request accepted interview=d7ce671a-797e-448f-80b5-d7c1a25f0046 request=17f855fe-8fa4-479f-8dfd-e3dc5497ab2b kind=prepare
+2026-10-04 20:29:51,872 INFO interviews.agent_safety Security input bound interview=d7ce671a-797e-448f-80b5-d7c1a25f0046 request=17f855fe-8fa4-479f-8dfd-e3dc5497ab2b kind=prepare state_version=0
+2026-10-04 20:29:51,872 INFO interviews.agent_session Agent stage started interview=d7ce671a-797e-448f-80b5-d7c1a25f0046 stage=resume_parsing
+2026-10-04 20:29:51,876 INFO interviews.agent_session Agent stage completed interview=d7ce671a-797e-448f-80b5-d7c1a25f0046 stage=resume_parsing duration_ms=3
+2026-10-04 20:29:51,877 INFO ai_security.behavior Behavior check starting request=17f855fe-8fa4-479f-8dfd-e3dc5497ab2b operation=publish_prepared
+2026-10-04 20:29:51,877 INFO ai_security.behavior Behavior decision request=17f855fe-8fa4-479f-8dfd-e3dc5497ab2b decision=7598b639f5aa4ee6b915fed6fe807da6 status=deny coverage=semantic violations=('TASK_SCOPE',) error=None latency_ms=0.39
+2026-10-04 20:29:51,877 WARNING ai_security.behavior Behavior execution failed request=17f855fe-8fa4-479f-8dfd-e3dc5497ab2b stage=inspection exception=BehaviorBlocked
+2026-10-04 20:29:51,877 WARNING interviews.agent_safety Security output stopped interview=d7ce671a-797e-448f-80b5-d7c1a25f0046 request=17f855fe-8fa4-479f-8dfd-e3dc5497ab2b exception=BehaviorBlocked
+2026-10-04 20:29:51,878 WARNING interviews.agent_records Agent request failed interview=d7ce671a-797e-448f-80b5-d7c1a25f0046 request=17f855fe-8fa4-479f-8dfd-e3dc5497ab2b
+2026-10-04 20:29:51,878 ERROR interviews.agent_socket Agent failed connection=8667d78c-8853-46e7-93b1-c9a48f62161b request=17f855fe-8fa4-479f-8dfd-e3dc5497ab2b exception=BehaviorBlocked; check model-call logs and backend configuration
+2026-10-04 20:29:51,878 WARNING interviews.agent_socket Agent rejected connection=8667d78c-8853-46e7-93b1-c9a48f62161b request=17f855fe-8fa4-479f-8dfd-e3dc5497ab2b code=security_denied
+2026-10-04 20:29:51,880 INFO interviews.agent_socket Agent disconnected connection=8667d78c-8853-46e7-93b1-c9a48f62161b
+2026-10-04 20:29:51,882 INFO interviews.api.agent_history Agent history read interview=d7ce671a-797e-448f-80b5-d7c1a25f0046 schema=2 approved_requests=0 visible_questions=0
+2026-10-04 20:29:51,888 INFO interviews.agent_socket Agent connected connection=a6a906d6-9a46-4c50-b7c0-2609f837fab8
+2026-10-04 20:29:51,888 INFO interviews.agent_socket Agent initialized connection=a6a906d6-9a46-4c50-b7c0-2609f837fab8 interview=93c07746-3183-4d17-ad1c-dc912ecff98b
+2026-10-04 20:29:51,891 INFO interviews.agent_records Agent request accepted interview=93c07746-3183-4d17-ad1c-dc912ecff98b request=f397113b-4e70-4ba9-b87c-4ec0bfe87696 kind=start
+2026-10-04 20:29:51,891 INFO interviews.agent_safety Security input bound interview=93c07746-3183-4d17-ad1c-dc912ecff98b request=f397113b-4e70-4ba9-b87c-4ec0bfe87696 kind=start state_version=0
+2026-10-04 20:29:51,892 INFO interviews.agent_session Agent stage started interview=93c07746-3183-4d17-ad1c-dc912ecff98b stage=resume_parsing
+2026-10-04 20:29:51,894 INFO interviews.agent_session Agent stage completed interview=93c07746-3183-4d17-ad1c-dc912ecff98b stage=resume_parsing duration_ms=4
+2026-10-04 20:29:51,899 INFO interviews.agent_session Agent stage started interview=93c07746-3183-4d17-ad1c-dc912ecff98b stage=question_generation
+2026-10-04 20:29:51,916 INFO interviews.agent_repository Agent turn committed interview=93c07746-3183-4d17-ad1c-dc912ecff98b version=2
+2026-10-04 20:29:51,916 INFO interviews.agent_session Agent stage completed interview=93c07746-3183-4d17-ad1c-dc912ecff98b stage=question_generation duration_ms=19
+2026-10-04 20:29:51,920 INFO interviews.agent_session Agent question ready interview=93c07746-3183-4d17-ad1c-dc912ecff98b question_index=1 generation_reason=LLM_GENERATED generation_ms=11 planner_ms=0 retrieval_ms=0
+2026-10-04 20:29:51,921 INFO ai_security.behavior Behavior check starting request=f397113b-4e70-4ba9-b87c-4ec0bfe87696 operation=publish_question
+2026-10-04 20:29:51,922 INFO ai_security.behavior Behavior decision request=f397113b-4e70-4ba9-b87c-4ec0bfe87696 decision=bcb4e21d7bd04feeb8b41500a79b8524 status=deny coverage=semantic violations=('TASK_SCOPE',) error=None latency_ms=0.69
+2026-10-04 20:29:51,922 WARNING ai_security.behavior Behavior execution failed request=f397113b-4e70-4ba9-b87c-4ec0bfe87696 stage=inspection exception=BehaviorBlocked
+2026-10-04 20:29:51,922 WARNING interviews.agent_safety Security output stopped interview=93c07746-3183-4d17-ad1c-dc912ecff98b request=f397113b-4e70-4ba9-b87c-4ec0bfe87696 exception=BehaviorBlocked
+2026-10-04 20:29:51,923 WARNING interviews.agent_records Agent request failed interview=93c07746-3183-4d17-ad1c-dc912ecff98b request=f397113b-4e70-4ba9-b87c-4ec0bfe87696
+2026-10-04 20:29:51,923 ERROR interviews.agent_socket Agent failed connection=a6a906d6-9a46-4c50-b7c0-2609f837fab8 request=f397113b-4e70-4ba9-b87c-4ec0bfe87696 exception=BehaviorBlocked; check model-call logs and backend configuration
+2026-10-04 20:29:51,923 WARNING interviews.agent_socket Agent rejected connection=a6a906d6-9a46-4c50-b7c0-2609f837fab8 request=f397113b-4e70-4ba9-b87c-4ec0bfe87696 code=security_denied
+2026-10-04 20:29:51,925 INFO interviews.agent_socket Agent disconnected connection=a6a906d6-9a46-4c50-b7c0-2609f837fab8
+2026-10-04 20:29:51,928 INFO interviews.api.agent_history Agent history read interview=93c07746-3183-4d17-ad1c-dc912ecff98b schema=2 approved_requests=0 visible_questions=0
+2026-10-04 20:29:51,935 INFO interviews.agent_socket Agent connected connection=65754cbd-c741-4adf-86f5-d88ae3c364cb
+2026-10-04 20:29:51,936 INFO interviews.agent_socket Agent initialized connection=65754cbd-c741-4adf-86f5-d88ae3c364cb interview=08f0f0b4-501d-40eb-ad15-ad8bc2d87f51
+2026-10-04 20:29:51,937 INFO interviews.agent_records Agent request accepted interview=08f0f0b4-501d-40eb-ad15-ad8bc2d87f51 request=62a30f24-ce25-4f98-90dc-989d1c1b91b2 kind=start
+2026-10-04 20:29:51,938 INFO interviews.agent_safety Security input bound interview=08f0f0b4-501d-40eb-ad15-ad8bc2d87f51 request=62a30f24-ce25-4f98-90dc-989d1c1b91b2 kind=start state_version=0
+2026-10-04 20:29:51,938 INFO interviews.agent_session Agent stage started interview=08f0f0b4-501d-40eb-ad15-ad8bc2d87f51 stage=resume_parsing
+2026-10-04 20:29:51,941 INFO interviews.agent_session Agent stage completed interview=08f0f0b4-501d-40eb-ad15-ad8bc2d87f51 stage=resume_parsing duration_ms=4
+2026-10-04 20:29:51,944 INFO interviews.agent_session Agent stage started interview=08f0f0b4-501d-40eb-ad15-ad8bc2d87f51 stage=question_generation
+2026-10-04 20:29:51,960 INFO interviews.agent_repository Agent turn committed interview=08f0f0b4-501d-40eb-ad15-ad8bc2d87f51 version=2
+2026-10-04 20:29:51,961 INFO interviews.agent_session Agent stage completed interview=08f0f0b4-501d-40eb-ad15-ad8bc2d87f51 stage=question_generation duration_ms=17
+2026-10-04 20:29:51,961 INFO interviews.agent_session Agent question ready interview=08f0f0b4-501d-40eb-ad15-ad8bc2d87f51 question_index=1 generation_reason=LLM_GENERATED generation_ms=10 planner_ms=0 retrieval_ms=0
+2026-10-04 20:29:51,963 INFO ai_security.behavior Behavior check starting request=62a30f24-ce25-4f98-90dc-989d1c1b91b2 operation=publish_question
+2026-10-04 20:29:51,963 INFO ai_security.behavior Behavior decision request=62a30f24-ce25-4f98-90dc-989d1c1b91b2 decision=fdfb68f47a7e4060a2092f997f43340a status=allow coverage=semantic violations=() error=None latency_ms=0.49
+2026-10-04 20:29:51,965 INFO ai_security.behavior Behavior execution starting request=62a30f24-ce25-4f98-90dc-989d1c1b91b2 decision=fdfb68f47a7e4060a2092f997f43340a state_version=2
+2026-10-04 20:29:51,967 INFO interviews.agent_records Agent request saved interview=08f0f0b4-501d-40eb-ad15-ad8bc2d87f51 request=62a30f24-ce25-4f98-90dc-989d1c1b91b2
+2026-10-04 20:29:51,967 INFO ai_security.behavior Behavior execution completed request=62a30f24-ce25-4f98-90dc-989d1c1b91b2
+2026-10-04 20:29:51,967 INFO interviews.agent_socket Agent response connection=65754cbd-c741-4adf-86f5-d88ae3c364cb request=62a30f24-ce25-4f98-90dc-989d1c1b91b2 type=question
+2026-10-04 20:29:51,968 INFO interviews.agent_records Agent request accepted interview=08f0f0b4-501d-40eb-ad15-ad8bc2d87f51 request=f1ce7b6e-f28c-4a0c-928c-5cf00f5ab99e kind=answer
+2026-10-04 20:29:51,969 INFO interviews.agent_safety Security input bound interview=08f0f0b4-501d-40eb-ad15-ad8bc2d87f51 request=f1ce7b6e-f28c-4a0c-928c-5cf00f5ab99e kind=answer state_version=2
+2026-10-04 20:29:51,972 INFO interviews.agent_session Agent stage started interview=08f0f0b4-501d-40eb-ad15-ad8bc2d87f51 stage=answer_evaluation
+2026-10-04 20:29:51,975 INFO interviews.agent_session Agent stage completed interview=08f0f0b4-501d-40eb-ad15-ad8bc2d87f51 stage=answer_evaluation duration_ms=4
+2026-10-04 20:29:51,975 INFO interviews.agent_session Agent stage started interview=08f0f0b4-501d-40eb-ad15-ad8bc2d87f51 stage=next_action
+2026-10-04 20:29:51,982 INFO interviews.agent_repository Agent turn committed interview=08f0f0b4-501d-40eb-ad15-ad8bc2d87f51 version=3
+2026-10-04 20:29:51,982 INFO interviews.agent_session Agent stage completed interview=08f0f0b4-501d-40eb-ad15-ad8bc2d87f51 stage=next_action duration_ms=7
+2026-10-04 20:29:51,984 INFO ai_security.behavior Behavior check starting request=f1ce7b6e-f28c-4a0c-928c-5cf00f5ab99e operation=publish_assessment
+2026-10-04 20:29:51,984 INFO ai_security.behavior Behavior decision request=f1ce7b6e-f28c-4a0c-928c-5cf00f5ab99e decision=9e018dc5818049d495e97d60e38ffdc4 status=deny coverage=semantic violations=('TASK_SCOPE',) error=None latency_ms=0.45
+2026-10-04 20:29:51,984 WARNING ai_security.behavior Behavior execution failed request=f1ce7b6e-f28c-4a0c-928c-5cf00f5ab99e stage=inspection exception=BehaviorBlocked
+2026-10-04 20:29:51,984 WARNING interviews.agent_safety Security output stopped interview=08f0f0b4-501d-40eb-ad15-ad8bc2d87f51 request=f1ce7b6e-f28c-4a0c-928c-5cf00f5ab99e exception=BehaviorBlocked
+2026-10-04 20:29:51,986 WARNING interviews.agent_records Agent request failed interview=08f0f0b4-501d-40eb-ad15-ad8bc2d87f51 request=f1ce7b6e-f28c-4a0c-928c-5cf00f5ab99e
+2026-10-04 20:29:51,986 ERROR interviews.agent_socket Agent failed connection=65754cbd-c741-4adf-86f5-d88ae3c364cb request=f1ce7b6e-f28c-4a0c-928c-5cf00f5ab99e exception=BehaviorBlocked; check model-call logs and backend configuration
+2026-10-04 20:29:51,986 WARNING interviews.agent_socket Agent rejected connection=65754cbd-c741-4adf-86f5-d88ae3c364cb request=f1ce7b6e-f28c-4a0c-928c-5cf00f5ab99e code=security_denied
+2026-10-04 20:29:51,986 INFO interviews.agent_socket Agent disconnected connection=65754cbd-c741-4adf-86f5-d88ae3c364cb
+2026-10-04 20:29:51,991 INFO interviews.api.agent_history Agent history read interview=08f0f0b4-501d-40eb-ad15-ad8bc2d87f51 schema=2 approved_requests=1 visible_questions=1
+2026-10-04 20:29:51,997 INFO interviews.agent_socket Agent connected connection=1637034b-4e27-4e65-b06f-f929dae14f33
+2026-10-04 20:29:51,998 INFO interviews.agent_socket Agent initialized connection=1637034b-4e27-4e65-b06f-f929dae14f33 interview=cba6af9c-f215-437f-85c6-0479bd49528c
+2026-10-04 20:29:51,998 INFO interviews.agent_records Agent request accepted interview=cba6af9c-f215-437f-85c6-0479bd49528c request=be264190-8a5e-4973-9da9-167903d3600d kind=start
+2026-10-04 20:29:51,998 INFO interviews.agent_safety Security input bound interview=cba6af9c-f215-437f-85c6-0479bd49528c request=be264190-8a5e-4973-9da9-167903d3600d kind=start state_version=0
+2026-10-04 20:29:51,998 INFO interviews.agent_session Agent stage started interview=cba6af9c-f215-437f-85c6-0479bd49528c stage=resume_parsing
+2026-10-04 20:29:52,004 INFO interviews.agent_session Agent stage completed interview=cba6af9c-f215-437f-85c6-0479bd49528c stage=resume_parsing duration_ms=4
+2026-10-04 20:29:52,005 INFO interviews.agent_session Agent stage started interview=cba6af9c-f215-437f-85c6-0479bd49528c stage=question_generation
+2026-10-04 20:29:52,023 INFO interviews.agent_repository Agent turn committed interview=cba6af9c-f215-437f-85c6-0479bd49528c version=2
+2026-10-04 20:29:52,024 INFO interviews.agent_session Agent stage completed interview=cba6af9c-f215-437f-85c6-0479bd49528c stage=question_generation duration_ms=16
+2026-10-04 20:29:52,025 INFO interviews.agent_session Agent question ready interview=cba6af9c-f215-437f-85c6-0479bd49528c question_index=1 generation_reason=LLM_GENERATED generation_ms=10 planner_ms=0 retrieval_ms=0
+2026-10-04 20:29:52,026 INFO ai_security.behavior Behavior check starting request=be264190-8a5e-4973-9da9-167903d3600d operation=publish_question
+2026-10-04 20:29:52,026 INFO ai_security.behavior Behavior decision request=be264190-8a5e-4973-9da9-167903d3600d decision=3fda28ddf7b846de9e2ad26f2a14034b status=allow coverage=semantic violations=() error=None latency_ms=0.52
+2026-10-04 20:29:52,029 INFO ai_security.behavior Behavior execution starting request=be264190-8a5e-4973-9da9-167903d3600d decision=3fda28ddf7b846de9e2ad26f2a14034b state_version=2
+2026-10-04 20:29:52,031 INFO interviews.agent_records Agent request saved interview=cba6af9c-f215-437f-85c6-0479bd49528c request=be264190-8a5e-4973-9da9-167903d3600d
+2026-10-04 20:29:52,031 INFO ai_security.behavior Behavior execution completed request=be264190-8a5e-4973-9da9-167903d3600d
+2026-10-04 20:29:52,031 INFO interviews.agent_socket Agent response connection=1637034b-4e27-4e65-b06f-f929dae14f33 request=be264190-8a5e-4973-9da9-167903d3600d type=question
+2026-10-04 20:29:52,032 INFO interviews.agent_records Agent request accepted interview=cba6af9c-f215-437f-85c6-0479bd49528c request=99103c61-ef1b-48ba-86ae-37920c745098 kind=answer
+2026-10-04 20:29:52,033 INFO interviews.agent_safety Security input bound interview=cba6af9c-f215-437f-85c6-0479bd49528c request=99103c61-ef1b-48ba-86ae-37920c745098 kind=answer state_version=2
+2026-10-04 20:29:52,034 INFO interviews.agent_session Agent stage started interview=cba6af9c-f215-437f-85c6-0479bd49528c stage=answer_evaluation
+2026-10-04 20:29:52,038 INFO interviews.agent_session Agent stage completed interview=cba6af9c-f215-437f-85c6-0479bd49528c stage=answer_evaluation duration_ms=4
+2026-10-04 20:29:52,039 INFO interviews.agent_session Agent stage started interview=cba6af9c-f215-437f-85c6-0479bd49528c stage=next_action
+2026-10-04 20:29:52,045 INFO interviews.agent_repository Agent turn committed interview=cba6af9c-f215-437f-85c6-0479bd49528c version=3
+2026-10-04 20:29:52,045 INFO interviews.agent_session Agent stage completed interview=cba6af9c-f215-437f-85c6-0479bd49528c stage=next_action duration_ms=7
+2026-10-04 20:29:52,047 INFO ai_security.behavior Behavior check starting request=99103c61-ef1b-48ba-86ae-37920c745098 operation=publish_assessment
+2026-10-04 20:29:52,047 INFO ai_security.behavior Behavior decision request=99103c61-ef1b-48ba-86ae-37920c745098 decision=39dc58c404b04827a42c60160d9bed93 status=allow coverage=semantic violations=() error=None latency_ms=0.48
+2026-10-04 20:29:52,047 INFO ai_security.behavior Behavior execution starting request=99103c61-ef1b-48ba-86ae-37920c745098 decision=39dc58c404b04827a42c60160d9bed93 state_version=3
+2026-10-04 20:29:52,047 INFO ai_security.behavior Behavior execution completed request=99103c61-ef1b-48ba-86ae-37920c745098
+2026-10-04 20:29:52,047 INFO interviews.agent_session Agent stage started interview=cba6af9c-f215-437f-85c6-0479bd49528c stage=report_generation
+2026-10-04 20:29:52,050 INFO interviews.agent_session Agent stage completed interview=cba6af9c-f215-437f-85c6-0479bd49528c stage=report_generation duration_ms=0
+2026-10-04 20:29:52,052 INFO ai_security.behavior Behavior check starting request=99103c61-ef1b-48ba-86ae-37920c745098 operation=publish_finished
+2026-10-04 20:29:52,053 INFO ai_security.behavior Behavior decision request=99103c61-ef1b-48ba-86ae-37920c745098 decision=3a742ac039bc4c73ba676d1755b4efcc status=deny coverage=semantic violations=('TASK_SCOPE',) error=None latency_ms=0.50
+2026-10-04 20:29:52,053 WARNING ai_security.behavior Behavior execution failed request=99103c61-ef1b-48ba-86ae-37920c745098 stage=inspection exception=BehaviorBlocked
+2026-10-04 20:29:52,053 WARNING interviews.agent_safety Security output stopped interview=cba6af9c-f215-437f-85c6-0479bd49528c request=99103c61-ef1b-48ba-86ae-37920c745098 exception=BehaviorBlocked
+2026-10-04 20:29:52,053 WARNING interviews.agent_records Agent request failed interview=cba6af9c-f215-437f-85c6-0479bd49528c request=99103c61-ef1b-48ba-86ae-37920c745098
+2026-10-04 20:29:52,054 ERROR interviews.agent_socket Agent failed connection=1637034b-4e27-4e65-b06f-f929dae14f33 request=99103c61-ef1b-48ba-86ae-37920c745098 exception=BehaviorBlocked; check model-call logs and backend configuration
+2026-10-04 20:29:52,054 WARNING interviews.agent_socket Agent rejected connection=1637034b-4e27-4e65-b06f-f929dae14f33 request=99103c61-ef1b-48ba-86ae-37920c745098 code=security_denied
+2026-10-04 20:29:52,054 INFO interviews.agent_socket Agent disconnected connection=1637034b-4e27-4e65-b06f-f929dae14f33
+2026-10-04 20:29:52,057 INFO interviews.api.agent_history Agent history read interview=cba6af9c-f215-437f-85c6-0479bd49528c schema=2 approved_requests=1 visible_questions=1
+.2026-10-04 20:29:52,075 INFO interviews.api.agent_history Agent history read interview=77de0518-f2e2-4c65-8640-9c14f9aed07a schema=2 approved_requests=0 visible_questions=0
+2026-10-04 20:29:52,088 INFO interviews.api.agent_history Agent history read interview=77de0518-f2e2-4c65-8640-9c14f9aed07a schema=2 approved_requests=1 visible_questions=0
+2026-10-04 20:29:52,097 INFO interviews.api.agent_history Agent history read interview=77de0518-f2e2-4c65-8640-9c14f9aed07a schema=2 approved_requests=0 visible_questions=0
+.2026-10-04 20:29:52,109 INFO interviews.agent_socket Agent connected connection=410e8237-cbfa-4e51-9a8c-25dd309f3bd0
+2026-10-04 20:29:52,113 INFO interviews.agent_socket Agent initialized connection=410e8237-cbfa-4e51-9a8c-25dd309f3bd0 interview=ba05875a-59b2-4358-bea0-8bd7b90d5512
+2026-10-04 20:29:52,114 INFO interviews.agent_records Agent request accepted interview=ba05875a-59b2-4358-bea0-8bd7b90d5512 request=c8ec8408-3a96-4765-8bdc-3abba61c766a kind=prepare
+2026-10-04 20:29:52,115 WARNING interviews.agent_safety Security input failed interview=ba05875a-59b2-4358-bea0-8bd7b90d5512 exception=IOSafetyError
+2026-10-04 20:29:52,116 WARNING interviews.agent_records Agent request failed interview=ba05875a-59b2-4358-bea0-8bd7b90d5512 request=c8ec8408-3a96-4765-8bdc-3abba61c766a
+2026-10-04 20:29:52,116 ERROR interviews.agent_socket Agent failed connection=410e8237-cbfa-4e51-9a8c-25dd309f3bd0 request=c8ec8408-3a96-4765-8bdc-3abba61c766a exception=IOSafetyError; check model-call logs and backend configuration
+2026-10-04 20:29:52,116 WARNING interviews.agent_socket Agent rejected connection=410e8237-cbfa-4e51-9a8c-25dd309f3bd0 request=c8ec8408-3a96-4765-8bdc-3abba61c766a code=security_contract_failed
+2026-10-04 20:29:52,116 INFO interviews.agent_socket Agent disconnected connection=410e8237-cbfa-4e51-9a8c-25dd309f3bd0
+.2026-10-04 20:29:52,127 INFO interviews.agent_records Agent request accepted interview=6e285cdf-2b8e-4225-bccc-2af6c5754858 request=3a43ccdc-3209-41a7-985e-75a04eb338d5 kind=prepare
+2026-10-04 20:29:52,128 WARNING interviews.agent_safety Security input failed interview=6e285cdf-2b8e-4225-bccc-2af6c5754858 exception=DoesNotExist
+..2026-10-04 20:29:52,144 INFO interviews.agent_socket Agent connected connection=555af694-5c38-419a-998c-2aae98d5b61e
+2026-10-04 20:29:52,144 INFO interviews.agent_socket Agent initialized connection=555af694-5c38-419a-998c-2aae98d5b61e interview=e6301bd0-2c64-4278-bbdf-471907c0684d
+2026-10-04 20:29:52,146 INFO interviews.agent_records Agent request accepted interview=e6301bd0-2c64-4278-bbdf-471907c0684d request=6695a8c1-0937-4114-959e-1082ad2cf9f3 kind=prepare
+2026-10-04 20:29:52,148 INFO interviews.agent_safety Security input bound interview=e6301bd0-2c64-4278-bbdf-471907c0684d request=6695a8c1-0937-4114-959e-1082ad2cf9f3 kind=prepare state_version=0
+2026-10-04 20:29:52,148 INFO interviews.agent_session Agent stage started interview=e6301bd0-2c64-4278-bbdf-471907c0684d stage=resume_parsing
+2026-10-04 20:29:52,151 INFO interviews.agent_session Agent stage completed interview=e6301bd0-2c64-4278-bbdf-471907c0684d stage=resume_parsing duration_ms=4
+2026-10-04 20:29:52,152 INFO ai_security.behavior Behavior check starting request=6695a8c1-0937-4114-959e-1082ad2cf9f3 operation=publish_prepared
+2026-10-04 20:29:57,165 INFO ai_security.behavior Behavior decision request=6695a8c1-0937-4114-959e-1082ad2cf9f3 decision=7509fe15a9ab4d17b106eec6f32bf949 status=error coverage=incomplete violations=() error=semantic_timeout latency_ms=5012.52
+2026-10-04 20:29:57,165 WARNING ai_security.behavior Behavior execution failed request=6695a8c1-0937-4114-959e-1082ad2cf9f3 stage=inspection exception=BehaviorCheckFailed
+2026-10-04 20:29:57,165 WARNING interviews.agent_safety Security output stopped interview=e6301bd0-2c64-4278-bbdf-471907c0684d request=6695a8c1-0937-4114-959e-1082ad2cf9f3 exception=BehaviorCheckFailed
+2026-10-04 20:29:57,166 WARNING interviews.agent_records Agent request failed interview=e6301bd0-2c64-4278-bbdf-471907c0684d request=6695a8c1-0937-4114-959e-1082ad2cf9f3
+2026-10-04 20:29:57,166 ERROR interviews.agent_socket Agent failed connection=555af694-5c38-419a-998c-2aae98d5b61e request=6695a8c1-0937-4114-959e-1082ad2cf9f3 exception=BehaviorCheckFailed; check model-call logs and backend configuration
+2026-10-04 20:29:57,166 WARNING interviews.agent_socket Agent rejected connection=555af694-5c38-419a-998c-2aae98d5b61e request=6695a8c1-0937-4114-959e-1082ad2cf9f3 code=security_check_failed
+2026-10-04 20:29:57,166 INFO interviews.agent_socket Agent disconnected connection=555af694-5c38-419a-998c-2aae98d5b61e
+.2026-10-04 20:29:57,177 INFO interviews.agent_socket Agent connected connection=f9b3cd59-24fd-4f55-acfc-ec4fe6a524e0
+2026-10-04 20:29:57,177 INFO interviews.agent_socket Agent initialized connection=f9b3cd59-24fd-4f55-acfc-ec4fe6a524e0 interview=837d29c7-aa8c-4353-a4e0-23a78910f551
+2026-10-04 20:29:57,178 INFO interviews.agent_records Agent request accepted interview=837d29c7-aa8c-4353-a4e0-23a78910f551 request=32c13293-1c29-4ecd-b83a-70b80e9889c4 kind=prepare
+2026-10-04 20:29:57,179 INFO interviews.agent_safety Security input bound interview=837d29c7-aa8c-4353-a4e0-23a78910f551 request=32c13293-1c29-4ecd-b83a-70b80e9889c4 kind=prepare state_version=0
+2026-10-04 20:29:57,179 INFO interviews.agent_session Agent stage started interview=837d29c7-aa8c-4353-a4e0-23a78910f551 stage=resume_parsing
+2026-10-04 20:29:57,182 INFO interviews.agent_session Agent stage completed interview=837d29c7-aa8c-4353-a4e0-23a78910f551 stage=resume_parsing duration_ms=4
+2026-10-04 20:29:57,185 INFO ai_security.behavior Behavior check starting request=32c13293-1c29-4ecd-b83a-70b80e9889c4 operation=publish_prepared
+2026-10-04 20:29:57,185 WARNING ai_security.behavior Behavior review failed request=32c13293-1c29-4ecd-b83a-70b80e9889c4 exception=RuntimeError
+2026-10-04 20:29:57,185 INFO ai_security.behavior Behavior decision request=32c13293-1c29-4ecd-b83a-70b80e9889c4 decision=4bbab46ccd044761a15680e5a7487e25 status=error coverage=incomplete violations=() error=semantic_failure latency_ms=0.40
+2026-10-04 20:29:57,185 WARNING ai_security.behavior Behavior execution failed request=32c13293-1c29-4ecd-b83a-70b80e9889c4 stage=inspection exception=BehaviorCheckFailed
+2026-10-04 20:29:57,185 WARNING interviews.agent_safety Security output stopped interview=837d29c7-aa8c-4353-a4e0-23a78910f551 request=32c13293-1c29-4ecd-b83a-70b80e9889c4 exception=BehaviorCheckFailed
+2026-10-04 20:29:57,186 WARNING interviews.agent_records Agent request failed interview=837d29c7-aa8c-4353-a4e0-23a78910f551 request=32c13293-1c29-4ecd-b83a-70b80e9889c4
+2026-10-04 20:29:57,186 ERROR interviews.agent_socket Agent failed connection=f9b3cd59-24fd-4f55-acfc-ec4fe6a524e0 request=32c13293-1c29-4ecd-b83a-70b80e9889c4 exception=BehaviorCheckFailed; check model-call logs and backend configuration
+2026-10-04 20:29:57,186 WARNING interviews.agent_socket Agent rejected connection=f9b3cd59-24fd-4f55-acfc-ec4fe6a524e0 request=32c13293-1c29-4ecd-b83a-70b80e9889c4 code=security_check_failed
+2026-10-04 20:29:57,187 INFO interviews.agent_socket Agent disconnected connection=f9b3cd59-24fd-4f55-acfc-ec4fe6a524e0
+2026-10-04 20:29:57,187 INFO interviews.agent_socket Agent connected connection=09083673-9c61-4154-a7af-9338c529705b
+2026-10-04 20:29:57,187 INFO interviews.agent_socket Agent initialized connection=09083673-9c61-4154-a7af-9338c529705b interview=c2a16bc6-0d59-4097-8b70-935c1669c44a
+2026-10-04 20:29:57,187 INFO interviews.agent_records Agent request accepted interview=c2a16bc6-0d59-4097-8b70-935c1669c44a request=ef7f0fdc-d8ac-4834-9dff-fa9e80beb71e kind=prepare
+2026-10-04 20:29:57,189 INFO interviews.agent_safety Security input bound interview=c2a16bc6-0d59-4097-8b70-935c1669c44a request=ef7f0fdc-d8ac-4834-9dff-fa9e80beb71e kind=prepare state_version=0
+2026-10-04 20:29:57,189 INFO interviews.agent_session Agent stage started interview=c2a16bc6-0d59-4097-8b70-935c1669c44a stage=resume_parsing
+2026-10-04 20:29:57,193 INFO interviews.agent_session Agent stage completed interview=c2a16bc6-0d59-4097-8b70-935c1669c44a stage=resume_parsing duration_ms=3
+2026-10-04 20:29:57,193 INFO ai_security.behavior Behavior check starting request=ef7f0fdc-d8ac-4834-9dff-fa9e80beb71e operation=publish_prepared
+2026-10-04 20:29:57,195 INFO ai_security.behavior Behavior decision request=ef7f0fdc-d8ac-4834-9dff-fa9e80beb71e decision=3571308504594db68434629c1fdbd0cc status=error coverage=incomplete violations=() error=semantic_timeout latency_ms=0.35
+2026-10-04 20:29:57,195 WARNING ai_security.behavior Behavior execution failed request=ef7f0fdc-d8ac-4834-9dff-fa9e80beb71e stage=inspection exception=BehaviorCheckFailed
+2026-10-04 20:29:57,195 WARNING interviews.agent_safety Security output stopped interview=c2a16bc6-0d59-4097-8b70-935c1669c44a request=ef7f0fdc-d8ac-4834-9dff-fa9e80beb71e exception=BehaviorCheckFailed
+2026-10-04 20:29:57,195 WARNING interviews.agent_records Agent request failed interview=c2a16bc6-0d59-4097-8b70-935c1669c44a request=ef7f0fdc-d8ac-4834-9dff-fa9e80beb71e
+2026-10-04 20:29:57,195 ERROR interviews.agent_socket Agent failed connection=09083673-9c61-4154-a7af-9338c529705b request=ef7f0fdc-d8ac-4834-9dff-fa9e80beb71e exception=BehaviorCheckFailed; check model-call logs and backend configuration
+2026-10-04 20:29:57,195 WARNING interviews.agent_socket Agent rejected connection=09083673-9c61-4154-a7af-9338c529705b request=ef7f0fdc-d8ac-4834-9dff-fa9e80beb71e code=security_check_failed
+2026-10-04 20:29:57,195 INFO interviews.agent_socket Agent disconnected connection=09083673-9c61-4154-a7af-9338c529705b
+2026-10-04 20:29:57,196 INFO interviews.agent_socket Agent connected connection=a1134673-75f2-4272-9e9d-5dfb25bc3453
+2026-10-04 20:29:57,196 INFO interviews.agent_socket Agent initialized connection=a1134673-75f2-4272-9e9d-5dfb25bc3453 interview=41875643-7d32-4e9c-ab4d-5f75c352ec7e
+2026-10-04 20:29:57,198 INFO interviews.agent_records Agent request accepted interview=41875643-7d32-4e9c-ab4d-5f75c352ec7e request=86f45fc6-2c57-41d9-baa3-9158b2dca9f9 kind=prepare
+2026-10-04 20:29:57,199 INFO interviews.agent_safety Security input bound interview=41875643-7d32-4e9c-ab4d-5f75c352ec7e request=86f45fc6-2c57-41d9-baa3-9158b2dca9f9 kind=prepare state_version=0
+2026-10-04 20:29:57,199 INFO interviews.agent_session Agent stage started interview=41875643-7d32-4e9c-ab4d-5f75c352ec7e stage=resume_parsing
+2026-10-04 20:29:57,200 INFO interviews.agent_session Agent stage completed interview=41875643-7d32-4e9c-ab4d-5f75c352ec7e stage=resume_parsing duration_ms=3
+2026-10-04 20:29:57,200 INFO ai_security.behavior Behavior check starting request=86f45fc6-2c57-41d9-baa3-9158b2dca9f9 operation=publish_prepared
+2026-10-04 20:29:57,203 INFO ai_security.behavior Behavior decision request=86f45fc6-2c57-41d9-baa3-9158b2dca9f9 decision=3d92992301494cf4a900eb9ea9456cb0 status=error coverage=incomplete violations=() error=semantic_uncertain latency_ms=0.39
+2026-10-04 20:29:57,203 WARNING ai_security.behavior Behavior execution failed request=86f45fc6-2c57-41d9-baa3-9158b2dca9f9 stage=inspection exception=BehaviorCheckFailed
+2026-10-04 20:29:57,203 WARNING interviews.agent_safety Security output stopped interview=41875643-7d32-4e9c-ab4d-5f75c352ec7e request=86f45fc6-2c57-41d9-baa3-9158b2dca9f9 exception=BehaviorCheckFailed
+2026-10-04 20:29:57,204 WARNING interviews.agent_records Agent request failed interview=41875643-7d32-4e9c-ab4d-5f75c352ec7e request=86f45fc6-2c57-41d9-baa3-9158b2dca9f9
+2026-10-04 20:29:57,204 ERROR interviews.agent_socket Agent failed connection=a1134673-75f2-4272-9e9d-5dfb25bc3453 request=86f45fc6-2c57-41d9-baa3-9158b2dca9f9 exception=BehaviorCheckFailed; check model-call logs and backend configuration
+2026-10-04 20:29:57,204 WARNING interviews.agent_socket Agent rejected connection=a1134673-75f2-4272-9e9d-5dfb25bc3453 request=86f45fc6-2c57-41d9-baa3-9158b2dca9f9 code=security_check_failed
+2026-10-04 20:29:57,204 INFO interviews.agent_socket Agent disconnected connection=a1134673-75f2-4272-9e9d-5dfb25bc3453
+2026-10-04 20:29:57,206 INFO interviews.agent_socket Agent connected connection=9a261c2b-bc70-4c29-a2e8-9ee21f3119da
+2026-10-04 20:29:57,206 INFO interviews.agent_socket Agent initialized connection=9a261c2b-bc70-4c29-a2e8-9ee21f3119da interview=4d13970a-dd5f-4d41-963d-fcce3867fb98
+2026-10-04 20:29:57,207 INFO interviews.agent_records Agent request accepted interview=4d13970a-dd5f-4d41-963d-fcce3867fb98 request=0c94e33a-f2a7-4838-b078-87c5d3b02c75 kind=prepare
+2026-10-04 20:29:57,208 INFO interviews.agent_safety Security input bound interview=4d13970a-dd5f-4d41-963d-fcce3867fb98 request=0c94e33a-f2a7-4838-b078-87c5d3b02c75 kind=prepare state_version=0
+2026-10-04 20:29:57,208 INFO interviews.agent_session Agent stage started interview=4d13970a-dd5f-4d41-963d-fcce3867fb98 stage=resume_parsing
+2026-10-04 20:29:57,210 INFO interviews.agent_session Agent stage completed interview=4d13970a-dd5f-4d41-963d-fcce3867fb98 stage=resume_parsing duration_ms=3
+2026-10-04 20:29:57,212 INFO ai_security.behavior Behavior check starting request=0c94e33a-f2a7-4838-b078-87c5d3b02c75 operation=publish_prepared
+2026-10-04 20:29:57,212 WARNING ai_security.behavior Behavior review failed request=0c94e33a-f2a7-4838-b078-87c5d3b02c75 exception=ValueError
+2026-10-04 20:29:57,212 INFO ai_security.behavior Behavior decision request=0c94e33a-f2a7-4838-b078-87c5d3b02c75 decision=ece2e4759c0f47a6922727da92b760d1 status=error coverage=incomplete violations=() error=semantic_failure latency_ms=0.40
+2026-10-04 20:29:57,212 WARNING ai_security.behavior Behavior execution failed request=0c94e33a-f2a7-4838-b078-87c5d3b02c75 stage=inspection exception=BehaviorCheckFailed
+2026-10-04 20:29:57,213 WARNING interviews.agent_safety Security output stopped interview=4d13970a-dd5f-4d41-963d-fcce3867fb98 request=0c94e33a-f2a7-4838-b078-87c5d3b02c75 exception=BehaviorCheckFailed
+2026-10-04 20:29:57,213 WARNING interviews.agent_records Agent request failed interview=4d13970a-dd5f-4d41-963d-fcce3867fb98 request=0c94e33a-f2a7-4838-b078-87c5d3b02c75
+2026-10-04 20:29:57,213 ERROR interviews.agent_socket Agent failed connection=9a261c2b-bc70-4c29-a2e8-9ee21f3119da request=0c94e33a-f2a7-4838-b078-87c5d3b02c75 exception=BehaviorCheckFailed; check model-call logs and backend configuration
+2026-10-04 20:29:57,213 WARNING interviews.agent_socket Agent rejected connection=9a261c2b-bc70-4c29-a2e8-9ee21f3119da request=0c94e33a-f2a7-4838-b078-87c5d3b02c75 code=security_check_failed
+2026-10-04 20:29:57,213 INFO interviews.agent_socket Agent disconnected connection=9a261c2b-bc70-4c29-a2e8-9ee21f3119da
+.2026-10-04 20:29:57,220 INFO interviews.agent_socket Agent connected connection=3b03324c-ba70-4e27-855f-2d681982ee82
+2026-10-04 20:29:57,220 INFO interviews.agent_socket Agent initialized connection=3b03324c-ba70-4e27-855f-2d681982ee82 interview=2d3a6e9f-6ccb-4bb9-869a-20d826310e19
+2026-10-04 20:29:57,225 INFO interviews.agent_records Agent request accepted interview=2d3a6e9f-6ccb-4bb9-869a-20d826310e19 request=508d011c-7cae-493c-9f71-a5d8b03ed323 kind=prepare
+2026-10-04 20:29:57,226 INFO interviews.agent_safety Security input bound interview=2d3a6e9f-6ccb-4bb9-869a-20d826310e19 request=508d011c-7cae-493c-9f71-a5d8b03ed323 kind=prepare state_version=0
+2026-10-04 20:29:57,226 INFO interviews.agent_session Agent stage started interview=2d3a6e9f-6ccb-4bb9-869a-20d826310e19 stage=resume_parsing
+2026-10-04 20:29:57,226 WARNING interviews.agent_session Agent stage stopped interview=2d3a6e9f-6ccb-4bb9-869a-20d826310e19 stage=resume_parsing duration_ms=0 exception=CancelledError
+2026-10-04 20:29:57,226 INFO interviews.agent_records Agent interview interrupted interview=2d3a6e9f-6ccb-4bb9-869a-20d826310e19
+2026-10-04 20:29:57,228 INFO interviews.agent_socket Agent disconnected connection=3b03324c-ba70-4e27-855f-2d681982ee82
+.2026-10-04 20:29:57,235 INFO interviews.agent_socket Agent connected connection=aa33768a-0c71-4402-bd4b-aec857a7382c
+2026-10-04 20:29:57,235 INFO interviews.agent_socket Agent initialized connection=aa33768a-0c71-4402-bd4b-aec857a7382c interview=a2898be8-310f-47c6-8d25-ae9d8be8e2b7
+2026-10-04 20:29:57,236 INFO interviews.agent_records Agent request accepted interview=a2898be8-310f-47c6-8d25-ae9d8be8e2b7 request=9c948dd9-2db3-41b5-b3c4-5cd04180bfa8 kind=prepare
+2026-10-04 20:29:57,237 INFO interviews.agent_safety Security input bound interview=a2898be8-310f-47c6-8d25-ae9d8be8e2b7 request=9c948dd9-2db3-41b5-b3c4-5cd04180bfa8 kind=prepare state_version=0
+2026-10-04 20:29:57,237 INFO interviews.agent_session Agent stage started interview=a2898be8-310f-47c6-8d25-ae9d8be8e2b7 stage=resume_parsing
+2026-10-04 20:29:57,240 INFO interviews.agent_session Agent stage completed interview=a2898be8-310f-47c6-8d25-ae9d8be8e2b7 stage=resume_parsing duration_ms=3
+2026-10-04 20:29:57,242 INFO ai_security.behavior Behavior check starting request=9c948dd9-2db3-41b5-b3c4-5cd04180bfa8 operation=publish_prepared
+2026-10-04 20:29:57,242 INFO ai_security.behavior Behavior decision request=9c948dd9-2db3-41b5-b3c4-5cd04180bfa8 decision=451a3e2f35ea41689a774fdf547fef0a status=allow coverage=semantic violations=() error=None latency_ms=0.42
+2026-10-04 20:29:57,244 INFO ai_security.behavior Behavior execution starting request=9c948dd9-2db3-41b5-b3c4-5cd04180bfa8 decision=451a3e2f35ea41689a774fdf547fef0a state_version=0
+2026-10-04 20:29:57,245 INFO interviews.agent_records Agent request saved interview=a2898be8-310f-47c6-8d25-ae9d8be8e2b7 request=9c948dd9-2db3-41b5-b3c4-5cd04180bfa8
+2026-10-04 20:29:57,245 INFO ai_security.behavior Behavior execution completed request=9c948dd9-2db3-41b5-b3c4-5cd04180bfa8
+2026-10-04 20:29:57,245 INFO interviews.agent_socket Agent response connection=aa33768a-0c71-4402-bd4b-aec857a7382c request=9c948dd9-2db3-41b5-b3c4-5cd04180bfa8 type=prepared
+2026-10-04 20:29:57,245 INFO interviews.agent_socket Agent initialized connection=aa33768a-0c71-4402-bd4b-aec857a7382c interview=a2898be8-310f-47c6-8d25-ae9d8be8e2b7
+2026-10-04 20:29:57,246 INFO interviews.agent_records Agent request accepted interview=a2898be8-310f-47c6-8d25-ae9d8be8e2b7 request=f7e5dfa4-4c20-4bcf-8db4-1305769901c1 kind=prepare
+2026-10-04 20:29:57,247 INFO interviews.agent_safety Security input bound interview=a2898be8-310f-47c6-8d25-ae9d8be8e2b7 request=f7e5dfa4-4c20-4bcf-8db4-1305769901c1 kind=prepare state_version=0
+2026-10-04 20:29:57,247 INFO interviews.agent_session Agent resume reused interview=a2898be8-310f-47c6-8d25-ae9d8be8e2b7
+2026-10-04 20:29:57,248 INFO ai_security.behavior Behavior check starting request=f7e5dfa4-4c20-4bcf-8db4-1305769901c1 operation=publish_prepared
+2026-10-04 20:29:57,249 INFO ai_security.behavior Behavior decision request=f7e5dfa4-4c20-4bcf-8db4-1305769901c1 decision=fcac6793e3ec426286726b40682d1d83 status=allow coverage=semantic violations=() error=None latency_ms=0.35
+2026-10-04 20:29:57,249 INFO ai_security.behavior Behavior execution starting request=f7e5dfa4-4c20-4bcf-8db4-1305769901c1 decision=fcac6793e3ec426286726b40682d1d83 state_version=0
+2026-10-04 20:29:57,249 INFO interviews.agent_records Agent request saved interview=a2898be8-310f-47c6-8d25-ae9d8be8e2b7 request=f7e5dfa4-4c20-4bcf-8db4-1305769901c1
+2026-10-04 20:29:57,249 INFO ai_security.behavior Behavior execution completed request=f7e5dfa4-4c20-4bcf-8db4-1305769901c1
+2026-10-04 20:29:57,249 INFO interviews.agent_socket Agent response connection=aa33768a-0c71-4402-bd4b-aec857a7382c request=f7e5dfa4-4c20-4bcf-8db4-1305769901c1 type=prepared
+2026-10-04 20:29:57,249 INFO interviews.agent_socket Agent initialized connection=aa33768a-0c71-4402-bd4b-aec857a7382c interview=a2898be8-310f-47c6-8d25-ae9d8be8e2b7
+2026-10-04 20:29:57,249 INFO interviews.agent_records Agent request accepted interview=a2898be8-310f-47c6-8d25-ae9d8be8e2b7 request=6e6472c5-1088-485b-a82d-4f77b54a1fe4 kind=prepare
+2026-10-04 20:29:57,252 INFO interviews.agent_safety Security input bound interview=a2898be8-310f-47c6-8d25-ae9d8be8e2b7 request=6e6472c5-1088-485b-a82d-4f77b54a1fe4 kind=prepare state_version=0
+2026-10-04 20:29:57,252 INFO interviews.agent_session Agent stage started interview=a2898be8-310f-47c6-8d25-ae9d8be8e2b7 stage=resume_parsing
+2026-10-04 20:29:57,255 INFO interviews.agent_session Agent stage completed interview=a2898be8-310f-47c6-8d25-ae9d8be8e2b7 stage=resume_parsing duration_ms=3
+2026-10-04 20:29:57,255 INFO ai_security.behavior Behavior check starting request=6e6472c5-1088-485b-a82d-4f77b54a1fe4 operation=publish_prepared
+2026-10-04 20:29:57,255 INFO ai_security.behavior Behavior decision request=6e6472c5-1088-485b-a82d-4f77b54a1fe4 decision=bf360f27f9934e12a99e61b94190cb33 status=allow coverage=semantic violations=() error=None latency_ms=0.29
+2026-10-04 20:29:57,255 INFO ai_security.behavior Behavior execution starting request=6e6472c5-1088-485b-a82d-4f77b54a1fe4 decision=bf360f27f9934e12a99e61b94190cb33 state_version=0
+2026-10-04 20:29:57,259 INFO interviews.agent_records Agent request saved interview=a2898be8-310f-47c6-8d25-ae9d8be8e2b7 request=6e6472c5-1088-485b-a82d-4f77b54a1fe4
+2026-10-04 20:29:57,259 INFO ai_security.behavior Behavior execution completed request=6e6472c5-1088-485b-a82d-4f77b54a1fe4
+2026-10-04 20:29:57,259 INFO interviews.agent_records Agent interview interrupted interview=a2898be8-310f-47c6-8d25-ae9d8be8e2b7
+2026-10-04 20:29:57,259 INFO interviews.agent_socket Agent disconnected connection=aa33768a-0c71-4402-bd4b-aec857a7382c
+2026-10-04 20:29:57,260 INFO interviews.agent_socket Agent connected connection=00147e9a-4020-4337-b5cb-0063770d84a7
+2026-10-04 20:29:57,260 INFO interviews.agent_socket Agent initialized connection=00147e9a-4020-4337-b5cb-0063770d84a7 interview=3f6285e9-be7e-4351-9c9c-9052d28c22ce
+2026-10-04 20:29:57,261 INFO interviews.agent_records Agent request accepted interview=3f6285e9-be7e-4351-9c9c-9052d28c22ce request=87f0878e-669e-4af4-b8e5-9a5868ec04b3 kind=start
+2026-10-04 20:29:57,262 INFO interviews.agent_safety Security input bound interview=3f6285e9-be7e-4351-9c9c-9052d28c22ce request=87f0878e-669e-4af4-b8e5-9a5868ec04b3 kind=start state_version=0
+2026-10-04 20:29:57,262 INFO interviews.agent_session Agent stage started interview=3f6285e9-be7e-4351-9c9c-9052d28c22ce stage=resume_parsing
+2026-10-04 20:29:57,266 INFO interviews.agent_session Agent stage completed interview=3f6285e9-be7e-4351-9c9c-9052d28c22ce stage=resume_parsing duration_ms=3
+2026-10-04 20:29:57,268 INFO interviews.agent_session Agent stage started interview=3f6285e9-be7e-4351-9c9c-9052d28c22ce stage=question_generation
+2026-10-04 20:29:57,283 INFO interviews.agent_repository Agent turn committed interview=3f6285e9-be7e-4351-9c9c-9052d28c22ce version=2
+2026-10-04 20:29:57,283 INFO interviews.agent_session Agent stage completed interview=3f6285e9-be7e-4351-9c9c-9052d28c22ce stage=question_generation duration_ms=16
+2026-10-04 20:29:57,286 INFO interviews.agent_session Agent question ready interview=3f6285e9-be7e-4351-9c9c-9052d28c22ce question_index=1 generation_reason=LLM_GENERATED generation_ms=10 planner_ms=0 retrieval_ms=0
+2026-10-04 20:29:57,288 INFO ai_security.behavior Behavior check starting request=87f0878e-669e-4af4-b8e5-9a5868ec04b3 operation=publish_question
+2026-10-04 20:29:57,288 INFO ai_security.behavior Behavior decision request=87f0878e-669e-4af4-b8e5-9a5868ec04b3 decision=d27ff221c73342888bf9a5c3b8d196fc status=allow coverage=semantic violations=() error=None latency_ms=0.40
+2026-10-04 20:29:57,290 INFO ai_security.behavior Behavior execution starting request=87f0878e-669e-4af4-b8e5-9a5868ec04b3 decision=d27ff221c73342888bf9a5c3b8d196fc state_version=2
+2026-10-04 20:29:57,291 INFO interviews.agent_records Agent request saved interview=3f6285e9-be7e-4351-9c9c-9052d28c22ce request=87f0878e-669e-4af4-b8e5-9a5868ec04b3
+2026-10-04 20:29:57,291 INFO ai_security.behavior Behavior execution completed request=87f0878e-669e-4af4-b8e5-9a5868ec04b3
+2026-10-04 20:29:57,291 INFO interviews.agent_records Agent interview interrupted interview=3f6285e9-be7e-4351-9c9c-9052d28c22ce
+2026-10-04 20:29:57,292 INFO interviews.agent_socket Agent disconnected connection=00147e9a-4020-4337-b5cb-0063770d84a7
+..2026-10-04 20:29:57,316 INFO interviews.agent_socket Agent connected connection=4192a386-e0b9-481e-801f-94e1f301f74b
+2026-10-04 20:29:57,317 INFO interviews.agent_socket Agent initialized connection=4192a386-e0b9-481e-801f-94e1f301f74b interview=480ebfd0-fbbe-40fa-890c-7dfc19e94c1e
+2026-10-04 20:29:57,318 INFO interviews.agent_records Agent request accepted interview=480ebfd0-fbbe-40fa-890c-7dfc19e94c1e request=25eb3536-42bf-4fc1-89d6-ce8142d45685 kind=prepare
+2026-10-04 20:29:57,319 INFO interviews.agent_safety Security input bound interview=480ebfd0-fbbe-40fa-890c-7dfc19e94c1e request=25eb3536-42bf-4fc1-89d6-ce8142d45685 kind=prepare state_version=0
+2026-10-04 20:29:57,319 INFO interviews.agent_session Agent stage started interview=480ebfd0-fbbe-40fa-890c-7dfc19e94c1e stage=resume_parsing
+2026-10-04 20:29:57,323 INFO interviews.agent_session Agent stage completed interview=480ebfd0-fbbe-40fa-890c-7dfc19e94c1e stage=resume_parsing duration_ms=3
+2026-10-04 20:29:57,324 INFO ai_security.behavior Behavior check starting request=25eb3536-42bf-4fc1-89d6-ce8142d45685 operation=publish_prepared
+2026-10-04 20:29:57,325 INFO ai_security.behavior Behavior decision request=25eb3536-42bf-4fc1-89d6-ce8142d45685 decision=6a4df697bad3449ea6dd4db54bbc4d48 status=allow coverage=semantic violations=() error=None latency_ms=0.52
+2026-10-04 20:29:57,326 INFO ai_security.behavior Behavior execution starting request=25eb3536-42bf-4fc1-89d6-ce8142d45685 decision=6a4df697bad3449ea6dd4db54bbc4d48 state_version=0
+2026-10-04 20:29:57,326 INFO interviews.agent_records Agent request saved interview=480ebfd0-fbbe-40fa-890c-7dfc19e94c1e request=25eb3536-42bf-4fc1-89d6-ce8142d45685
+2026-10-04 20:29:57,327 INFO ai_security.behavior Behavior execution completed request=25eb3536-42bf-4fc1-89d6-ce8142d45685
+2026-10-04 20:29:57,327 INFO interviews.agent_socket Agent response connection=4192a386-e0b9-481e-801f-94e1f301f74b request=25eb3536-42bf-4fc1-89d6-ce8142d45685 type=prepared
+2026-10-04 20:29:57,327 WARNING interviews.agent_socket Agent rejected connection=4192a386-e0b9-481e-801f-94e1f301f74b request=25eb3536-42bf-4fc1-89d6-ce8142d45685 code=duplicate_request
+2026-10-04 20:29:57,327 WARNING interviews.agent_socket Agent rejected connection=4192a386-e0b9-481e-801f-94e1f301f74b request=06145d14-f16b-4cad-b839-4585b7a408c4 code=not_started
+2026-10-04 20:29:57,328 INFO interviews.agent_records Agent interview interrupted interview=480ebfd0-fbbe-40fa-890c-7dfc19e94c1e
+2026-10-04 20:29:57,328 INFO interviews.agent_socket Agent disconnected connection=4192a386-e0b9-481e-801f-94e1f301f74b
+.2026-10-04 20:29:57,336 INFO interviews.agent_socket Agent connected connection=9a2e51b0-2099-4774-b04c-5dacd7df6d29
+2026-10-04 20:29:57,336 INFO interviews.agent_socket Agent initialized connection=9a2e51b0-2099-4774-b04c-5dacd7df6d29 interview=57362652-4645-4985-87c4-74b889f225d0
+2026-10-04 20:29:57,337 INFO interviews.agent_records Agent request accepted interview=57362652-4645-4985-87c4-74b889f225d0 request=ac90217f-cf28-41e5-acf7-fbfddabbe120 kind=prepare
+2026-10-04 20:29:57,337 INFO interviews.agent_safety Security input bound interview=57362652-4645-4985-87c4-74b889f225d0 request=ac90217f-cf28-41e5-acf7-fbfddabbe120 kind=prepare state_version=0
+2026-10-04 20:29:57,337 INFO interviews.agent_session Agent stage started interview=57362652-4645-4985-87c4-74b889f225d0 stage=resume_parsing
+2026-10-04 20:29:57,341 INFO interviews.agent_session Agent stage completed interview=57362652-4645-4985-87c4-74b889f225d0 stage=resume_parsing duration_ms=3
+2026-10-04 20:29:57,343 INFO ai_security.behavior Behavior check starting request=ac90217f-cf28-41e5-acf7-fbfddabbe120 operation=publish_prepared
+2026-10-04 20:29:57,343 INFO ai_security.behavior Behavior decision request=ac90217f-cf28-41e5-acf7-fbfddabbe120 decision=edd68a42cefb4a8a9eb2f30d6b85bbc3 status=allow coverage=semantic violations=() error=None latency_ms=0.32
+2026-10-04 20:29:57,344 INFO ai_security.behavior Behavior execution starting request=ac90217f-cf28-41e5-acf7-fbfddabbe120 decision=edd68a42cefb4a8a9eb2f30d6b85bbc3 state_version=0
+2026-10-04 20:29:57,345 INFO interviews.agent_records Agent request saved interview=57362652-4645-4985-87c4-74b889f225d0 request=ac90217f-cf28-41e5-acf7-fbfddabbe120
+2026-10-04 20:29:57,345 INFO ai_security.behavior Behavior execution completed request=ac90217f-cf28-41e5-acf7-fbfddabbe120
+2026-10-04 20:29:57,345 INFO interviews.agent_socket Agent response connection=9a2e51b0-2099-4774-b04c-5dacd7df6d29 request=ac90217f-cf28-41e5-acf7-fbfddabbe120 type=prepared
+2026-10-04 20:29:57,346 INFO interviews.agent_socket Agent initialized connection=9a2e51b0-2099-4774-b04c-5dacd7df6d29 interview=57362652-4645-4985-87c4-74b889f225d0
+2026-10-04 20:29:57,346 INFO interviews.agent_records Agent request accepted interview=57362652-4645-4985-87c4-74b889f225d0 request=bec4158a-6f3c-4184-add0-55ab9256e981 kind=start
+2026-10-04 20:29:57,347 INFO interviews.agent_safety Security input bound interview=57362652-4645-4985-87c4-74b889f225d0 request=bec4158a-6f3c-4184-add0-55ab9256e981 kind=start state_version=0
+2026-10-04 20:29:57,347 INFO interviews.agent_session Agent resume reused interview=57362652-4645-4985-87c4-74b889f225d0
+2026-10-04 20:29:57,351 INFO interviews.agent_session Agent stage started interview=57362652-4645-4985-87c4-74b889f225d0 stage=question_generation
+2026-10-04 20:29:57,366 INFO interviews.agent_repository Agent turn committed interview=57362652-4645-4985-87c4-74b889f225d0 version=2
+2026-10-04 20:29:57,366 INFO interviews.agent_session Agent stage completed interview=57362652-4645-4985-87c4-74b889f225d0 stage=question_generation duration_ms=17
+2026-10-04 20:29:57,366 INFO interviews.agent_session Agent question ready interview=57362652-4645-4985-87c4-74b889f225d0 question_index=1 generation_reason=LLM_GENERATED generation_ms=11 planner_ms=0 retrieval_ms=0
+2026-10-04 20:29:57,370 INFO ai_security.behavior Behavior check starting request=bec4158a-6f3c-4184-add0-55ab9256e981 operation=publish_question
+2026-10-04 20:29:57,370 INFO ai_security.behavior Behavior decision request=bec4158a-6f3c-4184-add0-55ab9256e981 decision=08f0f29e10bb495fb9ef696432fbde65 status=allow coverage=semantic violations=() error=None latency_ms=0.54
+2026-10-04 20:29:57,372 INFO ai_security.behavior Behavior execution starting request=bec4158a-6f3c-4184-add0-55ab9256e981 decision=08f0f29e10bb495fb9ef696432fbde65 state_version=2
+2026-10-04 20:29:57,373 INFO interviews.agent_records Agent request saved interview=57362652-4645-4985-87c4-74b889f225d0 request=bec4158a-6f3c-4184-add0-55ab9256e981
+2026-10-04 20:29:57,373 INFO ai_security.behavior Behavior execution completed request=bec4158a-6f3c-4184-add0-55ab9256e981
+2026-10-04 20:29:57,373 INFO interviews.agent_socket Agent response connection=9a2e51b0-2099-4774-b04c-5dacd7df6d29 request=bec4158a-6f3c-4184-add0-55ab9256e981 type=question
+2026-10-04 20:29:57,374 WARNING interviews.agent_socket Agent rejected connection=9a2e51b0-2099-4774-b04c-5dacd7df6d29 request=39faaaeb-3711-482e-bb69-35b06ee7b9fe code=already_started
+2026-10-04 20:29:57,374 INFO interviews.agent_records Agent interview interrupted interview=57362652-4645-4985-87c4-74b889f225d0
+2026-10-04 20:29:57,374 INFO interviews.agent_socket Agent disconnected connection=9a2e51b0-2099-4774-b04c-5dacd7df6d29
+.2026-10-04 20:29:57,384 INFO interviews.agent_records Agent request accepted interview=0c9a4f7d-e2b3-4b9e-9788-94dbfab929a7 request=d64c6b63-c175-45e3-93b2-d8f73837cace kind=start
+2026-10-04 20:29:57,384 INFO interviews.agent_session Agent stage started interview=0c9a4f7d-e2b3-4b9e-9788-94dbfab929a7 stage=resume_parsing
+2026-10-04 20:29:57,389 INFO interviews.agent_session Agent stage completed interview=0c9a4f7d-e2b3-4b9e-9788-94dbfab929a7 stage=resume_parsing duration_ms=4
+2026-10-04 20:29:57,391 INFO interviews.agent_session Agent stage started interview=0c9a4f7d-e2b3-4b9e-9788-94dbfab929a7 stage=question_generation
+2026-10-04 20:29:57,406 INFO interviews.agent_repository Agent turn committed interview=0c9a4f7d-e2b3-4b9e-9788-94dbfab929a7 version=2
+2026-10-04 20:29:57,407 INFO interviews.agent_session Agent stage completed interview=0c9a4f7d-e2b3-4b9e-9788-94dbfab929a7 stage=question_generation duration_ms=16
+2026-10-04 20:29:57,408 INFO interviews.agent_session Agent question ready interview=0c9a4f7d-e2b3-4b9e-9788-94dbfab929a7 question_index=1 generation_reason=LLM_GENERATED generation_ms=10 planner_ms=0 retrieval_ms=0
+2026-10-04 20:29:57,410 INFO interviews.agent_records Agent request saved interview=0c9a4f7d-e2b3-4b9e-9788-94dbfab929a7 request=d64c6b63-c175-45e3-93b2-d8f73837cace
+2026-10-04 20:29:57,410 INFO interviews.agent_records Agent request accepted interview=0c9a4f7d-e2b3-4b9e-9788-94dbfab929a7 request=09666c0c-25dd-422b-87fc-887ee716125b kind=answer
+2026-10-04 20:29:57,422 INFO interviews.agent_repository Agent turn committed interview=0c9a4f7d-e2b3-4b9e-9788-94dbfab929a7 version=3
+.2026-10-04 20:29:57,433 INFO interviews.agent_socket Agent connected connection=7ce57698-86ff-490c-a019-81f673c7b081
+2026-10-04 20:29:57,434 INFO interviews.agent_socket Agent initialized connection=7ce57698-86ff-490c-a019-81f673c7b081 interview=83dfbe49-f75b-4c21-97f1-0107e8f06832
+2026-10-04 20:29:57,435 INFO interviews.agent_records Agent request accepted interview=83dfbe49-f75b-4c21-97f1-0107e8f06832 request=63bfe499-e680-4a23-a460-b9ae2a7b476b kind=start
+2026-10-04 20:29:57,436 INFO interviews.agent_safety Security input bound interview=83dfbe49-f75b-4c21-97f1-0107e8f06832 request=63bfe499-e680-4a23-a460-b9ae2a7b476b kind=start state_version=0
+2026-10-04 20:29:57,436 INFO interviews.agent_session Agent stage started interview=83dfbe49-f75b-4c21-97f1-0107e8f06832 stage=resume_parsing
+2026-10-04 20:29:57,440 INFO interviews.agent_session Agent stage completed interview=83dfbe49-f75b-4c21-97f1-0107e8f06832 stage=resume_parsing duration_ms=3
+2026-10-04 20:29:57,442 INFO interviews.agent_session Agent stage started interview=83dfbe49-f75b-4c21-97f1-0107e8f06832 stage=question_generation
+2026-10-04 20:29:57,457 INFO interviews.agent_repository Agent turn committed interview=83dfbe49-f75b-4c21-97f1-0107e8f06832 version=2
+2026-10-04 20:29:57,458 INFO interviews.agent_session Agent stage completed interview=83dfbe49-f75b-4c21-97f1-0107e8f06832 stage=question_generation duration_ms=16
+2026-10-04 20:29:57,459 INFO interviews.agent_session Agent question ready interview=83dfbe49-f75b-4c21-97f1-0107e8f06832 question_index=1 generation_reason=LLM_GENERATED generation_ms=10 planner_ms=0 retrieval_ms=0
+2026-10-04 20:29:57,461 INFO ai_security.behavior Behavior check starting request=63bfe499-e680-4a23-a460-b9ae2a7b476b operation=publish_question
+2026-10-04 20:29:57,462 INFO ai_security.behavior Behavior decision request=63bfe499-e680-4a23-a460-b9ae2a7b476b decision=2fd99be20729420480e4178da4aa6f86 status=allow coverage=semantic violations=() error=None latency_ms=0.43
+2026-10-04 20:29:57,463 INFO ai_security.behavior Behavior execution starting request=63bfe499-e680-4a23-a460-b9ae2a7b476b decision=2fd99be20729420480e4178da4aa6f86 state_version=2
+2026-10-04 20:29:57,464 INFO interviews.agent_records Agent request saved interview=83dfbe49-f75b-4c21-97f1-0107e8f06832 request=63bfe499-e680-4a23-a460-b9ae2a7b476b
+2026-10-04 20:29:57,464 INFO ai_security.behavior Behavior execution completed request=63bfe499-e680-4a23-a460-b9ae2a7b476b
+2026-10-04 20:29:57,464 INFO interviews.agent_socket Agent response connection=7ce57698-86ff-490c-a019-81f673c7b081 request=63bfe499-e680-4a23-a460-b9ae2a7b476b type=question
+2026-10-04 20:29:57,464 INFO interviews.agent_records Agent request accepted interview=83dfbe49-f75b-4c21-97f1-0107e8f06832 request=143a5f60-570d-4113-99c4-6ab57d868649 kind=answer
+2026-10-04 20:29:57,468 INFO interviews.agent_safety Security input bound interview=83dfbe49-f75b-4c21-97f1-0107e8f06832 request=143a5f60-570d-4113-99c4-6ab57d868649 kind=answer state_version=2
+2026-10-04 20:29:57,470 INFO interviews.agent_session Agent stage started interview=83dfbe49-f75b-4c21-97f1-0107e8f06832 stage=answer_evaluation
+2026-10-04 20:29:57,472 INFO interviews.agent_session Agent stage completed interview=83dfbe49-f75b-4c21-97f1-0107e8f06832 stage=answer_evaluation duration_ms=4
+2026-10-04 20:29:57,472 INFO interviews.agent_session Agent stage started interview=83dfbe49-f75b-4c21-97f1-0107e8f06832 stage=next_action
+2026-10-04 20:29:57,477 INFO interviews.agent_repository Agent turn committed interview=83dfbe49-f75b-4c21-97f1-0107e8f06832 version=3
+2026-10-04 20:29:57,477 INFO interviews.agent_session Agent stage completed interview=83dfbe49-f75b-4c21-97f1-0107e8f06832 stage=next_action duration_ms=6
+2026-10-04 20:29:57,481 INFO ai_security.behavior Behavior check starting request=143a5f60-570d-4113-99c4-6ab57d868649 operation=publish_assessment
+2026-10-04 20:29:57,481 INFO ai_security.behavior Behavior decision request=143a5f60-570d-4113-99c4-6ab57d868649 decision=e11a9d5a647d411abbb83ee42e55c15d status=allow coverage=semantic violations=() error=None latency_ms=0.36
+2026-10-04 20:29:57,483 INFO ai_security.behavior Behavior execution starting request=143a5f60-570d-4113-99c4-6ab57d868649 decision=e11a9d5a647d411abbb83ee42e55c15d state_version=3
+2026-10-04 20:29:57,483 INFO ai_security.behavior Behavior execution completed request=143a5f60-570d-4113-99c4-6ab57d868649
+2026-10-04 20:29:57,483 INFO interviews.agent_session Agent stage started interview=83dfbe49-f75b-4c21-97f1-0107e8f06832 stage=report_generation
+2026-10-04 20:29:57,484 INFO interviews.agent_session Agent stage completed interview=83dfbe49-f75b-4c21-97f1-0107e8f06832 stage=report_generation duration_ms=0
+2026-10-04 20:29:57,487 INFO ai_security.behavior Behavior check starting request=143a5f60-570d-4113-99c4-6ab57d868649 operation=publish_finished
+2026-10-04 20:29:57,487 INFO ai_security.behavior Behavior decision request=143a5f60-570d-4113-99c4-6ab57d868649 decision=ac99c8d3390a4ecc8e3b3963f5c550d5 status=allow coverage=semantic violations=() error=None latency_ms=0.41
+2026-10-04 20:29:57,489 INFO ai_security.behavior Behavior execution starting request=143a5f60-570d-4113-99c4-6ab57d868649 decision=ac99c8d3390a4ecc8e3b3963f5c550d5 state_version=3
+2026-10-04 20:29:57,490 INFO interviews.agent_records Agent request saved interview=83dfbe49-f75b-4c21-97f1-0107e8f06832 request=143a5f60-570d-4113-99c4-6ab57d868649
+2026-10-04 20:29:57,490 INFO ai_security.behavior Behavior execution completed request=143a5f60-570d-4113-99c4-6ab57d868649
+2026-10-04 20:29:57,490 INFO interviews.agent_socket Agent response connection=7ce57698-86ff-490c-a019-81f673c7b081 request=143a5f60-570d-4113-99c4-6ab57d868649 type=finished
+2026-10-04 20:29:57,490 INFO interviews.agent_socket Agent disconnected connection=7ce57698-86ff-490c-a019-81f673c7b081
+.
+----------------------------------------------------------------------
+Ran 16 tests in 5.831s
+
+OK
+Destroying test database for alias 'default'...
+
+Found 16 test(s).
+System check identified no issues (0 silenced).

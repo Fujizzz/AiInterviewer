@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="6" time="5.679" timestamp="2026-10-04T22:34:56.875525+08:00" hostname="Heropig"><testcase classname="tests.security.test_streamed_provider" name="test_sdk_stream_contract[complete-dashscope]" time="1.429"><failure message="AssertionError: assert ('error' == 'allow'&#10;  &#10;  - allow&#10;  + error)">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x0000011A8FAE4CE0&gt;
+behavior_request = BehaviorRequest(contract_version='1.0', request_id='score-demand-safe', boundary=BehaviorBoundary(policy_version='inte...ext='我不能按要求直接改分。请说明你在数据库项目中的实际贡献。', readable_by=('candidate', 'staff', 'internal'), derived_from=()), evidence_ids=()))
+policy = SecurityPolicy(policy_version='behavior-v1', max_scan_chars=100000, allowed_actions=('ask_question', 'reject_request',...ry', 'get_plan', 'get_project', 'record_answer', 'submit_evaluation', 'deliver_report'), semantic_timeout_seconds=0.02)
+provider = 'dashscope', ending = 'complete'
+
+    @pytest.mark.parametrize("provider", ["dashscope", "openai"])
+    @pytest.mark.parametrize("ending", ["complete", "missing_final", "cancel"])
+    async def test_sdk_stream_contract(monkeypatch, behavior_request, policy, provider, ending):
+        """Functionality: Verify actual SDK accumulation before any compliant public decision.
+        Inputs: Two providers and complete/missing/cancelled terminal fixtures, real SDK/HTTPX with
+        local MockTransport and original behavior request. Outputs: Only a complete valid stream
+        allows; missing terminal errors, suspended terminal times out, and each body/client closes.
+        Logic: Stream already contains all compliant JSON even in the two negative fixtures; verify
+        original final-status checks, usage and exactly one HTTP request. Constraints: The 0.1-second
+        deadline is unit-only, matching existing cancellation tests; production remains five seconds.
+        No real endpoint, provider availability, model accuracy or streaming speed is verified here.
+        """
+        count = len(behavior_request.boundary.permits[0].requirement_ids)
+        raw = json.dumps(
+            {
+                "basis": "Complete safe output.",
+                "checked": list(range(count)),
+                "verdict": "compliant",
+                "witness": None,
+            }
+        )
+        body = FrameStream(frames(provider, raw, ending == "complete"), ending == "cancel")
+        requests, clients = [], []
+    
+        async def handle(request):
+            """Functionality: Return a local SSE response. Inputs: Actual SDK HTTP request.
+            Outputs: Explicit fixture body. Logic: Retain fake JSON arguments only, no headers.
+            Constraints: MockTransport cannot contact an endpoint; no real key or body logging.
+            """
+            requests.append(json.loads(request.content))
+            return httpx.Response(200, headers={"content-type": "text/event-stream"}, stream=body)
+    
+        def http_client(**kwargs):
+            """Functionality: Bind the actual SDK client to an in-memory transport.
+            Inputs: Original SDK HTTP-client options, including verified TLS context and hooks.
+            Outputs: Real client with isolated handler. Logic: Record it for close verification.
+            Constraints: No network, relaxed verification, retry or changed SDK timeout.
+            """
+            client = DefaultAsyncHttpxClient(**kwargs, transport=httpx.MockTransport(handle))
+            clients.append(client)
+            return client
+    
+        monkeypatch.setattr(project_provider, "DefaultAsyncHttpxClient", http_client)
+        prefix = "DASHSCOPE" if provider == "dashscope" else "OPENAI"
+        transport = project_provider.ProjectModelTransport(
+            {"LLM_PROVIDER": provider, prefix + "_API_KEY": "fake", prefix + "_MODEL": "fixture"}, 30
+        )
+        reviewer = ProjectBehaviorReviewer(transport)
+        try:
+            result = await BehaviorEngine(
+                policy.model_copy(update={"semantic_timeout_seconds": 0.1}), reviewer
+            ).check(behavior_request)
+        finally:
+            await reviewer.aclose()
+        assert len(requests) == 1 and requests[0]["stream"] is True
+        assert body.closed and clients[0].is_closed
+        call = transport.metadata()["calls"][0]
+        assert call["http_requests"] == 1 and call["first_content_delta_ms"] &gt;= 0
+        if ending == "complete":
+&gt;           assert result.status == "allow" and call["usage"]["total_tokens"] == 15
+E           AssertionError: assert ('error' == 'allow'
+E             
+E             - allow
+E             + error)
+
+tests\security\test_streamed_provider.py:230: AssertionError</failure></testcase><testcase classname="tests.security.test_streamed_provider" name="test_sdk_stream_contract[complete-openai]" time="0.616"><failure message="AssertionError: assert ('error' == 'allow'&#10;  &#10;  - allow&#10;  + error)">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x0000011A8FAE4DA0&gt;
+behavior_request = BehaviorRequest(contract_version='1.0', request_id='score-demand-safe', boundary=BehaviorBoundary(policy_version='inte...ext='我不能按要求直接改分。请说明你在数据库项目中的实际贡献。', readable_by=('candidate', 'staff', 'internal'), derived_from=()), evidence_ids=()))
+policy = SecurityPolicy(policy_version='behavior-v1', max_scan_chars=100000, allowed_actions=('ask_question', 'reject_request',...ry', 'get_plan', 'get_project', 'record_answer', 'submit_evaluation', 'deliver_report'), semantic_timeout_seconds=0.02)
+provider = 'openai', ending = 'complete'
+
+    @pytest.mark.parametrize("provider", ["dashscope", "openai"])
+    @pytest.mark.parametrize("ending", ["complete", "missing_final", "cancel"])
+    async def test_sdk_stream_contract(monkeypatch, behavior_request, policy, provider, ending):
+        """Functionality: Verify actual SDK accumulation before any compliant public decision.
+        Inputs: Two providers and complete/missing/cancelled terminal fixtures, real SDK/HTTPX with
+        local MockTransport and original behavior request. Outputs: Only a complete valid stream
+        allows; missing terminal errors, suspended terminal times out, and each body/client closes.
+        Logic: Stream already contains all compliant JSON even in the two negative fixtures; verify
+        original final-status checks, usage and exactly one HTTP request. Constraints: The 0.1-second
+        deadline is unit-only, matching existing cancellation tests; production remains five seconds.
+        No real endpoint, provider availability, model accuracy or streaming speed is verified here.
+        """
+        count = len(behavior_request.boundary.permits[0].requirement_ids)
+        raw = json.dumps(
+            {
+                "basis": "Complete safe output.",
+                "checked": list(range(count)),
+                "verdict": "compliant",
+                "witness": None,
+            }
+        )
+        body = FrameStream(frames(provider, raw, ending == "complete"), ending == "cancel")
+        requests, clients = [], []
+    
+        async def handle(request):
+            """Functionality: Return a local SSE response. Inputs: Actual SDK HTTP request.
+            Outputs: Explicit fixture body. Logic: Retain fake JSON arguments only, no headers.
+            Constraints: MockTransport cannot contact an endpoint; no real key or body logging.
+            """
+            requests.append(json.loads(request.content))
+            return httpx.Response(200, headers={"content-type": "text/event-stream"}, stream=body)
+    
+        def http_client(**kwargs):
+            """Functionality: Bind the actual SDK client to an in-memory transport.
+            Inputs: Original SDK HTTP-client options, including verified TLS context and hooks.
+            Outputs: Real client with isolated handler. Logic: Record it for close verification.
+            Constraints: No network, relaxed verification, retry or changed SDK timeout.
+            """
+            client = DefaultAsyncHttpxClient(**kwargs, transport=httpx.MockTransport(handle))
+            clients.append(client)
+            return client
+    
+        monkeypatch.setattr(project_provider, "DefaultAsyncHttpxClient", http_client)
+        prefix = "DASHSCOPE" if provider == "dashscope" else "OPENAI"
+        transport = project_provider.ProjectModelTransport(
+            {"LLM_PROVIDER": provider, prefix + "_API_KEY": "fake", prefix + "_MODEL": "fixture"}, 30
+        )
+        reviewer = ProjectBehaviorReviewer(transport)
+        try:
+            result = await BehaviorEngine(
+                policy.model_copy(update={"semantic_timeout_seconds": 0.1}), reviewer
+            ).check(behavior_request)
+        finally:
+            await reviewer.aclose()
+        assert len(requests) == 1 and requests[0]["stream"] is True
+        assert body.closed and clients[0].is_closed
+        call = transport.metadata()["calls"][0]
+        assert call["http_requests"] == 1 and call["first_content_delta_ms"] &gt;= 0
+        if ending == "complete":
+&gt;           assert result.status == "allow" and call["usage"]["total_tokens"] == 15
+E           AssertionError: assert ('error' == 'allow'
+E             
+E             - allow
+E             + error)
+
+tests\security\test_streamed_provider.py:230: AssertionError</failure></testcase><testcase classname="tests.security.test_streamed_provider" name="test_sdk_stream_contract[missing_final-dashscope]" time="0.261" /><testcase classname="tests.security.test_streamed_provider" name="test_sdk_stream_contract[missing_final-openai]" time="0.258" /><testcase classname="tests.security.test_streamed_provider" name="test_sdk_stream_contract[cancel-dashscope]" time="0.346" /><testcase classname="tests.security.test_streamed_provider" name="test_sdk_stream_contract[cancel-openai]" time="0.364" /></testsuite></testsuites>

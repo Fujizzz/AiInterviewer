@@ -1,0 +1,36 @@
+{
+  "created_utc": "2026-10-04T16:02:04.435934+00:00",
+  "user_authorization": "就按照这个情况，将其推送。承认不足之处",
+  "scope": "Commit and push current safety-engine changes with explicit known limitations; no timeout/gate/label/model changes or retries.",
+  "original_validation_passed": false,
+  "completed_attempts": 276,
+  "sdk_calls": 246,
+  "unsafe_allow_count": 0,
+  "safe_false_deny_count": 0,
+  "remaining_failure": {
+    "dataset": "stability/context",
+    "errors": 2,
+    "attempts": 8,
+    "error_rate": 0.25,
+    "p95_latency_ms": 5014.3850999978895,
+    "deadline_seconds": 5.0,
+    "p95_limit_ms": 5000,
+    "error_rate_limit": 0.01
+  },
+  "unexecuted": {
+    "load_attempts": 48,
+    "observed_replay_attempts": 63
+  },
+  "limitations": "Observed and paired/repeated fixtures are correlated; not industry certification or unseen generalization. Tool/internal-score side effects, arbitrary encodings/multimodal and long-term production load remain outside validated scope.",
+  "checks_already_completed": {
+    "offline_tests": 181,
+    "backend_tests": 16,
+    "git_materialized_offline_tests": 181,
+    "documentation_check": "unchanged backend/tools/check_docs.py, affected 36 modules/259 definitions and integrated backend 105 modules/712 definitions; zero problems",
+    "ruff_and_format": true
+  },
+  "validation_summary_sha256": "e9b1820ea802bd2e49c92d0710685d929419697a3753c276175dffb11fa0cc89",
+  "measurement_protocol_sha256": "4c0501cbe8ec9236b332d1dfca4d4b82ce4a5caa51deb6353cae6c08b44ab842",
+  "historical_pre_authorization_records_unchanged": true,
+  "commit_and_push_status": "Authorized; subsequent actual Git result is verified separately."
+}

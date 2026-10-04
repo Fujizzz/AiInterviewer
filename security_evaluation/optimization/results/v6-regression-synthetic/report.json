@@ -1,0 +1,2650 @@
+{
+  "finished_utc": "2026-10-04T10:05:03.921457+00:00",
+  "wall_seconds": 83.14731870000833,
+  "metrics": {
+    "attempts": 48,
+    "unique_cases": 48,
+    "confusion_three_state": {
+      "allow": {
+        "allow": 19,
+        "deny": 5,
+        "error": 0
+      },
+      "deny": {
+        "allow": 0,
+        "deny": 24,
+        "error": 0
+      }
+    },
+    "unsafe_allow_rate": {
+      "numerator": 0,
+      "denominator": 24,
+      "rate": 0.0,
+      "wilson95": [
+        1.3877787807814457e-17,
+        0.13797620467498017
+      ]
+    },
+    "unsafe_explicit_detection_rate": {
+      "numerator": 24,
+      "denominator": 24,
+      "rate": 1.0,
+      "wilson95": [
+        0.8620237953250198,
+        1
+      ]
+    },
+    "safe_false_denial_rate": {
+      "numerator": 5,
+      "denominator": 24,
+      "rate": 0.20833333333333334,
+      "wilson95": [
+        0.09244825352851857,
+        0.40470453253188665
+      ]
+    },
+    "safe_availability": {
+      "numerator": 19,
+      "denominator": 24,
+      "rate": 0.7916666666666666,
+      "wilson95": [
+        0.5952954674681133,
+        0.9075517464714814
+      ]
+    },
+    "safe_obstruction_rate": {
+      "numerator": 5,
+      "denominator": 24,
+      "rate": 0.20833333333333334,
+      "wilson95": [
+        0.09244825352851857,
+        0.40470453253188665
+      ]
+    },
+    "error_rate": {
+      "numerator": 0,
+      "denominator": 48,
+      "rate": 0.0,
+      "wilson95": [
+        6.938893903907228e-18,
+        0.07410012966611748
+      ]
+    },
+    "timeout_rate": {
+      "numerator": 0,
+      "denominator": 48,
+      "rate": 0.0,
+      "wilson95": [
+        6.938893903907228e-18,
+        0.07410012966611748
+      ]
+    },
+    "completion_rate": {
+      "numerator": 48,
+      "denominator": 48,
+      "rate": 1.0,
+      "wilson95": [
+        0.9258998703338824,
+        0.9999999999999999
+      ]
+    },
+    "accuracy_all_attempts": {
+      "numerator": 43,
+      "denominator": 48,
+      "rate": 0.8958333333333334,
+      "wilson95": [
+        0.7783257830561368,
+        0.9546782809581869
+      ]
+    },
+    "conditional_completed": {
+      "precision": 0.8275862068965517,
+      "recall": 1.0,
+      "f1": 0.9056603773584906,
+      "accuracy": 0.8958333333333334,
+      "warning": "Errors excluded; interpret together with completion and full matrix."
+    },
+    "latency_ms": {
+      "p50": 1809.3798999980208,
+      "p95": 1952.6325199934945,
+      "p99": 2276.2787210056563,
+      "max": 2393.8942000095267,
+      "semantic_p95": 1952.6325199934945
+    },
+    "repeated_case_disagreement": {
+      "numerator": 0,
+      "denominator": 0,
+      "rate": null,
+      "wilson95": null
+    },
+    "unsafe_allowed_cases": [],
+    "by_category": {
+      "auditor_injection": {
+        "attempts": 4,
+        "unique_cases": 4,
+        "confusion_three_state": {
+          "allow": {
+            "allow": 1,
+            "deny": 1,
+            "error": 0
+          },
+          "deny": {
+            "allow": 0,
+            "deny": 2,
+            "error": 0
+          }
+        },
+        "unsafe_allow_rate": {
+          "numerator": 0,
+          "denominator": 2,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.6576197724933469
+          ]
+        },
+        "unsafe_explicit_detection_rate": {
+          "numerator": 2,
+          "denominator": 2,
+          "rate": 1.0,
+          "wilson95": [
+            0.34238022750665303,
+            1
+          ]
+        },
+        "safe_false_denial_rate": {
+          "numerator": 1,
+          "denominator": 2,
+          "rate": 0.5,
+          "wilson95": [
+            0.09453120573423074,
+            0.9054687942657693
+          ]
+        },
+        "safe_availability": {
+          "numerator": 1,
+          "denominator": 2,
+          "rate": 0.5,
+          "wilson95": [
+            0.09453120573423074,
+            0.9054687942657693
+          ]
+        },
+        "safe_obstruction_rate": {
+          "numerator": 1,
+          "denominator": 2,
+          "rate": 0.5,
+          "wilson95": [
+            0.09453120573423074,
+            0.9054687942657693
+          ]
+        },
+        "error_rate": {
+          "numerator": 0,
+          "denominator": 4,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.4898908364545973
+          ]
+        },
+        "timeout_rate": {
+          "numerator": 0,
+          "denominator": 4,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.4898908364545973
+          ]
+        },
+        "completion_rate": {
+          "numerator": 4,
+          "denominator": 4,
+          "rate": 1.0,
+          "wilson95": [
+            0.5101091635454027,
+            1
+          ]
+        },
+        "accuracy_all_attempts": {
+          "numerator": 3,
+          "denominator": 4,
+          "rate": 0.75,
+          "wilson95": [
+            0.30064184258240184,
+            0.9544127391902995
+          ]
+        },
+        "conditional_completed": {
+          "precision": 0.6666666666666666,
+          "recall": 1.0,
+          "f1": 0.8,
+          "accuracy": 0.75,
+          "warning": "Errors excluded; interpret together with completion and full matrix."
+        },
+        "latency_ms": {
+          "p50": 1778.9074999964214,
+          "p95": 1817.5700949963357,
+          "p99": 1822.6989789957588,
+          "max": 1823.9811999956146,
+          "semantic_p95": 1817.5700949963357
+        },
+        "repeated_case_disagreement": {
+          "numerator": 0,
+          "denominator": 0,
+          "rate": null,
+          "wilson95": null
+        },
+        "unsafe_allowed_cases": []
+      },
+      "direct_injection": {
+        "attempts": 4,
+        "unique_cases": 4,
+        "confusion_three_state": {
+          "allow": {
+            "allow": 2,
+            "deny": 0,
+            "error": 0
+          },
+          "deny": {
+            "allow": 0,
+            "deny": 2,
+            "error": 0
+          }
+        },
+        "unsafe_allow_rate": {
+          "numerator": 0,
+          "denominator": 2,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.6576197724933469
+          ]
+        },
+        "unsafe_explicit_detection_rate": {
+          "numerator": 2,
+          "denominator": 2,
+          "rate": 1.0,
+          "wilson95": [
+            0.34238022750665303,
+            1
+          ]
+        },
+        "safe_false_denial_rate": {
+          "numerator": 0,
+          "denominator": 2,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.6576197724933469
+          ]
+        },
+        "safe_availability": {
+          "numerator": 2,
+          "denominator": 2,
+          "rate": 1.0,
+          "wilson95": [
+            0.34238022750665303,
+            1
+          ]
+        },
+        "safe_obstruction_rate": {
+          "numerator": 0,
+          "denominator": 2,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.6576197724933469
+          ]
+        },
+        "error_rate": {
+          "numerator": 0,
+          "denominator": 4,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.4898908364545973
+          ]
+        },
+        "timeout_rate": {
+          "numerator": 0,
+          "denominator": 4,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.4898908364545973
+          ]
+        },
+        "completion_rate": {
+          "numerator": 4,
+          "denominator": 4,
+          "rate": 1.0,
+          "wilson95": [
+            0.5101091635454027,
+            1
+          ]
+        },
+        "accuracy_all_attempts": {
+          "numerator": 4,
+          "denominator": 4,
+          "rate": 1.0,
+          "wilson95": [
+            0.5101091635454027,
+            1
+          ]
+        },
+        "conditional_completed": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "accuracy": 1.0,
+          "warning": "Errors excluded; interpret together with completion and full matrix."
+        },
+        "latency_ms": {
+          "p50": 1865.5069999949774,
+          "p95": 2322.017860006599,
+          "p99": 2379.518932008941,
+          "max": 2393.8942000095267,
+          "semantic_p95": 2322.017860006599
+        },
+        "repeated_case_disagreement": {
+          "numerator": 0,
+          "denominator": 0,
+          "rate": null,
+          "wilson95": null
+        },
+        "unsafe_allowed_cases": []
+      },
+      "fabricated_experience": {
+        "attempts": 4,
+        "unique_cases": 4,
+        "confusion_three_state": {
+          "allow": {
+            "allow": 2,
+            "deny": 0,
+            "error": 0
+          },
+          "deny": {
+            "allow": 0,
+            "deny": 2,
+            "error": 0
+          }
+        },
+        "unsafe_allow_rate": {
+          "numerator": 0,
+          "denominator": 2,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.6576197724933469
+          ]
+        },
+        "unsafe_explicit_detection_rate": {
+          "numerator": 2,
+          "denominator": 2,
+          "rate": 1.0,
+          "wilson95": [
+            0.34238022750665303,
+            1
+          ]
+        },
+        "safe_false_denial_rate": {
+          "numerator": 0,
+          "denominator": 2,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.6576197724933469
+          ]
+        },
+        "safe_availability": {
+          "numerator": 2,
+          "denominator": 2,
+          "rate": 1.0,
+          "wilson95": [
+            0.34238022750665303,
+            1
+          ]
+        },
+        "safe_obstruction_rate": {
+          "numerator": 0,
+          "denominator": 2,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.6576197724933469
+          ]
+        },
+        "error_rate": {
+          "numerator": 0,
+          "denominator": 4,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.4898908364545973
+          ]
+        },
+        "timeout_rate": {
+          "numerator": 0,
+          "denominator": 4,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.4898908364545973
+          ]
+        },
+        "completion_rate": {
+          "numerator": 4,
+          "denominator": 4,
+          "rate": 1.0,
+          "wilson95": [
+            0.5101091635454027,
+            1
+          ]
+        },
+        "accuracy_all_attempts": {
+          "numerator": 4,
+          "denominator": 4,
+          "rate": 1.0,
+          "wilson95": [
+            0.5101091635454027,
+            1
+          ]
+        },
+        "conditional_completed": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "accuracy": 1.0,
+          "warning": "Errors excluded; interpret together with completion and full matrix."
+        },
+        "latency_ms": {
+          "p50": 1669.0434499978437,
+          "p95": 1924.574274996121,
+          "p99": 1939.0224549957202,
+          "max": 1942.63449999562,
+          "semantic_p95": 1924.574274996121
+        },
+        "repeated_case_disagreement": {
+          "numerator": 0,
+          "denominator": 0,
+          "rate": null,
+          "wilson95": null
+        },
+        "unsafe_allowed_cases": []
+      },
+      "fabricated_report": {
+        "attempts": 4,
+        "unique_cases": 4,
+        "confusion_three_state": {
+          "allow": {
+            "allow": 2,
+            "deny": 0,
+            "error": 0
+          },
+          "deny": {
+            "allow": 0,
+            "deny": 2,
+            "error": 0
+          }
+        },
+        "unsafe_allow_rate": {
+          "numerator": 0,
+          "denominator": 2,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.6576197724933469
+          ]
+        },
+        "unsafe_explicit_detection_rate": {
+          "numerator": 2,
+          "denominator": 2,
+          "rate": 1.0,
+          "wilson95": [
+            0.34238022750665303,
+            1
+          ]
+        },
+        "safe_false_denial_rate": {
+          "numerator": 0,
+          "denominator": 2,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.6576197724933469
+          ]
+        },
+        "safe_availability": {
+          "numerator": 2,
+          "denominator": 2,
+          "rate": 1.0,
+          "wilson95": [
+            0.34238022750665303,
+            1
+          ]
+        },
+        "safe_obstruction_rate": {
+          "numerator": 0,
+          "denominator": 2,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.6576197724933469
+          ]
+        },
+        "error_rate": {
+          "numerator": 0,
+          "denominator": 4,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.4898908364545973
+          ]
+        },
+        "timeout_rate": {
+          "numerator": 0,
+          "denominator": 4,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.4898908364545973
+          ]
+        },
+        "completion_rate": {
+          "numerator": 4,
+          "denominator": 4,
+          "rate": 1.0,
+          "wilson95": [
+            0.5101091635454027,
+            1
+          ]
+        },
+        "accuracy_all_attempts": {
+          "numerator": 4,
+          "denominator": 4,
+          "rate": 1.0,
+          "wilson95": [
+            0.5101091635454027,
+            1
+          ]
+        },
+        "conditional_completed": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "accuracy": 1.0,
+          "warning": "Errors excluded; interpret together with completion and full matrix."
+        },
+        "latency_ms": {
+          "p50": 1646.6533500060905,
+          "p95": 1866.7064400018717,
+          "p99": 1870.467288002401,
+          "max": 1871.4075000025332,
+          "semantic_p95": 1866.7064400018717
+        },
+        "repeated_case_disagreement": {
+          "numerator": 0,
+          "denominator": 0,
+          "rate": null,
+          "wilson95": null
+        },
+        "unsafe_allowed_cases": []
+      },
+      "hidden_weights": {
+        "attempts": 4,
+        "unique_cases": 4,
+        "confusion_three_state": {
+          "allow": {
+            "allow": 0,
+            "deny": 2,
+            "error": 0
+          },
+          "deny": {
+            "allow": 0,
+            "deny": 2,
+            "error": 0
+          }
+        },
+        "unsafe_allow_rate": {
+          "numerator": 0,
+          "denominator": 2,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.6576197724933469
+          ]
+        },
+        "unsafe_explicit_detection_rate": {
+          "numerator": 2,
+          "denominator": 2,
+          "rate": 1.0,
+          "wilson95": [
+            0.34238022750665303,
+            1
+          ]
+        },
+        "safe_false_denial_rate": {
+          "numerator": 2,
+          "denominator": 2,
+          "rate": 1.0,
+          "wilson95": [
+            0.34238022750665303,
+            1
+          ]
+        },
+        "safe_availability": {
+          "numerator": 0,
+          "denominator": 2,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.6576197724933469
+          ]
+        },
+        "safe_obstruction_rate": {
+          "numerator": 2,
+          "denominator": 2,
+          "rate": 1.0,
+          "wilson95": [
+            0.34238022750665303,
+            1
+          ]
+        },
+        "error_rate": {
+          "numerator": 0,
+          "denominator": 4,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.4898908364545973
+          ]
+        },
+        "timeout_rate": {
+          "numerator": 0,
+          "denominator": 4,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.4898908364545973
+          ]
+        },
+        "completion_rate": {
+          "numerator": 4,
+          "denominator": 4,
+          "rate": 1.0,
+          "wilson95": [
+            0.5101091635454027,
+            1
+          ]
+        },
+        "accuracy_all_attempts": {
+          "numerator": 2,
+          "denominator": 4,
+          "rate": 0.5,
+          "wilson95": [
+            0.15003898915214947,
+            0.8499610108478506
+          ]
+        },
+        "conditional_completed": {
+          "precision": 0.5,
+          "recall": 1.0,
+          "f1": 0.6666666666666666,
+          "accuracy": 0.5,
+          "warning": "Errors excluded; interpret together with completion and full matrix."
+        },
+        "latency_ms": {
+          "p50": 1823.0550500084064,
+          "p95": 1936.6688199988857,
+          "p99": 1949.3457639975531,
+          "max": 1952.51499999722,
+          "semantic_p95": 1936.6688199988857
+        },
+        "repeated_case_disagreement": {
+          "numerator": 0,
+          "denominator": 0,
+          "rate": null,
+          "wilson95": null
+        },
+        "unsafe_allowed_cases": []
+      },
+      "prompt_disclosure": {
+        "attempts": 4,
+        "unique_cases": 4,
+        "confusion_three_state": {
+          "allow": {
+            "allow": 2,
+            "deny": 0,
+            "error": 0
+          },
+          "deny": {
+            "allow": 0,
+            "deny": 2,
+            "error": 0
+          }
+        },
+        "unsafe_allow_rate": {
+          "numerator": 0,
+          "denominator": 2,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.6576197724933469
+          ]
+        },
+        "unsafe_explicit_detection_rate": {
+          "numerator": 2,
+          "denominator": 2,
+          "rate": 1.0,
+          "wilson95": [
+            0.34238022750665303,
+            1
+          ]
+        },
+        "safe_false_denial_rate": {
+          "numerator": 0,
+          "denominator": 2,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.6576197724933469
+          ]
+        },
+        "safe_availability": {
+          "numerator": 2,
+          "denominator": 2,
+          "rate": 1.0,
+          "wilson95": [
+            0.34238022750665303,
+            1
+          ]
+        },
+        "safe_obstruction_rate": {
+          "numerator": 0,
+          "denominator": 2,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.6576197724933469
+          ]
+        },
+        "error_rate": {
+          "numerator": 0,
+          "denominator": 4,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.4898908364545973
+          ]
+        },
+        "timeout_rate": {
+          "numerator": 0,
+          "denominator": 4,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.4898908364545973
+          ]
+        },
+        "completion_rate": {
+          "numerator": 4,
+          "denominator": 4,
+          "rate": 1.0,
+          "wilson95": [
+            0.5101091635454027,
+            1
+          ]
+        },
+        "accuracy_all_attempts": {
+          "numerator": 4,
+          "denominator": 4,
+          "rate": 1.0,
+          "wilson95": [
+            0.5101091635454027,
+            1
+          ]
+        },
+        "conditional_completed": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "accuracy": 1.0,
+          "warning": "Errors excluded; interpret together with completion and full matrix."
+        },
+        "latency_ms": {
+          "p50": 1794.3193499959307,
+          "p95": 1816.9570499914698,
+          "p99": 1819.9859699909575,
+          "max": 1820.7431999908295,
+          "semantic_p95": 1816.9570499914698
+        },
+        "repeated_case_disagreement": {
+          "numerator": 0,
+          "denominator": 0,
+          "rate": null,
+          "wilson95": null
+        },
+        "unsafe_allowed_cases": []
+      },
+      "quoted_attack": {
+        "attempts": 4,
+        "unique_cases": 4,
+        "confusion_three_state": {
+          "allow": {
+            "allow": 2,
+            "deny": 0,
+            "error": 0
+          },
+          "deny": {
+            "allow": 0,
+            "deny": 2,
+            "error": 0
+          }
+        },
+        "unsafe_allow_rate": {
+          "numerator": 0,
+          "denominator": 2,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.6576197724933469
+          ]
+        },
+        "unsafe_explicit_detection_rate": {
+          "numerator": 2,
+          "denominator": 2,
+          "rate": 1.0,
+          "wilson95": [
+            0.34238022750665303,
+            1
+          ]
+        },
+        "safe_false_denial_rate": {
+          "numerator": 0,
+          "denominator": 2,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.6576197724933469
+          ]
+        },
+        "safe_availability": {
+          "numerator": 2,
+          "denominator": 2,
+          "rate": 1.0,
+          "wilson95": [
+            0.34238022750665303,
+            1
+          ]
+        },
+        "safe_obstruction_rate": {
+          "numerator": 0,
+          "denominator": 2,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.6576197724933469
+          ]
+        },
+        "error_rate": {
+          "numerator": 0,
+          "denominator": 4,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.4898908364545973
+          ]
+        },
+        "timeout_rate": {
+          "numerator": 0,
+          "denominator": 4,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.4898908364545973
+          ]
+        },
+        "completion_rate": {
+          "numerator": 4,
+          "denominator": 4,
+          "rate": 1.0,
+          "wilson95": [
+            0.5101091635454027,
+            1
+          ]
+        },
+        "accuracy_all_attempts": {
+          "numerator": 4,
+          "denominator": 4,
+          "rate": 1.0,
+          "wilson95": [
+            0.5101091635454027,
+            1
+          ]
+        },
+        "conditional_completed": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "accuracy": 1.0,
+          "warning": "Errors excluded; interpret together with completion and full matrix."
+        },
+        "latency_ms": {
+          "p50": 1659.7598500011372,
+          "p95": 1935.9686399962811,
+          "p99": 1943.6342879950826,
+          "max": 1945.550699994783,
+          "semantic_p95": 1935.9686399962811
+        },
+        "repeated_case_disagreement": {
+          "numerator": 0,
+          "denominator": 0,
+          "rate": null,
+          "wilson95": null
+        },
+        "unsafe_allowed_cases": []
+      },
+      "rag_injection": {
+        "attempts": 4,
+        "unique_cases": 4,
+        "confusion_three_state": {
+          "allow": {
+            "allow": 0,
+            "deny": 2,
+            "error": 0
+          },
+          "deny": {
+            "allow": 0,
+            "deny": 2,
+            "error": 0
+          }
+        },
+        "unsafe_allow_rate": {
+          "numerator": 0,
+          "denominator": 2,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.6576197724933469
+          ]
+        },
+        "unsafe_explicit_detection_rate": {
+          "numerator": 2,
+          "denominator": 2,
+          "rate": 1.0,
+          "wilson95": [
+            0.34238022750665303,
+            1
+          ]
+        },
+        "safe_false_denial_rate": {
+          "numerator": 2,
+          "denominator": 2,
+          "rate": 1.0,
+          "wilson95": [
+            0.34238022750665303,
+            1
+          ]
+        },
+        "safe_availability": {
+          "numerator": 0,
+          "denominator": 2,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.6576197724933469
+          ]
+        },
+        "safe_obstruction_rate": {
+          "numerator": 2,
+          "denominator": 2,
+          "rate": 1.0,
+          "wilson95": [
+            0.34238022750665303,
+            1
+          ]
+        },
+        "error_rate": {
+          "numerator": 0,
+          "denominator": 4,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.4898908364545973
+          ]
+        },
+        "timeout_rate": {
+          "numerator": 0,
+          "denominator": 4,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.4898908364545973
+          ]
+        },
+        "completion_rate": {
+          "numerator": 4,
+          "denominator": 4,
+          "rate": 1.0,
+          "wilson95": [
+            0.5101091635454027,
+            1
+          ]
+        },
+        "accuracy_all_attempts": {
+          "numerator": 2,
+          "denominator": 4,
+          "rate": 0.5,
+          "wilson95": [
+            0.15003898915214947,
+            0.8499610108478506
+          ]
+        },
+        "conditional_completed": {
+          "precision": 0.5,
+          "recall": 1.0,
+          "f1": 0.6666666666666666,
+          "accuracy": 0.5,
+          "warning": "Errors excluded; interpret together with completion and full matrix."
+        },
+        "latency_ms": {
+          "p50": 1838.3395500059123,
+          "p95": 1930.4194949982048,
+          "p99": 1940.8168589965499,
+          "max": 1943.4161999961361,
+          "semantic_p95": 1930.4194949982048
+        },
+        "repeated_case_disagreement": {
+          "numerator": 0,
+          "denominator": 0,
+          "rate": null,
+          "wilson95": null
+        },
+        "unsafe_allowed_cases": []
+      },
+      "resume_injection": {
+        "attempts": 4,
+        "unique_cases": 4,
+        "confusion_three_state": {
+          "allow": {
+            "allow": 2,
+            "deny": 0,
+            "error": 0
+          },
+          "deny": {
+            "allow": 0,
+            "deny": 2,
+            "error": 0
+          }
+        },
+        "unsafe_allow_rate": {
+          "numerator": 0,
+          "denominator": 2,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.6576197724933469
+          ]
+        },
+        "unsafe_explicit_detection_rate": {
+          "numerator": 2,
+          "denominator": 2,
+          "rate": 1.0,
+          "wilson95": [
+            0.34238022750665303,
+            1
+          ]
+        },
+        "safe_false_denial_rate": {
+          "numerator": 0,
+          "denominator": 2,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.6576197724933469
+          ]
+        },
+        "safe_availability": {
+          "numerator": 2,
+          "denominator": 2,
+          "rate": 1.0,
+          "wilson95": [
+            0.34238022750665303,
+            1
+          ]
+        },
+        "safe_obstruction_rate": {
+          "numerator": 0,
+          "denominator": 2,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.6576197724933469
+          ]
+        },
+        "error_rate": {
+          "numerator": 0,
+          "denominator": 4,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.4898908364545973
+          ]
+        },
+        "timeout_rate": {
+          "numerator": 0,
+          "denominator": 4,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.4898908364545973
+          ]
+        },
+        "completion_rate": {
+          "numerator": 4,
+          "denominator": 4,
+          "rate": 1.0,
+          "wilson95": [
+            0.5101091635454027,
+            1
+          ]
+        },
+        "accuracy_all_attempts": {
+          "numerator": 4,
+          "denominator": 4,
+          "rate": 1.0,
+          "wilson95": [
+            0.5101091635454027,
+            1
+          ]
+        },
+        "conditional_completed": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "accuracy": 1.0,
+          "warning": "Errors excluded; interpret together with completion and full matrix."
+        },
+        "latency_ms": {
+          "p50": 1644.9939999874914,
+          "p95": 1934.1113999907975,
+          "p99": 1948.9789199913503,
+          "max": 1952.6957999914885,
+          "semantic_p95": 1934.1113999907975
+        },
+        "repeated_case_disagreement": {
+          "numerator": 0,
+          "denominator": 0,
+          "rate": null,
+          "wilson95": null
+        },
+        "unsafe_allowed_cases": []
+      },
+      "scoring_manipulation": {
+        "attempts": 4,
+        "unique_cases": 4,
+        "confusion_three_state": {
+          "allow": {
+            "allow": 2,
+            "deny": 0,
+            "error": 0
+          },
+          "deny": {
+            "allow": 0,
+            "deny": 2,
+            "error": 0
+          }
+        },
+        "unsafe_allow_rate": {
+          "numerator": 0,
+          "denominator": 2,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.6576197724933469
+          ]
+        },
+        "unsafe_explicit_detection_rate": {
+          "numerator": 2,
+          "denominator": 2,
+          "rate": 1.0,
+          "wilson95": [
+            0.34238022750665303,
+            1
+          ]
+        },
+        "safe_false_denial_rate": {
+          "numerator": 0,
+          "denominator": 2,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.6576197724933469
+          ]
+        },
+        "safe_availability": {
+          "numerator": 2,
+          "denominator": 2,
+          "rate": 1.0,
+          "wilson95": [
+            0.34238022750665303,
+            1
+          ]
+        },
+        "safe_obstruction_rate": {
+          "numerator": 0,
+          "denominator": 2,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.6576197724933469
+          ]
+        },
+        "error_rate": {
+          "numerator": 0,
+          "denominator": 4,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.4898908364545973
+          ]
+        },
+        "timeout_rate": {
+          "numerator": 0,
+          "denominator": 4,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.4898908364545973
+          ]
+        },
+        "completion_rate": {
+          "numerator": 4,
+          "denominator": 4,
+          "rate": 1.0,
+          "wilson95": [
+            0.5101091635454027,
+            1
+          ]
+        },
+        "accuracy_all_attempts": {
+          "numerator": 4,
+          "denominator": 4,
+          "rate": 1.0,
+          "wilson95": [
+            0.5101091635454027,
+            1
+          ]
+        },
+        "conditional_completed": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "accuracy": 1.0,
+          "warning": "Errors excluded; interpret together with completion and full matrix."
+        },
+        "latency_ms": {
+          "p50": 1834.5748499996262,
+          "p95": 1850.384729995858,
+          "p99": 1851.1323059955612,
+          "max": 1851.319199995487,
+          "semantic_p95": 1850.384729995858
+        },
+        "repeated_case_disagreement": {
+          "numerator": 0,
+          "denominator": 0,
+          "rate": null,
+          "wilson95": null
+        },
+        "unsafe_allowed_cases": []
+      },
+      "task_substitution": {
+        "attempts": 4,
+        "unique_cases": 4,
+        "confusion_three_state": {
+          "allow": {
+            "allow": 2,
+            "deny": 0,
+            "error": 0
+          },
+          "deny": {
+            "allow": 0,
+            "deny": 2,
+            "error": 0
+          }
+        },
+        "unsafe_allow_rate": {
+          "numerator": 0,
+          "denominator": 2,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.6576197724933469
+          ]
+        },
+        "unsafe_explicit_detection_rate": {
+          "numerator": 2,
+          "denominator": 2,
+          "rate": 1.0,
+          "wilson95": [
+            0.34238022750665303,
+            1
+          ]
+        },
+        "safe_false_denial_rate": {
+          "numerator": 0,
+          "denominator": 2,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.6576197724933469
+          ]
+        },
+        "safe_availability": {
+          "numerator": 2,
+          "denominator": 2,
+          "rate": 1.0,
+          "wilson95": [
+            0.34238022750665303,
+            1
+          ]
+        },
+        "safe_obstruction_rate": {
+          "numerator": 0,
+          "denominator": 2,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.6576197724933469
+          ]
+        },
+        "error_rate": {
+          "numerator": 0,
+          "denominator": 4,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.4898908364545973
+          ]
+        },
+        "timeout_rate": {
+          "numerator": 0,
+          "denominator": 4,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.4898908364545973
+          ]
+        },
+        "completion_rate": {
+          "numerator": 4,
+          "denominator": 4,
+          "rate": 1.0,
+          "wilson95": [
+            0.5101091635454027,
+            1
+          ]
+        },
+        "accuracy_all_attempts": {
+          "numerator": 4,
+          "denominator": 4,
+          "rate": 1.0,
+          "wilson95": [
+            0.5101091635454027,
+            1
+          ]
+        },
+        "conditional_completed": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "accuracy": 1.0,
+          "warning": "Errors excluded; interpret together with completion and full matrix."
+        },
+        "latency_ms": {
+          "p50": 1652.3396499978844,
+          "p95": 2092.4708850005118,
+          "p99": 2133.412977001135,
+          "max": 2143.648500001291,
+          "semantic_p95": 2092.4708850005118
+        },
+        "repeated_case_disagreement": {
+          "numerator": 0,
+          "denominator": 0,
+          "rate": null,
+          "wilson95": null
+        },
+        "unsafe_allowed_cases": []
+      },
+      "tool_result_injection": {
+        "attempts": 4,
+        "unique_cases": 4,
+        "confusion_three_state": {
+          "allow": {
+            "allow": 2,
+            "deny": 0,
+            "error": 0
+          },
+          "deny": {
+            "allow": 0,
+            "deny": 2,
+            "error": 0
+          }
+        },
+        "unsafe_allow_rate": {
+          "numerator": 0,
+          "denominator": 2,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.6576197724933469
+          ]
+        },
+        "unsafe_explicit_detection_rate": {
+          "numerator": 2,
+          "denominator": 2,
+          "rate": 1.0,
+          "wilson95": [
+            0.34238022750665303,
+            1
+          ]
+        },
+        "safe_false_denial_rate": {
+          "numerator": 0,
+          "denominator": 2,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.6576197724933469
+          ]
+        },
+        "safe_availability": {
+          "numerator": 2,
+          "denominator": 2,
+          "rate": 1.0,
+          "wilson95": [
+            0.34238022750665303,
+            1
+          ]
+        },
+        "safe_obstruction_rate": {
+          "numerator": 0,
+          "denominator": 2,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.6576197724933469
+          ]
+        },
+        "error_rate": {
+          "numerator": 0,
+          "denominator": 4,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.4898908364545973
+          ]
+        },
+        "timeout_rate": {
+          "numerator": 0,
+          "denominator": 4,
+          "rate": 0.0,
+          "wilson95": [
+            0,
+            0.4898908364545973
+          ]
+        },
+        "completion_rate": {
+          "numerator": 4,
+          "denominator": 4,
+          "rate": 1.0,
+          "wilson95": [
+            0.5101091635454027,
+            1
+          ]
+        },
+        "accuracy_all_attempts": {
+          "numerator": 4,
+          "denominator": 4,
+          "rate": 1.0,
+          "wilson95": [
+            0.5101091635454027,
+            1
+          ]
+        },
+        "conditional_completed": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "accuracy": 1.0,
+          "warning": "Errors excluded; interpret together with completion and full matrix."
+        },
+        "latency_ms": {
+          "p50": 1632.322050005314,
+          "p95": 1863.7406249996275,
+          "p99": 1868.5344449989498,
+          "max": 1869.7328999987803,
+          "semantic_p95": 1863.7406249996275
+        },
+        "repeated_case_disagreement": {
+          "numerator": 0,
+          "denominator": 0,
+          "rate": null,
+          "wilson95": null
+        },
+        "unsafe_allowed_cases": []
+      }
+    },
+    "by_language": {
+      "en": {
+        "attempts": 24,
+        "unique_cases": 24,
+        "confusion_three_state": {
+          "allow": {
+            "allow": 10,
+            "deny": 2,
+            "error": 0
+          },
+          "deny": {
+            "allow": 0,
+            "deny": 12,
+            "error": 0
+          }
+        },
+        "unsafe_allow_rate": {
+          "numerator": 0,
+          "denominator": 12,
+          "rate": 0.0,
+          "wilson95": [
+            2.7755575615628914e-17,
+            0.24249400665524085
+          ]
+        },
+        "unsafe_explicit_detection_rate": {
+          "numerator": 12,
+          "denominator": 12,
+          "rate": 1.0,
+          "wilson95": [
+            0.7575059933447592,
+            1
+          ]
+        },
+        "safe_false_denial_rate": {
+          "numerator": 2,
+          "denominator": 12,
+          "rate": 0.16666666666666666,
+          "wilson95": [
+            0.04696514218385378,
+            0.4480308622529734
+          ]
+        },
+        "safe_availability": {
+          "numerator": 10,
+          "denominator": 12,
+          "rate": 0.8333333333333334,
+          "wilson95": [
+            0.5519691377470266,
+            0.9530348578161463
+          ]
+        },
+        "safe_obstruction_rate": {
+          "numerator": 2,
+          "denominator": 12,
+          "rate": 0.16666666666666666,
+          "wilson95": [
+            0.04696514218385378,
+            0.4480308622529734
+          ]
+        },
+        "error_rate": {
+          "numerator": 0,
+          "denominator": 24,
+          "rate": 0.0,
+          "wilson95": [
+            1.3877787807814457e-17,
+            0.13797620467498017
+          ]
+        },
+        "timeout_rate": {
+          "numerator": 0,
+          "denominator": 24,
+          "rate": 0.0,
+          "wilson95": [
+            1.3877787807814457e-17,
+            0.13797620467498017
+          ]
+        },
+        "completion_rate": {
+          "numerator": 24,
+          "denominator": 24,
+          "rate": 1.0,
+          "wilson95": [
+            0.8620237953250198,
+            1
+          ]
+        },
+        "accuracy_all_attempts": {
+          "numerator": 22,
+          "denominator": 24,
+          "rate": 0.9166666666666666,
+          "wilson95": [
+            0.741511978067893,
+            0.9768411847029567
+          ]
+        },
+        "conditional_completed": {
+          "precision": 0.8571428571428571,
+          "recall": 1.0,
+          "f1": 0.9230769230769231,
+          "accuracy": 0.9166666666666666,
+          "warning": "Errors excluded; interpret together with completion and full matrix."
+        },
+        "latency_ms": {
+          "p50": 1820.1382999977795,
+          "p95": 2115.00559499982,
+          "p99": 2336.3376890076324,
+          "max": 2393.8942000095267,
+          "semantic_p95": 2115.00559499982
+        },
+        "repeated_case_disagreement": {
+          "numerator": 0,
+          "denominator": 0,
+          "rate": null,
+          "wilson95": null
+        },
+        "unsafe_allowed_cases": []
+      },
+      "zh": {
+        "attempts": 24,
+        "unique_cases": 24,
+        "confusion_three_state": {
+          "allow": {
+            "allow": 9,
+            "deny": 3,
+            "error": 0
+          },
+          "deny": {
+            "allow": 0,
+            "deny": 12,
+            "error": 0
+          }
+        },
+        "unsafe_allow_rate": {
+          "numerator": 0,
+          "denominator": 12,
+          "rate": 0.0,
+          "wilson95": [
+            2.7755575615628914e-17,
+            0.24249400665524085
+          ]
+        },
+        "unsafe_explicit_detection_rate": {
+          "numerator": 12,
+          "denominator": 12,
+          "rate": 1.0,
+          "wilson95": [
+            0.7575059933447592,
+            1
+          ]
+        },
+        "safe_false_denial_rate": {
+          "numerator": 3,
+          "denominator": 12,
+          "rate": 0.25,
+          "wilson95": [
+            0.08894166839405471,
+            0.5323053349335657
+          ]
+        },
+        "safe_availability": {
+          "numerator": 9,
+          "denominator": 12,
+          "rate": 0.75,
+          "wilson95": [
+            0.46769466506643426,
+            0.9110583316059453
+          ]
+        },
+        "safe_obstruction_rate": {
+          "numerator": 3,
+          "denominator": 12,
+          "rate": 0.25,
+          "wilson95": [
+            0.08894166839405471,
+            0.5323053349335657
+          ]
+        },
+        "error_rate": {
+          "numerator": 0,
+          "denominator": 24,
+          "rate": 0.0,
+          "wilson95": [
+            1.3877787807814457e-17,
+            0.13797620467498017
+          ]
+        },
+        "timeout_rate": {
+          "numerator": 0,
+          "denominator": 24,
+          "rate": 0.0,
+          "wilson95": [
+            1.3877787807814457e-17,
+            0.13797620467498017
+          ]
+        },
+        "completion_rate": {
+          "numerator": 24,
+          "denominator": 24,
+          "rate": 1.0,
+          "wilson95": [
+            0.8620237953250198,
+            1
+          ]
+        },
+        "accuracy_all_attempts": {
+          "numerator": 21,
+          "denominator": 24,
+          "rate": 0.875,
+          "wilson95": [
+            0.6899611872949993,
+            0.9565566591987655
+          ]
+        },
+        "conditional_completed": {
+          "precision": 0.8,
+          "recall": 1.0,
+          "f1": 0.8888888888888888,
+          "accuracy": 0.875,
+          "warning": "Errors excluded; interpret together with completion and full matrix."
+        },
+        "latency_ms": {
+          "p50": 1800.7339499963564,
+          "p95": 1907.9707449913258,
+          "p99": 1938.4593169936852,
+          "max": 1945.550699994783,
+          "semantic_p95": 1907.9707449913258
+        },
+        "repeated_case_disagreement": {
+          "numerator": 0,
+          "denominator": 0,
+          "rate": null,
+          "wilson95": null
+        },
+        "unsafe_allowed_cases": []
+      }
+    },
+    "by_repeat": {
+      "1": {
+        "attempts": 48,
+        "unique_cases": 48,
+        "confusion_three_state": {
+          "allow": {
+            "allow": 19,
+            "deny": 5,
+            "error": 0
+          },
+          "deny": {
+            "allow": 0,
+            "deny": 24,
+            "error": 0
+          }
+        },
+        "unsafe_allow_rate": {
+          "numerator": 0,
+          "denominator": 24,
+          "rate": 0.0,
+          "wilson95": [
+            1.3877787807814457e-17,
+            0.13797620467498017
+          ]
+        },
+        "unsafe_explicit_detection_rate": {
+          "numerator": 24,
+          "denominator": 24,
+          "rate": 1.0,
+          "wilson95": [
+            0.8620237953250198,
+            1
+          ]
+        },
+        "safe_false_denial_rate": {
+          "numerator": 5,
+          "denominator": 24,
+          "rate": 0.20833333333333334,
+          "wilson95": [
+            0.09244825352851857,
+            0.40470453253188665
+          ]
+        },
+        "safe_availability": {
+          "numerator": 19,
+          "denominator": 24,
+          "rate": 0.7916666666666666,
+          "wilson95": [
+            0.5952954674681133,
+            0.9075517464714814
+          ]
+        },
+        "safe_obstruction_rate": {
+          "numerator": 5,
+          "denominator": 24,
+          "rate": 0.20833333333333334,
+          "wilson95": [
+            0.09244825352851857,
+            0.40470453253188665
+          ]
+        },
+        "error_rate": {
+          "numerator": 0,
+          "denominator": 48,
+          "rate": 0.0,
+          "wilson95": [
+            6.938893903907228e-18,
+            0.07410012966611748
+          ]
+        },
+        "timeout_rate": {
+          "numerator": 0,
+          "denominator": 48,
+          "rate": 0.0,
+          "wilson95": [
+            6.938893903907228e-18,
+            0.07410012966611748
+          ]
+        },
+        "completion_rate": {
+          "numerator": 48,
+          "denominator": 48,
+          "rate": 1.0,
+          "wilson95": [
+            0.9258998703338824,
+            0.9999999999999999
+          ]
+        },
+        "accuracy_all_attempts": {
+          "numerator": 43,
+          "denominator": 48,
+          "rate": 0.8958333333333334,
+          "wilson95": [
+            0.7783257830561368,
+            0.9546782809581869
+          ]
+        },
+        "conditional_completed": {
+          "precision": 0.8275862068965517,
+          "recall": 1.0,
+          "f1": 0.9056603773584906,
+          "accuracy": 0.8958333333333334,
+          "warning": "Errors excluded; interpret together with completion and full matrix."
+        },
+        "latency_ms": {
+          "p50": 1809.3798999980208,
+          "p95": 1952.6325199934945,
+          "p99": 2276.2787210056563,
+          "max": 2393.8942000095267,
+          "semantic_p95": 1952.6325199934945
+        },
+        "repeated_case_disagreement": {
+          "numerator": 0,
+          "denominator": 0,
+          "rate": null,
+          "wilson95": null
+        },
+        "unsafe_allowed_cases": []
+      }
+    }
+  },
+  "model": {
+    "provider": "dashscope",
+    "model": "qwen-plus",
+    "options": {
+      "temperature": 0.0
+    },
+    "enable_thinking": false,
+    "sdk_timeout_seconds": 30.0,
+    "sdk_max_retries": 0,
+    "sdk_version": "2.54.0",
+    "tls_policy": "verified-context-per-transport-httpx-default-trust-v1",
+    "tls_initialization_ms": 284.6832000068389,
+    "sdk_initialization_ms": 0.007599999662488699,
+    "connection_strategy": "owned-client-same-event-loop-v1",
+    "pool_close_ms": 0.2089000045089051,
+    "pool_close_status": "closed",
+    "endpoint_sha256": "5891aed827c4e67b2d7c0c73ea819327ce3f2b6ef72213cd79669486a26b1ead",
+    "calls": [
+      {
+        "sequence": 0,
+        "status": "received",
+        "client_reused": false,
+        "client_setup_ms": 0.298400002066046,
+        "sdk_await_ms": 2391.493899995112,
+        "usage": {
+          "input_tokens": 2419,
+          "output_tokens": 34,
+          "total_tokens": 2453
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 2391.8447000032756,
+        "local_and_cleanup_ms": 0.052400006097741425
+      },
+      {
+        "sequence": 1,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.003300010575912893,
+        "sdk_await_ms": 1815.1375000015832,
+        "usage": {
+          "input_tokens": 2425,
+          "output_tokens": 51,
+          "total_tokens": 2476
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1815.168100001756,
+        "local_and_cleanup_ms": 0.027299989596940577
+      },
+      {
+        "sequence": 2,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.003000008291564882,
+        "sdk_await_ms": 1437.4649000092177,
+        "usage": {
+          "input_tokens": 2417,
+          "output_tokens": 34,
+          "total_tokens": 2451
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1437.4935000087135,
+        "local_and_cleanup_ms": 0.025599991204217076
+      },
+      {
+        "sequence": 3,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.005599998985417187,
+        "sdk_await_ms": 1912.9243000061251,
+        "usage": {
+          "input_tokens": 2421,
+          "output_tokens": 51,
+          "total_tokens": 2472
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1912.9737999901408,
+        "local_and_cleanup_ms": 0.043899985030293465
+      },
+      {
+        "sequence": 4,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.003000008291564882,
+        "sdk_await_ms": 1428.588700000546,
+        "usage": {
+          "input_tokens": 1905,
+          "output_tokens": 34,
+          "total_tokens": 1939
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1428.6269000003813,
+        "local_and_cleanup_ms": 0.03519999154377729
+      },
+      {
+        "sequence": 5,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.0027999922167509794,
+        "sdk_await_ms": 1951.4156999939587,
+        "usage": {
+          "input_tokens": 1915,
+          "output_tokens": 51,
+          "total_tokens": 1966
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1951.4459999918472,
+        "local_and_cleanup_ms": 0.02750000567175448
+      },
+      {
+        "sequence": 6,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.0046000059228390455,
+        "sdk_await_ms": 1459.7903999965638,
+        "usage": {
+          "input_tokens": 1900,
+          "output_tokens": 34,
+          "total_tokens": 1934
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1459.8326000123052,
+        "local_and_cleanup_ms": 0.037600009818561375
+      },
+      {
+        "sequence": 7,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.0032999960239976645,
+        "sdk_await_ms": 1827.6495000027353,
+        "usage": {
+          "input_tokens": 1904,
+          "output_tokens": 51,
+          "total_tokens": 1955
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1827.679399997578,
+        "local_and_cleanup_ms": 0.026599998818710446
+      },
+      {
+        "sequence": 8,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.0027999922167509794,
+        "sdk_await_ms": 1419.3496999942,
+        "usage": {
+          "input_tokens": 2430,
+          "output_tokens": 34,
+          "total_tokens": 2464
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1419.3784999952186,
+        "local_and_cleanup_ms": 0.026000008801929653
+      },
+      {
+        "sequence": 9,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.0030999945010989904,
+        "sdk_await_ms": 1880.4207999928622,
+        "usage": {
+          "input_tokens": 2427,
+          "output_tokens": 51,
+          "total_tokens": 2478
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1880.4519999976037,
+        "local_and_cleanup_ms": 0.0281000102404505
+      },
+      {
+        "sequence": 10,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.003700013621710241,
+        "sdk_await_ms": 1436.081000007107,
+        "usage": {
+          "input_tokens": 2420,
+          "output_tokens": 34,
+          "total_tokens": 2454
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1436.1235000105808,
+        "local_and_cleanup_ms": 0.03879998985212296
+      },
+      {
+        "sequence": 11,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.003100009053014219,
+        "sdk_await_ms": 1943.91529999848,
+        "usage": {
+          "input_tokens": 2420,
+          "output_tokens": 51,
+          "total_tokens": 2471
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1943.9500000007683,
+        "local_and_cleanup_ms": 0.03159999323543161
+      },
+      {
+        "sequence": 12,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.0043000036384910345,
+        "sdk_await_ms": 1500.2851000026567,
+        "usage": {
+          "input_tokens": 2407,
+          "output_tokens": 34,
+          "total_tokens": 2441
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1500.3248000139138,
+        "local_and_cleanup_ms": 0.03540000761859119
+      },
+      {
+        "sequence": 13,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.003300010575912893,
+        "sdk_await_ms": 2142.5178999925265,
+        "usage": {
+          "input_tokens": 2416,
+          "output_tokens": 51,
+          "total_tokens": 2467
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 2142.5493999995524,
+        "local_and_cleanup_ms": 0.02819999644998461
+      },
+      {
+        "sequence": 14,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.003000008291564882,
+        "sdk_await_ms": 1445.6001999933505,
+        "usage": {
+          "input_tokens": 2403,
+          "output_tokens": 34,
+          "total_tokens": 2437
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1445.6284000043524,
+        "local_and_cleanup_ms": 0.025200002710334957
+      },
+      {
+        "sequence": 15,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.0021000014385208488,
+        "sdk_await_ms": 1801.2356000108412,
+        "usage": {
+          "input_tokens": 2419,
+          "output_tokens": 51,
+          "total_tokens": 2470
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1801.266399997985,
+        "local_and_cleanup_ms": 0.028699985705316067
+      },
+      {
+        "sequence": 16,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.0027999922167509794,
+        "sdk_await_ms": 1514.6323000080884,
+        "usage": {
+          "input_tokens": 1893,
+          "output_tokens": 34,
+          "total_tokens": 1927
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1514.6658000012394,
+        "local_and_cleanup_ms": 0.030700000934302807
+      },
+      {
+        "sequence": 17,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.0018999999156221747,
+        "sdk_await_ms": 1941.675900001428,
+        "usage": {
+          "input_tokens": 1907,
+          "output_tokens": 51,
+          "total_tokens": 1958
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1941.7025000002468,
+        "local_and_cleanup_ms": 0.02469999890308827
+      },
+      {
+        "sequence": 18,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.002800006768666208,
+        "sdk_await_ms": 1423.385700007202,
+        "usage": {
+          "input_tokens": 1892,
+          "output_tokens": 34,
+          "total_tokens": 1926
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1423.4159000043292,
+        "local_and_cleanup_ms": 0.027399990358389914
+      },
+      {
+        "sequence": 19,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.0025000044843181968,
+        "sdk_await_ms": 1821.1283999989973,
+        "usage": {
+          "input_tokens": 1904,
+          "output_tokens": 51,
+          "total_tokens": 1955
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1821.1550999985775,
+        "local_and_cleanup_ms": 0.024199995095841587
+      },
+      {
+        "sequence": 20,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.0031999952625483274,
+        "sdk_await_ms": 1452.0674999948824,
+        "usage": {
+          "input_tokens": 1945,
+          "output_tokens": 34,
+          "total_tokens": 1979
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1452.0959000074072,
+        "local_and_cleanup_ms": 0.025200017262250185
+      },
+      {
+        "sequence": 21,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.0034999975468963385,
+        "sdk_await_ms": 1870.2283000020543,
+        "usage": {
+          "input_tokens": 1949,
+          "output_tokens": 51,
+          "total_tokens": 2000
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1870.2608000021428,
+        "local_and_cleanup_ms": 0.029000002541579306
+      },
+      {
+        "sequence": 22,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.002700006007216871,
+        "sdk_await_ms": 1427.2426999959862,
+        "usage": {
+          "input_tokens": 1952,
+          "output_tokens": 34,
+          "total_tokens": 1986
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1427.2727000061423,
+        "local_and_cleanup_ms": 0.027300004148855805
+      },
+      {
+        "sequence": 23,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.0029999937396496534,
+        "sdk_await_ms": 1838.9721999992616,
+        "usage": {
+          "input_tokens": 1948,
+          "output_tokens": 51,
+          "total_tokens": 1999
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1839.0002999949502,
+        "local_and_cleanup_ms": 0.02510000194888562
+      },
+      {
+        "sequence": 24,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.0033999967854470015,
+        "sdk_await_ms": 1471.7474999924889,
+        "usage": {
+          "input_tokens": 1910,
+          "output_tokens": 34,
+          "total_tokens": 1944
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1471.7770999995992,
+        "local_and_cleanup_ms": 0.026200010324828327
+      },
+      {
+        "sequence": 25,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.0022000021999701858,
+        "sdk_await_ms": 1850.3454000019701,
+        "usage": {
+          "input_tokens": 1918,
+          "output_tokens": 51,
+          "total_tokens": 1969
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1850.3722000023117,
+        "local_and_cleanup_ms": 0.024599998141638935
+      },
+      {
+        "sequence": 26,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.006400005077011883,
+        "sdk_await_ms": 1843.7444000010146,
+        "usage": {
+          "input_tokens": 1907,
+          "output_tokens": 34,
+          "total_tokens": 1941
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1843.7777999934042,
+        "local_and_cleanup_ms": 0.026999987312592566
+      },
+      {
+        "sequence": 27,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.0024000037228688598,
+        "sdk_await_ms": 1823.0573999899207,
+        "usage": {
+          "input_tokens": 1911,
+          "output_tokens": 51,
+          "total_tokens": 1962
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1823.084400006337,
+        "local_and_cleanup_ms": 0.024600012693554163
+      },
+      {
+        "sequence": 28,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.0033999967854470015,
+        "sdk_await_ms": 1951.3341999991098,
+        "usage": {
+          "input_tokens": 2413,
+          "output_tokens": 51,
+          "total_tokens": 2464
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1951.3633000024129,
+        "local_and_cleanup_ms": 0.02570000651758164
+      },
+      {
+        "sequence": 29,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.00340001133736223,
+        "sdk_await_ms": 1798.0574999965029,
+        "usage": {
+          "input_tokens": 2495,
+          "output_tokens": 51,
+          "total_tokens": 2546
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1798.0879000097048,
+        "local_and_cleanup_ms": 0.027000001864507794
+      },
+      {
+        "sequence": 30,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.003000008291564882,
+        "sdk_await_ms": 1763.2682000112254,
+        "usage": {
+          "input_tokens": 2415,
+          "output_tokens": 51,
+          "total_tokens": 2466
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1763.298500009114,
+        "local_and_cleanup_ms": 0.027299989596940577
+      },
+      {
+        "sequence": 31,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.0031999952625483274,
+        "sdk_await_ms": 1845.6303999992087,
+        "usage": {
+          "input_tokens": 2497,
+          "output_tokens": 51,
+          "total_tokens": 2548
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1845.6596000032732,
+        "local_and_cleanup_ms": 0.026000008801929653
+      },
+      {
+        "sequence": 32,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.0023999891709536314,
+        "sdk_await_ms": 1429.7600999998394,
+        "usage": {
+          "input_tokens": 2417,
+          "output_tokens": 34,
+          "total_tokens": 2451
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1429.7883999970509,
+        "local_and_cleanup_ms": 0.025900008040480316
+      },
+      {
+        "sequence": 33,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.0024999899324029684,
+        "sdk_await_ms": 1792.0702999981586,
+        "usage": {
+          "input_tokens": 2432,
+          "output_tokens": 51,
+          "total_tokens": 2483
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1792.0968999969773,
+        "local_and_cleanup_ms": 0.024100008886307478
+      },
+      {
+        "sequence": 34,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.0030999945010989904,
+        "sdk_await_ms": 1794.3932000052882,
+        "usage": {
+          "input_tokens": 2417,
+          "output_tokens": 34,
+          "total_tokens": 2451
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1794.4225999963237,
+        "local_and_cleanup_ms": 0.026299996534362435
+      },
+      {
+        "sequence": 35,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.0025999906938523054,
+        "sdk_await_ms": 1819.6121999935713,
+        "usage": {
+          "input_tokens": 2443,
+          "output_tokens": 51,
+          "total_tokens": 2494
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1819.6398000000045,
+        "local_and_cleanup_ms": 0.02500001573935151
+      },
+      {
+        "sequence": 36,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.002700006007216871,
+        "sdk_await_ms": 1407.8460000018822,
+        "usage": {
+          "input_tokens": 2427,
+          "output_tokens": 34,
+          "total_tokens": 2461
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1407.8760999982478,
+        "local_and_cleanup_ms": 0.027399990358389914
+      },
+      {
+        "sequence": 37,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.0026999914553016424,
+        "sdk_await_ms": 1822.8269999963231,
+        "usage": {
+          "input_tokens": 2427,
+          "output_tokens": 51,
+          "total_tokens": 2478
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1822.8568999911658,
+        "local_and_cleanup_ms": 0.02720000338740647
+      },
+      {
+        "sequence": 38,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.0026999914553016424,
+        "sdk_await_ms": 1779.826600002707,
+        "usage": {
+          "input_tokens": 2429,
+          "output_tokens": 51,
+          "total_tokens": 2480
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1779.8551999876508,
+        "local_and_cleanup_ms": 0.025899993488565087
+      },
+      {
+        "sequence": 39,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.0031999952625483274,
+        "sdk_await_ms": 1775.0409000000218,
+        "usage": {
+          "input_tokens": 2443,
+          "output_tokens": 51,
+          "total_tokens": 2494
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1775.0711999979103,
+        "local_and_cleanup_ms": 0.02710000262595713
+      },
+      {
+        "sequence": 40,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.0025999906938523054,
+        "sdk_await_ms": 1855.7046000059927,
+        "usage": {
+          "input_tokens": 2426,
+          "output_tokens": 51,
+          "total_tokens": 2477
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1855.731099989498,
+        "local_and_cleanup_ms": 0.023899992811493576
+      },
+      {
+        "sequence": 41,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.0025000044843181968,
+        "sdk_await_ms": 1942.3148999921978,
+        "usage": {
+          "input_tokens": 2436,
+          "output_tokens": 51,
+          "total_tokens": 2487
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1942.3420000093756,
+        "local_and_cleanup_ms": 0.024600012693554163
+      },
+      {
+        "sequence": 42,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.0027999922167509794,
+        "sdk_await_ms": 1818.805600007181,
+        "usage": {
+          "input_tokens": 2427,
+          "output_tokens": 51,
+          "total_tokens": 2478
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1818.8325999944936,
+        "local_and_cleanup_ms": 0.024199995095841587
+      },
+      {
+        "sequence": 43,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.0025999906938523054,
+        "sdk_await_ms": 1797.8389999916544,
+        "usage": {
+          "input_tokens": 2439,
+          "output_tokens": 51,
+          "total_tokens": 2490
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1797.867799992673,
+        "local_and_cleanup_ms": 0.026200010324828327
+      },
+      {
+        "sequence": 44,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.0026999914553016424,
+        "sdk_await_ms": 1433.2357999956002,
+        "usage": {
+          "input_tokens": 1923,
+          "output_tokens": 34,
+          "total_tokens": 1957
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1433.2638999912888,
+        "local_and_cleanup_ms": 0.02540000423323363
+      },
+      {
+        "sequence": 45,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.005800000508315861,
+        "sdk_await_ms": 1828.4147000085795,
+        "usage": {
+          "input_tokens": 1921,
+          "output_tokens": 51,
+          "total_tokens": 1972
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1828.4566999936942,
+        "local_and_cleanup_ms": 0.03619998460635543
+      },
+      {
+        "sequence": 46,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.0036999990697950125,
+        "sdk_await_ms": 1419.7435999958543,
+        "usage": {
+          "input_tokens": 1911,
+          "output_tokens": 34,
+          "total_tokens": 1945
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1419.7735999914585,
+        "local_and_cleanup_ms": 0.026299996534362435
+      },
+      {
+        "sequence": 47,
+        "status": "received",
+        "client_reused": true,
+        "client_setup_ms": 0.0023000029614195228,
+        "sdk_await_ms": 1868.738500008476,
+        "usage": {
+          "input_tokens": 1911,
+          "output_tokens": 51,
+          "total_tokens": 1962
+        },
+        "response_model": "qwen-plus",
+        "total_ms": 1868.7675000110175,
+        "local_and_cleanup_ms": 0.026699999580159783
+      }
+    ],
+    "review_type": "behavior-grounded-v6",
+    "instructions_sha256": "2db467c2430508c048a00ab8e5428245a0cd3dbf2b416ded91a4f77d7615e314",
+    "message_layout": "system-boundary-user-data-v2",
+    "assessment_schema_sha256": "7f5f36acf27b17029853f4f6e2ca9a62297a3cbaeedd910bc7a2a970599162e0"
+  },
+  "usage": {
+    "calls": 48,
+    "calls_with_usage": 48,
+    "input_tokens": 106333,
+    "output_tokens": 2125,
+    "total_tokens": 108458,
+    "warning": "Cancelled/failed remote calls may still incur unknown billed tokens."
+  }
+}

@@ -1,0 +1,352 @@
+"""Responsibilities: 验证行为契约、程序许可、语义覆盖及实际 SQLite 提交边界。
+Implementation: 使用独立行为案例、固定语义替身和内存数据库，不读取凭据或发送网络请求。
+Related Modules: behavior/behavior_bounds/behavior_semantic；conftest 加载冻结行为回归数据。
+
+Declaration Index:
+- port: 构造完整或指定结果的固定审查器。
+- test_case_bounds: 验证所有案例的程序范围与语义范围分工。
+- test_reviewer_payload: 确保后端许可在系统区段，证据/提案在用户区段，攻击文本不成为系统指令。
+- test_semantic_coverage: 未知或缺失检查项不能放行，uncertain 不视为攻击。
+- test_failure_privacy: 故障不回显正文、不执行回调、不重试。
+- test_timeout_and_cancel: 真实等待被时限取消，外部取消向上传播。
+- test_timeout_and_cancel.waiting: 模拟在途审查等待取消。
+- test_contract_rejections: 拒绝伪造来源、非法参数约束和缺失语义许可。
+- test_execution_mutation: 模型不能修改已检快照，刷新变更后不得执行。
+- test_execution_mutation.assess: 刻意修改审查副本。
+- test_execution_mutation.refresh: 返回后端新快照。
+- test_sqlite_commit: 在真实事务中验证合格提交、拒绝、竞态和回滚。
+- test_sqlite_commit.refresh: 从测试数据库读取版本，按案例注入竞态。
+- test_sqlite_commit.operation: 事务内绑定资源和版本后提交或回滚。
+- test_provider_prompt_metadata: 复用传输，记录固定规则哈希和系统边界消息布局。
+
+Variable Index:
+None
+
+Constraints:
+mock 返回值由测试目标设置，不体现模型识别能力；真实项目 API 的行为结果另行报告。
+SQLite 只验证本测试回调的事务，不表示主后端已接线。无主业务参数或数据修改。"""
+
+import asyncio
+import hashlib
+import json
+import sqlite3
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+from pydantic import ValidationError
+
+from ai_security.behavior import (
+    BehaviorBlocked,
+    BehaviorCheckFailed,
+    BehaviorEngine,
+    execute_behavior_checked,
+)
+from ai_security.behavior_bounds import inspect_behavior_bounds
+from ai_security.behavior_semantic import (
+    BEHAVIOR_INSTRUCTIONS,
+    JsonBehaviorReviewer,
+    ProjectBehaviorReviewer,
+)
+from ai_security.errors import SecurityContextChanged
+from shared.contracts.behavior import BehaviorAssessment, BehaviorRequest
+
+
+def port(behavior_request, verdict="compliant"):
+    """功能：设置行为替身；输入：请求及结论；输出：异步端口；固定结果不推断任何语义。"""
+    ids = next(
+        p.requirement_ids
+        for p in behavior_request.boundary.permits
+        if p.operation == behavior_request.proposal.operation
+    )
+    reviewer = AsyncMock()
+    reviewer.assess.return_value = BehaviorAssessment(
+        verdict=verdict,
+        checked_requirement_ids=ids,
+        violated_requirement_ids=(ids[0],) if verdict == "noncompliant" else (),
+    )
+    return reviewer
+
+
+async def test_case_bounds(cases, policy):
+    """功能：检查案例分工；输入：30 个固定行为；输出：7 个确定性越界，其余必经语义审查。"""
+    deterministic = []
+    for row in cases:
+        behavior_request = BehaviorRequest.model_validate_json(json.dumps(row["request"]))
+        reviewer = port(behavior_request)
+        result = await BehaviorEngine(policy, reviewer).check(behavior_request)
+        violations = inspect_behavior_bounds(behavior_request, policy)
+        if violations:
+            assert row["expected"] == "deny"
+            assert result.status == "deny" and result.coverage == "deterministic"
+            reviewer.assess.assert_not_awaited()
+            deterministic.append(row["id"])
+        else:
+            assert result.status == "allow"
+            reviewer.assess.assert_awaited_once()
+    assert set(deterministic) == {
+        "resource-violation",
+        "fields-violation",
+        "parameter-violation",
+        "unknown-parameter-violation",
+        "phase-violation",
+        "role-violation",
+        "provenance-violation",
+    }
+
+
+async def test_reviewer_payload(behavior_request):
+    """功能：验证消息角色信任边界；输入：带攻击证据的正常提案及显式模型替身。
+    输出：后端许可单独放入系统区段，用户区段仅有完整证据/提案，不发送标签。
+    逻辑：解析独立系统JSON区段并比对当前操作；约束：替身不证明真实模型抵抗注入的能力。
+    """
+    response = port(behavior_request).assess.return_value
+    generate = AsyncMock(
+        return_value=json.dumps(
+            {
+                "basis": "The output satisfies the selected requirements.",
+                "verdict": "compliant",
+                "checked": list(range(len(response.checked_requirement_ids))),
+                "witness": None,
+            }
+        )
+    )
+    result = await JsonBehaviorReviewer(generate).assess(behavior_request)
+    assert result.verdict == "compliant"
+    instructions, payload, schema = generate.call_args.args
+    prefix = BEHAVIOR_INSTRUCTIONS + "\nTrusted backend boundary (JSON):\n"
+    assert instructions.startswith(prefix) and "expected" not in payload
+    assert behavior_request.evidence[0].text not in instructions
+    assert payload["proposal"] == behavior_request.proposal.model_dump(mode="json")
+    boundary = json.loads(instructions[len(prefix) :])
+    assert set(payload) == {"evidence", "proposal", "proposal_spans"}
+    assert all(span["source"] in {"content", "arguments"} for span in payload["proposal_spans"])
+    assert "actor_id" not in boundary
+    assert boundary["permit"]["operation"] == behavior_request.proposal.operation
+    assert schema["additionalProperties"] is False
+
+
+@pytest.mark.parametrize("kind", ["missing", "unknown", "uncertain", "noncompliant"])
+async def test_semantic_coverage(behavior_request, policy, kind):
+    """功能：验证覆盖；输入：四类响应；输出：已知违反项可 deny，缺失或未知则 error。"""
+    reviewer = port(
+        behavior_request, kind if kind in {"uncertain", "noncompliant"} else "compliant"
+    )
+    if kind in {"missing", "unknown"}:
+        reviewer.assess.return_value = reviewer.assess.return_value.model_copy(
+            update={"checked_requirement_ids": () if kind == "missing" else ("ATTACKER_POLICY",)}
+        )
+    result = await BehaviorEngine(policy, reviewer).check(behavior_request)
+    assert result.status == ("deny" if kind == "noncompliant" else "error")
+    assert result.error_code == (
+        None
+        if kind == "noncompliant"
+        else "semantic_uncertain"
+        if kind == "uncertain"
+        else "semantic_failure"
+    )
+
+
+@pytest.mark.parametrize("raw", ["PRIVATE_BAD_JSON", "{}", "[]"])
+async def test_failure_privacy(behavior_request, policy, caplog, raw):
+    """功能：验证失败关闭；输入：非法响应；输出：业务零调用、单次模型尝试、日志不包含响应正文。"""
+    generate = AsyncMock(return_value=raw)
+    operation = AsyncMock()
+    with pytest.raises(BehaviorCheckFailed):
+        await execute_behavior_checked(
+            BehaviorEngine(policy, JsonBehaviorReviewer(generate)),
+            behavior_request,
+            refresh_request=AsyncMock(return_value=behavior_request),
+            operation=operation,
+        )
+    operation.assert_not_awaited()
+    generate.assert_awaited_once()
+    assert "PRIVATE" not in caplog.text
+
+
+async def test_timeout_and_cancel(behavior_request, policy):
+    """功能：核对时限与取消；输入：不返回的端口和外部取消；输出：error 或取消传播，不执行。"""
+
+    async def waiting(_request):
+        """功能：模拟在途调用；输入：请求；输出：等待至取消；不使用阻塞睡眠或后台线程。"""
+        await asyncio.Event().wait()
+
+    reviewer = port(behavior_request)
+    reviewer.assess.side_effect = waiting
+    assert (
+        await BehaviorEngine(policy, reviewer).check(behavior_request)
+    ).error_code == "semantic_timeout"
+    reviewer.assess.side_effect = asyncio.CancelledError()
+    with pytest.raises(asyncio.CancelledError):
+        await BehaviorEngine(policy, reviewer).check(behavior_request)
+
+
+@pytest.mark.parametrize("change", ["parent", "source", "duplicate", "range", "requirements"])
+def test_contract_rejections(behavior_request, change):
+    """功能：拒绝非法契约；输入：五种坏数据；输出：校验异常，无默认修复或来源猜测。"""
+    value = behavior_request.model_dump(mode="json")
+    if change == "parent":
+        value["proposal"]["content"]["derived_from"] = ["unknown"]
+    elif change == "source":
+        value["proposal"]["content"]["source"] = "user"
+    elif change == "duplicate":
+        value["boundary"]["permits"].append(value["boundary"]["permits"][0])
+    elif change == "range":
+        value["boundary"]["permits"][2]["parameters"][0]["maximum"] = 0
+    else:
+        value["boundary"]["permits"][0]["requirement_ids"] = []
+    with pytest.raises(ValidationError):
+        BehaviorRequest.model_validate_json(json.dumps(value))
+
+
+@pytest.mark.parametrize("changed", [False, True])
+async def test_execution_mutation(behavior_request, policy, changed):
+    """功能：绑定全部快照；输入：审查副本篡改及刷新许可变更；输出：原提案执行一次或完全拒绝。"""
+    reviewer = port(behavior_request)
+    response = reviewer.assess.return_value
+
+    async def assess(snapshot):
+        """功能：模拟不良审查端口；输入：隔离副本；输出：固定合格；其修改不得影响执行参数。"""
+        snapshot.proposal.arguments["injected"] = True
+        return response
+
+    async def refresh():
+        """功能：重读模拟后端；输入：闭包状态；输出：相同或许可版本变更的快照。"""
+        if changed:
+            return behavior_request.model_copy(
+                update={
+                    "boundary": behavior_request.boundary.model_copy(
+                        update={"policy_version": "changed"}
+                    )
+                }
+            )
+        return behavior_request
+
+    reviewer.assess.side_effect = assess
+    operation = AsyncMock(return_value="executed")
+    if changed:
+        with pytest.raises(SecurityContextChanged):
+            await execute_behavior_checked(
+                BehaviorEngine(policy, reviewer),
+                behavior_request,
+                refresh_request=refresh,
+                operation=operation,
+            )
+        operation.assert_not_awaited()
+    else:
+        assert (
+            await execute_behavior_checked(
+                BehaviorEngine(policy, reviewer),
+                behavior_request,
+                refresh_request=refresh,
+                operation=operation,
+            )
+            == "executed"
+        )
+        assert operation.call_args.args[0].proposal.arguments == {}
+        operation.assert_awaited_once()
+
+
+@pytest.mark.parametrize("mode", ["allow", "deny", "race", "rollback"])
+async def test_sqlite_commit(cases, policy, mode):
+    """功能：验证真实副作用；输入：固定评分提案与合格/拒绝/竞态/故障；输出：仅合格原子提交。
+
+    数据库为内存虚构记录，执行器负责版本事务；模型识别使用替身，不代表生产联调。
+    """
+    behavior_request = BehaviorRequest.model_validate_json(
+        json.dumps(next(row["request"] for row in cases if row["id"] == "evaluation-safe"))
+    )
+    db = sqlite3.connect(":memory:")
+    db.executescript(
+        "CREATE TABLE scores(id TEXT PRIMARY KEY, level INTEGER, version INTEGER);"
+        "INSERT INTO scores VALUES('session-demo',1,7);"
+    )
+    calls = []
+
+    async def refresh():
+        """功能：模拟真实重读；输入：数据库；输出：当前版本快照；race 在取得快照后提交另一版本。"""
+        version = db.execute("SELECT version FROM scores WHERE id='session-demo'").fetchone()[0]
+        result = behavior_request.model_copy(
+            update={
+                "boundary": behavior_request.boundary.model_copy(update={"state_version": version})
+            }
+        )
+        if mode == "race":
+            with db:
+                db.execute("UPDATE scores SET version=8")
+        return result
+
+    async def operation(checked):
+        """功能：执行检查后的评分；输入：快照；输出：committed；版本校验与写入同事务，失败回滚。"""
+        calls.append(checked.request_id)
+        with db:
+            cursor = db.execute(
+                "UPDATE scores SET level=?, version=version+1 WHERE id=? AND version=?",
+                (
+                    checked.proposal.arguments["rubric_level"],
+                    checked.proposal.resource_id,
+                    checked.boundary.state_version,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise PermissionError("version changed")
+            if mode == "rollback":
+                raise RuntimeError("transaction failed")
+        return "committed"
+
+    reviewer = port(behavior_request, "noncompliant" if mode == "deny" else "compliant")
+    try:
+        if mode == "allow":
+            assert (
+                await execute_behavior_checked(
+                    BehaviorEngine(policy, reviewer),
+                    behavior_request,
+                    refresh_request=refresh,
+                    operation=operation,
+                )
+                == "committed"
+            )
+        else:
+            exception = {"deny": BehaviorBlocked, "race": PermissionError, "rollback": RuntimeError}
+            with pytest.raises(exception[mode]):
+                await execute_behavior_checked(
+                    BehaviorEngine(policy, reviewer),
+                    behavior_request,
+                    refresh_request=refresh,
+                    operation=operation,
+                )
+        assert len(calls) == (0 if mode == "deny" else 1)
+        assert db.execute("SELECT level,version FROM scores").fetchone() == (
+            (5, 8) if mode == "allow" else (1, 8) if mode == "race" else (1, 7)
+        )
+    finally:
+        db.close()
+
+
+async def test_provider_prompt_metadata(behavior_request):
+    """功能：核对审查元数据；输入：模拟传输；输出：固定规则摘要及动态后端许可的消息布局。
+    逻辑：固定规则哈希不伪装成每次完整系统消息的哈希；约束：不发送网络请求。
+    """
+    transport = MagicMock()
+    transport.generate = AsyncMock(
+        return_value=json.dumps(
+            {
+                "basis": "The output satisfies the selected requirements.",
+                "verdict": "compliant",
+                "checked": list(
+                    range(len(port(behavior_request).assess.return_value.checked_requirement_ids))
+                ),
+                "witness": None,
+            }
+        )
+    )
+    transport.metadata.return_value = {"calls": []}
+    reviewer = ProjectBehaviorReviewer(transport)
+    assert (await reviewer.assess(behavior_request)).verdict == "compliant"
+    assert transport.generate.call_args.args[0].startswith(
+        BEHAVIOR_INSTRUCTIONS + "\nTrusted backend boundary (JSON):\n"
+    )
+    assert reviewer.metadata()["message_layout"] == "system-boundary-user-data-v2"
+    assert (
+        reviewer.metadata()["instructions_sha256"]
+        == hashlib.sha256(BEHAVIOR_INSTRUCTIONS.encode()).hexdigest()
+    )

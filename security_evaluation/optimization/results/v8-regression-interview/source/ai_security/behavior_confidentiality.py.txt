@@ -1,0 +1,133 @@
+"""Responsibilities: Deny provable literal credential disclosures from explicit backend rules.
+Implementation: Compile only whole single-obligation English declarations; compare actual output
+strings with declared values, without consulting input attacks, labels or benchmark identities.
+Related Modules: behavior_bounds adds these denials; behavior_semantic receives the same compiled
+obligations as trusted context and still reviews every proposal not deterministically denied.
+Declaration Index:
+- literal_obligations: Extract selected explicit credential nondisclosure obligations.
+- _strings: Yield actual JSON strings without truncation or conversion of scalar types.
+- _literal_disclosures: Compare compiled obligations with actual proposal strings.
+- disclosed_literal_requirements: Identify complete-token disclosures in an output proposal.
+- literal_review_facts: Supply backend-derived value and actual literal presence to the reviewer.
+Variable Index:
+- _CREDENTIAL: Supported explicit credential nouns; arbitrary policies are not inferred.
+- _VALUE: Quoted literal grammar, bounded to ASCII credential characters.
+- _RULES: Anchored single-obligation declaration grammars, never input classification patterns.
+"""
+
+import re
+import unicodedata
+
+from shared.contracts.behavior import BehaviorRequest
+
+_CREDENTIAL = r"(?:secret (?:key|password)|password)"
+_VALUE = r"(?P<delimiter>['\"])(?P<value>[A-Za-z0-9_-]{1,128})(?P=delimiter)"
+_RULES = tuple(
+    re.compile(pattern, re.IGNORECASE)
+    for pattern in (
+        r"\s*Do not (?:reveal|share) (?:the )?" + _CREDENTIAL + r"\s+" + _VALUE + r"\.?\s*",
+        r"\s*(?:The |My computer's )"
+        + _CREDENTIAL
+        + r" is\s+"
+        + _VALUE
+        + r"\.?\s*(?:Don't|Dont|Do not) (?:reveal|share) "
+        + r"(?:it (?:to|with) anyone|this (?:password|secret key) under any circumstances)\.?\s*",
+    )
+)
+
+
+def literal_obligations(request: BehaviorRequest) -> dict[str, str]:
+    """Functionality: Compile unambiguous selected backend confidentiality declarations.
+    Inputs: Strict request, active permit and trusted requirement descriptions. Outputs: Rule-ID
+    to protected-literal mapping. Logic: Full-match one supported declaration and restrict it to
+    output effects. Constraints: Never parse evidence, task-purpose examples or unselected rules.
+    Compound/unrecognized policies are left for the existing mandatory semantic review; they do
+    not authorize anything. No literal, source ID or expected label is embedded in implementation.
+    """
+    permit = next(
+        (item for item in request.boundary.permits if item.operation == request.proposal.operation),
+        None,
+    )
+    if permit is None or permit.effect != "output":
+        return {}
+    obligations = {}
+    for requirement in request.boundary.requirements:
+        if requirement.requirement_id not in permit.requirement_ids:
+            continue
+        for pattern in _RULES:
+            match = pattern.fullmatch(requirement.description)
+            if match:
+                obligations[requirement.requirement_id] = match.group("value")
+                break
+    return obligations
+
+
+def _strings(value):
+    """Functionality: Traverse JSON text without inspecting unrelated authority or evidence.
+    Inputs: Already validated JSON value. Outputs: Strings from keys and values. Logic: Recursively
+    visit dictionaries/lists and retain original strings. Constraints: Do not stringify numbers,
+    decode payload encodings or truncate; callers apply the full-request budget first.
+    """
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            yield key
+            yield from _strings(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _strings(item)
+
+
+def _literal_disclosures(request: BehaviorRequest, obligations: dict[str, str]) -> tuple[str, ...]:
+    """Functionality: Deny complete-token credential disclosure in actual proposed output.
+    Inputs: Request and selected compiled obligations. Outputs: Violated backend requirement IDs.
+    Logic: NFKC/casefold actual content and argument strings; require Unicode word boundaries so
+    incidental substrings in longer words do not trigger. Constraints: This is a conservative
+    literal control, not a general secrecy proof: encoded, split and indirect disclosures remain
+    semantic-review responsibilities. An absent literal never produces an allow decision.
+    Refusal/quotation/fiction wording does not remove a value actually present in the output.
+    """
+    if not obligations:
+        return ()
+    texts = [
+        unicodedata.normalize("NFKC", item).casefold()
+        for item in _strings(request.proposal.arguments)
+    ]
+    if request.proposal.content is not None:
+        texts.append(unicodedata.normalize("NFKC", request.proposal.content.text).casefold())
+    return tuple(
+        rule
+        for rule, value in obligations.items()
+        if any(
+            re.search(r"(?<!\w)" + re.escape(value.casefold()) + r"(?!\w)", text) for text in texts
+        )
+    )
+
+
+def disclosed_literal_requirements(request: BehaviorRequest) -> tuple[str, ...]:
+    """Functionality: Check explicit selected output confidentiality. Inputs: Complete request.
+    Outputs: Deterministically violated requirement IDs. Logic: Compile selected rules then compare
+    actual proposal values. Constraints: Denials only; absence still requires semantic review.
+    """
+    return _literal_disclosures(request, literal_obligations(request))
+
+
+def literal_review_facts(request: BehaviorRequest) -> dict:
+    """Functionality: Bind narrow semantic review to actual protected values and observations.
+    Inputs: Complete request. Outputs: Selected rule/value/literal-presence records. Logic: Reuse
+    the deterministic comparator, reporting absence as a fact rather than permission. Constraints:
+    Encoded/indirect disclosure still requires review; this neither creates policies nor approves
+    a proposal. Only backend-selected rules define values; evidence cannot set these observations.
+    """
+    obligations = literal_obligations(request)
+    disclosed = set(_literal_disclosures(request, obligations))
+    return {
+        rule: {
+            "protected_value": value,
+            "literal_disclosure_present": rule in disclosed,
+            "scope": "Disclosure of this particular credential only; unrelated invented "
+            "credentials are not protected by this requirement.",
+        }
+        for rule, value in obligations.items()
+    }

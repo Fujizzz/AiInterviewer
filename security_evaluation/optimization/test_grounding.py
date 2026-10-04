@@ -1,0 +1,561 @@
+"""Responsibilities: Verify denial attribution, mandatory schema, TLS trust and fresh grouping.
+Implementation: Use strict frozen fixtures and SDK substitutes; make no external calls.
+Related Modules: behavior_semantic validates witnesses; project_provider initializes TLS once;
+prepare freezes independent acceptance groups before any reviewer outcome inspection.
+Declaration Index:
+- frozen_request: Load a complete existing fixture without changing experimental conditions.
+- review_json: Construct explicit private model responses for adversarial contract tests.
+- test_unsupported_denials: Reject input-only, invented, missing or ambiguous denial claims.
+- test_exact_witness: Preserve a well-formed denial through the unchanged public assessment port.
+- test_mandatory_witness_schema: Reject missing private factual basis or witness fields.
+- test_tls_trust_precedence: Preserve default CA/environment precedence and invalid-store failures.
+- test_tls_context_reuse: Verify actual required TLS verification and repeated context reuse.
+- test_fresh_acceptance_groups: Verify every acceptance task is absent from old evaluated groups.
+- test_gate_denominators: Verify errors and wrong decisions independently fail project gates.
+- test_index_rejection: Reject bool, negative, duplicate or unknown selected requirement indices.
+- test_index_binding: Bind compact indices only to the selected transmitted backend array.
+- test_model_reference_drift: Reject every declared model-condition difference before billing.
+- test_supplemental_protocols: Preserve separate frozen repeat/load conditions and dataset hashes.
+- test_uniform_instructions: Apply one fixed protocol with only selected backend requirements.
+- test_single_instruction_metadata: Record exactly one instruction hash without selection state.
+- test_compact_schema_contract: Preserve delivered field constraints and isolate per-call schemas.
+- test_complete_proposal_locators: Preserve full original data and bind witnesses without copies.
+- test_target_source_snapshot_hierarchy: Retain both same-named collectors before model calls.
+Variable Index:
+- ROOT: Repository root containing frozen fixtures.
+- HERE: Optimization protocol and input directory.
+"""
+
+import hashlib
+import json
+import ssl
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
+from ai_security import BehaviorEngine, SecurityPolicy, project_provider
+from ai_security.behavior_evidence import proposal_spans
+from ai_security.behavior_semantic import (
+    BEHAVIOR_INSTRUCTIONS,
+    GroundedAssessment,
+    JsonBehaviorReviewer,
+    ProjectBehaviorReviewer,
+)
+from security_evaluation.metrics import summarize
+from security_evaluation.public.prepare import digest
+from security_evaluation.run import load_cases, load_provenance
+from shared.contracts.behavior import BehaviorRequest
+
+from .collect import snapshot_sources
+from .prepare import task_group
+from .suite import gates, verify_model_reference
+from .test_confidentiality import request_fixture
+
+ROOT = Path(__file__).resolve().parents[2]
+HERE = Path(__file__).resolve().parent
+
+
+@pytest.fixture
+def frozen_request():
+    """Functionality: Load a strict request. Inputs: First synthetic fixture. Outputs: Model.
+    Logic: Use JSON-mode validation. Constraints: No label/condition edits or external state.
+    """
+    return load_cases(ROOT / "security_evaluation/data/interview_cases_v1.jsonl")[0][1]
+
+
+def review_json(request, **updates):
+    """Functionality: Create a simulated grounded denial. Inputs: Fixture and response overrides.
+    Outputs: JSON. Logic: Select the first actual proposal span for the first permitted rule.
+    Constraints: Simulated references verify attribution, not whether the span violates a rule.
+    """
+    ids = next(
+        p.requirement_ids
+        for p in request.boundary.permits
+        if p.operation == request.proposal.operation
+    )
+    value = {
+        "basis": "The output violates the selected requirement.",
+        "verdict": "noncompliant",
+        "checked": list(range(len(ids))),
+        "witness": {
+            "requirement": 0,
+            "span": 0,
+        },
+    }
+    value.update(updates)
+    return json.dumps(value, ensure_ascii=False)
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "input_only",
+        "fabricated",
+        "missing",
+        "duplicate",
+        "wrong_rule",
+        "wrong_location",
+        "compliant_claim",
+        "oversize_basis",
+        "wrong_basis_type",
+    ],
+)
+async def test_unsupported_denials(frozen_request, fault, caplog):
+    """Functionality: Fail closed for unsupported private assessments. Inputs: Nine corrupt claims.
+    Outputs: semantic_failure and exactly one call. Logic: Bind a known input-only string then
+    perturb witness coverage/content and exceed the original 8192-character whole-response limit.
+    Constraints: No unsafe release, retries or response logging;
+    this is protocol verification with a mock, not evidence of real-model detection accuracy.
+    """
+    value = frozen_request.model_dump(mode="json")
+    value["evidence"][0]["text"] = "PRIVATE_INPUT_ONLY_CLAIM"
+    request = BehaviorRequest.model_validate_json(json.dumps(value))
+    response = json.loads(review_json(request))
+    witness = response["witness"]
+    if fault == "input_only":
+        witness["quote"] = "PRIVATE_INPUT_ONLY_CLAIM"
+    elif fault == "fabricated":
+        witness["span"] = 999999
+    elif fault == "missing":
+        response["witness"] = None
+    elif fault == "duplicate":
+        response["checked"].append(0)
+    elif fault == "wrong_rule":
+        witness["requirement"] = 999
+    elif fault == "wrong_location":
+        witness["location"] = "evidence"
+    elif fault == "oversize_basis":
+        response["basis"] = "PRIVATE_" * 1025
+    elif fault == "wrong_basis_type":
+        response["basis"] = {"value": "PRIVATE_BASIS"}
+    else:
+        response.update(verdict="compliant")
+    generate = AsyncMock(return_value=json.dumps(response))
+    policy = SecurityPolicy.model_validate_json(
+        (ROOT / "security_evaluation/data/policy_v1.json").read_bytes()
+    )
+    decision = await BehaviorEngine(policy, JsonBehaviorReviewer(generate)).check(request)
+    assert decision.status == "error" and decision.error_code == "semantic_failure"
+    generate.assert_awaited_once()
+    assert "PRIVATE_" not in caplog.text
+
+
+async def test_exact_witness(frozen_request):
+    """Functionality: Preserve valid denial protocol. Inputs: Known actual span and simulated port.
+    Outputs: Original three-field BehaviorAssessment. Logic: Bind compact private references.
+    Constraints: Does not prove semantic correctness; no provider or business operation is called.
+    """
+    result = await JsonBehaviorReviewer(AsyncMock(return_value=review_json(frozen_request))).assess(
+        frozen_request
+    )
+    assert result.verdict == "noncompliant"
+    assert set(result.model_dump()) == {
+        "verdict",
+        "checked_requirement_ids",
+        "violated_requirement_ids",
+    }
+
+
+@pytest.mark.parametrize("field", ["basis", "witness"])
+async def test_mandatory_witness_schema(frozen_request, field):
+    """Functionality: Reject missing private schema. Inputs: Fixture and two mandatory field names.
+    Outputs: Validation exception. Logic: Remove a required field. Constraints: No legacy path,
+    model retry or automatic reinterpretation; the public reviewer port remains three-field.
+    """
+    value = json.loads(review_json(frozen_request))
+    del value[field]
+    with pytest.raises(ValueError):
+        await JsonBehaviorReviewer(AsyncMock(return_value=json.dumps(value))).assess(frozen_request)
+
+
+@pytest.mark.parametrize(
+    "environment,expected",
+    [
+        ({}, {"cafile": "default-ca"}),
+        ({"SSL_CERT_FILE": "custom-file", "SSL_CERT_DIR": "custom-dir"}, {"cafile": "custom-file"}),
+        ({"SSL_CERT_DIR": "custom-dir"}, {"capath": "custom-dir"}),
+    ],
+)
+def test_tls_trust_precedence(monkeypatch, environment, expected):
+    """Functionality: Preserve HTTPX trust configuration. Inputs: Three environment combinations.
+    Outputs: Correct public SSL call and surfaced invalid-store exception. Logic: Mock only SSL
+    creation/CA lookup. Constraints: No certificate path exists or provider called; no fallback.
+    """
+    monkeypatch.setattr(project_provider.os, "environ", environment)
+    monkeypatch.setattr(project_provider.certifi, "where", lambda: "default-ca")
+    factory = MagicMock()
+    monkeypatch.setattr(project_provider.ssl, "create_default_context", factory)
+    assert project_provider._verified_tls_context() is factory.return_value
+    factory.assert_called_once_with(**expected)
+    factory.side_effect = OSError("invalid certificate store")
+    with pytest.raises(OSError, match="invalid certificate store"):
+        project_provider._verified_tls_context()
+
+
+async def test_tls_context_reuse(monkeypatch):
+    """Functionality: Verify real certificate validation survives caching. Inputs: Default CA bundle
+    and a mock owned SDK client. Outputs: Required hostname/chain verification and same context
+    passed twice. Logic: Instantiate actual SSL once; replace network clients. Constraints: No
+    loop-bound state is cached globally; invalid certificate files fail initialization. Explicit
+    owner closure is required and no failed request is retried automatically.
+    """
+    monkeypatch.delenv("SSL_CERT_FILE", raising=False)
+    monkeypatch.delenv("SSL_CERT_DIR", raising=False)
+    transport = project_provider.ProjectModelTransport(
+        {"LLM_PROVIDER": "dashscope", "DASHSCOPE_API_KEY": "fake", "DASHSCOPE_MODEL": "fake"}, 30
+    )
+    assert transport._ssl_context.verify_mode == ssl.CERT_REQUIRED
+    assert transport._ssl_context.check_hostname
+    assert transport._ssl_context.cert_store_stats()["x509_ca"] > 0
+    client = MagicMock()
+    client.close = AsyncMock()
+    client.chat.completions.create = AsyncMock(side_effect=RuntimeError("simulated network error"))
+    monkeypatch.setattr(project_provider, "AsyncOpenAI", MagicMock(return_value=client))
+    http_factory = MagicMock()
+    monkeypatch.setattr(project_provider, "DefaultAsyncHttpxClient", http_factory)
+    for _ in range(2):
+        with pytest.raises(RuntimeError):
+            await transport.generate_text("system", "input")
+    await transport.aclose()
+    assert http_factory.call_count == 1
+    assert all(
+        call.kwargs["verify"] is transport._ssl_context for call in http_factory.call_args_list
+    )
+    client.close.assert_awaited_once()
+    assert len(transport.metadata()["calls"]) == 2
+
+
+def test_fresh_acceptance_groups():
+    """Functionality: Verify unseen-task selection and frozen hashes. Inputs: Prior protocol and new
+    immutable data. Outputs: Disjoint task groups, exact cases and all 15 variants. Logic: Recompute
+    old task groups and validate all datasets. Constraints: No guard outputs inspected; labels
+    remain constructed controls, not original official benchmark ground truth.
+    """
+    protocol = json.loads((HERE / "protocol-v2.json").read_bytes())
+    originals = json.loads(
+        (ROOT / "security_evaluation/public/raw/prompt_injection.json").read_bytes()
+    )
+    by_id = {row["prompt_id"]: row for row in originals}
+    old_groups = {task_group(by_id[index]) for index in protocol["previously_evaluated_source_ids"]}
+    assert {digest(group) for group in old_groups} == set(protocol["excluded_task_group_sha256"])
+    for name in protocol["dataset_sha256"]:
+        load_provenance(HERE / "protocol-v2.json", HERE / "data" / name)
+        values = load_cases(HERE / "data" / name)
+        if name.startswith("acceptance"):
+            assert (
+                not {task_group(by_id[row["public_source_id"]]) for row, _ in values} & old_groups
+            )
+            assert all(
+                request.evidence[0].text == by_id[row["public_source_id"]]["user_input"]
+                for row, request in values
+            )
+    interview = load_cases(HERE / "data/acceptance-interview.jsonl")
+    assert len({row["category"] for row, _ in interview}) == 15
+    assert len(interview) == 30
+
+
+@pytest.mark.parametrize(
+    "status,label,failed",
+    [
+        ("allow", "deny", "unsafe_allow"),
+        ("deny", "allow", "safe_false_deny"),
+        ("error", "allow", "error_rate"),
+        ("allow", "allow", "p95_latency"),
+    ],
+)
+def test_gate_denominators(status, label, failed):
+    """Functionality: Reject independently failing gates. Inputs: Four single-failure matrices.
+    Outputs: Expected failed gate. Logic: Include both label populations and retain errors in the
+    total denominator; exercise latency separately. Constraints: No model calls or actual fixture
+    labels altered; this protects acceptance accounting rather than recognition performance.
+    """
+    rows = [
+        {
+            "expected": label,
+            "status": status,
+            "case_id": "fault",
+            "repeat": 1,
+            "latency_ms": 5001 if failed == "p95_latency" else 100,
+        },
+        {
+            "expected": "deny" if label == "allow" else "allow",
+            "status": "deny" if label == "allow" else "allow",
+            "case_id": "control",
+            "repeat": 1,
+            "latency_ms": 5001 if failed == "p95_latency" else 100,
+        },
+    ]
+    limits = json.loads((HERE / "protocol-v2.json").read_bytes())["gates"]
+    result = gates(summarize(rows, strata=False), limits)
+    assert result[failed] is False
+
+
+@pytest.mark.parametrize("checked", [[True], ["0"], [-1], [999], [0, 0]])
+async def test_index_rejection(frozen_request, checked):
+    """Functionality: Prevent index coercion/forged coverage. Inputs: Five invalid private arrays.
+    Outputs: Validation rejection. Logic: Decode strict JSON then bind known integer indices.
+    Constraints: Mock only; no truncation, guessed mapping or automatic compatibility conversion.
+    """
+    raw = json.dumps(
+        {
+            "basis": "The output satisfies the selected requirements.",
+            "verdict": "compliant",
+            "checked": checked,
+            "witness": None,
+        }
+    )
+    with pytest.raises(ValueError):
+        await JsonBehaviorReviewer(AsyncMock(return_value=raw)).assess(frozen_request)
+
+
+async def test_index_binding(frozen_request):
+    """Functionality: Verify indices follow selected boundary order rather than other ID arrays.
+    Inputs: Reordered backend requirements and explicit simulated all-checked response.
+    Outputs: Exactly selected IDs in transmitted order. Logic: Reverse boundary declarations while
+    keeping permit references unchanged. Constraints: Changes only a unit-test copy; online
+    fixtures/labels untouched. The callback cannot invent or select an untransmitted requirement.
+    """
+    value = frozen_request.model_dump(mode="json")
+    value["boundary"]["requirements"].reverse()
+    request = BehaviorRequest.model_validate_json(json.dumps(value))
+    count = len(request.boundary.requirements)
+    generate = AsyncMock(
+        return_value=json.dumps(
+            {
+                "basis": "The output satisfies the selected requirements.",
+                "verdict": "compliant",
+                "checked": list(range(count)),
+                "witness": None,
+            }
+        )
+    )
+    response = await JsonBehaviorReviewer(generate).assess(request)
+    expected = tuple(item.requirement_id for item in request.boundary.requirements)
+    assert response.checked_requirement_ids == expected
+    system = generate.call_args.args[0]
+    boundary = json.loads(system.split("Trusted backend boundary (JSON):\n", 1)[1])
+    assert [(item["index"], item["requirement_id"]) for item in boundary["requirements"]] == list(
+        enumerate(expected)
+    )
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "provider",
+        "model",
+        "options",
+        "enable_thinking",
+        "sdk_timeout_seconds",
+        "sdk_max_retries",
+        "endpoint_sha256",
+        "sdk_version",
+    ],
+)
+def test_model_reference_drift(key):
+    """Functionality: Reject changed experimental model conditions. Inputs: Eight finite key names
+    and the recorded original metadata. Outputs: Explicit mismatch error. Logic: Verify the
+    unchanged record, replace exactly one field, require rejection. Constraints: No live config,
+    credential, provider call or target response is used; this tests preflight, not model quality.
+    """
+    reference = json.loads(
+        (HERE.parent / "public/results/revised-native-development/manifest.json").read_bytes()
+    )["reviewer"]
+    verify_model_reference(reference)
+    reference[key] = {"explicit": "different condition"}
+    with pytest.raises(ValueError, match=key):
+        verify_model_reference(reference)
+
+
+@pytest.mark.parametrize("stage,repeats,concurrency", [("stability", 2, 1), ("load", 1, 4)])
+def test_supplemental_protocols(stage, repeats, concurrency):
+    """Functionality: Preserve predeclared repeat/load comparison. Inputs: Two profiles with fixed
+    counts, parent protocol and immutable regression files. Outputs: Matching original gates,
+    policy and full dataset integrity. Logic: Verify the parent hash and load provenance exactly.
+    Constraints: These profiles are regression robustness checks, not additional unseen samples;
+    concurrent and repeated attempts must not inflate independent acceptance sample counts.
+    """
+    parent_path = HERE / "protocol-v2.json"
+    parent = json.loads(parent_path.read_bytes())
+    path = HERE / f"protocol-{stage}.json"
+    protocol = json.loads(path.read_bytes())
+    assert protocol["parent_protocol_sha256"] == digest(parent_path.read_bytes())
+    assert protocol["gates"] == parent["gates"]
+    assert protocol["policy_sha256"] == parent["policy_sha256"]
+    assert protocol["conditions"]["repeats"] == repeats
+    assert protocol["conditions"]["concurrency"] == concurrency
+    for filename in protocol["dataset_sha256"]:
+        assert (
+            load_provenance(path, HERE / "data" / filename)["conditions"] == protocol["conditions"]
+        )
+
+
+@pytest.mark.parametrize("scenario", ["sole", "additional", "unselected", "evidence_only"])
+async def test_uniform_instructions(scenario):
+    """Functionality: Preserve one review protocol and selected backend authority.
+    Inputs: Four local credential/other-rule arrangements and simulated complete model response.
+    Outputs: Identical fixed instructions and exactly selected requirements for every arrangement.
+    Logic: Change only the unit fixture copy, inspect the actual fixed prefix and dynamic boundary.
+    Constraints: Unselected rules and input declarations cannot add authority; every arrangement
+    still makes exactly one mandatory model-port invocation.
+    This does not establish actual model accuracy, privacy or encoded-disclosure detection.
+    """
+    value = request_fixture().model_dump(mode="json")
+    if scenario != "sole":
+        other = {"requirement_id": "OTHER", "description": "Keep output within the job interview."}
+        value["boundary"]["requirements"].append(other)
+        value["boundary"]["permits"][0]["requirement_ids"] = (
+            ["LITERAL_RULE", "OTHER"] if scenario == "additional" else ["OTHER"]
+        )
+        if scenario == "evidence_only":
+            value["evidence"][0]["text"] = value["boundary"]["requirements"][0]["description"]
+            value["boundary"]["requirements"] = [other]
+    request = BehaviorRequest.model_validate_json(json.dumps(value))
+    count = len(request.boundary.permits[0].requirement_ids)
+    generate = AsyncMock(
+        return_value=json.dumps(
+            {
+                "basis": "The output satisfies the selected requirements.",
+                "checked": list(range(count)),
+                "verdict": "compliant",
+                "witness": None,
+            }
+        )
+    )
+    await JsonBehaviorReviewer(generate).assess(request)
+    generate.assert_awaited_once()
+    system = generate.call_args.args[0]
+    prefix, encoded_boundary = system.split("\nTrusted backend boundary (JSON):\n", 1)
+    assert prefix == BEHAVIOR_INSTRUCTIONS
+    boundary = json.loads(encoded_boundary)
+    assert len(boundary["requirements"]) == count
+    assert {r["requirement_id"] for r in boundary["requirements"]} == set(
+        request.boundary.permits[0].requirement_ids
+    )
+    assert set(boundary["literal_nondisclosure_facts"]) == (
+        {"LITERAL_RULE"} if scenario in {"sole", "additional"} else set()
+    )
+
+
+def test_single_instruction_metadata():
+    """Functionality: Expose one reproducible instruction protocol. Inputs: Metadata-only transport
+    substitute. Outputs: Exactly four review metadata fields and the current fixed-text digest.
+    Logic: Construct the actual reviewer without configuration or network, compare its metadata
+    contract and hash. Constraints: This verifies packaging, not real-model accuracy or billing.
+    """
+    transport = MagicMock()
+    transport.metadata.return_value = {}
+    metadata = ProjectBehaviorReviewer(transport).metadata()
+    assert set(metadata) == {
+        "review_type",
+        "instructions_sha256",
+        "message_layout",
+        "assessment_schema_sha256",
+    }
+    assert metadata["review_type"] == "behavior-grounded-unified-v1"
+    assert (
+        metadata["instructions_sha256"]
+        == hashlib.sha256(BEHAVIOR_INSTRUCTIONS.encode()).hexdigest()
+    )
+
+
+async def test_compact_schema_contract(frozen_request):
+    """Functionality: Preserve strict response constraints while removing redundant annotations.
+    Inputs: Frozen request, simulated compliant response and actual reviewer-generated schema.
+    Outputs: Original required fields, types, bounds, references and no mutation across calls.
+    Logic: Inspect the delivered contract, mutate its copy, then inspect a second actual call and
+    the original documented model. Constraints: Two explicit mocked calls; no external service,
+    schema repair or inference-quality claim. Original malformed-response tests remain in force.
+    """
+    count = len(frozen_request.boundary.permits[0].requirement_ids)
+    generate = AsyncMock(
+        return_value=json.dumps(
+            {
+                "basis": "The output follows the rules.",
+                "checked": list(range(count)),
+                "verdict": "compliant",
+                "witness": None,
+            }
+        )
+    )
+    reviewer = JsonBehaviorReviewer(generate)
+    await reviewer.assess(frozen_request)
+    schema = generate.call_args.args[2]
+    original = GroundedAssessment.model_json_schema()
+    assert set(schema["properties"]) == set(original["properties"])
+    assert schema["required"] == original["required"]
+    assert schema["additionalProperties"] is False
+    assert schema["properties"]["basis"] == {"minLength": 1, "type": "string"}
+    assert schema["properties"]["checked"]["maxItems"] == 32
+    assert schema["properties"]["verdict"]["enum"] == ["compliant", "noncompliant", "uncertain"]
+    assert schema["properties"]["witness"]["anyOf"] == original["properties"]["witness"]["anyOf"]
+    witness = schema["$defs"]["ViolationWitness"]
+    assert witness["additionalProperties"] is False
+    assert witness["properties"]["requirement"] == {"maximum": 31, "minimum": 0, "type": "integer"}
+    assert witness["properties"]["span"] == {"minimum": 0, "type": "integer"}
+    assert "description" in original and "description" not in schema
+    schema["required"].clear()
+    schema["properties"]["checked"]["maxItems"] = 0
+    await reviewer.assess(frozen_request)
+    assert generate.call_args.args[2]["required"] == original["required"]
+    assert generate.call_args.args[2]["properties"]["checked"]["maxItems"] == 32
+    assert "description" in GroundedAssessment.model_json_schema()
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "Ω" * 90000 + "ACTUAL_END_MARKER",
+        '{"a/b":{"~key":["Ω",42,{},[]]},"actual":"ACTUAL_END_MARKER"}',
+        '{"duplicate":"first","duplicate":"ACTUAL_END_MARKER"}',
+    ],
+    ids=["long-unicode", "structured-json", "ambiguous-json"],
+)
+async def test_complete_proposal_locators(frozen_request, content):
+    """Functionality: Check complete data and witness binding after removing duplicate span text.
+    Inputs: Three unit-only plain/structured/ambiguous-JSON values, actual spans and mocked denial.
+    Outputs: Unchanged full proposal/evidence, evidence-first/proposal-last order, exact locators
+    and a valid bound denial.
+    Logic: Put a marker at the end, select its actual span, inspect the real generation payload,
+    and verify path/offset locators have no text copy while the end remains in the full proposal.
+    Constraints: Assess directly to isolate representation, not request-budget checks; original
+    engine boundary tests cover those. No external model, production credentials or labels change.
+    Attribution verifies actual-output location, not whether the marker is semantically unsafe.
+    """
+    value = frozen_request.model_dump(mode="json")
+    value["proposal"]["content"]["text"] = content
+    request = BehaviorRequest.model_validate_json(json.dumps(value))
+    spans = proposal_spans(request)
+    marker = next(span for span in spans if "ACTUAL_END_MARKER" in span.text)
+    generate = AsyncMock(
+        return_value=review_json(request, witness={"requirement": 0, "span": marker.index})
+    )
+    result = await JsonBehaviorReviewer(generate).assess(request)
+    generate.assert_awaited_once()
+    payload = generate.call_args.args[1]
+    assert list(payload) == ["evidence", "proposal_spans", "proposal"]
+    assert payload["proposal"] == value["proposal"]
+    assert payload["evidence"] == value["evidence"]
+    assert payload["proposal"]["content"]["text"] == content
+    assert len(payload["proposal_spans"]) == len(spans)
+    for locator, span in zip(payload["proposal_spans"], spans, strict=True):
+        assert set(locator) == {"index", "source", "path", "start", "end"}
+        assert locator == span.model_dump(mode="json", exclude={"text"})
+    assert result.verdict == "noncompliant"
+
+
+def test_target_source_snapshot_hierarchy(tmp_path):
+    """Functionality: Prevent ambiguous collection-source snapshots. Inputs: Temporary directory
+    and actual four implementation paths. Outputs: Four exact-byte snapshots, including separate
+    same-named collectors. Logic: Preserve complete repository paths and require overwrite errors.
+    Constraints: No model, environment credentials, dataset responses or live server is accessed.
+    """
+    snapshot_sources(tmp_path)
+    assert len(list((tmp_path / "source").rglob("*.txt"))) == 4
+    for name in ("optimization", "public"):
+        relative = Path(f"security_evaluation/{name}/collect.py")
+        saved = tmp_path / "source" / relative.with_name("collect.py.txt")
+        assert saved.read_bytes() == (ROOT / relative).read_bytes()
+    with pytest.raises(FileExistsError):
+        snapshot_sources(tmp_path)

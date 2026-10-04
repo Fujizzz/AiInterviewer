@@ -1,31 +1,30 @@
-"""职责：验证行为契约、程序许可、语义覆盖及实际 SQLite 提交边界。
-实现：使用独立行为案例、固定语义替身和内存数据库，不读取凭据或发送网络请求。
-关联：behavior/behavior_bounds/behavior_semantic；conftest 加载冻结的行为回归数据。
+"""Responsibilities: 验证行为契约、程序许可、语义覆盖及实际 SQLite 提交边界。
+Implementation: 使用独立行为案例、固定语义替身和内存数据库，不读取凭据或发送网络请求。
+Related Modules: behavior/behavior_bounds/behavior_semantic；conftest 加载冻结行为回归数据。
 
-目录：
-- port：构造完整或指定结果的固定审查器。
-- test_case_bounds：验证所有案例的程序范围与语义范围分工。
-- test_reviewer_payload：确保检查对象是提案，攻击证据不成为系统指令。
-- test_semantic_coverage：未知或缺失检查项不能放行，uncertain 不视为攻击。
-- test_failure_privacy：故障不回显正文、不执行回调、不重试。
-- test_timeout_and_cancel：真实等待被时限取消，外部取消向上传播。
-- test_timeout_and_cancel.waiting：模拟在途审查等待取消。
-- test_contract_rejections：拒绝伪造来源、非法参数约束和缺失语义许可。
-- test_execution_mutation：模型不能修改已检快照，刷新变更后不得执行。
-- test_execution_mutation.assess：刻意修改审查副本。
-- test_execution_mutation.refresh：返回后端新快照。
-- test_sqlite_commit：在真实事务中验证合格提交、拒绝、竞态和回滚。
-- test_sqlite_commit.refresh：从测试数据库读取版本，按案例注入竞态。
-- test_sqlite_commit.operation：事务内绑定资源和版本后提交或回滚。
-- test_provider_prompt_metadata：行为端口复用传输，记录正确提示词哈希。
+Declaration Index:
+- port: 构造完整或指定结果的固定审查器。
+- test_case_bounds: 验证所有案例的程序范围与语义范围分工。
+- test_reviewer_payload: 确保后端许可在系统区段，证据/提案在用户区段，攻击文本不成为系统指令。
+- test_semantic_coverage: 未知或缺失检查项不能放行，uncertain 不视为攻击。
+- test_failure_privacy: 故障不回显正文、不执行回调、不重试。
+- test_timeout_and_cancel: 真实等待被时限取消，外部取消向上传播。
+- test_timeout_and_cancel.waiting: 模拟在途审查等待取消。
+- test_contract_rejections: 拒绝伪造来源、非法参数约束和缺失语义许可。
+- test_execution_mutation: 模型不能修改已检快照，刷新变更后不得执行。
+- test_execution_mutation.assess: 刻意修改审查副本。
+- test_execution_mutation.refresh: 返回后端新快照。
+- test_sqlite_commit: 在真实事务中验证合格提交、拒绝、竞态和回滚。
+- test_sqlite_commit.refresh: 从测试数据库读取版本，按案例注入竞态。
+- test_sqlite_commit.operation: 事务内绑定资源和版本后提交或回滚。
+- test_provider_prompt_metadata: 复用传输，记录固定规则哈希和系统边界消息布局。
 
-关键变量：
-（无）
+Variable Index:
+None
 
-约束说明：
+Constraints:
 mock 返回值由测试目标设置，不体现模型识别能力；真实项目 API 的行为结果另行报告。
-SQLite 只验证本测试回调的事务，不表示主后端已接线。无主业务参数或数据修改。
-"""
+SQLite 只验证本测试回调的事务，不表示主后端已接线。无主业务参数或数据修改。"""
 
 import asyncio
 import hashlib
@@ -96,17 +95,33 @@ async def test_case_bounds(cases, policy):
 
 
 async def test_reviewer_payload(behavior_request):
-    """功能：验证权限与文本分离；输入：带攻击证据的正常系统行为；输出：边界单列，标签不送模。"""
+    """功能：验证消息角色信任边界；输入：带攻击证据的正常提案及显式模型替身。
+    输出：后端许可单独放入系统区段，用户区段仅有完整证据/提案，不发送标签。
+    逻辑：解析独立系统JSON区段并比对当前操作；约束：替身不证明真实模型抵抗注入的能力。
+    """
     response = port(behavior_request).assess.return_value
-    generate = AsyncMock(return_value=response.model_dump_json())
+    generate = AsyncMock(
+        return_value=json.dumps(
+            {
+                "basis": "The output satisfies the selected requirements.",
+                "verdict": "compliant",
+                "checked": list(range(len(response.checked_requirement_ids))),
+                "witness": None,
+            }
+        )
+    )
     result = await JsonBehaviorReviewer(generate).assess(behavior_request)
     assert result.verdict == "compliant"
     instructions, payload, schema = generate.call_args.args
-    assert instructions == BEHAVIOR_INSTRUCTIONS and "expected" not in payload
+    prefix = BEHAVIOR_INSTRUCTIONS + "\nTrusted backend boundary (JSON):\n"
+    assert instructions.startswith(prefix) and "expected" not in payload
     assert behavior_request.evidence[0].text not in instructions
     assert payload["proposal"] == behavior_request.proposal.model_dump(mode="json")
-    assert "actor_id" not in payload["trusted_boundary"]
-    assert payload["trusted_boundary"]["permit"]["operation"] == behavior_request.proposal.operation
+    boundary = json.loads(instructions[len(prefix) :])
+    assert set(payload) == {"evidence", "proposal", "proposal_spans"}
+    assert all(span["source"] in {"content", "arguments"} for span in payload["proposal_spans"])
+    assert "actor_id" not in boundary
+    assert boundary["permit"]["operation"] == behavior_request.proposal.operation
     assert schema["additionalProperties"] is False
 
 
@@ -308,15 +323,29 @@ async def test_sqlite_commit(cases, policy, mode):
 
 
 async def test_provider_prompt_metadata(behavior_request):
-    """功能：核对真实传输组合；输入：模拟独立传输；输出：行为提示词和正确摘要，不执行其他入口。"""
+    """功能：核对审查元数据；输入：模拟传输；输出：固定规则摘要及动态后端许可的消息布局。
+    逻辑：固定规则哈希不伪装成每次完整系统消息的哈希；约束：不发送网络请求。
+    """
     transport = MagicMock()
     transport.generate = AsyncMock(
-        return_value=port(behavior_request).assess.return_value.model_dump_json()
+        return_value=json.dumps(
+            {
+                "basis": "The output satisfies the selected requirements.",
+                "verdict": "compliant",
+                "checked": list(
+                    range(len(port(behavior_request).assess.return_value.checked_requirement_ids))
+                ),
+                "witness": None,
+            }
+        )
     )
     transport.metadata.return_value = {"calls": []}
     reviewer = ProjectBehaviorReviewer(transport)
     assert (await reviewer.assess(behavior_request)).verdict == "compliant"
-    assert transport.generate.call_args.args[0] == BEHAVIOR_INSTRUCTIONS
+    assert transport.generate.call_args.args[0].startswith(
+        BEHAVIOR_INSTRUCTIONS + "\nTrusted backend boundary (JSON):\n"
+    )
+    assert reviewer.metadata()["message_layout"] == "system-boundary-user-data-v2"
     assert (
         reviewer.metadata()["instructions_sha256"]
         == hashlib.sha256(BEHAVIOR_INSTRUCTIONS.encode()).hexdigest()

@@ -1,0 +1,59 @@
+{
+  "command": [
+    "git",
+    "diff",
+    "--cached",
+    "--check"
+  ],
+  "exit_code": 2,
+  "diagnostic_counts": {
+    "trailing whitespace": 1060885,
+    "new blank line at EOF": 1
+  },
+  "examples": [
+    {
+      "file": "security_evaluation/__init__.py",
+      "line": 1,
+      "kind": "trailing whitespace"
+    },
+    {
+      "file": "security_evaluation/__init__.py",
+      "line": 2,
+      "kind": "trailing whitespace"
+    },
+    {
+      "file": "security_evaluation/__init__.py",
+      "line": 3,
+      "kind": "trailing whitespace"
+    },
+    {
+      "file": "security_evaluation/__init__.py",
+      "line": 4,
+      "kind": "trailing whitespace"
+    },
+    {
+      "file": "security_evaluation/__init__.py",
+      "line": 5,
+      "kind": "trailing whitespace"
+    },
+    {
+      "file": "security_evaluation/__init__.py",
+      "line": 6,
+      "kind": "trailing whitespace"
+    },
+    {
+      "file": "security_evaluation/__init__.py",
+      "line": 7,
+      "kind": "trailing whitespace"
+    },
+    {
+      "file": "security_evaluation/__init__.py",
+      "line": 8,
+      "kind": "trailing whitespace"
+    }
+  ],
+  "stdout_bytes": 169841472,
+  "stdout_sha256": "a23701b1fae9db51869274308124aeb8161b1d27f1207e89be5c034e7d31d5e5",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "cause": "Frozen CRLF evaluation bytes are preserved by * -text and default Git whitespace check treats carriage return as trailing whitespace. Original files unchanged; subsequent check explicitly recognizes CRLF."
+}

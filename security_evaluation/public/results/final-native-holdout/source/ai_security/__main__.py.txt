@@ -1,0 +1,55 @@
+"""职责：提供单次行为合格性检查的本地 JSON CLI，不执行拟议业务操作。
+实现：显式读取行为请求、策略和项目模型配置；输出脱敏决策与确定退出码。
+关联：python -m ai_security 使用与面试网关相同的 BehaviorEngine 和项目模型工厂。
+
+目录：
+- main：加载并检查行为，捕获配置/输入故障而不回显正文。
+
+关键变量：
+（无）
+
+约束说明：
+退出码 0=allow、2=deny、3=检查失败、4=输入/配置异常；argparse 缺参另以 2 退出。
+请求与策略文件由开发者本地提供；模型只读取项目已有配置，不接受外部指定的 Python 工厂。
+"""
+
+import argparse
+import asyncio
+import json
+from pathlib import Path
+
+from shared.contracts.behavior import BehaviorRequest
+
+from .behavior import BehaviorEngine
+from .behavior_semantic import create_behavior_reviewer
+from .policy import SecurityPolicy
+
+
+def main() -> int:
+    """功能：检查一个行为；输入：命令行路径和工厂；输出：JSON 与退出码；不发送或执行业务。"""
+    parser = argparse.ArgumentParser(description="Check proposed interview behavior.")
+    parser.add_argument("--request", type=Path, required=True)
+    parser.add_argument("--policy", type=Path, required=True)
+    args = parser.parse_args()
+    try:
+        request = BehaviorRequest.model_validate_json(args.request.read_text(encoding="utf-8"))
+        policy = SecurityPolicy.model_validate_json(args.policy.read_text(encoding="utf-8"))
+        reviewer = create_behavior_reviewer()
+        decision = asyncio.run(BehaviorEngine(policy, reviewer).check(request))
+    except Exception as exc:
+        print(
+            json.dumps(
+                {
+                    "status": "error",
+                    "error_code": "invalid_input_or_configuration",
+                    "exception_type": type(exc).__name__,
+                }
+            )
+        )
+        return 4
+    print(decision.model_dump_json())
+    return {"allow": 0, "deny": 2, "error": 3}[decision.status]
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

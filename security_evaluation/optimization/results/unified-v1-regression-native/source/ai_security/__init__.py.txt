@@ -1,0 +1,23 @@
+"""Responsibilities: 公开当前行为合格性引擎及执行边界，不加载配置或启动服务。
+Implementation: 统一导出行为检查、执行接口、策略与共享异常。
+Related Modules: shared.contracts.behavior 定义请求，agent_safety 负责输入输出适配。
+
+Declaration Index:
+None
+
+Variable Index:
+- __all__: 安全模块的公开导出列表。
+"""
+
+from .behavior import BehaviorBlocked, BehaviorCheckFailed, BehaviorEngine, execute_behavior_checked
+from .errors import SecurityContextChanged
+from .policy import SecurityPolicy
+
+__all__ = [
+    "BehaviorBlocked",
+    "BehaviorCheckFailed",
+    "BehaviorEngine",
+    "execute_behavior_checked",
+    "SecurityContextChanged",
+    "SecurityPolicy",
+]

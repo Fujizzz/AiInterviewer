@@ -1,14 +1,14 @@
-"""职责：为行为引擎、CLI 及模型传输测试提供固定场景、显式策略和严格请求。
-实现：按原顺序读取已冻结数据，不连接业务数据库或外部模型，不修改标签或预算。
-关联：test_behavior/test_cli/test_project_provider 共用夹具，生产不加载本文件。
+"""Responsibilities: 提供行为引擎、CLI及模型传输的固定场景、显式策略和严格请求。
+Implementation: 按原顺序读取冻结数据，不连接数据库或外部模型，不修改标签或预算。
+Related Modules: test_behavior/test_cli/test_project_provider 共用夹具，生产不加载本文件。
 
-目录：
-- cases：读取原行为案例，保持原标签与顺序。
-- policy：沿用行为回归的显式超时策略。
-- behavior_request：构造攻击输入后正确拒绝的行为请求。
+Declaration Index:
+- cases: 读取原行为案例，保持原标签与顺序。
+- policy: 提供原回归的短时限故障测试策略，不改变生产预算。
+- behavior_request: 构造攻击输入作为证据、输出仍合规的行为请求。
 
-关键变量：
-- DATA：固定行为案例文件路径。
+Variable Index:
+- DATA: 固定行为案例文件路径。
 """
 
 import json
