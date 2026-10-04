@@ -1,86 +1,101 @@
 #include "InterviewerSpeechComponent.h"
 
+#include "InterviewerSpeechTimeline.h"
 #include "Components/AudioComponent.h"
 #include "Sound/SoundWaveProcedural.h"
 #include "HttpModule.h"
 #include "Interfaces/IHttpRequest.h"
 #include "Interfaces/IHttpResponse.h"
-#include "Features/IModularFeatures.h"
-#include "ILiveLinkClient.h"
-#include "MetaHumanLocalLiveLinkSource.h"
-#include "MetaHumanAudioBaseLiveLinkSubject.h"
-#include "MetaHumanAudioBaseLiveLinkSubjectSettings.h"
 #include "ISpeechAnimationSolver.h"
+#include "SpeechAnimationSolverV4.h"
+#include "GuiToRawControlsUtils.h"
+#include "NNE.h"
+#include "NNEModelData.h"
+#include "NNERuntimeCPU.h"
 #include "Async/Async.h"
+#include "Misc/ScopeLock.h"
+#include "Modules/ModuleManager.h"
+#include "UObject/StrongObjectPtr.h"
 
-/** Push externally generated PCM through Epic's public audio-subject extension point. */
-class FInterviewerAudioSubject : public FMetaHumanAudioBaseLiveLinkSubject
+/** Only the model is reused. PCM, recurrent state and curves belong to one utterance. */
+class FInterviewerSpeechSolverState
 {
 public:
-    FInterviewerAudioSubject(ILiveLinkClient* Client, const FGuid& Guid, FName Name,
-        UMetaHumanAudioBaseLiveLinkSubjectSettings* Settings)
-        : FMetaHumanAudioBaseLiveLinkSubject(Client, Guid, Name, Settings) {}
+    explicit FInterviewerSpeechSolverState(UNNEModelData* InModel) : Model(InModel) {}
 
-    // The component supplies audio; do not create a capture-device sampler thread.
-    virtual void Start() override { FMetaHumanLocalLiveLinkSubject::Start(); }
-    virtual void MediaSamplerMain() override {}
-    int32 GetGeneratedFrames() const { return GeneratedFrames.GetValue(); }
-
-    void Push(const int16* Data, int32 Count, int32 Rate)
+    bool Solve(const TArray<int16>& Samples, const UE::Interviewer::FSpeechPreparationFence& Fence,
+        UE::Interviewer::FSpeechTimeline& Timeline, FString& Error)
     {
-        FAudioSample Sample;
-        Sample.NumChannels = 1;
-        Sample.SampleRate = Rate;
-        Sample.NumSamples = Count;
-        Sample.Data.SetNumUninitialized(Count);
-        for (int32 Index = 0; Index < Count; ++Index)
+        FScopeLock Lock(&Mutex);
+        if (Fence.bCancelled.Load()) return false;
+        if (!Solver)
         {
-            Sample.Data[Index] = static_cast<float>(Data[Index]) / 32768.0f;
+            Solver = MakeUnique<FSpeechAnimationSolverV4>(TObjectPtr<UNNEModelData>(Model.Get()), TEXT("NNERuntimeORTCpu"));
+            if (!Solver->Initialize())
+            { Solver.Reset(); Error = TEXT("Native CPU speech model could not initialize"); return false; }
         }
-        GetSampleTime(FFrameRate(30, 1), Sample.Time, Sample.TimeSource);
-        AddAudioSample(MoveTemp(Sample));
+        Solver->ClearCache();
+        Timeline.DurationSeconds = static_cast<double>(Samples.Num()) / 24000.0;
+        constexpr int32 SamplesPerStep = 480;
+        constexpr int32 LookaheadSteps = 4;
+        const int32 Steps = (Samples.Num() + SamplesPerStep - 1) / SamplesPerStep + LookaheadSteps;
+        FSpeechAnimationAudioFrame Input;
+        Input.SampleRate = 24000;
+        Input.NumChannels = 1;
+        Input.SamplesCount = SamplesPerStep;
+        Input.bContiguous = true;
+        Input.Mood = EAudioDrivenAnimationMood::Neutral;
+        Input.MoodIntensity = 0.25f;
+        Input.Lookahead = 80;
+        Input.AudioSamples.SetNumUninitialized(SamplesPerStep);
+        for (int32 Step = 0; Step < Steps; ++Step)
+        {
+            if (Fence.bCancelled.Load()) return false;
+            const int32 Offset = Step * SamplesPerStep;
+            for (int32 Index = 0; Index < SamplesPerStep; ++Index)
+                Input.AudioSamples[Index] = Offset + Index < Samples.Num()
+                    ? static_cast<float>(Samples[Offset + Index]) / 32768.0f : 0.0f;
+            const double InputEndSeconds = (Step + 1) * UE::Interviewer::SpeechSolverStepSeconds;
+            Input.ArrivalTime = InputEndSeconds;
+            FSpeechAnimationFrameData Output;
+            if (!Solver->SolveAudioFrame(Input, Output) || Output.CurveNames.Num() != Output.CurveValues.Num())
+            { Error = TEXT("Native CPU speech solver failed to generate a frame"); return false; }
+            TMap<FString, float> Gui;
+            for (int32 Index = 0; Index < Output.CurveNames.Num(); ++Index)
+            {
+                const float Value = Output.CurveValues[Index];
+                if (!FMath::IsFinite(Value)) { Error = TEXT("Native speech solver returned a nonfinite curve"); return false; }
+                Gui.Add(Output.CurveNames[Index].ToString(), Value);
+            }
+            const TMap<FString, float> Raw = GuiToRawControlsUtils::ConvertGuiToRawControls(Gui);
+            if (Raw.Num() != UE::Interviewer::MaxSpeechCurves)
+            { Error = TEXT("Native speech solver returned an unexpected facial curve layout"); return false; }
+            if (Timeline.Names.IsEmpty())
+            {
+                for (const auto& Pair : Raw) Timeline.Names.Add(FName(*Pair.Key));
+                Timeline.Names.Sort([](FName A, FName B) { return A.LexicalLess(B); });
+            }
+            TArray<float> Values;
+            Values.Reserve(Timeline.Names.Num());
+            for (FName Name : Timeline.Names)
+            {
+                const float* Value = Raw.Find(Name.ToString());
+                if (!Value) { Error = TEXT("Native speech curve layout changed during preparation"); return false; }
+                Values.Add(*Value);
+            }
+            if (!Timeline.AppendFrame(InputEndSeconds, Values))
+            { Error = TEXT("Native speech timeline exceeded its validated bounds"); return false; }
+        }
+        if (Timeline.Frames.IsEmpty() || Timeline.Frames.Last().Seconds + 1.e-7 < Timeline.DurationSeconds)
+        { Error = TEXT("Native speech timeline did not cover the complete audio clip"); return false; }
+        return !Fence.bCancelled.Load();
     }
-protected:
-    virtual void ExtractPipelineData(TSharedPtr<UE::MetaHuman::Pipeline::FPipelineData> Data) override
-    {
-        FMetaHumanAudioBaseLiveLinkSubject::ExtractPipelineData(Data);
-        if (!Animation.AnimationData.IsEmpty()) GeneratedFrames.Increment();
-    }
-private:
-    FThreadSafeCounter GeneratedFrames;
-};
 
-/** Recreated per utterance so interrupted work cannot animate the next question. */
-class FInterviewerAudioSource : public FMetaHumanLocalLiveLinkSource
-{
-public:
-    explicit FInterviewerAudioSource(FName InName) : Name(InName) {}
-    virtual FText GetSourceType() const override { return FText::FromString("Interviewer TTS PCM"); }
-    bool IsReady() const { return AudioSubject.IsValid(); }
-    int32 GetGeneratedFrames() const { return AudioSubject ? AudioSubject->GetGeneratedFrames() : 0; }
-    void Push(const int16* Data, int32 Count, int32 Rate)
-    {
-        if (AudioSubject.IsValid()) AudioSubject->Push(Data, Count, Rate);
-    }
-protected:
-    virtual void OnSourceCreated(bool bIsPreset) override
-    {
-        auto* SubjectSettings = CreateSubjectSettings<UMetaHumanAudioBaseLiveLinkSubjectSettings>();
-        SubjectSettings->Lookahead = 80;
-        SubjectSettings->Mood = EAudioDrivenAnimationMood::Neutral;
-        SubjectSettings->MoodIntensity = 0.25f;
-        RequestSubjectCreation(Name.ToString(), SubjectSettings);
-    }
-    virtual TSharedPtr<FMetaHumanLocalLiveLinkSubject> CreateSubject(
-        const FName& InName, UMetaHumanLocalLiveLinkSubjectSettings* InSettings) override
-    {
-        AudioSubject = MakeShared<FInterviewerAudioSubject>(LiveLinkClient, SourceGuid, InName,
-            CastChecked<UMetaHumanAudioBaseLiveLinkSubjectSettings>(InSettings));
-        return AudioSubject;
-    }
 private:
-    FName Name;
-    TSharedPtr<FInterviewerAudioSubject> AudioSubject;
+    // Created on the game thread and retained until the last canceled worker exits.
+    TStrongObjectPtr<UNNEModelData> Model;
+    FCriticalSection Mutex;
+    TUniquePtr<FSpeechAnimationSolverV4> Solver;
 };
 
 UInterviewerSpeechComponent::UInterviewerSpeechComponent()
@@ -96,12 +111,22 @@ void UInterviewerSpeechComponent::BeginPlay()
     Audio->bIsUISound = true;
     Audio->bAllowSpatialization = false;
     Audio->RegisterComponent();
-    SolverModel = LoadObject<UObject>(nullptr, *ISpeechAnimationSolver::GetLatestModelAssetPath());
+    // NNE model-data caches and runtime registration are not synchronized.
+    // Resolve them before the worker creates its CPU session.
+    if (!FModuleManager::Get().LoadModulePtr<IModuleInterface>(TEXT("NNERuntimeORT"))) return;
+    if (UClass* SettingsClass = FindObject<UClass>(nullptr, TEXT("/Script/NNERuntimeORT.NNERuntimeORTSettings")))
+        SettingsClass->GetDefaultObject();
+    auto* ModelData = LoadObject<UNNEModelData>(nullptr, *ISpeechAnimationSolver::GetLatestModelAssetPath());
+    SolverModel = ModelData;
+    const auto Runtime = UE::NNE::GetRuntime<INNERuntimeCPU>(TEXT("NNERuntimeORTCpu"));
+    if (ModelData && Runtime.IsValid() && ModelData->GetModelData(TEXT("NNERuntimeORTCpu")).IsValid())
+        SolverState = MakeShared<FInterviewerSpeechSolverState, ESPMode::ThreadSafe>(ModelData);
 }
 
 void UInterviewerSpeechComponent::EndPlay(const EEndPlayReason::Type Reason)
 {
     StopSpeaking();
+    SolverState.Reset();
     if (Audio) Audio->DestroyComponent();
     Super::EndPlay(Reason);
 }
@@ -112,18 +137,22 @@ void UInterviewerSpeechComponent::Speak(const FString& AudioUrl, const FString& 
     CurrentId = UtteranceId;
     LastError.Empty();
     LastGeneratedFrameCount = 0;
-    LastPlaybackEvent = "preparing";
-    // Local demonstration only; fetch the matching temporary backend capability.
+    LastSpeechPreparationMs = LastSpeechSolveMs = LastSpeechDurationSeconds = 0.0f;
+    LastSpeechSampleCount = 0;
+    LastSpeechSampleFrame = LastSpeechAudioSeconds = LastSpeechCurveSeconds = LastSpeechMaxFrameGapSeconds = 0.0f;
+    LastPlaybackEvent = TEXT("preparing");
+    PreparationStarted = FPlatformTime::Seconds();
     const bool bLocal = AudioUrl.StartsWith("http://127.0.0.1:8765/api/speech/audio/")
         || AudioUrl.StartsWith("http://localhost:8765/api/speech/audio/");
     FGuid Capability;
     if (!bLocal || !FGuid::Parse(CurrentId, Capability) || !AudioUrl.EndsWith("/" + CurrentId + "/"))
     { Fail(TEXT("Invalid local speech URL or utterance ID")); return; }
-    if (!SolverModel) { Fail(TEXT("StreamingADA solver model is missing; check cooked content")); return; }
+    if (!SolverState || !SolverModel)
+    { Fail(TEXT("Native CPU speech model is unavailable; check StreamingADA cooked CPU model data")); return; }
     const uint32 ExpectedGeneration = Generation;
     Request = FHttpModule::Get().CreateRequest();
     Request->SetURL(AudioUrl);
-    Request->SetVerb("GET");
+    Request->SetVerb(TEXT("GET"));
     Request->SetTimeout(15.0f);
     TWeakObjectPtr<UInterviewerSpeechComponent> WeakThis(this);
     Request->OnProcessRequestComplete().BindLambda(
@@ -137,13 +166,7 @@ void UInterviewerSpeechComponent::Speak(const FString& AudioUrl, const FString& 
                 if (!bOK || !Response.IsValid() || Response->GetResponseCode() != 200
                     || !Self->DecodeWave(Response->GetContent()))
                 { Self->Fail(TEXT("Unable to download valid 24 kHz mono PCM WAV")); return; }
-                if (!IModularFeatures::Get().IsModularFeatureAvailable(ILiveLinkClient::ModularFeatureName))
-                { Self->Fail(TEXT("Live Link is unavailable")); return; }
-                ILiveLinkClient& Client = IModularFeatures::Get().GetModularFeature<ILiveLinkClient>(ILiveLinkClient::ModularFeatureName);
-                Self->Source = MakeShared<FInterviewerAudioSource>(Self->SubjectName);
-                Client.AddSource(Self->Source);
-                Self->bPreparing = true;
-                Self->ReadyStarted = FPlatformTime::Seconds();
+                Self->PrepareSpeech();
             });
         });
     if (!Request->ProcessRequest()) Fail(TEXT("Audio download could not start"));
@@ -182,75 +205,79 @@ bool UInterviewerSpeechComponent::DecodeWave(const TArray<uint8>& Bytes)
     return true;
 }
 
+void UInterviewerSpeechComponent::PrepareSpeech()
+{
+    check(IsInGameThread());
+    bPreparing = true;
+    PreparationJob = MakeShared<UE::Interviewer::FSpeechPreparationFence, ESPMode::ThreadSafe>(Generation);
+    const auto Job = PreparationJob;
+    const auto State = SolverState;
+    TArray<int16> WorkSamples = Samples;
+    TWeakObjectPtr<UInterviewerSpeechComponent> WeakThis(this);
+    Async(EAsyncExecution::ThreadPool, [WeakThis, State, Job, WorkSamples = MoveTemp(WorkSamples)]()
+    {
+        const double SolveStarted = FPlatformTime::Seconds();
+        auto Result = MakeShared<UE::Interviewer::FSpeechTimeline, ESPMode::ThreadSafe>();
+        FString Error;
+        const bool bOK = State->Solve(WorkSamples, *Job, *Result, Error);
+        const float SolveMs = static_cast<float>((FPlatformTime::Seconds() - SolveStarted) * 1000.0);
+        if (Job->bCancelled.Load()) return;
+        AsyncTask(ENamedThreads::GameThread, [WeakThis, Job, Result, Error, bOK, SolveMs]()
+        {
+            if (!WeakThis.IsValid() || !Job->Accepts(WeakThis->Generation)) return;
+            auto* Self = WeakThis.Get();
+            Self->PreparationJob.Reset();
+            Self->bPreparing = false;
+            Self->LastSpeechSolveMs = SolveMs;
+            if (!bOK) { Self->Fail(Error.IsEmpty() ? TEXT("Native speech preparation failed") : Error); return; }
+            Self->SpeechTimeline = Result;
+            Self->LastGeneratedFrameCount = Result->Frames.Num();
+            Self->LastSpeechDurationSeconds = static_cast<float>(Result->DurationSeconds);
+            Self->LastSpeechMaxFrameGapSeconds = static_cast<float>(Result->GetMaxFrameGapSeconds());
+            Self->Wave = NewObject<USoundWaveProcedural>(Self);
+            Self->Wave->SetSampleRate(Self->SampleRate);
+            Self->Wave->NumChannels = 1;
+            Self->Wave->Duration = Self->LastSpeechDurationSeconds;
+            Self->Wave->QueueAudio(reinterpret_cast<const uint8*>(Self->Samples.GetData()), Self->Samples.Num() * sizeof(int16));
+            Self->Audio->SetSound(Self->Wave);
+            // No inference remains during playback. Sound, lips and rhythm share one clock.
+            Self->Audio->Play();
+            Self->AudiblePlaybackEpoch = FPlatformTime::Seconds();
+            Self->bPlaying = true;
+            Self->LastSpeechPreparationMs = static_cast<float>((Self->AudiblePlaybackEpoch - Self->PreparationStarted) * 1000.0);
+            Self->LastPlaybackEvent = TEXT("playback_started");
+            UE_LOG(LogTemp, Display, TEXT("Interviewer speech prepared: utterance=%s preparation_ms=%.1f solve_ms=%.1f duration=%.3f frames=%d max_curve_gap=%.4f"),
+                *Self->CurrentId, Self->LastSpeechPreparationMs, SolveMs, Self->LastSpeechDurationSeconds,
+                Self->LastGeneratedFrameCount, Self->LastSpeechMaxFrameGapSeconds);
+            Self->OnPlaybackEvent.Broadcast(TEXT("playback_started"), Self->CurrentId);
+        });
+    });
+}
+
 void UInterviewerSpeechComponent::TickComponent(float Delta, ELevelTick TickType, FActorComponentTickFunction* Tick)
 {
     Super::TickComponent(Delta, TickType, Tick);
-    if (!bPreparing && !bClockStarted) return;
     const double Now = FPlatformTime::Seconds();
-    if (bPreparing)
+    if (bPreparing && Now - PreparationStarted > 120.0)
+    { Fail(TEXT("Native speech preparation timed out")); return; }
+    if (!bPlaying || !SpeechTimeline) return;
+    const double Elapsed = FMath::Max(0.0, Now - AudiblePlaybackEpoch);
+    LastSpeechAudioSeconds = static_cast<float>(FMath::Min(Elapsed, SpeechTimeline->DurationSeconds));
+    TMap<FName, float> Curves;
+    double CurveSeconds = 0;
+    if (SpeechTimeline->Sample(Elapsed, Curves, &LastSpeechSampleFrame, &CurveSeconds))
     {
-        if (!Source || !Source->IsReady())
-        {
-            if (Now - ReadyStarted > 10) Fail(TEXT("Native audio subject did not become ready"));
-            return;
-        }
-        bPreparing = false;
-        bClockStarted = true;
-        PlaybackEpoch = Now;
-        PushedSamples = 0;
-        Wave = NewObject<USoundWaveProcedural>(this);
-        Wave->SetSampleRate(SampleRate);
-        Wave->NumChannels = 1;
-        Wave->Duration = static_cast<float>(Samples.Num()) / SampleRate;
-        Wave->QueueAudio(reinterpret_cast<const uint8*>(Samples.GetData()), Samples.Num() * sizeof(int16));
-        Audio->SetSound(Wave);
+        ++LastSpeechSampleCount;
+        LastSpeechCurveSeconds = static_cast<float>(CurveSeconds);
     }
-    const double Elapsed = Now - PlaybackEpoch;
-    LastGeneratedFrameCount = Source->GetGeneratedFrames();
-    if (Elapsed > 2.0 && LastGeneratedFrameCount == 0)
-    { Fail(TEXT("Native speech solver produced no animation; inspect the Unreal runtime log")); return; }
-    // Feed the solver in 40 ms blocks and pad the tail for lookahead/neutral settling.
-    const int32 Target = FMath::Min(static_cast<int32>(Elapsed * SampleRate) + 960, Samples.Num() + 9600);
-    while (PushedSamples < Target)
-    {
-        const int32 Count = FMath::Min(960, Target - PushedSamples);
-        if (PushedSamples < Samples.Num())
-        {
-            const int32 Available = FMath::Min(Count, Samples.Num() - PushedSamples);
-            Source->Push(Samples.GetData() + PushedSamples, Available, SampleRate);
-            PushedSamples += Available;
-        }
-        else
-        {
-            TArray<int16> Silence;
-            Silence.AddZeroed(Count);
-            Source->Push(Silence.GetData(), Count, SampleRate);
-            PushedSamples += Count;
-        }
-    }
-    if (!bPlaying && Elapsed >= AudioDelaySeconds)
-    {
-        bPlaying = true;
-        Audio->Play();
-        LastPlaybackEvent = "playback_started";
-        OnPlaybackEvent.Broadcast(TEXT("playback_started"), CurrentId);
-    }
-    const double Duration = static_cast<double>(Samples.Num()) / SampleRate;
-    if (bPlaying && Elapsed >= AudioDelaySeconds + Duration) FinishPlayback();
+    if (Elapsed >= SpeechTimeline->DurationSeconds) FinishPlayback();
 }
 
-void UInterviewerSpeechComponent::ReleaseSource()
+bool UInterviewerSpeechComponent::GetSpeechCurves(TMap<FName, float>& Out, double Now) const
 {
-    if (Source)
-    {
-        Source->RequestSourceShutdown();
-        if (IModularFeatures::Get().IsModularFeatureAvailable(ILiveLinkClient::ModularFeatureName))
-        {
-            auto& Client = IModularFeatures::Get().GetModularFeature<ILiveLinkClient>(ILiveLinkClient::ModularFeatureName);
-            Client.RemoveSource(Source->GetSourceGuid());
-        }
-        Source.Reset();
-    }
+    check(IsInGameThread());
+    Out.Reset();
+    return bPlaying && SpeechTimeline && SpeechTimeline->Sample(FMath::Max(0.0, Now - AudiblePlaybackEpoch), Out);
 }
 
 void UInterviewerSpeechComponent::StopSpeaking()
@@ -258,15 +285,18 @@ void UInterviewerSpeechComponent::StopSpeaking()
     ++Generation;
     const FString StoppedId = CurrentId;
     if (Request) { Request->CancelRequest(); Request.Reset(); }
+    if (PreparationJob) { PreparationJob->Cancel(); PreparationJob.Reset(); }
     if (Audio) Audio->Stop();
-    bPreparing = bClockStarted = bPlaying = false;
-    ReleaseSource();
+    bPreparing = bPlaying = false;
+    AudiblePlaybackEpoch = 0;
+    SpeechTimeline.Reset();
     Wave = nullptr;
     Samples.Empty();
     CurrentId.Empty();
+    // Preserve final diagnostics until a new utterance starts.
     if (!StoppedId.IsEmpty())
     {
-        LastPlaybackEvent = "interrupted";
+        LastPlaybackEvent = TEXT("interrupted");
         OnPlaybackEvent.Broadcast(TEXT("interrupted"), StoppedId);
     }
 }
@@ -276,7 +306,9 @@ void UInterviewerSpeechComponent::FinishPlayback()
     const FString CompletedId = CurrentId;
     CurrentId.Empty();
     StopSpeaking();
-    LastPlaybackEvent = "playback_finished";
+    LastPlaybackEvent = TEXT("playback_finished");
+    UE_LOG(LogTemp, Display, TEXT("Interviewer speech completed: utterance=%s sampled_updates=%d audio_seconds=%.3f curve_seconds=%.3f last_frame=%.2f"),
+        *CompletedId, LastSpeechSampleCount, LastSpeechAudioSeconds, LastSpeechCurveSeconds, LastSpeechSampleFrame);
     OnPlaybackEvent.Broadcast(TEXT("playback_finished"), CompletedId);
 }
 
@@ -286,6 +318,20 @@ void UInterviewerSpeechComponent::Fail(const FString& Reason)
     const FString FailedId = CurrentId;
     CurrentId.Empty();
     StopSpeaking();
-    LastPlaybackEvent = "playback_failed";
+    LastPlaybackEvent = TEXT("playback_failed");
     OnPlaybackEvent.Broadcast(TEXT("playback_failed"), FailedId);
+}
+
+UE::Interviewer::FSpeechRhythm UInterviewerSpeechComponent::GetSpeechRhythm(double Now) const
+{
+    check(IsInGameThread());
+    UE::Interviewer::FSpeechRhythm Rhythm;
+    Rhythm.PlaybackGeneration = Generation;
+    Rhythm.bPlaying = bPlaying;
+    if (bPlaying)
+    {
+        Rhythm.AudibleSeconds = FMath::Max(0.0, Now - AudiblePlaybackEpoch);
+        Rhythm.Rms = UE::Interviewer::PcmWindowRms(Samples, SampleRate, Rhythm.AudibleSeconds);
+    }
+    return Rhythm;
 }

@@ -10,18 +10,33 @@ Declaration Index:
   Convert bounded English question text into a temporary WAV capability URL.
 - audio:
   Return cached WAV to the UE HTTP client; no external media URLs are fetched.
+- _wav_duration_ms:
+  Read generated WAV duration for the bounded native mouth-preparation deadline.
 
 Variable Index:
 None
 """
 
+import io
 import time
+import wave
 
 from django.http import HttpResponse
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from .service import SpeechError, audio_store, synthesize
+
+
+def _wav_duration_ms(wav):
+    """Read generated media metadata without another synthesis or audio download."""
+    try:
+        with wave.open(io.BytesIO(wav), "rb") as audio:
+            if audio.getframerate() <= 0:
+                return None
+            return round(audio.getnframes() * 1000 / audio.getframerate())
+    except (wave.Error, EOFError):
+        return None
 
 
 @api_view(["POST"])
@@ -50,6 +65,7 @@ def tts(request):
             "utterance_id": utterance_id,
             "audio_url": request.build_absolute_uri(f"/api/speech/audio/{utterance_id}/"),
             "sample_rate": 24000,
+            "duration_ms": _wav_duration_ms(wav),
             "generation_ms": round((time.monotonic() - started) * 1000),
         }
     )

@@ -6,17 +6,19 @@
 | --- | --- |
 | 固定面试场景 | 已保存 `L_Interview`：背景、地面、主光/补光、胸部以上机位；已设为默认地图 |
 | 控制器 | 已生成 `BP_InterviewerController`，管理 Idle / Listening / Thinking / Speaking / Interrupted |
-| 原生音频桥接 | 已编译、打包并运行：HTTP 下载 WAV，同一份 PCM 分别用于播放和 MetaHuman 音频求解 |
+| 原生音频桥接 | HTTP 下载新 WAV，在后台 CPU 完整准备口型曲线后开始播放；声音与插值口型使用同一播放时间线 |
 | 网页数字人播放器 | 使用 Epic UE 5.8 官方 SDK；实际浏览器已显示打包场景并收到 UE 控制器反馈 |
-| TTS | 已接入 Qwen3-TTS-Flash-Realtime，支持显式地区配置，当前生产使用北京；收集实时 PCM 后封装整句 WAV，临时音频缓存有容量和期限限制 |
+| TTS | 已接入 Qwen3-TTS-Flash-Realtime，地区由根目录 `.env` 显式配置；实时 PCM 封装为整句 WAV，返回音频时长，临时音频有容量和期限限制 |
 | STT | 已接入 Qwen-Audio-3.1-ASR-Flash-Streaming：浏览器 PCM → 语音 WebSocket → 中间/最终转录 → 可修改的回答框 |
-| 面试闭环 | 接入原有 question / answer / finished 消息；支持 15 秒准备、5 秒静默自动提交及语义结束确认后的 MCP 提交，均交给原 Agent 评价 |
-| 人物 Rig 与 Assembly | **已完成**；当前场景已放入 `BP_NewMetaHumanCharacter`，Avatar 与 InterviewCamera 引用已核对 |
-| 自然身体动作 | 状态事件已提供；**尚未配置身体待机循环和手势动画资产** |
+| 面试闭环 | 接入原有 question / answer / finished 消息；支持 10 秒准备、5 秒静默自动提交及语义结束确认后的 MCP 提交，均交给原 Agent 评价 |
+| 人物 Rig 与 Assembly | **已完成**；当前场景使用 UE Cine 组装的 `BP_MHC_Hannah`，Avatar 与 InterviewCamera 引用已核对 |
+| 身体与录制表情 | Body 保持同一待机循环；Agent 计划有效时生成表情，原始录制的循环副本作为保底 |
+| 注意力与语音节奏 | 倾听停顿时偶尔轻微点头；Thinking 小幅侧头与视线回归；Speaking 根据实际播放音频做轻微强调 |
+| Speaking 表情衔接 | Face 保持同一动画实例；语音开始、结束和打断时短暂混合，正常说话时口型直接响应语音 |
 | 云端英文语音 | **短句实测通过**：24 kHz PCM16 TTS 和 16 kHz PCM STT；尚未完成真实麦克风与技术术语的整轮验收 |
 | 真人完整验收 | **尚未完成**：真实人物口型、身体动作、五轮面试及十分钟稳定性仍需现场确认 |
 
-初次打包验证时人物尚未组装，程序显示背景。最新组装角色与场景已重新打包，浏览器可显示固定机位的人物，串流约 27–30 FPS。离线原生测试使用合成音调；云端短句测试单独记录。
+最新组装角色与场景已重新打包，人物可通过实际 Pixel Streaming 返回固定机位画面。帧率取决于场景、显卡与编码方式；当前机器的最新实测和限制见本文末尾，不能沿用早期短句测试的帧率。
 
 ```mermaid
 flowchart LR
@@ -36,7 +38,7 @@ flowchart LR
 
 ## 人物资产与当前场景
 
-本机当前人物已完成组装。地图为 `/Game/Maps/L_Interview`，控制器为 `/Game/Blueprints/BP_InterviewerController`，角色为 `/Game/MetaHumans/NewMetaHumanCharacter/BP_NewMetaHumanCharacter`。
+本机当前人物已完成组装。地图为 `/Game/Maps/L_Interview`，控制器为 `/Game/Blueprints/BP_InterviewerController`，角色为 `/Game/MetaHumans/MHC_Hannah/BP_MHC_Hannah`。
 已检查当前场景的 Avatar 与 InterviewCamera 绑定；不要为重复测试重建现有布景。以下组装步骤供新机器或新人物使用。
 
 1. 在 UE 打开 `Content/MetaHuman/NewMetaHumanCharacter`，确认人物脸型、发型和服装。
@@ -68,8 +70,26 @@ exec(open(r"D:\_Project\AiInterviewer\DigitalHuman\Tools\setup_scene.py", encodi
 运行结果保存在 `DigitalHuman/Saved/InterviewSetup.json`。成功接线时 `avatar_bound` 应为 `true`。
 按 Play 检查机位和材质，并为身体配置一个合适的站立待机循环。身体动画要与面部 Live Link 分开，不能用身体动画覆盖面部动画图。
 
-控制器会在 Speaking 时设置 `InterviewerAudio` 和 Use Live Link；如组装版本使用其他变量名称，按 Epic 文档在角色的 Live Link 区域手动核对。
-`BP_InterviewerController` 的 `OnStateChanged` 可供蓝图扩展身体动作；当前没有点头或手势素材。
+控制器运行时为 Face 安装 `InterviewerFaceAnimInstance`，所有状态保持同一个实例，语音 Subject 为 `InterviewerAudio`。Face 复制 Body 的姿态和表情曲线，再由原有 Face Post Process 执行面部求解。不要禁用 Face Post Process，也不要在 Speaking 开始或结束时切换 Face 的 Anim Class。
+`BP_InterviewerController` 的 `OnStateChanged` 更新 Body 动画蓝图中的 `InterviewState`。Body 的录制表情混合权重保持 1，供 Speaking 的眉眼混合使用；头颈姿态继续来自 Body，`HeadControlSwitch` 保持 0。
+
+`ABP_InterviewerBody` 的原有动画图输出后增加 `Interviewer Head Motion` 节点，统一处理颈部和头部的小幅动作。原有待机、身体后处理与 Face 跟随 Body 的方式继续使用。不要再单独旋转 Face 组件或启用 Face 的头部覆盖。
+
+在测试页点击 **Preview local behaviour**，再点击 **Preview listening rhythm**，可以用 17 秒的本地模拟语音活动检查偶尔点头和视线配合，不打开麦克风，也不调用模型。Thinking 的动作间隔较长，切换后观察几轮即可。Speaking 可以复用缓存音频；正常语音口型仍由原生音频求解器控制。
+
+### 调整表情与 Speaking 过渡
+
+`AS_MHP_Listening_Loop` / `AS_MHP_Thinking_Loop` 是原始录制的副本，首尾约 0.35 秒接缝已处理；眉毛、待机嘴部和视线分别减弱，完整眨眼保留。原始 `_01` 资产继续保留。
+
+需要调整 Speaking 效果时，在 UE 中打开 `L_Interview`，停止 Play，在大纲中选中 `BP_InterviewerController` 的实例。在 Details 搜索 `Face`：
+
+- `Face Transition Seconds` defaults to 0.3 seconds for speech entry, interruption and failure.
+- `Face Speech Release Seconds` defaults to 0.8 seconds for normal speech completion. The last visible mouth and expression gradually blend into the next quiet state; audio ends immediately. The duration is fixed at the transition boundary. Increase this value slightly if the release still feels abrupt.
+- `Speaking Recorded Upper Face Weight` defaults to 0.3 for recorded fallback. With a healthy presentation Agent plan, generated blink, gaze and upper-face behaviour take priority; the audio solver retains mouth movement.
+
+The updated Windows package passed 10 offline checks on 2026-10-04, including the longer completion release, continuity when another utterance starts during that release, actual cached speech playback, and interruption. The report is `DigitalHuman/Saved/SpeechReleaseValidation/Automation/index.json`. Tests reused the saved English WAV without provider calls and closed their temporary processes afterward.
+
+保存关卡后重新打包，网页会使用新设置。Play 期间的临时修改停止后不会保存。Face 动画实例自身的 `Recorded Expression Strength` 保持默认 1；循环副本已降低强度，避免重复衰减。初次验证先保持默认设置，只观察朗读前、朗读结束与打断后的变化。
 
 ## 配置后端语音
 
@@ -178,20 +198,20 @@ Qwen TTS 使用新的专用 SDK 适配；把 CosyVoice 的 model 字符串换成
 1. 点击数字人连接/播放按钮，确认角色可见。
 2. 填写英文简历和目标岗位，开始面试。
 3. 后端返回完整问题，网页显示字幕并请求 TTS。
-4. 题目显示后准备 15 秒，倒计时结束自动开启麦克风；首次需授权浏览器麦克风，可用中文或英文回答。
+4. 自动朗读结束后准备 10 秒，倒计时结束自动开启麦克风；关闭朗读或主动打断时直接进入准备阶段。首次需授权浏览器麦克风，可用中文或英文回答。
 5. 连续静默 5 秒或检测到结束意图时自动收尾，等待完整最终转写。回答最多 120 秒，到限也自动收尾。
 6. 字幕用于查看转写，完整回答自动提交；页面不提供回答编辑或手动开始／提交按钮。可随时通过 **结束面试** 选择评判并保存、结束且不保存或继续。
 7. 下一题重复上述过程，最终显示原有 Agent 生成的报告。
 
 临时转录不触发追问。正常情况下声音只由 UE 播放；数字人不可用时才由浏览器播放语音。
 拒绝麦克风权限、语音模型失败或串流断线时可以继续文字回答。
-点击 **打断朗读** 会取消本地下载/播放和面部 Source，并恢复回答操作；已发出的云端 TTS 请求不保证在供应商处立即取消。
+点击 **打断朗读** 会取消本地下载、口型计算和播放，并恢复回答操作；已发出的云端 TTS 请求不保证在供应商处立即取消。
 
 ## 语音接口
 
 | 接口 | 输入 / 输出 |
 | --- | --- |
-| `POST /api/speech/tts/` | `{"text":"..."}`，最多 1200 字符；返回 `utterance_id`、`audio_url`、`sample_rate`、`generation_ms` |
+| `POST /api/speech/tts/` | `{"text":"..."}`，最多 1200 字符；返回 `utterance_id`、`audio_url`、`sample_rate`、`generation_ms`、`duration_ms` |
 | `GET /api/speech/audio/<uuid>/` | 24 kHz、mono、PCM16 WAV；缓存最多 16 段/32 MiB，10 分钟过期 |
 | `/ws/speech/stt/` | hello → `{"type":"start"}` → PCM 二进制 → `{"type":"stop"}` → final |
 
@@ -217,6 +237,8 @@ UE 下载地址固定为本机 `8765` 的语音路由；更换后端端口需要
 
 ## 验证与剩余验收
 
+2026-10-04 已在更新后的 Windows Development 包中通过 8 项表情与音频 Automation 检查：边界连续性、首帧等待、快速反向切换、Source 丢失、上半脸混合、角色绑定、完整语音播放过渡及原生音频播放/打断。复用了本地 3.28 秒英文 WAV，没有调用云端模型；完整播放产生 105 帧、251 条表情曲线，正常结束与打断后过渡完成，Face / Body 实例保持不变。报告为 `DigitalHuman/Saved/FaceTransitionFix/Automation/index.json`。网页中的表情自然度由使用者手动确认。
+
 本轮已通过：Python 核心测试、Django/ASGI 测试、前端 PCM/生命周期测试、原有真实网络离线联调、注释契约检查、Windows 打包和实际浏览器 Data Channel 往返。
 实际打包程序运行 `Interviewer.NativeAudioSmoke`，检查动态下载、声音播放、原生动画帧生成、第二段音频和主动打断。
 2026-10-01 的打包验证通过：第一段生成 126 帧原生动画数据，第二段播放后成功打断，音频停止且 Live Link Subject 被移除。
@@ -232,15 +254,15 @@ Qwen 适配迁移后重新运行后端测试；前端 PCM/生命周期的 6 项�
 
 ```powershell
 # 终端 1：专用离线音频端点，不能与真实后端同时占用 8765。
-.\.venv\Scripts\python.exe DigitalHuman\Tools\audio_smoke_fixture.py
+# 缓存 WAV 已存在时可重复检查英文播放，不调用云端模型。
+.\.venv\Scripts\python.exe DigitalHuman\Tools\audio_smoke_fixture.py --wav DigitalHuman\Saved\SpeechValidation\qwen-question.wav
 ```
 
 ```powershell
 # 终端 2：测试完成后 UE 自动退出，退出码应为 0。
 $audioTestArgs = @(
     '-RenderOffscreen', '-AudioMixer', '-ResX=1280', '-ResY=720', '-Windowed',
-    '-ExecCmds="t.MaxFPS 30,Automation RunTests Interviewer.NativeAudioSmoke"',
-    '-TestExit="Automation Test Queue Empty"',
+    '-ExecCmds="t.MaxFPS 30,Automation RunTests Interviewer.FaceTransition+Interviewer.AvatarBinding+Interviewer.FaceSpeechPlayback+Interviewer.NativeAudioSmoke,Automation Quit"',
     '-ReportExportPath=D:/_Project/AiInterviewer/DigitalHuman/Saved/NativeAudioTest'
 )
 $audioTestProcess = Start-Process -FilePath '.\DigitalHuman\BuildOutput\Windows\DigitalHuman\Binaries\Win64\DigitalHuman.exe' -ArgumentList $audioTestArgs -WindowStyle Hidden -Wait -PassThru
@@ -248,7 +270,7 @@ $audioTestProcess.ExitCode
 ```
 
 本项测试不需要浏览器或信令服务；结束后在终端 1 按 Ctrl+C，释放真实后端的端口。
-测试使用明确标记的合成音调；不能据此宣称英文 TTS 或真人口型已验收。
+不传 `--wav` 时使用明确标记的合成音调。过渡测试检查开始、结束、首帧等待、Source 丢失和快速反向切换；播放测试检查原生求解、持续的面部实例与恢复 Listening。数值检查后仍需由使用者在网页观察面部自然度。
 报告位于 `DigitalHuman/Saved/NativeAudioTest/index.json`，启动/串流日志位于 `DigitalHuman/Saved/Logs`。
 
 人物和云服务配置完成后，执行以下最终验收：
@@ -261,18 +283,71 @@ $audioTestProcess.ExitCode
 
 网页分别显示问题等待、TTS 生成/请求、UE 播放准备、STT 收尾时间及接收帧率。
 “问题等待”包括后端业务处理和模型调用，不等同于纯模型推理时间。
-嘴部与声音的偏差需观察真实角色后测量；`Speech.AudioDelaySeconds` 初值 0.16 秒，可在蓝图 Details 中调整。
+新语音在后台 CPU 工作线程完整准备口型后才开始播放，逐个处理 20 ms PCM 块，再按声音播放时间插值面部曲线。每句清空模型的循环状态，只复用模型实例，音频和动画均来自本次新语音。取消操作会丢弃迟到结果。`Speech.AudioDelaySeconds` 保留以兼容旧资产，不再用于设置播放延迟。
+
+网页按有效的 `duration_ms` 将 UE 准备超时限制在 18–125 秒；缺少或无效的时长仍使用 18 秒。问题朗读完成后才开始完整的 10 秒回答准备计时，重播和结束面试弹窗会暂停并保留剩余时间。
+
+The launcher uses UE's default media-capture and GPU-fence path, with both rendering and WebRTC capped at 30 FPS. Hardware H264 encoding remains the default; `start-digital-human.ps1 -SoftwareEncoding` selects VP8 only for an explicit software-encoder diagnostic. With `-Diagnostics`, playback responses include preparation and solve times, prepared and displayed frame counts, and audio/curve clock measurements. These launch changes require restarting the packaged application, not repackaging it.
 这些时延、角色帧率和十分钟稳定性不能从空场景或合成音调测试推断。
+
+### 2026-10-04 新生成媒体的正式接口测试
+
+使用正式简历、面试、TTS、表情计划及 STT 接口，并通过实际 WebRTC 接收打包程序的画面和声音。所有语音均在本轮新合成，没有加载旧 WAV、视频或口型片段作为测试输入；STT 输入是一段本轮新合成的英文回答，用于测试协议，不代表实体麦克风验收。
+
+- 两轮新问题均完成动态朗读和原生口型：音频时长 9.68 / 8.08 秒，口型准备 3.48 / 2.95 秒，曲线分别为 485 / 405 帧，准备时间线间隔 20 ms。
+- 两轮在 UE 内完整播放到句尾并有持续变化的嘴部曲线；声音和曲线共用播放时钟。该记录不等于测量了扬声器与显示器的实际延迟。
+- 两次真实表情模型计划成功应用；实时 STT 产生最终文本并提交，识别结束收尾约 531 ms。
+- 硬件 H264 路径出现 NVENC 输出锁定错误和 `GPU Crashed / D3D Device Removed`；软件 VP8 持续返回新画面，但约 3.2 FPS。不能据此宣布画面和口型观感已达到流畅目标。
+- 两轮回答和报告模型调用已执行，最终报告发布被项目安全模块以 `security_denied / OUTPUT_CONFIDENTIALITY` 拦截；没有绕过安全模块或修改 `agents/`，完整报告闭环未通过。
+
+原生时间线、过渡与绑定的 12 项离线检查通过；前端 49 项检查和语音 HTTP 的 3 项检查通过。离线检查不调用额度，也不加载缓存音视频。详细实测记录位于 `DigitalHuman/Saved/SpeechSyncValidation/FreshFormal20261004/metrics.json`；测试账号、简历和面试记录已清理，测试服务已关闭。
+
+2026-10-04 后续修复了报告公开边界：岗位评分权重、内部规划和评价器控制字段保留在后端，
+最终响应提供问答、个人评价、必要状态及报告。保密规则明确允许候选人自己的已授予分数和
+答案引用，仍禁止内部评分规则、系统提示词、私人参考答案及其他人的数据。
+真实单题文本流程用新问题和一次英文回答复验通过，报告批准发布，历史记录为 completed，
+六个能力维度与此前的 assessment 一致；耗时 37.3 秒，33 项接口与持久化检查通过。
+本次没有调用语音或数字人媒体服务，不代表 GPU 串流问题已解决。
+记录为 `tmp/formal-text-report-20261004-215931-6f50ba8d/metrics.json`；安全、持久化和进度的
+40 项离线回归通过，泄密样例、未知岗位字段和未批准的旧响应仍被拦截。
+
+2026-10-04 帧率对照恢复默认捕获与 GPU fence，使用 H264、1280×720 和 30 FPS 上限，
+保留人物及场景质量。仅渲染的 20 秒协议探针接收约 15.0 FPS；随后真实单题面试的新 TTS
+朗读接收约 15.1 FPS，口型 7.44 秒内更新 110 次，问题、播放和报告均完成。
+两次为同配置对照，没有控制浏览器，也没有用旧缓存媒体作为输入；正式流程只合成了一段
+新问题语音，使用文字回答，未调用 STT。记录为 `tmp/formal-flow-20261004-220910-a83c527b/metrics.json`
+和 `tmp/formal-flow-20261004-221709-f58d3125/metrics.json`。
+本次未复现正式流程额外掉帧，仍未达到 30 FPS，实际网页观感需使用者确认。
+稳定帧的 CPU 游戏线程中位数约 4 ms、GPU 约 66 ms，头发可见性渲染约 20 ms；
+同时 GPU 负载 99%、核心约 292 MHz，并报告 Reliability 限频状态，其具体原因尚未确定。
+此前约 3 FPS 来自 VP8 的 Python 接收端，不能直接视为网页帧率，也不能把不同编码的结果
+解释为单个参数带来的提升。性能摘要保存在 `tmp/frame-baseline-csv-summary.json` 和
+`tmp/frame-formal-csv-summary.json`。测试数据已清理，测试服务已关闭。
+
+2026-10-04 重启后复测采用相同人物、场景、H264 和 720p／30 FPS 上限：基础探针接收
+30.04 FPS，真实单题朗读接收 29.87 FPS；本轮新 TTS 时长 6.96 秒，口型更新 209 次，
+问题、播放、报告及历史保存均通过。没有使用旧缓存媒体，仅新合成一段问题语音，回答
+通过文字提交，未调用 STT。GPU 核心在采样时约 1425–2190 MHz，此前的约 292 MHz
+低频状态已解除，具体触发原因尚未定位；没有降低资产质量或修改显卡设置。
+基础 CSV 的 GPU 中位耗时约 7.12 ms；正式流程 CSV 约 6.82 ms，覆盖出题、TTS、口型
+准备和朗读前约 0.47 秒，不能视为完整播放期间的 GPU 测量。完整朗读的帧率和口型
+频率由接收探针及原生播放诊断记录；最大面部更新间隔约 79 ms，并非每帧都严格 33 ms。
+记录为 `tmp/formal-flow-20261004-224750-b95b0a98/metrics.json` 和
+`tmp/formal-flow-20261004-225012-dd162e29/metrics.json`；测试数据和服务均已清理。
 
 ## 文件职责
 
+Facial presentation consumes initial Idle context and approved questions through an independent backend service and the existing Pixel Streaming channel. Agent profiles drive Idle, Listening, Thinking and Speaking; recorded facial clips are failure fallback. Audio lip sync retains control of the mouth during speech. It does not change `agents/`, question generation, answer submission or scoring. Local previews and the bounded protocol are documented in [digital-human facial presentation](../../backend/docs/digital-human-presentation.md).
+
 | 文件 | 职责 |
 | --- | --- |
-| `DigitalHuman/Plugins/InterviewerRuntime` | 原生 WAV 播放、MetaHuman 音频 Source、状态和 Pixel Streaming 消息 |
+| `DigitalHuman/Plugins/InterviewerRuntime` | 原生 WAV 播放、CPU 口型求解与插值时间线、状态和 Pixel Streaming 消息 |
 | `DigitalHuman/Tools/setup_scene.py` | 生成/复用地图、控制器、摄像机，绑定已组装人物 |
 | `DigitalHuman/Tools/*streaming*.ps1` / `local-signalling.cjs` | 官方依赖构建和仅回环的信令服务 |
 | `DigitalHuman/Tools/start-digital-human.ps1` / `package.ps1` | UE 运行参数与打包 |
 | `backend/interviews/speech` | 密钥、地区、TTS、STT、临时 WAV 缓存及访问策略 |
+| `backend/interviews/presentation` | Independent four-state facial behaviour profiles and recorded-animation fallback |
+| `backend/frontend/digital-human/src/presentation-controller.js` | Plan requests, cancellation and question/audio correlation |
 | `backend/frontend/interview-voice.js` | 页面语音状态、异常降级及旧事件隔离 |
 | `backend/frontend/speech-capture.js` / `speech-worklet.js` / `pcm-resampler.js` | 采集、重采样、最终转录边界 |
 | `backend/frontend/digital-human` | 官方 Pixel Streaming SDK 包装、构建和前端测试 |

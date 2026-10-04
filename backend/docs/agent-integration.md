@@ -98,10 +98,17 @@ python -m uvicorn config.asgi:application --host 127.0.0.1 --port 8765 --ws webs
 服务端先发 `started`（operation 为 `answer`），然后返回下一题及 `last_evaluation`，或：
 
 ```json
-{"type":"finished","request_id":"<同一UUID>","result":{"interview_id":"<面试ID>","interview_finished":true,"question_history":[],"interview_state":{},"final_report":{},"decision_logs":[]}}
+{"type":"finished","request_id":"<同一UUID>","result":{"interview_id":"<面试ID>","interview_finished":true,"question_history":[],"interview_state":{},"final_report":{}}}
 ```
 
-实际 `result` 与终端 MVP 输出字段一致，包含候选人资料和岗位资料。完成后以 1000 关闭连接。
+实际 `result` 包含候选人资料、岗位公开资料及报告。`job_profile` 仅包含
+`contract_version`、`job_id`、`title`、`seniority`、`domains`；内部评分权重
+`competency_importance` 保留在后端，不发送给候选人。最终响应不附带内部计划、决策日志或
+评价器控制字段；`question_history` 保留实际问答和个人评价，`interview_state` 保留版本、
+完成状态、阶段、题数及耗时。候选人自己的评分、答案引用和改进建议是允许公开的反馈，
+内部权重、评分规则、系统提示词和私人参考答案仍受保密规则约束。该公开响应仍完整经过
+原有安全审查、收据校验和持久化；历史接口不会返回含内部岗位字段的旧响应。
+完成后以 1000 关闭连接。
 MVP 使用结构化完整输出，当前没有 token `delta` 协议，不把整段文本拆开伪装为模型流式输出。
 
 ### 预解析与真实阶段事件（2026-09-12）

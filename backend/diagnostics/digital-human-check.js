@@ -1,11 +1,21 @@
 /**
  * @module digital-human-check
  * Responsibilities: Provide independent local avatar and speech diagnostics without interview or scoring fixtures.
- * Implementation: Send explicit TTS playback and generated-audio STT checks to the local UE player and speech endpoint, and clean up the active player on page exit.
+ * Implementation: Preview complete facial behaviour locally or explicitly request one independent Agent plan for all four states. Test TTS playback and generated-audio STT through the local UE player and speech endpoint; release presentation/player resources on exit.
  * Related Modules: /stream-demo/pixel-player.js wraps the official UE player; /stream-demo/pcm-resampler.js converts decoded samples for the STT WebSocket.
  *
  * Declaration Index:
  * - element: Read a diagnostic control by its unique ID.
+ * - sendPresentation: Send bounded presentation messages through the ready avatar connection.
+ * - presentationStatus: Display the plan's source/status without rendering model text as markup.
+ * - previewExpression: Preview one semantic expression locally without a model call.
+ * - planExpression: Request a plan for the diagnostic question without generating or submitting interview data.
+ * - applyState: Apply a presentation state independently of the interview workflow.
+ * - clearExpression: Clear the active plan and return smoothly to recorded facial animation.
+ * - stopListeningPreview: Cancel simulated activity and fence the preview capture without touching speech or interview data.
+ * - previewListening: Simulate bounded speech/pause activity for local nod and gaze preview without microphone or provider calls.
+ * - previewListening.callback1: Deliver one scheduled activity observation for the current preview only.
+ * - previewListening.callback2: End the current preview after its fixed duration.
  * - record: Append a bounded timestamped event log.
  * - controls: Apply connection, playback and cached-audio eligibility.
  * - onAvatar: Record actual UE playback events and ignore obsolete utterances.
@@ -30,14 +40,17 @@
  * Variable Index:
  * - element: Lookup function for the diagnostic page's unique control IDs.
  * - player: Official Pixel Streaming player and response channel.
+ * - presentation: Independent, cancellable facial-plan coordinator using the existing avatar channel.
  * - audio: Most recently generated temporary WAV response.
  * - activeId: Utterance whose playback events may change the controls.
  * - busy: An outstanding TTS request or UE playback.
+ * - listeningTimers: Scheduled local activity observations, cancelled on state changes or playback.
+ * - listeningPreviewId: Identity that prevents cancelled preview callbacks from emitting observations.
  *
  * Constraints:
  * Uses only generated or cached diagnostic audio, does not access the microphone, and does not submit interview answers or scoring data.
  */
-import { AvatarPlayer } from "/stream-demo/pixel-player.js";
+import { AvatarPlayer, PresentationController } from "/stream-demo/pixel-player.js";
 import { PCM16Resampler } from "/stream-demo/pcm-resampler.js";
 
 /** Read a diagnostic control by its unique ID. */
@@ -45,7 +58,84 @@ const element = (id) => document.getElementById(id);
 let audio = null;
 let activeId = null;
 let busy = false;
+let listeningTimers = [];
+let listeningPreviewId = null;
 const player = new AvatarPlayer(element("avatar"), onAvatar, onConnection);
+const presentation = new PresentationController({ send: sendPresentation, onStatus: presentationStatus, bootstrapIdle: false });
+
+/** Send only bounded presentation messages through the ready avatar connection. */
+function sendPresentation(message) { return player.send(message); }
+
+/** Display presentation source and status codes without rendering model text as markup. */
+function presentationStatus(status) {
+  element("presentation-status").textContent = `${status.source || status.type || "presentation"}${status.reason ? ` · ${status.reason}` : ""}`;
+}
+
+/** Preview a local semantic expression without calling a model or changing interview data. */
+function previewExpression() {
+  presentation.preview(element("expression").value, Number(element("expression-strength").value));
+  if (activeId) presentation.bindUtterance(activeId);
+}
+
+/** Request a plan for the displayed diagnostic question; do not generate or submit a question. */
+function planExpression() {
+  void presentation.setQuestion({ question_id: `diagnostic-${crypto.randomUUID()}`, text: element("text").value });
+  if (activeId) presentation.bindUtterance(activeId);
+}
+
+/** Apply a presentation state without changing the underlying question or answer workflow. */
+function applyState() {
+  stopListeningPreview();
+  const state = element("presentation-state").value;
+  presentation.setState(state);
+  player.send({ type: "state", state });
+}
+
+/** Remove Agent ownership and restore the recorded fallback without a model request. */
+function clearExpression() {
+  stopListeningPreview();
+  presentation.clear({ resumeIdle: false });
+  presentationStatus({ source: "fallback", reason: "manual_release" });
+}
+
+/** Cancel simulated activity and fence its capture without changing interview or speech state. */
+function stopListeningPreview() {
+  for (const timer of listeningTimers) clearTimeout(timer);
+  listeningTimers = [];
+  if (listeningPreviewId) presentation.endListeningCapture();
+  listeningPreviewId = null;
+  element("listening-preview").textContent = "Preview listening rhythm";
+}
+
+/** Simulate short speech and pauses locally; generated nods remain occasional rather than forced acknowledgements. */
+function previewListening() {
+  if (listeningPreviewId) { stopListeningPreview(); return; }
+  if (!player.ready || busy) return;
+  if (!["model", "preview"].includes(presentation.plan?.source)) {
+    element("status").textContent = "Select Preview local behaviour or apply an Agent plan before previewing attention gestures.";
+    return;
+  }
+  element("presentation-state").value = "listening";
+  presentation.setState("listening");
+  player.send({ type: "state", state: "listening" });
+  const captureId = presentation.beginListeningCapture();
+  if (!captureId) return;
+  listeningPreviewId = captureId;
+  element("listening-preview").textContent = "Stop listening preview";
+  presentation.observeListeningActivity(true);
+  const observations = [[1000, true], [2000, true], [3000, true], [4000, true], [4500, false],
+    [6500, true], [7500, true], [8500, true], [9500, true], [10000, false],
+    [13000, true], [14000, true], [15000, true], [15500, false]];
+  for (const [delay, active] of observations) {
+    listeningTimers.push(setTimeout(/** Deliver an observation only while this simulated capture is current. */ () => {
+      if (listeningPreviewId === captureId) presentation.observeListeningActivity(active);
+    }, delay));
+  }
+  listeningTimers.push(setTimeout(/** Close the current simulated capture at its fixed deadline. */ () => {
+    if (listeningPreviewId === captureId) stopListeningPreview();
+  }, 17000));
+  record("Local listening rhythm preview started; no microphone or model call.");
+}
 
 /** Append a bounded timestamped event log. */
 function record(message) {
@@ -56,6 +146,9 @@ function record(message) {
 
 /** Apply connection, playback and cached-audio eligibility. */
 function controls() {
+  for (const id of ["preview-expression", "clear-expression", "apply-state", "plan-expression"]) element(id).disabled = !player.ready;
+  element("apply-state").disabled = !player.ready || busy;
+  element("listening-preview").disabled = !player.ready || busy;
   element("speak").disabled = !player.ready || busy;
   element("replay").disabled = !player.ready || !audio || busy;
   element("stop").disabled = !activeId;
@@ -64,6 +157,7 @@ function controls() {
 
 /** Record actual UE playback events and ignore obsolete utterances. */
 function onAvatar(event) {
+  presentation.onAvatarEvent(event);
   if (event.type === "avatar_stats") {
     element("fps").textContent = `${event.fps.toFixed(1)} FPS`;
     return;
@@ -73,11 +167,15 @@ function onAvatar(event) {
   if (event.type === "avatar_disconnected" ||
       (event.utterance_id === activeId && ["playback_finished", "playback_failed", "interrupted"].includes(event.type))) {
     activeId = null;
+    stopListeningPreview();
     busy = false;
+    element("presentation-state").value = "listening";
     element("status").textContent = event.type;
     controls();
   }
   if (event.utterance_id === activeId && event.type === "playback_started") {
+    presentation.setState("speaking");
+    element("presentation-state").value = "speaking";
     element("status").textContent = "UE is speaking the test question.";
   }
 }
@@ -88,9 +186,11 @@ function onConnection(message) { element("connection").textContent = message; }
 /** Send the cached WAV to UE without synthesizing it again. */
 function play() {
   if (!audio || !player.ready) return;
+  stopListeningPreview();
   activeId = audio.utterance_id;
   busy = true;
   element("status").textContent = "Waiting for UE playback…";
+  presentation.bindUtterance(activeId);
   player.send({type:"speak", utterance_id:activeId, audio_url:audio.audio_url});
   controls();
 }
@@ -182,5 +282,10 @@ element("replay").onclick = play;
 element("stop").onclick = () => player.send({type:"stop"});
 /** Run one explicit transcription of cached test audio. */
 element("transcribe").onclick = () => { void transcribe(); };
+element("preview-expression").onclick = previewExpression;
+element("plan-expression").onclick = planExpression;
+element("apply-state").onclick = applyState;
+element("clear-expression").onclick = clearExpression;
+element("listening-preview").onclick = previewListening;
 /** Release the avatar connection when leaving the diagnostic page. */
-window.addEventListener("pagehide", () => player.close());
+window.addEventListener("pagehide", () => { stopListeningPreview(); presentation.close(); player.close(); });

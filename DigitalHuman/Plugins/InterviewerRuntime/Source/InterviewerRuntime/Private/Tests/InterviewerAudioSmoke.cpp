@@ -5,6 +5,7 @@
 #include "EngineUtils.h"
 #include "InterviewerController.h"
 #include "InterviewerSpeechComponent.h"
+#include "InterviewerFaceAnimInstance.h"
 #include "Components/AudioComponent.h"
 #include "Features/IModularFeatures.h"
 #include "ILiveLinkClient.h"
@@ -27,29 +28,28 @@ bool FInterviewerAvatarBinding::RunTest(const FString& Parameters)
             TArray<USkeletalMeshComponent*> Meshes;
             It->Avatar->GetComponents(Meshes);
             USkeletalMeshComponent* Face = nullptr;
-            for (auto* Mesh : Meshes) if (Mesh->GetName() == TEXT("Face")) Face = Mesh;
-            if (!TestNotNull(TEXT("Avatar has the face mesh"), Face)) return false;
-            const UClass* IdleClass = Face->GetAnimInstance() ? Face->GetAnimInstance()->GetClass() : nullptr;
-            It->SetState(TEXT("speaking"));
-            UAnimInstance* Instance = Face->GetAnimInstance();
-            bool bSubjectAssigned = false;
-            if (TestNotNull(TEXT("Speaking creates a face animation instance"), Instance))
+            USkeletalMeshComponent* Body = nullptr;
+            for (auto* Mesh : Meshes)
             {
-                TestTrue(TEXT("Speaking applies the MetaHuman Live Link animation"),
-                    Instance->GetClass()->GetName().Contains(TEXT("MH_LiveLink")));
-                for (TFieldIterator<FStructProperty> Property(Instance->GetClass()); Property; ++Property)
-                {
-                    if (Property->Struct == FLiveLinkSubjectName::StaticStruct())
-                    {
-                        const auto* Value = Property->ContainerPtrToValuePtr<FLiveLinkSubjectName>(Instance);
-                        if (Value->Name == It->Speech->SubjectName) bSubjectAssigned = true;
-                    }
-                }
+                if (Mesh->GetName() == TEXT("Face")) Face = Mesh;
+                if (Mesh->GetName() == TEXT("Body")) Body = Mesh;
             }
-            TestTrue(TEXT("Face animation uses the TTS subject"), bSubjectAssigned);
+            if (!TestNotNull(TEXT("Avatar has the face mesh"), Face)) return false;
+            auto* FaceInstance = Cast<UInterviewerFaceAnimInstance>(Face->GetAnimInstance());
+            if (!TestNotNull(TEXT("Avatar uses the persistent face animation"), FaceInstance)) return false;
+            UAnimInstance* BodyInstance = Body ? Body->GetAnimInstance() : nullptr;
+            TestNotNull(TEXT("Avatar keeps its body animation"), BodyInstance);
+            It->SetState(TEXT("speaking"));
+            TestTrue(TEXT("Speaking keeps the same face instance"), Face->GetAnimInstance() == FaceInstance);
+            TestTrue(TEXT("Speaking requests speech presentation"), FaceInstance->bSpeakingTarget);
+            TestEqual(TEXT("Face animation uses the TTS subject"), FaceInstance->SubjectName, It->Speech->SubjectName);
             It->SetState(TEXT("listening"));
-            TestTrue(TEXT("Listening restores the idle face animation"),
-                Face->GetAnimInstance() && Face->GetAnimInstance()->GetClass() == IdleClass);
+            TestTrue(TEXT("Listening keeps the same face instance"), Face->GetAnimInstance() == FaceInstance);
+            TestFalse(TEXT("Listening requests recorded expression presentation"), FaceInstance->bSpeakingTarget);
+            It->SetState(TEXT("thinking"));
+            TestTrue(TEXT("Thinking keeps the same face instance"), Face->GetAnimInstance() == FaceInstance);
+            if (Body) TestTrue(TEXT("State changes keep the body instance"), Body->GetAnimInstance() == BodyInstance);
+            It->SetState(TEXT("listening"));
             return true;
         }
     }

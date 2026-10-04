@@ -26,6 +26,7 @@
  * ready is set only by avatar_ready; pingTimer belongs to the active connection. UseMic and MouseInput remain disabled.
  */
 import { Config, PixelStreaming } from "@epicgames-ps/lib-pixelstreamingfrontend-ue5.8";
+export { PresentationController } from "./presentation-controller.js";
 
 /** Minimal official UE 5.8 player. The separate STT capture owns the microphone. */
 export class AvatarPlayer {
@@ -121,7 +122,7 @@ export class AvatarPlayer {
     player?.disconnect();
   }
 
-  /** Functionality: Send an interaction to UE. Inputs: JSON-compatible interaction object. Outputs: None. Constraints: Throws unless the controller has confirmed readiness. */
+  /** Functionality: Send an interaction to UE. Inputs: JSON-compatible interaction object. Outputs: Transport result or false while unavailable. Constraints: Only sends after controller readiness. */
   send(message) {
     return this.ready && this.player?.emitUIInteraction(message);
   }

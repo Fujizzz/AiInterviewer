@@ -85,6 +85,7 @@ from shared.contracts import (
 )
 
 from .agent_provider import BackendLLM
+from .agent_public_output import public_job_profile, public_question_history
 from .agent_repository import DjangoInterviewRepository
 
 logger = logging.getLogger(__name__)
@@ -339,8 +340,9 @@ class AgentSession:
         latest evaluation, end branches build report.
         Return: question contains problem, status, evaluation, planned revision, topic progress, and
         decision log;
-        finished.result matches terminal MVP field; snapshot saved before release and accepted by
-        same check.
+        finished.result contains candidate-facing feedback and progress; internal job weights,
+        planning criteria, decision traces and evaluator control flags are excluded before the
+        complete public response is inspected and persisted.
         Dependency: Calls internal stage helper methods of MVP; interface upgrade requires
         synchronized verification of this adapter and consistency tests.
         Exception: No text problem or unexpected action raises RuntimeError; other errors preserved
@@ -432,20 +434,21 @@ class AgentSession:
                 "interview_id": self.interview_id,
                 "candidate_name": self.candidate_name,
                 "candidate_profile": self.profile.model_dump(mode="json"),
-                "job_profile": self.job.model_dump(mode="json"),
-                "topics": [project.name for project in self.profile.projects],
-                "question_history": self.history,
-                "interview_plan": context.plan.model_dump(mode="json"),
-                "plan_history": [item.model_dump(mode="json") for item in context.plan_history],
-                "topic_progress": {
-                    key: value.model_dump(mode="json")
-                    for key, value in context.topic_progress.items()
-                },
-                "interview_state": context.state.model_dump(mode="json"),
-                "decision_logs": [
-                    log.model_dump(mode="json")
-                    for log in await self.app.repository.decision_logs_for(self.interview_id)
-                ],
+                "job_profile": public_job_profile(self.job),
+                "question_history": public_question_history(self.history),
+                "interview_state": context.state.model_dump(
+                    mode="json",
+                    include={
+                        "contract_version",
+                        "interview_id",
+                        "state_version",
+                        "status",
+                        "stage",
+                        "question_index",
+                        "remaining_seconds",
+                        "elapsed_seconds",
+                    },
+                ),
                 "interview_finished": context.state.status == "finished",
                 "final_report": report.model_dump(mode="json"),
                 "report_narrative_status": narrative_status,

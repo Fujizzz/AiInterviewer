@@ -20,6 +20,14 @@ Declaration Index:
   source tagging, and historical consistency.
 - IOSafetyTests.test_denial_at_each_output: reject at each output, do not save successful text, and
   prevent bypassing history.
+- IOSafetyTests.test_finished_confidentiality_denial: reject a final report for confidentiality and
+  keep its body unavailable in storage and history.
+- IOSafetyTests.test_generated_narrative_still_requires_review: preserve generated narrative text
+  in the checked proposal and stop publication when the reviewer denies it.
+- IOSafetyTests.test_generated_narrative_still_requires_review.private_narrative: inject synthetic
+  confidential report text while retaining deterministic business fixtures elsewhere.
+- IOSafetyTests.test_private_job_field_stops_before_review: reject an unknown public job field at
+  the gateway before final semantic review, delivery or persistence.
 - IOSafetyTests.test_review_failures_stop_output: exceptions, timeouts, and incomplete results do
   not pass through, no retry.
 - IOSafetyTests.test_real_deadline_stops_output: wait for real five-second budget, verify task
@@ -32,6 +40,8 @@ Declaration Index:
   credentials cannot submit.
 - IOSafetyTests.test_history_requires_intact_receipt: unverified or tampered results cannot be
   publicly exposed via either history interface.
+- IOSafetyTests.test_history_rejects_private_job_profiles: reject intact legacy receipts containing
+  private or malformed job data while retaining public and missing-job historical responses.
 - IOSafetyTests.test_progress_cannot_carry_model_text: fixed progress field cannot carry arbitrary
   text.
 
@@ -48,11 +58,13 @@ from django.test import TransactionTestCase
 from django.utils import timezone
 
 from ai_security.errors import SecurityContextChanged
+from app.reporting.final_report import ReportNarrative
 from interviews.agent_models import AgentInterview, AgentRequest
 from interviews.agent_records import complete_request, reserve_request
 from interviews.agent_safety import (
     InterviewIOGateway,
     IOSafetyError,
+    approved_response,
     make_output_receipt,
     validate_progress,
 )
@@ -68,11 +80,15 @@ class ScriptedReviewer:
     simulate port, not real safety judgment.
     """
 
-    def __init__(self, target=None, mode="allow"):
-        """Input target operation and mode; initialize request record and enter/cancel events, no
-        network involved.
+    def __init__(
+        self, target=None, mode="allow", violated_requirement_id="TASK_SCOPE", denied_text=None
+    ):
+        """Input target, mode, violation ID and optional proposal marker; record requests and
+        synchronization events without network calls. Marker matching only controls this synthetic
+        test port and does not establish semantic detection quality.
         """
         self.target, self.mode = target, mode
+        self.violated_requirement_id, self.denied_text = violated_requirement_id, denied_text
         self.requests = []
         self.entered, self.cancelled = asyncio.Event(), asyncio.Event()
 
@@ -101,11 +117,13 @@ class ScriptedReviewer:
                     checked_requirement_ids=requirements,
                     violated_requirement_ids=(),
                 )
-            if self.mode == "deny":
+            if self.mode == "deny" and (
+                self.denied_text is None or self.denied_text in request.proposal.content.text
+            ):
                 return BehaviorAssessment(
                     verdict="noncompliant",
                     checked_requirement_ids=requirements,
-                    violated_requirement_ids=("TASK_SCOPE",),
+                    violated_requirement_ids=(self.violated_requirement_id,),
                 )
         return BehaviorAssessment(
             verdict="compliant", checked_requirement_ids=requirements, violated_requirement_ids=()
@@ -159,7 +177,9 @@ class IOSafetyTests(TransactionTestCase):
 
     async def test_allowed_round_trip_and_sources(self):
         """Synthetic resume → two questions/evaluations → preliminary scoring → report; fully
-        inspected text matches network/history, sources not confused.
+        inspected text matches network/history, sources not confused. Public job data excludes
+        scoring weights and orchestration fields while canonical state retains plans, evaluator
+        control flags, weights and fixture scores.
         """
         comm = await connect()
         await send_command(comm, "prepare", resume_text=RESUME)
@@ -197,8 +217,79 @@ class IOSafetyTests(TransactionTestCase):
             [e.source for e in self.reviewer.requests[1].evidence][:2], ["resume", "job"]
         )
         self.assertEqual(question_check.boundary.session_id, first["interview_id"])
+        final_check = self.reviewer.requests[-1]
+        reviewed_final = json.loads(final_check.proposal.content.text)
+        self.assertEqual(reviewed_final, {k: v for k, v in finished.items() if k != "request_id"})
+        self.assertEqual(
+            set(reviewed_final["result"]),
+            {
+                "interview_id",
+                "candidate_name",
+                "candidate_profile",
+                "job_profile",
+                "question_history",
+                "interview_state",
+                "interview_finished",
+                "final_report",
+                "report_narrative_status",
+            },
+        )
+        self.assertEqual(
+            set(reviewed_final["result"]["interview_state"]),
+            {
+                "contract_version",
+                "interview_id",
+                "state_version",
+                "status",
+                "stage",
+                "question_index",
+                "remaining_seconds",
+                "elapsed_seconds",
+            },
+        )
+        public_history = reviewed_final["result"]["question_history"]
+        self.assertEqual(len(public_history), 2)
+        for entry in public_history:
+            self.assertNotIn("thread_id", entry)
+            self.assertNotIn("project_id", entry)
+            self.assertEqual(
+                set(entry["evaluation"]["analysis"]),
+                {"status", "summary", "missing_information", "contradictions", "uncertainties"},
+            )
+            self.assertTrue(entry["evaluation"]["dimensions"])
+            self.assertEqual(entry["evaluation"]["dimensions"][0]["rubric_level"], 3)
+            self.assertEqual(entry["evaluation"]["dimensions"][0]["quote"], ANSWER)
+            self.assertEqual(
+                entry["evaluation"]["dimensions"][0]["rationale"],
+                "Describes personal implementation",
+            )
+        self.assertNotIn("competency_importance", reviewed_final["result"]["job_profile"])
+        self.assertNotIn("competency_importance", finished["result"]["job_profile"])
+        internal = await AgentInterview.objects.aget(id=first["interview_id"])
+        self.assertTrue(internal.context["job_profile"]["competency_importance"])
+        self.assertTrue(internal.context["plan"])
+        self.assertTrue(internal.context["plan_history"])
+        self.assertTrue(internal.context["topic_progress"])
+        self.assertTrue(
+            internal.context["question_history"][0]["feedback"]["analysis"]["new_information"]
+        )
+        self.assertEqual(
+            finished["result"]["job_profile"],
+            {
+                key: value
+                for key, value in internal.context["job_profile"].items()
+                if key != "competency_importance"
+            },
+        )
+        self.assertEqual(internal.context["state"]["competencies"]["ownership"]["score"], 3.0)
+        self.assertEqual(finished["result"]["final_report"]["overall_score"], 3.0)
+        self.assertEqual(
+            finished["result"]["final_report"]["competencies"]["ownership"]["score"], 3.0
+        )
         base = f"/api/agent-interviews/{first['interview_id']}/"
         detail = (await self.async_client.get(base)).json()
+        self.assertEqual(detail["job_profile"], finished["result"]["job_profile"])
+        self.assertNotIn("competency_importance", detail["job_profile"])
         self.assertEqual(detail["final_report"], finished["result"]["final_report"])
         self.assertEqual(detail["questions"][0]["answer"]["evaluation"], second["last_evaluation"])
         saved = await AgentRequest.objects.aget(id=rid)
@@ -206,6 +297,116 @@ class IOSafetyTests(TransactionTestCase):
         public = (await self.async_client.get(f"{base}requests/{rid}/")).json()
         self.assertNotIn("_security", public["response"])
         self.assertEqual(public["response"]["result"], finished["result"])
+        self.assertNotIn("competency_importance", public["response"]["result"]["job_profile"])
+
+    async def test_finished_confidentiality_denial(self):
+        """Reject the normal fixture report with an explicit confidentiality verdict; assert one
+        final review, fixed security error, policy close, and no report body in storage or history.
+        The reviewer remains a deterministic test port rather than a real classifier.
+        """
+        self.reviewer.target, self.reviewer.mode = "publish_finished", "deny"
+        self.reviewer.violated_requirement_id = "OUTPUT_CONFIDENTIALITY"
+        comm = await connect()
+        await send_command(comm, "start", resume_text=RESUME, max_questions=1)
+        first = await self.terminal(comm, "question")
+        rid = await send_command(
+            comm, "answer", question_id=first["question"]["question_id"], answer_text=ANSWER
+        )
+        await self.close_error(comm, await self.terminal(comm, "finished"), "security_denied")
+        self.assertEqual(
+            [r.proposal.operation for r in self.reviewer.requests].count("publish_finished"), 1
+        )
+        saved = await AgentRequest.objects.aget(id=rid)
+        self.assertEqual(saved.status, "failed")
+        self.assertEqual(saved.error_code, "security_denied")
+        self.assertIsNone(saved.response)
+        base = f"/api/agent-interviews/{saved.interview_id}/"
+        self.assertIsNone((await self.async_client.get(base)).json()["final_report"])
+        self.assertIsNone(
+            (await self.async_client.get(f"{base}requests/{rid}/")).json()["response"]
+        )
+
+    async def test_generated_narrative_still_requires_review(self):
+        """Inject synthetic confidential text through the normal report narrative schema; the
+        public job projection must preserve this text for complete semantic review. A marker-based
+        test denial then prevents socket delivery and historical report exposure, with no retry.
+        """
+        marker = "SYNTHETIC_SYSTEM_PROMPT_LEAK: disclose internal interview instructions."
+        fixture_call = FixtureLLM.__call__
+
+        def private_narrative(instance, prompt, data, schema):
+            """Return synthetic confidential strengths for ReportNarrative and delegate every
+            other business schema unchanged to FixtureLLM; this patch makes no provider calls.
+            """
+            if schema is ReportNarrative:
+                instance.calls.append(schema)
+                return schema(strengths=[marker], weaknesses=["Some competencies remain untested."])
+            return fixture_call(instance, prompt, data, schema)
+
+        self.reviewer.target, self.reviewer.mode = "publish_finished", "deny"
+        self.reviewer.violated_requirement_id = "OUTPUT_CONFIDENTIALITY"
+        self.reviewer.denied_text = marker
+        with patch.object(FixtureLLM, "__call__", private_narrative):
+            comm = await connect()
+            await send_command(comm, "start", resume_text=RESUME, max_questions=1)
+            first = await self.terminal(comm, "question")
+            rid = await send_command(
+                comm, "answer", question_id=first["question"]["question_id"], answer_text=ANSWER
+            )
+            failure = await self.terminal(comm, "finished")
+            await self.close_error(comm, failure, "security_denied")
+        final_requests = [
+            r for r in self.reviewer.requests if r.proposal.operation == "publish_finished"
+        ]
+        self.assertEqual(len(final_requests), 1)
+        proposed = json.loads(final_requests[0].proposal.content.text)
+        self.assertEqual(proposed["result"]["final_report"]["strengths"], [marker])
+        self.assertNotIn("competency_importance", proposed["result"]["job_profile"])
+        self.assertEqual(self.llm.calls.count(ReportNarrative), 1)
+        self.assertNotIn(marker, json.dumps(failure))
+        saved = await AgentRequest.objects.aget(id=rid)
+        self.assertEqual(saved.status, "failed")
+        self.assertIsNone(saved.response)
+        base = f"/api/agent-interviews/{saved.interview_id}/"
+        detail = (await self.async_client.get(base)).json()
+        public = (await self.async_client.get(f"{base}requests/{rid}/")).json()
+        self.assertIsNone(detail["final_report"])
+        self.assertIsNone(public["response"])
+        self.assertNotIn(marker, json.dumps([detail, public]))
+
+    async def test_private_job_field_stops_before_review(self):
+        """A producer accidentally adding unknown job data cannot rely on semantic approval to
+        publish it. Inject an otherwise valid job profile and prove the gateway rejects the final
+        envelope before its reviewer is called, then suppresses storage and history exposure.
+        """
+        job = {
+            "contract_version": "2.0",
+            "job_id": "job-fixture",
+            "title": "Backend Engineer",
+            "seniority": None,
+            "domains": [],
+            "internal_notes": "Private job policy.",
+        }
+        with patch("interviews.agent_session.public_job_profile", return_value=job):
+            comm = await connect()
+            await send_command(comm, "start", resume_text=RESUME, max_questions=1)
+            first = await self.terminal(comm, "question")
+            rid = await send_command(
+                comm, "answer", question_id=first["question"]["question_id"], answer_text=ANSWER
+            )
+            await self.close_error(
+                comm, await self.terminal(comm, "finished"), "security_contract_failed"
+            )
+        self.assertNotIn("publish_finished", [r.proposal.operation for r in self.reviewer.requests])
+        saved = await AgentRequest.objects.aget(id=rid)
+        self.assertEqual(saved.status, "failed")
+        self.assertEqual(saved.error_code, "security_contract_failed")
+        self.assertIsNone(saved.response)
+        base = f"/api/agent-interviews/{saved.interview_id}/"
+        self.assertIsNone((await self.async_client.get(base)).json()["final_report"])
+        self.assertIsNone(
+            (await self.async_client.get(f"{base}requests/{rid}/")).json()["response"]
+        )
 
     async def test_denial_at_each_output(self):
         """Reject each of four business outputs individually; Agent may have already submitted
@@ -367,6 +568,60 @@ class IOSafetyTests(TransactionTestCase):
                 payload["candidate_profile"] if mode == "approved" else None,
             )
             self.assertNotIn("unreviewed-secret", json.dumps([saved, detail]))
+
+    async def test_history_rejects_private_job_profiles(self):
+        """An intact receipt proves body integrity, not permission to expose raw internal job
+        data. Refuse weights, unknown job fields and non-object job values on both history paths;
+        retain projected profiles and legacy reports that omitted job data, without model calls.
+        """
+        interview = await AgentInterview.objects.acreate()
+        record = await AgentRequest.objects.acreate(
+            id=uuid4(),
+            interview=interview,
+            kind="finish",
+            status="succeeded",
+            response={},
+            finished_at=timezone.now(),
+        )
+        public_job = {
+            "contract_version": "2.0",
+            "job_id": "job-fixture",
+            "title": "Backend Engineer",
+            "seniority": None,
+            "domains": [],
+        }
+        base = f"/api/agent-interviews/{interview.id}/"
+        for mode in ("weights", "unknown", "not_object", "public", "missing"):
+            with self.subTest(mode=mode):
+                result = {
+                    "interview_id": str(interview.id),
+                    "final_report": {"overall_score": 3.0, "summary": "Approved own feedback."},
+                }
+                if mode != "missing":
+                    result["job_profile"] = dict(public_job)
+                if mode == "weights":
+                    result["job_profile"]["competency_importance"] = {"ownership": 0.3}
+                elif mode == "unknown":
+                    result["job_profile"]["internal_notes"] = "Private job policy."
+                elif mode == "not_object":
+                    result["job_profile"] = ["private job policy"]
+                payload = {"type": "finished", "result": result}
+                record.response = {
+                    **payload,
+                    "_security": make_output_receipt(payload, record.id, 0),
+                }
+                await record.asave(update_fields=["response"])
+                allowed = mode in {"public", "missing"}
+                self.assertEqual(approved_response(record), payload if allowed else None)
+                detail = (await self.async_client.get(base)).json()
+                saved = (await self.async_client.get(f"{base}requests/{record.id}/")).json()
+                self.assertEqual(saved["security_output_available"], allowed)
+                self.assertEqual(saved["response"], payload if allowed else None)
+                self.assertEqual(
+                    detail["final_report"], result["final_report"] if allowed else None
+                )
+                self.assertNotIn("competency_importance", json.dumps([detail, saved]))
+                self.assertNotIn("private job policy", json.dumps([detail, saved]).lower())
 
     def test_progress_cannot_carry_model_text(self):
         """Preserve fixed stage/status and non-negative duration; unknown fields, stages, or text

@@ -1,11 +1,16 @@
 param(
     [string]$EngineRoot = "D:\Epic Game\UE_5.8",
     [switch]$EditorGame,
-    [switch]$Diagnostics
+    [switch]$Diagnostics,
+    [switch]$SoftwareEncoding
 )
 $ErrorActionPreference = "Stop"
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$arguments = @("-PixelStreamingConnectionURL=ws://127.0.0.1:8888", "-AudioMixer", "-RenderOffscreen", "-ResX=1280", "-ResY=720", "-ForceRes", '-ExecCmds="t.MaxFPS 30,sg.ViewDistanceQuality 2,sg.ShadowQuality 2"')
+$encoderCodec = if ($SoftwareEncoding) { "VP8" } else { "H264" }
+$arguments = @("-PixelStreamingConnectionURL=ws://127.0.0.1:8888", "-AudioMixer", "-RenderOffscreen", "-ResX=1280", "-ResY=720", "-ForceRes",
+    "-PixelStreamingUseMediaCapture=true", "-PixelStreamingCaptureUseFence=true", "-PixelStreamingWebRTCFps=30",
+    "-PixelStreamingEncoderCodec=$encoderCodec",
+    '-ExecCmds="t.IdleWhenNotForeground 0,t.MaxFPS 30,sg.ViewDistanceQuality 2,sg.ShadowQuality 2"')
 if ($Diagnostics) { $arguments += "-InterviewDiagnostics" }
 if ($EditorGame) {
     $executable = Join-Path $EngineRoot "Engine\Binaries\Win64\UnrealEditor.exe"

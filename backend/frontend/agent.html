@@ -58,7 +58,7 @@ The page does not upload, extract or edit profile data and does not persist prof
   </section>
   <div class="camera-toolbar"><button id="camera-toggle" type="button" class="secondary" aria-pressed="false" aria-controls="self-video" data-i18n="camera_enable">Enable camera</button><span id="camera-status" role="status" data-i18n="camera_note">Camera is for self-preview only; nothing is recorded or uploaded.</span></div>
   <section class="panel voice-panel" aria-label="Voice interview controls" data-i18n-attr="aria-label:voice_controls_label">
-    <p id="voice-status" class="hint" role="status" data-i18n="voice_ready">Prepare for 15 seconds; recording and answer submission then run automatically.</p>
+    <p id="voice-status" class="hint" role="status" data-i18n="voice_ready">Prepare for 10 seconds after playback; recording and answer submission then run automatically.</p>
     <div class="actions session-actions"><button id="cancel-agent" type="button" class="secondary" disabled aria-haspopup="dialog" aria-controls="end-interview-dialog" data-i18n="end_interview">End interview</button><button id="clear-agent" type="button" class="secondary" data-i18n="clear_content">Clear interview content</button></div>
   </section>
   </div><aside class="studio-sidebar">
@@ -96,7 +96,7 @@ Parameter form initial values match MVP defaults; disabled during runtime by scr
       <div><label for="limit" data-i18n="limit_label">Question safety limit</label><input id="limit" type="number" min="1" step="1" value="40" required></div>
       <div><label for="probes" data-i18n="probes_label">Follow-up safety limit per topic</label><input id="probes" type="number" min="0" step="1" value="7" required></div>
     </div>
-    <p class="hint" data-i18n="budget_hint">Timing starts when the first question is ready and includes voice answers and model calls. Each question allows 15 seconds of preparation. Answers finish automatically after 5 seconds of silence, detected completion, or the 120-second recording limit.</p>
+    <p class="hint" data-i18n="budget_hint">Timing starts when the first question is ready and includes voice answers and model calls. Each question allows 10 seconds of preparation after playback. Answers finish automatically after 5 seconds of silence, detected completion, or the 120-second recording limit.</p>
     <p id="preparation-error" class="preparation-error" role="alert"></p>
     <p class="privacy-note" data-i18n="privacy_note">Your resume and answers are sent to the configured model service; parsed materials, questions, answers, and reports are stored in the server database. Clearing the page does not delete history, and interrupted sessions cannot yet be resumed.</p>
   </div>

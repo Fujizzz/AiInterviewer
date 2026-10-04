@@ -3,7 +3,7 @@
 <meta charset="utf-8">
 <meta id="csrf-token" name="csrf-token" content="{{ csrf_token }}">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Digital human speech check</title>
+<title>Digital human presentation check</title>
 <style>
 body { margin:0; padding:20px; background:#f2f5f5; color:#19332e; font:15px system-ui,sans-serif; }
 main { max-width:900px; margin:auto; }
@@ -15,14 +15,38 @@ textarea { box-sizing:border-box; width:100%; min-height:100px; padding:10px; fo
 button { padding:10px 14px; border:0; border-radius:6px; background:#175f51; color:white; cursor:pointer; margin:6px 4px 6px 0; }
 button:disabled { opacity:.45; cursor:default; }
 pre { padding:12px; background:white; border-radius:8px; overflow-wrap:anywhere; white-space:pre-wrap; }
+fieldset { margin:16px 0; padding:12px; border:1px solid #baccc5; border-radius:8px; }
+label { margin-right:8px; }
+select, input { font:inherit; margin:6px; }
 .muted { color:#657a73; }
 </style>
 <main>
-<h1>Digital human speech check</h1>
-<p class="muted">Diagnostic only: this page tests avatar speech and transcription. It does not generate interview questions, score answers or produce an interview report.</p>
+<h1>Digital human presentation check</h1>
+<p class="muted">Preview facial behaviour, speech and transcription. Model calls require the corresponding test button. This page does not generate interview questions or score answers.</p>
 <div id="avatar" aria-label="Digital human video"></div>
 <button id="connect">Connect avatar</button>
 <span id="connection">Not connected</span> · <span id="fps">— FPS</span>
+<fieldset>
+<legend>Facial presentation</legend>
+<label for="expression">Expression</label>
+<select id="expression">
+<option value="neutral">Neutral</option><option value="attentive">Attentive</option>
+<option value="thoughtful">Thoughtful</option><option value="friendly">Friendly</option>
+<option value="emphasis">Emphasis</option>
+</select>
+<label for="expression-strength">Strength</label>
+<input id="expression-strength" type="number" min="0" max="0.35" step="0.01" value="0.18">
+<button id="preview-expression" disabled>Preview local behaviour</button>
+<button id="clear-expression" disabled>Use recorded fallback</button>
+<p><label for="presentation-state">Avatar state</label>
+<select id="presentation-state"><option value="idle">Idle</option><option value="listening">Listening</option><option value="thinking">Thinking</option><option value="speaking" disabled>Speaking (audio playback)</option></select>
+<button id="apply-state" disabled>Apply state</button></p>
+<button id="listening-preview" disabled>Preview listening rhythm</button>
+<p class="muted">Simulates short speech and pauses for 17 seconds to preview occasional nods and eye contact. It does not open the microphone or call a model.</p>
+<button id="plan-expression" disabled>Plan expressions for test question</button>
+<p class="muted">Local preview replaces the recorded facial clips with generated blinks, gaze and expression changes. It also enables subtle head gestures; Thinking briefly looks away and returns, and Speaking follows the cached audio rhythm. Planning requests one expression-model call for all four states. Speaking is selected by actual audio playback; replay uses the current plan and cached audio.</p>
+<p id="presentation-status" role="status">No expression plan.</p>
+</fieldset>
 <p><label for="text">English test question</label></p>
 <textarea id="text" maxlength="1200">Could you describe your main contribution to this project, explain one technical decision you made, and tell me how you verified that the implementation worked correctly?</textarea>
 <button id="speak" disabled>Speak test question</button>

@@ -8,7 +8,29 @@
  * Declaration Index:
  * - page: Create minimal DOM and event listener stubs.
  * - page.globalThis.document.getElementById: Create and cache control state on demand.
- * - page.globalThis.window.addEventListener: Ignore page event subscriptions not triggered by this test.
+ * - page.globalThis.window.addEventListener: Register offline page event subscriptions.
+ * - page.globalThis.window.dispatchEvent: Deliver the actual page controls event path without a browser.
+ * - OfflineQuestionAudio: Simulate browser question playback without device or network access.
+ * - OfflineQuestionAudio.constructor: Retain an offline audio URL.
+ * - OfflineQuestionAudio.play: Resolve playback startup without playing sound.
+ * - OfflineQuestionAudio.pause: Mark offline audio stopped.
+ * - VoicePlaybackHarness: Drive question playback and automatic preparation with deterministic clocks.
+ * - VoicePlaybackHarness.constructor: Replace timer, TTS and audio boundaries, retaining originals for cleanup.
+ * - VoicePlaybackHarness.constructor.globalThis.performance.now: Return the deterministic monotonic clock.
+ * - VoicePlaybackHarness.constructor.callback1: Count any unexpected automatic answer submission.
+ * - VoicePlaybackHarness.constructor.this.voice.player.send: Record UE commands and select the offline playback path.
+ * - VoicePlaybackHarness.constructor.this.voice.player.close: Close the offline player without resources.
+ * - VoicePlaybackHarness.constructor.SpeechCapture.prototype.start: Open a simulated recording without provider or device access.
+ * - VoicePlaybackHarness.addTimer: Schedule one timeout or repeated countdown callback.
+ * - VoicePlaybackHarness.addInterval: Schedule a repeated countdown callback.
+ * - VoicePlaybackHarness.clearTimer: Cancel one deterministic callback.
+ * - VoicePlaybackHarness.advance: Move the clock and run due callbacks once.
+ * - VoicePlaybackHarness.fetch: Capture a manually completed offline TTS request.
+ * - VoicePlaybackHarness.fetch.callback1: Retain TTS completion and rejection boundaries.
+ * - VoicePlaybackHarness.completeTts: Complete one request with fixed audio or a public quota failure.
+ * - VoicePlaybackHarness.completeTts.object3.json: Return a fixed offline TTS body.
+ * - VoicePlaybackHarness.flush: Settle asynchronous playback startup without wall-clock waits.
+ * - VoicePlaybackHarness.close: Restore all global and microphone boundaries after a regression test.
  * - callback1: Verify chunked capture results match full segment resampling results.
  * - callback1.callback1: Generate fixed-sampling-rate sinusoidal test input.
  * - callback2: Verify worklet sends little-endian PCM tail first, then confirms flush, and does not replay input.
@@ -51,7 +73,7 @@
  * - callback7: New account API requires TTS write requests to carry page token; does not weaken server-side CSRF checks.
  * - callback7.globalThis.fetch: Save client request headers; fix failure to prevent browser audio creation during testing.
  * - callback7.globalThis.fetch.object1.json: Return offline error, prohibiting real vendor calls.
- * - callback8: Verify 15 seconds of preparation and five silent seconds without real microphone access.
+ * - callback8: Verify 10 seconds of preparation and five silent seconds without real microphone access.
  * - callback8.callback1: Observe exactly one final answer submission.
  * - callback8.SpeechCapture.prototype.start: Replace device/provider startup with a recording-state transition only.
  * - callback8.SpeechCapture.prototype.end: Deliver the empty final provider text after automatic flush.
@@ -65,6 +87,17 @@
  * - callback10.SpeechCapture.prototype.end: Return final words distinct from the preceding partial subtitles.
  * - callback11: Verify a denied automatic microphone attempt is explicit and is not silently retried.
  * - callback11.SpeechCapture.prototype.start: Reject device startup at the same boundary as browser permission refusal.
+ * - callback12: Verify slow TTS, UE preparation and audible playback precede the full preparation clock.
+ * - callback13: Verify explicit replay pauses and resumes remaining preparation without resetting it.
+ * - callback14: Verify initial failure, explicit interruption and disabled voice grant preparation once.
+ * - callback15: Verify browser fallback completion and audio failure cannot reset preparation with stale events.
+ * - callback16: Verify bounded UE and browser fallback deadlines remain separate from preparation.
+ * - callback17: Verify dismissing early end resumes only the remaining preparation time.
+ * - callback18: Verify browser autoplay refusal releases initial playback into a full preparation period.
+ * - callback18.OfflineQuestionAudio.prototype.play: Reject offline playback at the browser autoplay boundary.
+ * - callback19: Verify direct end-dialog suspension and controls events preserve remaining preparation, including a question arriving while suspended.
+ * - callback20: Verify complete-WAV CPU preparation can exceed 18 seconds while retaining a finite upper deadline and deferred preparation.
+ * - callback21: Verify missing and malformed duration metadata retain legacy readiness bounds.
  * Variable Index:
  * None
  *
@@ -80,6 +113,7 @@ import { SpeechCapture } from "../../speech-capture.js";
  */
 function page() {
   const elements = new Map();
+  const listeners = new Map();
   globalThis.document = { /**
  *  Create and cache control state on demand.
  */ getElementById(id) {
@@ -87,9 +121,93 @@ function page() {
     return elements.get(id);
   }};
   globalThis.window = { /**
- *  Ignore page event subscriptions not triggered by this test.
- */ addEventListener() {} };
+ *  Register offline page event subscriptions.
+ */ addEventListener(type, listener) { listeners.set(type, listener); },
+  /** Dispatch the page's normal controls event to the registered voice coordinator. */
+  dispatchEvent(event) { listeners.get(event.type)?.(event); return true; } };
   return elements;
+}
+
+/** Simulate question audio without starting a real browser media pipeline. */
+class OfflineQuestionAudio {
+  /** Retain an offline URL and a verifiable stopped flag. */
+  constructor(url) { this.url = url; this.paused = false; }
+  /** Resolve startup while leaving completion under the test's control. */
+  play() { return Promise.resolve(); }
+  /** Mark this simulated playback stopped. */
+  pause() { this.paused = true; }
+}
+
+/** Drive full initial/replay question lifecycles using deterministic timers and offline media boundaries. */
+class VoicePlaybackHarness {
+  /** Save existing globals, then replace only the clock, playback transport and microphone startup. */
+  constructor() {
+    this.original = { performance: globalThis.performance, fetch: globalThis.fetch, Audio: globalThis.Audio,
+      document: globalThis.document, window: globalThis.window, setTimeout: globalThis.setTimeout,
+      clearTimeout: globalThis.clearTimeout, setInterval: globalThis.setInterval, clearInterval: globalThis.clearInterval,
+      captureStart: SpeechCapture.prototype.start };
+    this.now = 0; this.nextTimer = 0; this.timers = new Map(); this.requests = []; this.commands = [];
+    this.starts = 0; this.answers = 0; this.ueAvailable = true;
+    globalThis.performance = { /** Return deterministic monotonic time. */ now: () => this.now };
+    globalThis.setTimeout = this.addTimer.bind(this);
+    globalThis.setInterval = this.addInterval.bind(this);
+    globalThis.clearTimeout = this.clearTimer.bind(this);
+    globalThis.clearInterval = this.clearTimer.bind(this);
+    globalThis.fetch = this.fetch.bind(this);
+    globalThis.Audio = OfflineQuestionAudio;
+    page();
+    const harness = this;
+    /** Count simulated startup without opening a microphone or recognizer. */
+    SpeechCapture.prototype.start = async function () { harness.starts++; this.recording = true; };
+    this.voice = new InterviewVoice(/** Detect accidental answer submission during playback. */ () => { this.answers++; });
+    this.voice.eligible = true;
+    this.voice.player = {
+      /** Record controls and simulate UE channel availability. */ send: (message) => { this.commands.push(message); return this.ueAvailable; },
+      /** Close the offline transport without resources. */ close() {},
+    };
+    document.getElementById("voice-enabled").checked = true;
+  }
+  /** Schedule a deterministic timeout or interval callback. */
+  addTimer(callback, delay, repeat = false) {
+    const id = ++this.nextTimer;
+    this.timers.set(id, { callback, at: this.now + delay, interval: repeat ? delay : 0 });
+    return id;
+  }
+  /** Schedule a countdown callback without a real timer. */
+  addInterval(callback, delay) { return this.addTimer(callback, delay, true); }
+  /** Cancel one deterministic timer. */
+  clearTimer(id) { this.timers.delete(id); }
+  /** Move time forward, running each due callback once to expose deadline transitions. */
+  advance(milliseconds) {
+    this.now += milliseconds;
+    for (const [id, timer] of [...this.timers]) {
+      if (!this.timers.has(id) || timer.at > this.now) continue;
+      if (timer.interval) timer.at = this.now + timer.interval;
+      else this.timers.delete(id);
+      timer.callback();
+    }
+  }
+  /** Capture TTS requests while allowing deliberately late responses despite cancellation. */
+  fetch(_url, options) {
+    return new Promise(/** Retain response and rejection controls without network access. */ (resolve, reject) => {
+      this.requests.push({ options, resolve, reject });
+    });
+  }
+  /** Resolve one TTS boundary with fixed metadata or a fixed public error. */
+  completeTts(index = 0, ok = true, durationMs = undefined) {
+    const result = ok ? { utterance_id: `audio-${index}`, audio_url: `/offline-${index}.wav`, generation_ms: 7 }
+      : { error: { code: "quota_exhausted", detail: "Offline quota failure" } };
+    if (durationMs !== undefined) result.duration_ms = durationMs;
+    this.requests[index].resolve({ ok, /** Return only the fixed offline response body. */ json: async () => result });
+  }
+  /** Drain Promise callbacks without delaying wall-clock time. */
+  async flush() { for (let index = 0; index < 8; index++) await Promise.resolve(); }
+  /** Close the tested voice lifecycle before restoring real globals and capture startup. */
+  close() {
+    this.voice.close();
+    SpeechCapture.prototype.start = this.original.captureStart;
+    for (const [name, value] of Object.entries(this.original)) if (name !== "captureStart") globalThis[name] = value;
+  }
 }
 
 /**
@@ -313,7 +431,7 @@ test("TTS includes the page CSRF token for authenticated sessions", async () => 
   voice.close();
 });
 
-/** Verify 15 seconds of preparation and five silent seconds without real microphone access. */
+/** Verify 10 seconds of preparation and five silent seconds without real microphone access. */
 test("preparation opens capture once and five silent seconds submit an empty answer", async () => {
   page();
   const submitted = [];
@@ -329,9 +447,9 @@ test("preparation opens capture once and five silent seconds submit an empty ans
   try {
     const before = performance.now();
     voice.setQuestion({ question_id: "q1", text: "Question" });
-    assert.ok(voice.deadline - before >= 15000);
+    assert.ok(voice.deadline - before >= 10000);
     assert.equal(starts, 0);
-    assert.match(document.getElementById("answer-countdown").textContent, /15s/);
+    assert.match(document.getElementById("answer-countdown").textContent, /10s/);
     voice.deadline = performance.now() - 1;
     voice.tick();
     await Promise.resolve();
@@ -425,4 +543,224 @@ test("automatic microphone failure stops clocks and does not retry", async () =>
     assert.equal(voice.answerTimer, null);
     assert.match(document.getElementById("voice-status").textContent, /Permission denied/);
   } finally { voice.close(); SpeechCapture.prototype.start = originalStart; }
+});
+
+/** Verify slow synthesis and UE readiness cannot consume or abort the user's preparation time. */
+test("initial preparation starts after audible completion despite slow TTS and UE readiness", async () => {
+  const harness = new VoicePlaybackHarness(); const voice = harness.voice;
+  try {
+    voice.setQuestion({ question_id: "q1", text: "Explain one contribution." });
+    assert.equal(voice.phase, "generating"); assert.equal(voice.deadline, null);
+    harness.advance(20000); await harness.flush();
+    assert.equal(harness.requests[0].options.signal.aborted, false);
+    assert.equal(harness.starts, 0); assert.equal(voice.busy, true);
+    harness.completeTts(); await harness.flush();
+    assert.equal(voice.phase, "avatar_preparing"); assert.equal(voice.deadline, null);
+    assert.match(document.getElementById("voice-status").textContent, /mouth animation/);
+    harness.advance(16000); await harness.flush();
+    assert.equal(voice.audio, null); assert.equal(voice.busy, true); assert.equal(harness.starts, 0);
+    voice.avatarEvent({ type: "playback_started", utterance_id: "audio-0" });
+    const playbackTimer = voice.playbackTimer;
+    voice.avatarEvent({ type: "playback_started", utterance_id: "audio-0" });
+    assert.equal(voice.playbackTimer, playbackTimer);
+    harness.advance(12000);
+    assert.equal(voice.deadline, null); assert.equal(harness.starts, 0);
+    voice.avatarEvent({ type: "playback_finished", utterance_id: "audio-0" });
+    assert.equal(voice.phase, "preparing"); assert.equal(voice.deadline, harness.now + 10000);
+    harness.advance(9900); await harness.flush(); assert.equal(harness.starts, 0);
+    harness.advance(100); await harness.flush(); assert.equal(harness.starts, 1);
+    const capture = voice.capture; const answerDeadline = voice.deadline;
+    voice.avatarEvent({ type: "playback_finished", utterance_id: "audio-0" });
+    await voice.speak();
+    assert.equal(voice.capture, capture); assert.equal(voice.deadline, answerDeadline);
+    assert.equal(harness.requests.length, 1); assert.equal(harness.answers, 0);
+  } finally { harness.close(); }
+});
+
+/** Verify explicit replay preserves preparation already spent and stale events cannot grant another ten seconds. */
+test("replay pauses preparation and resumes its remaining time", async () => {
+  const harness = new VoicePlaybackHarness(); const voice = harness.voice;
+  try {
+    document.getElementById("voice-enabled").checked = false;
+    voice.setQuestion({ question_id: "q1", text: "Explain your project." });
+    harness.advance(5000);
+    const replay = voice.speak();
+    assert.equal(voice.preparationRemainingMs, 5000); assert.equal(voice.deadline, null);
+    harness.advance(18000); assert.equal(harness.starts, 0);
+    harness.completeTts(); await replay;
+    voice.avatarEvent({ type: "playback_started", utterance_id: "audio-0" });
+    harness.advance(8000);
+    voice.avatarEvent({ type: "playback_finished", utterance_id: "audio-0" });
+    const deadline = voice.deadline;
+    assert.equal(deadline, harness.now + 5000);
+    voice.avatarEvent({ type: "playback_finished", utterance_id: "audio-0" });
+    voice.stopPlayback();
+    assert.equal(voice.deadline, deadline); assert.equal(harness.starts, 0);
+    harness.advance(5000); await harness.flush(); assert.equal(harness.starts, 1);
+  } finally { harness.close(); }
+});
+
+/** Verify failure and explicit skip paths grant preparation while cancelled or obsolete TTS cannot revive playback. */
+test("TTS failure, disabled voice and explicit interruption grant preparation once", async () => {
+  const harness = new VoicePlaybackHarness(); const voice = harness.voice;
+  try {
+    voice.setQuestion({ question_id: "q1", text: "First question." });
+    harness.advance(23000); harness.completeTts(0, false); await harness.flush();
+    assert.equal(voice.deadline, harness.now + 10000);
+    assert.match(document.getElementById("voice-status").textContent, /quota_exhausted/);
+    document.getElementById("voice-enabled").checked = false;
+    document.getElementById("voice-enabled").onchange();
+    const deadline = voice.deadline;
+    assert.equal(deadline, harness.now + 10000);
+    document.getElementById("voice-enabled").checked = true;
+    voice.setQuestion({ question_id: "q2", text: "Second question." });
+    harness.advance(10000); document.getElementById("interrupt-speech").onclick();
+    assert.equal(voice.deadline, harness.now + 10000);
+    assert.equal(harness.requests[1].options.signal.aborted, true);
+    const interruptedDeadline = voice.deadline;
+    harness.completeTts(1); await harness.flush();
+    assert.equal(voice.utteranceId, null); assert.equal(voice.deadline, interruptedDeadline);
+    document.getElementById("voice-enabled").checked = false;
+    voice.setQuestion({ question_id: "q3", text: "Third question." });
+    assert.equal(voice.deadline, harness.now + 10000); assert.equal(harness.requests.length, 2);
+    assert.equal(harness.starts, 0);
+  } finally { harness.close(); }
+});
+
+/** Verify fallback audible completion starts preparation, and retired media callbacks cannot touch a new question. */
+test("browser fallback completion and failure grant preparation without stale resets", async () => {
+  const harness = new VoicePlaybackHarness(); const voice = harness.voice;
+  try {
+    harness.ueAvailable = false;
+    voice.setQuestion({ question_id: "q1", text: "First question." });
+    harness.completeTts(); await harness.flush();
+    const audio = voice.audio;
+    assert.ok(audio); assert.equal(voice.deadline, null);
+    harness.advance(18000); assert.equal(harness.starts, 0);
+    audio.onended(); const completedDeadline = voice.deadline;
+    assert.equal(completedDeadline, harness.now + 10000);
+    audio.onerror(); assert.equal(voice.deadline, completedDeadline);
+    voice.setQuestion({ question_id: "q2", text: "Second question." });
+    harness.completeTts(1); await harness.flush();
+    const nextAudio = voice.audio;
+    audio.onended(); audio.onerror();
+    assert.equal(voice.audio, nextAudio); assert.equal(voice.deadline, null);
+    nextAudio.onerror();
+    assert.equal(voice.deadline, harness.now + 10000); assert.equal(harness.answers, 0);
+  } finally { harness.close(); }
+});
+
+/** Verify preparation never replaces independent TTS, UE startup or bounded browser playback deadlines. */
+test("speech deadlines preserve bounded fallbacks before preparation begins", async () => {
+  const harness = new VoicePlaybackHarness(); const voice = harness.voice;
+  try {
+    voice.setQuestion({ question_id: "q1", text: "First question." });
+    harness.advance(50000);
+    assert.equal(harness.requests[0].options.signal.aborted, true);
+    harness.requests[0].reject(new Error("Offline TTS timeout")); await harness.flush();
+    assert.equal(voice.deadline, harness.now + 10000);
+    voice.setQuestion({ question_id: "q2", text: "Second question." });
+    harness.completeTts(1); await harness.flush();
+    harness.advance(18000); await harness.flush();
+    const audio = voice.audio;
+    assert.ok(audio); assert.equal(voice.deadline, null);
+    voice.avatarEvent({ type: "playback_started", utterance_id: "audio-1" });
+    voice.avatarEvent({ type: "playback_finished", utterance_id: "audio-1" });
+    assert.equal(voice.audio, audio); assert.equal(voice.deadline, null);
+    harness.advance(125000); await harness.flush();
+    assert.equal(audio.paused, true); assert.equal(voice.deadline, harness.now + 10000);
+    assert.equal(harness.starts, 0); assert.equal(harness.requests.length, 2);
+  } finally { harness.close(); }
+});
+
+/** Verify an early-end dialog pauses preparation rather than losing the clock or granting a new full period. */
+test("dismissing early end resumes only remaining preparation", async () => {
+  const harness = new VoicePlaybackHarness(); const voice = harness.voice;
+  try {
+    document.getElementById("voice-enabled").checked = false;
+    voice.setQuestion({ question_id: "q1", text: "Explain your project." });
+    harness.advance(6000);
+    assert.equal(await voice.takeFinalAnswer(), ""); assert.equal(voice.deadline, null);
+    assert.equal(voice.preparationRemainingMs, 4000);
+    harness.advance(30000); voice.resumeAnswer();
+    assert.equal(voice.deadline, harness.now + 4000);
+    harness.advance(4000); await harness.flush();
+    assert.equal(harness.starts, 1); assert.equal(harness.answers, 0);
+  } finally { harness.close(); }
+});
+
+/** Verify browser autoplay refusal is a bounded voice fallback, never a blocked microphone preparation. */
+test("autoplay refusal starts full preparation without automatic synthesis retry", async () => {
+  const harness = new VoicePlaybackHarness(); const voice = harness.voice;
+  const originalPlay = OfflineQuestionAudio.prototype.play;
+  /** Reject only the offline browser playback startup. */
+  OfflineQuestionAudio.prototype.play = function () { return Promise.reject(new Error("Autoplay denied")); };
+  try {
+    harness.ueAvailable = false;
+    voice.setQuestion({ question_id: "q1", text: "Explain your contribution." });
+    harness.advance(8000); harness.completeTts(); await harness.flush();
+    assert.equal(voice.busy, false); assert.equal(voice.deadline, harness.now + 10000);
+    assert.match(document.getElementById("voice-status").textContent, /enable audio/);
+    assert.equal(harness.requests.length, 1); assert.equal(harness.starts, 0);
+  } finally { OfflineQuestionAudio.prototype.play = originalPlay; harness.close(); }
+});
+
+/** Verify the page's direct choosing-dialog suspension, rather than only the later save/finalization path. */
+test("actual end-choice controls path preserves preparation and newly arrived questions", async () => {
+  const harness = new VoicePlaybackHarness(); const voice = harness.voice;
+  try {
+    document.getElementById("voice-enabled").checked = false;
+    voice.setQuestion({ question_id: "q1", text: "First question." });
+    harness.advance(6000);
+    voice.suspended = true;
+    window.dispatchEvent({ type: "interview-controls", detail: { active: true, answering: false } });
+    assert.equal(voice.deadline, null); assert.equal(voice.preparationRemainingMs, 4000);
+    harness.advance(30000);
+    window.dispatchEvent({ type: "interview-controls", detail: { active: true, answering: true } });
+    voice.resumeAnswer();
+    assert.equal(voice.deadline, harness.now + 4000); assert.equal(harness.starts, 0);
+    voice.suspended = true;
+    window.dispatchEvent({ type: "interview-controls", detail: { active: true, answering: false } });
+    voice.setQuestion({ question_id: "q2", text: "Question delivered while choosing." });
+    voice.suspended = true;
+    assert.equal(voice.deadline, null); assert.equal(voice.preparationRemainingMs, 10000);
+    harness.advance(30000);
+    window.dispatchEvent({ type: "interview-controls", detail: { active: true, answering: true } });
+    voice.resumeAnswer();
+    assert.equal(voice.deadline, harness.now + 10000);
+    harness.advance(10000); await harness.flush();
+    assert.equal(harness.starts, 1); assert.equal(voice.question.question_id, "q2");
+  } finally { harness.close(); }
+});
+
+/** Verify a long allowed WAV receives a bounded CPU preparation window rather than a premature legacy fallback. */
+test("long WAV readiness extends beyond eighteen seconds and remains bounded", async () => {
+  const harness = new VoicePlaybackHarness(); const voice = harness.voice;
+  try {
+    voice.setQuestion({ question_id: "q1", text: "A longer interview question." });
+    harness.completeTts(0, true, 120000); await harness.flush();
+    assert.equal(harness.timers.get(voice.playbackTimer).at, 125000);
+    harness.advance(18000); await harness.flush();
+    assert.equal(voice.audio, null); assert.equal(voice.busy, true);
+    assert.equal(voice.phase, "avatar_preparing"); assert.equal(voice.deadline, null);
+    harness.advance(106999); assert.equal(voice.audio, null);
+    harness.advance(1); await harness.flush();
+    assert.ok(voice.audio); assert.equal(voice.phase, "reading"); assert.equal(voice.deadline, null);
+    voice.audio.onended();
+    assert.equal(voice.deadline, harness.now + 10000); assert.equal(harness.starts, 0);
+  } finally { harness.close(); }
+});
+
+/** Verify provider-independent duration metadata uses exact bounds and cannot weaken finite playback protection. */
+test("duration-aware readiness rejects malformed metadata and preserves legacy defaults", () => {
+  const harness = new VoicePlaybackHarness(); const voice = harness.voice;
+  try {
+    for (const invalid of [undefined, null, false, true, "120000", 0, -1, NaN, Infinity, {}, [], 120001]) {
+      assert.equal(voice.avatarPreparationTimeout(invalid), 18000);
+    }
+    assert.equal(voice.avatarPreparationTimeout(1000), 18000);
+    assert.equal(voice.avatarPreparationTimeout(5600), 23400);
+    assert.equal(voice.avatarPreparationTimeout(7520), 26280);
+    assert.equal(voice.avatarPreparationTimeout(120000), 125000);
+  } finally { harness.close(); }
 });

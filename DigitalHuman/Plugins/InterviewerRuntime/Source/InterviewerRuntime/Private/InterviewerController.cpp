@@ -1,5 +1,9 @@
 #include "InterviewerController.h"
 #include "InterviewerSpeechComponent.h"
+#include "InterviewerFaceAnimInstance.h"
+#include "InterviewerExpressionPlanHelpers.h"
+#include "InterviewerMotionComponent.h"
+#include "Async/Async.h"
 #include "GameFramework/PlayerController.h"
 #include "Kismet/GameplayStatics.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -74,16 +78,18 @@ void AInterviewerController::BindAvatar(bool bEnabled)
             if (auto* Bool = CastField<FBoolProperty>(*It))
             {
                 if (CompactName == "bUseLiveLink" || CompactName == "UseLiveLink")
-                    Bool->SetPropertyValue_InContainer(Target, bEnabled);
+                    // The persistent Face consumes buffered native speech directly.
+                    Bool->SetPropertyValue_InContainer(Target, false);
             }
         }
     };
     SetLiveLinkProperties(Avatar);
-    // Use the same shared face animation as the assembled Blueprint's LiveLinkSetup.
-    // That Blueprint function requires component parameters; toggle only the Face
-    // here so the interviewer's separately managed body animation stays independent.
+    // Keep one face instance for all interview states. Replacing it at speech
+    // boundaries resets its curves and creates a visible expression cut.
     TArray<USkeletalMeshComponent*> Meshes;
     Avatar->GetComponents(Meshes);
+    USkeletalMeshComponent* BodyMesh = nullptr;
+    for (auto* Mesh : Meshes) if (Mesh->GetName() == TEXT("Body")) BodyMesh = Mesh;
     for (auto* Mesh : Meshes)
     {
         if (Mesh->GetName() == TEXT("Face"))
@@ -94,20 +100,29 @@ void AInterviewerController::BindAvatar(bool bEnabled)
                 BoundFace = Mesh;
                 IdleFaceAnimationClass = Mesh->GetAnimInstance() ? Mesh->GetAnimInstance()->GetClass() : nullptr;
             }
-            UClass* AnimationClass = bEnabled
-                ? LoadClass<UAnimInstance>(nullptr, TEXT("/Game/MetaHumans/Common/Animation/ABP_MH_LiveLink.ABP_MH_LiveLink_C"))
-                : IdleFaceAnimationClass.Get();
-            if (bEnabled && !AnimationClass)
+            if (!Cast<UInterviewerFaceAnimInstance>(Mesh->GetAnimInstance()))
             {
-                UE_LOG(LogTemp, Warning, TEXT("Interviewer: MetaHuman face Live Link animation is missing"));
+                Mesh->SetAnimInstanceClass(UInterviewerFaceAnimInstance::StaticClass());
             }
-            else
+            if (auto* FaceInstance = Cast<UInterviewerFaceAnimInstance>(Mesh->GetAnimInstance()))
             {
-                Mesh->SetAnimInstanceClass(AnimationClass);
+                FaceInstance->SpeechPlayback = Speech;
+                FaceInstance->TransitionSeconds = FMath::Clamp(FaceTransitionSeconds, 0.0f, 1.0f);
+                FaceInstance->SpeechReleaseSeconds = FMath::Clamp(FaceSpeechReleaseSeconds, 0.0f, 2.0f);
+                FaceInstance->RecordedUpperFaceWeight = FMath::Clamp(SpeakingRecordedUpperFaceWeight, 0.0f, 1.0f);
+                FaceInstance->SetPresentation(bEnabled, Speech->SubjectName);
+                FaceInstance->SetExpressionState(State);
             }
         }
         if (auto* Instance = Mesh->GetAnimInstance()) SetLiveLinkProperties(Instance);
     }
+    if (!PresentationMotion || PresentationMotion->GetOwner() != Avatar)
+    {
+        if (PresentationMotion) PresentationMotion->DestroyComponent();
+        PresentationMotion = NewObject<UInterviewerMotionComponent>(Avatar, TEXT("InterviewerPresentationMotion"));
+        PresentationMotion->RegisterComponent();
+    }
+    PresentationMotion->Configure(BodyMesh, BoundFace.Get(), Speech, InterviewCamera);
 }
 
 void AInterviewerController::SetState(const FString& NewState)
@@ -116,18 +131,65 @@ void AInterviewerController::SetState(const FString& NewState)
         && NewState != "speaking" && NewState != "interrupted") return;
     State = NewState;
     BindAvatar(State == "speaking");
+    if (BoundFace.IsValid())
+        if (auto* Face = Cast<UInterviewerFaceAnimInstance>(BoundFace->GetAnimInstance())) Face->SetExpressionState(State);
     OnStateChanged(State);
 }
 
 void AInterviewerController::HandleInput(const FString& Descriptor)
 {
+    if (!IsInGameThread())
+    {
+        const TWeakObjectPtr<AInterviewerController> WeakThis(this);
+        AsyncTask(ENamedThreads::GameThread, [WeakThis, Descriptor]()
+        {
+            if (WeakThis.IsValid()) WeakThis->HandleInput(Descriptor);
+        });
+        return;
+    }
     if (Descriptor.Len() > 4096) return;
     TSharedPtr<FJsonObject> Message;
     const auto Reader = TJsonReaderFactory<>::Create(Descriptor);
     if (!FJsonSerializer::Deserialize(Reader, Message) || !Message.IsValid()) return;
     FString Type;
     if (!Message->TryGetStringField(TEXT("type"), Type)) return;
-    if (Type == "ping")
+    if (Type == "expression_plan" || Type == "expression_clear")
+    {
+        FString Id, Detail;
+        Message->TryGetStringField(TEXT("utterance_id"), Id);
+        auto* Face = BoundFace.IsValid() ? Cast<UInterviewerFaceAnimInstance>(BoundFace->GetAnimInstance()) : nullptr;
+        if (!Face)
+        {
+            Respond(TEXT("expression_rejected"), Id, TEXT("No persistent MetaHuman Face instance"));
+            return;
+        }
+        UE::Interviewer::EExpressionApplyResult Result = UE::Interviewer::EExpressionApplyResult::Rejected;
+        if (Type == "expression_plan")
+        {
+            UE::Interviewer::FExpressionPlan Plan;
+            if (UE::Interviewer::ParseExpressionPlan(Message, Plan, Detail)) Result = Face->SetExpressionPlan(Plan, Detail);
+        }
+        else
+        {
+            FString PresentationId;
+            int32 Generation = 0;
+            if (UE::Interviewer::ParseExpressionClear(Message, PresentationId, Generation, Detail))
+                Result = Face->ClearExpressionPlan(PresentationId, Generation, Detail);
+        }
+        Respond(Result == UE::Interviewer::EExpressionApplyResult::Applied
+            ? TEXT("expression_applied") : TEXT("expression_rejected"), Id, Detail);
+    }
+    else if (Type == "listening_activity")
+    {
+        UE::Interviewer::FListeningActivity Activity;
+        FString Detail;
+        UE::Interviewer::EExpressionApplyResult Result = UE::Interviewer::EExpressionApplyResult::Rejected;
+        if (UE::Interviewer::ParseListeningActivity(Message, Activity, Detail) && PresentationMotion)
+            Result = PresentationMotion->ApplyListeningActivity(Activity, Detail);
+        Respond(Result == UE::Interviewer::EExpressionApplyResult::Applied
+            ? TEXT("listening_activity_applied") : TEXT("listening_activity_rejected"), TEXT(""), Detail);
+    }
+    else if (Type == "ping")
     {
         Respond(TEXT("avatar_ready"), TEXT(""), Avatar ? TEXT("") : TEXT("Assign an assembled avatar to the controller"));
     }
@@ -151,6 +213,15 @@ void AInterviewerController::HandleInput(const FString& Descriptor)
 
 void AInterviewerController::HandlePlayback(FString Event, FString UtteranceId)
 {
+    if (BoundFace.IsValid())
+    {
+        if (auto* Face = Cast<UInterviewerFaceAnimInstance>(BoundFace->GetAnimInstance()))
+        {
+            if (Event == TEXT("playback_started")) Face->ExpressionPlaybackStarted(UtteranceId);
+            else if (Event == TEXT("playback_finished") || Event == TEXT("interrupted") || Event == TEXT("playback_failed"))
+                Face->ExpressionPlaybackStopped(UtteranceId, Event == TEXT("playback_finished"));
+        }
+    }
     if (Event == "playback_started") SetState(TEXT("speaking"));
     else if (Event == "interrupted") SetState(TEXT("interrupted"));
     else SetState(TEXT("listening"));
@@ -164,6 +235,29 @@ void AInterviewerController::Respond(const FString& Event, const FString& Uttera
     Message->SetStringField(TEXT("type"), Event);
     Message->SetStringField(TEXT("utterance_id"), UtteranceId);
     Message->SetStringField(TEXT("detail"), Detail);
+    if (FParse::Param(FCommandLine::Get(), TEXT("InterviewDiagnostics"))
+        && (Event == TEXT("playback_started") || Event == TEXT("playback_finished") || Event == TEXT("playback_failed")))
+    {
+        auto Diagnostics = MakeShared<FJsonObject>();
+        Diagnostics->SetNumberField(TEXT("prepared_frames"), Speech->LastGeneratedFrameCount);
+        Diagnostics->SetNumberField(TEXT("preparation_ms"), Speech->LastSpeechPreparationMs);
+        Diagnostics->SetNumberField(TEXT("solve_ms"), Speech->LastSpeechSolveMs);
+        Diagnostics->SetNumberField(TEXT("duration_seconds"), Speech->LastSpeechDurationSeconds);
+        Diagnostics->SetNumberField(TEXT("sampled_frames"), Speech->LastSpeechSampleCount);
+        Diagnostics->SetNumberField(TEXT("audio_seconds"), Speech->LastSpeechAudioSeconds);
+        Diagnostics->SetNumberField(TEXT("curve_seconds"), Speech->LastSpeechCurveSeconds);
+        Diagnostics->SetNumberField(TEXT("max_curve_gap_ms"), Speech->LastSpeechMaxFrameGapSeconds * 1000.0);
+        if (BoundFace.IsValid())
+            if (const auto* Face = Cast<UInterviewerFaceAnimInstance>(BoundFace->GetAnimInstance()))
+            {
+                Diagnostics->SetNumberField(TEXT("curve_count"), Face->LastSpeechCurveCount);
+                Diagnostics->SetNumberField(TEXT("face_evaluations"), Face->SpeechEvaluationCount);
+                Diagnostics->SetNumberField(TEXT("max_face_gap_ms"), Face->SpeechMaxEvaluationGapSeconds * 1000.0);
+                Diagnostics->SetNumberField(TEXT("jaw_min"), Face->SpeechJawMinimum);
+                Diagnostics->SetNumberField(TEXT("jaw_max"), Face->SpeechJawMaximum);
+            }
+        Message->SetObjectField(TEXT("diagnostics"), Diagnostics);
+    }
     FString Payload;
     const auto Writer = TJsonWriterFactory<>::Create(&Payload);
     FJsonSerializer::Serialize(Message, Writer);

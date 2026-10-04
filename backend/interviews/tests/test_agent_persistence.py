@@ -51,8 +51,8 @@ Declaration Index:
   Another interview’s question ID cannot be overwritten; version occupancy triggers rollback
   simultaneously.
 
-- PersistenceTests.test_review_progress_snapshots: Verify real-time progress persistence and full
-  review fields.
+- PersistenceTests.test_review_progress_snapshots: Retain internal plan/progress records while
+  exposing the completed report, public time state, and own feedback without orchestration fields.
 - PersistenceTests.test_review_legacy_and_tampered_snapshots:
   Old records missing fields do not load internal context; tampered output remains hidden.
 - PersistenceTests.test_review_failed_answer:
@@ -100,8 +100,7 @@ from .test_agent_progress import connect, disconnect, read, send_command
 
 
 class PersistenceTests(SafetyTestMixin, TransactionTestCase):
-    """Use TransactionTestCase to validate observable database state after commit and cleanup.
-    """
+    """Use TransactionTestCase to validate observable database state after commit and cleanup."""
 
     async def test_custom_project_and_topic_budgets_are_persisted(self):
         """Verify duration, plan version, actual timing start point, and question count safety
@@ -525,8 +524,9 @@ class PersistenceTests(SafetyTestMixin, TransactionTestCase):
         self.assertEqual(await other.app.repository.get_question(foreign.question_id), foreign)
 
     async def test_review_progress_snapshots(self):
-        """Offline model and real database: First-question progress is stored, completed review
-        preserves plan, difficulty, conversation, evaluation, and time.
+        """Offline model and real database: active progress remains available until completion.
+        Completion keeps internal plans, progress and logs intact, while final and history responses
+        expose only public time state, own conversation and feedback, and the checked report.
         """
         session, first = await self.start_session(count=1)
         for key in ("interview_plan", "plan_history", "topic_progress", "decision_logs"):
@@ -540,11 +540,61 @@ class PersistenceTests(SafetyTestMixin, TransactionTestCase):
         await reserve_request(session.interview_id, command)
         final = await session.answer(command)
         await complete_fixture_request(session.interview_id, command.request_id, final)
+        context = await session.app.repository.get_interview_context(session.interview_id)
+        self.assertEqual(context.plan.interview_id, session.interview_id)
+        self.assertEqual(context.plan.max_questions, 1)
+        self.assertTrue(context.plan.topics)
+        self.assertTrue(context.plan_history)
+        self.assertTrue(context.topic_progress)
+        logs = await session.app.repository.decision_logs_for(session.interview_id)
+        self.assertGreaterEqual(len(logs), len(first["decision_logs"]))
+        record = await AgentInterview.objects.aget(id=session.interview_id)
+        self.assertEqual(record.context["plan"], context.plan.model_dump(mode="json"))
+        self.assertEqual(
+            record.context["plan_history"],
+            [revision.model_dump(mode="json") for revision in context.plan_history],
+        )
+        self.assertEqual(
+            record.context["topic_progress"],
+            {
+                key: progress.model_dump(mode="json")
+                for key, progress in context.topic_progress.items()
+            },
+        )
         detail = (
             await self.async_client.get(f"/api/agent-interviews/{session.interview_id}/")
         ).json()
         for key in ("interview_plan", "plan_history", "topic_progress", "decision_logs"):
-            self.assertEqual(detail[key], final["result"][key])
+            self.assertNotIn(key, final["result"])
+            self.assertIsNone(detail[key])
+        self.assertNotIn("topics", final["result"])
+        public_state_fields = {
+            "contract_version",
+            "interview_id",
+            "state_version",
+            "status",
+            "stage",
+            "question_index",
+            "remaining_seconds",
+            "elapsed_seconds",
+        }
+        self.assertEqual(set(final["result"]["interview_state"]), public_state_fields)
+        self.assertEqual(
+            final["result"]["interview_state"],
+            context.state.model_dump(mode="json", include=public_state_fields),
+        )
+        self.assertEqual(detail["interview_state"], final["result"]["interview_state"])
+        self.assertEqual(detail["final_report"], final["result"]["final_report"])
+        public_history = final["result"]["question_history"][0]
+        self.assertNotIn("thread_id", public_history)
+        self.assertNotIn("project_id", public_history)
+        for key in ("new_information", "thread_complete", "answer_scope", "contradiction_evidence"):
+            self.assertIn(key, session.history[0]["evaluation"]["analysis"])
+            self.assertNotIn(key, public_history["evaluation"]["analysis"])
+        self.assertEqual(
+            public_history["evaluation"]["dimensions"],
+            session.history[0]["evaluation"]["dimensions"],
+        )
         turn = detail["questions"][0]
         self.assertEqual(turn["question"]["difficulty"], first["question"]["difficulty"])
         self.assertEqual(turn["answer"]["text"], ANSWER)

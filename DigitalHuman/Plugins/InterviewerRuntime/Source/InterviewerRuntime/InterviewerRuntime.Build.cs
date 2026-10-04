@@ -7,9 +7,9 @@ public class InterviewerRuntime : ModuleRules
         PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
         PublicDependencyModuleNames.AddRange(new[] { "Core", "CoreUObject", "Engine" });
         PrivateDependencyModuleNames.AddRange(new[] {
-            "HTTP", "Json", "JsonUtilities", "LiveLink", "LiveLinkInterface",
+            "HTTP", "Json", "JsonUtilities", "LiveLink", "LiveLinkInterface", "AnimGraphRuntime",
             "MetaHumanLocalLiveLinkSource", "MetaHumanLiveLinkSource", "MetaHumanPipelineCore",
-            "SpeechAnimationSolver", "AudioPlatformConfiguration", "NNE", "Projects", "MetaHumanCoreTech"
+            "SpeechAnimationSolver", "AudioPlatformConfiguration", "NNE", "NNERuntimeORT", "Projects", "MetaHumanCoreTech"
         });
     }
 }

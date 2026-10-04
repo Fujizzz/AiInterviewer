@@ -2,12 +2,13 @@
  *
  * @module speech-capture
  * Responsibilities: PCM capture and bounded STT transmission; deliver transcriptions via callback without directly submitting interview responses.
- * Implementation: Capture after microphone permission and handshake; send stop after flush; subscribe to backend's independent end detection and final credentials.
+ * Implementation: Capture after microphone permission and handshake; send stop after flush; subscribe to backend's independent end detection and final credentials. An optional isolated presence callback reports local voiced/quiet PCM and lifecycle end without changing recognition or answer timing.
  * Related Modules: interview-voice.js receives partial/final text and controls subtitles and end confirmation.
  *
  * Declaration Index:
  * - SpeechCapture: Browser PCM capture and one STT task; completion delivers text to the caller, never an interview command.
- * - SpeechCapture.constructor: Input transcription/failure callbacks and options (questionId, onCompletion, onActivity); output a capture instance.
+ * - SpeechCapture.constructor: Input transcription/failure callbacks and options (questionId, onCompletion, onActivity, onPresence); output a capture instance.
+ * - SpeechCapture.notifyPresence: Report optional PCM presence or one lifecycle end without propagating observer failures.
  * - SpeechCapture.start: Obtain microphone permission and start PCM capture after the STT handshake.
  * - SpeechCapture.start.callback1: Wait for recognition startup and attach bounded socket lifecycle handlers.
  * - SpeechCapture.start.callback1.callback1: Reject the pending startup after its deadline.
@@ -32,8 +33,9 @@
 /** Browser PCM capture and one STT task; completion delivers text to the caller, never an interview command. */
 export class SpeechCapture {
   /**
- *  Input transcription/failure callbacks and options (questionId, onCompletion, onActivity); output a capture instance.
+ *  Input transcription/failure callbacks and options (questionId, onCompletion, onActivity, onPresence); output a capture instance.
  * onActivity reports PCM energy above the existing server RMS floor (0.015), without exposing or storing audio.
+ * onPresence observes the same floor as a boolean, including silence and explicit end, and cannot change recognition or automatically submit answers.
  * Subscribe to backend end detection only when questionId is provided; final credentials are passed as the third argument to onFinal, without direct submission.
  */ constructor(onPartial, onFinal, onError, options = {}) {
     this.onPartial = onPartial;
@@ -51,6 +53,15 @@ export class SpeechCapture {
     this.flushResolve = null;
     this.startReject = null;
     this.starting = null;
+    this.presenceEnded = false;
+  }
+
+  /** Report energy presence only to an optional observer; end is emitted once and later PCM cannot revive the ended lifecycle. */
+  notifyPresence(active, ended = false) {
+    if (this.presenceEnded) return;
+    if (ended) this.presenceEnded = true;
+    try { this.options.onPresence?.({ active: active === true, ended: ended === true }); }
+    catch { /* Avatar observation must never interrupt PCM transmission or final transcription. */ }
   }
 
   /** Obtain microphone permission and start PCM capture after the STT handshake. */ async start() {
@@ -102,7 +113,9 @@ export class SpeechCapture {
               const value = samples.getInt16(index, true) / 32768;
               energy += value * value;
             }
-            if (samples.byteLength && Math.sqrt(energy / (samples.byteLength / 2)) >= 0.015) this.options.onActivity?.();
+            const voiced = samples.byteLength > 0 && Math.sqrt(energy / (samples.byteLength / 2)) >= 0.015;
+            if (voiced) this.options.onActivity?.();
+            this.notifyPresence(voiced);
             socket.send(data.buffer);
           }
         }
@@ -119,6 +132,7 @@ export class SpeechCapture {
 
   /** Flush audio before sending stop, then wait for the provider's final transcript. */ async end() {
     if (!this.recording || this.closed) return;
+    this.notifyPresence(false, true);
     this.recording = false;
     clearTimeout(this.timer);
     try {
@@ -136,6 +150,7 @@ export class SpeechCapture {
 
   /** Reject startup and release resources after a public error message. */ fail(error) {
     if (this.closed) return;
+    this.notifyPresence(false, true);
     this.startReject?.(error);
     this.onError(error.message);
     void this.close();
@@ -152,6 +167,7 @@ export class SpeechCapture {
   }
 
   /** Invalidate socket callbacks and end the local capture lifecycle. */ async close() {
+    this.notifyPresence(false, true);
     this.closed = true;
     this.recording = false;
     clearTimeout(this.timer);

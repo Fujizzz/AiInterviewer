@@ -1,11 +1,12 @@
-"""Responsibilities: Compose page, health-check, speech, and REST routes.
-Implementation: Bind Django paths to account, demo, health, speech, and API handlers.
-Related Modules: interviews.accounts, interviews.api, interviews.demo, interviews.speech, and
+"""Responsibilities: Compose page, health-check, speech, presentation, and REST routes.
+Implementation: Bind Django paths to account, demo, health, speech, presentation, and API handlers.
+Related Modules: interviews.accounts, interviews.api, interviews.demo, interviews.speech,
+interviews.presentation, and
 interviews.api.urls implement the routed behavior.
 Declaration Index:
 None
 Variable Index:
-- urlpatterns: Django route list for account operations, pages, diagnostics, health checks, speech,
+- urlpatterns: Django routes for accounts, pages, diagnostics, health checks, speech, presentation,
   and business APIs.
 """
 
@@ -13,6 +14,7 @@ from django.urls import include, path
 from interviews.accounts import account_page, sign_out
 from interviews.api.views import health
 from interviews.demo import demo_asset
+from interviews.presentation.views import plan as presentation_plan
 from interviews.speech.views import audio, tts
 
 urlpatterns = [
@@ -28,5 +30,6 @@ urlpatterns = [
     path("api/health/", health),
     path("api/speech/tts/", tts),
     path("api/speech/audio/<uuid:utterance_id>/", audio),
+    path("api/presentation/plan/", presentation_plan),
     path("api/", include("interviews.api.urls")),
 ]

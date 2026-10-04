@@ -580,7 +580,7 @@ async function startCapture(page) {
  *  Offline end only sets collection flag; final text must be delivered separately by test, do not fabricate synchronous success.
  */
   page.captureType.prototype.end = async function syntheticEnd() { this.recording = false; };
-  page.tick(15000);
+  page.tick(10000);
   await new Promise(setImmediate); // Drain cross-realm startup promises before advancing inactivity.
   return page.voice.capture;
 }
@@ -770,7 +770,7 @@ function discardPage(page, ws) {
 async function automaticClocks() {
   const page = await answeringPage();
   assert.doesNotMatch(HTML, /id="(?:start-recording|stop-recording)"/);
-  assert.match(page.el("answer-countdown").textContent, /15s/);
+  assert.match(page.el("answer-countdown").textContent, /10s/);
   const capture = await startCapture(page);
   assert.equal(capture.recording, true);
   page.tick(4000);
@@ -995,7 +995,7 @@ async function syntheticPCMLifecycle() {
   for (const scenario of [{ amplitude: 0.2, text: "Scripted complete ASR answer." }, { amplitude: 0, text: "" }]) {
     const page = await answeringPage();
     const audio = installSyntheticAudio(page, scenario.text);
-    page.tick(14999);
+    page.tick(9999);
     assert.equal(page.voice.capture, null);
     page.tick(1);
     await new Promise(setImmediate);
@@ -1032,7 +1032,7 @@ test("synthetic 48kHz audio traverses real worklet, PCM capture and silence clos
 async function syntheticPCMSemanticEnd() {
   const page = await answeringMCPPage();
   const audio = installSyntheticAudio(page, "Scripted full answer. I am done.", "fixture-receipt");
-  page.tick(15000);
+  page.tick(10000);
   await new Promise(setImmediate); await new Promise(setImmediate);
   audio.node.feed(syntheticSamples(4900, 0.2));
   const before = page.ws.sent.length;
@@ -1052,7 +1052,7 @@ async function syntheticPCMEarlyEnd() {
   for (const save of [true, false]) {
     const page = await answeringPage();
     const audio = installSyntheticAudio(page, "Scripted final early-end speech.");
-    page.tick(15000);
+    page.tick(10000);
     await new Promise(setImmediate); await new Promise(setImmediate);
     audio.node.feed(syntheticSamples(5000, 0.2));
     page.el("cancel-agent").fire("click");

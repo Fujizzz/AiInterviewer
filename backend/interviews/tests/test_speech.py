@@ -416,7 +416,13 @@ class SpeechHTTPTests(SimpleTestCase):
 
     def test_tts_url_audio_and_unknown_capability(self):
         """A synthesis response resolves through the public UUID route and is not cached."""
-        wav = b"fixture WAV bytes"
+        output = io.BytesIO()
+        with wave.open(output, "wb") as audio_fixture:
+            audio_fixture.setnchannels(1)
+            audio_fixture.setsampwidth(2)
+            audio_fixture.setframerate(24000)
+            audio_fixture.writeframes(b"\x00\x00" * 12000)
+        wav = output.getvalue()
         with patch("interviews.speech.views.synthesize", return_value=wav):
             response = self.client.post(
                 "/api/speech/tts/",
@@ -426,6 +432,7 @@ class SpeechHTTPTests(SimpleTestCase):
             )
         self.assertEqual(response.status_code, 200)
         data = response.json()
+        self.assertEqual(data["duration_ms"], 500)
         self.assertTrue(data["audio_url"].startswith("http://127.0.0.1:8765/api/speech/audio/"))
         audio = self.client.get(
             f"/api/speech/audio/{data['utterance_id']}/", HTTP_HOST="127.0.0.1:8765"

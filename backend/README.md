@@ -108,6 +108,7 @@ backend/
     api/                      REST serializers, views and routes
     streaming/                Protocol validation and ASGI connections
     speech/                   ASR/TTS and independent completion detection
+    presentation/             Four-state facial behaviour plans; recorded clips are failure fallback
     migrations/               Schema history and initial questions
     tests/                    Django/ASGI tests
   frontend/                   Backend-served pages and browser modules
@@ -120,7 +121,7 @@ backend/
   requirements-docs.txt       Pinned development-only parser dependencies
 ```
 
-Start with [the code guide](docs/code-guide.md), [schema](docs/schema.md), [API contract](docs/api.md) and [test notes](docs/testing.md).
+Start with [the code guide](docs/code-guide.md), [schema](docs/schema.md), [API contract](docs/api.md) and [test notes](docs/testing.md). The independent digital-human expression service and local preview controls are described in [facial presentation](docs/digital-human-presentation.md).
 
 ## Tests
 
