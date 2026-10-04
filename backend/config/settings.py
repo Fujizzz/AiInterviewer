@@ -17,6 +17,8 @@ Variable Index:
 - INSTALLED_APPS: Django auth, content-type, session, REST framework, and interviews app
   registration.
 - INTERVIEW_REQUIRE_LOGIN: Development login gate; production configuration enables this explicitly.
+- AI_SECURITY_ENABLED: Strict true/false environment switch; true retains interview safety review,
+  false explicitly disables review for algorithm development without disabling authentication.
 - AUTH_PASSWORD_VALIDATORS: Empty registration complexity rules; Django's standard password hashing
   remains active.
 - TEMPLATES: Template directories and request/identity context processors.
@@ -64,6 +66,12 @@ INSTALLED_APPS = [
     "interviews",
 ]
 INTERVIEW_REQUIRE_LOGIN = False
+# An absent switch preserves safety; malformed values cannot accidentally disable it. This setting
+# is fixed for the process lifetime and requires a backend restart after environment changes.
+AI_SECURITY_ENABLED = os.environ.get("AI_SECURITY_ENABLED", "true").strip().lower()
+if AI_SECURITY_ENABLED not in {"true", "false"}:
+    raise ValueError("AI_SECURITY_ENABLED must be true or false")
+AI_SECURITY_ENABLED = AI_SECURITY_ENABLED == "true"
 AUTH_PASSWORD_VALIDATORS = []
 TEMPLATES = [
     {

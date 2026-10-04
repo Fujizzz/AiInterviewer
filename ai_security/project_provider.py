@@ -2,6 +2,7 @@
 Implementation: Preserve provider, model, options, timeout and response checks; share transport
 between structured safety assessments and explicit plain-text public benchmark requests.
 Prepare verified trust/resources once; reuse one loop-bound client with explicit owner cleanup.
+Set a finite safety-only idle lifetime explicitly while retaining the SDK connection-count limits.
 Related Modules: behavior_semantic requests assessments; security_evaluation.public.collect
 requests native benchmark responses; BehaviorEngine owns the safety deadline.
 
@@ -24,13 +25,16 @@ Declaration Index:
 Variable Index:
 - logger: 仅记录模型、请求序号、异常类型和 HTTP 状态，不记录正文或服务商错误文本。
 - TRACE_EVENTS: Finite TCP/TLS and HTTP phase names; trace info values are never retained.
+- DEFAULT_KEEPALIVE_SECONDS: Default finite 60-second safety-pool idle lifetime.
 
 Constraints:
+AI_SECURITY_KEEPALIVE_SECONDS is an optional positive finite idle lifetime, not a model deadline.
 复用 LLM_PROVIDER、对应 API_KEY/MODEL/BASE_URL、OPENAI_TEMPERATURE；不修改环境文件。
 DashScope 沿用业务 enable_thinking=False；OpenAI 沿用 Responses 且 store=False。
 sdk_timeout_seconds 为已有 Agent 请求超时；外层安全策略时限继续生效，不自动增大。
 _api_key 仅用于 SDK；_calls 记录无正文的响应模型、token 用量及调用状态，不含远端请求 ID。
 每个传输实例复用自己的连接池；首次调用绑定事件循环，禁止跨循环使用或关闭后重建。
+连接空闲期限显式配置，默认60秒；对端关闭仍由原HTTP栈处理，不增加重试或保活请求。
 CLI、评测和连接网关负责停止在途任务后显式aclose；关闭成本单独记录，不混入单次推理。
 证书环境与凭据一样在实例初始化时读取；变更证书需重建传输。初始化耗时单独记录，
 不计入请求延迟，不能视为消除启动成本；成本统计可能缺失超时远端用量。
@@ -51,12 +55,14 @@ from pathlib import Path
 from time import perf_counter
 
 import certifi
+import httpx
 from dotenv import dotenv_values
-from openai import AsyncOpenAI, DefaultAsyncHttpxClient
+from openai import DEFAULT_CONNECTION_LIMITS, AsyncOpenAI, DefaultAsyncHttpxClient
 
 from agents.config import load_agent_settings
 
 logger = logging.getLogger(__name__)
+DEFAULT_KEEPALIVE_SECONDS = 60.0
 TRACE_EVENTS = frozenset(
     f"{phase}.{state}"
     for phase in (
@@ -100,6 +106,8 @@ class ProjectModelTransport:
         provider/model/options 与主业务配置相同；空温度不发送参数。统计仅记录本实例的调用。
         预加载SDK资源模块、验证TLS信任并分别记录一次性成本；不创建客户端或网络连接。
         模块与证书初始化在实例构建时完成；不在限时审查中重载证书或首次加载资源模块。
+        AI_SECURITY_KEEPALIVE_SECONDS只控制空闲连接保留；未配置为60秒，空值/非有限/非正值
+        明确报错。原SDK最大连接数、模型参数和外层时限不变，不发送额外保活或重试请求。
         """
         self.provider = configuration.get("LLM_PROVIDER", "").strip().lower()
         if self.provider not in {"dashscope", "openai"}:
@@ -122,6 +130,14 @@ class ProjectModelTransport:
         if not math.isfinite(sdk_timeout_seconds) or sdk_timeout_seconds <= 0:
             raise ValueError("SDK timeout must be positive and finite")
         self.sdk_timeout_seconds = sdk_timeout_seconds
+        try:
+            self.keepalive_expiry_seconds = float(
+                configuration.get("AI_SECURITY_KEEPALIVE_SECONDS", DEFAULT_KEEPALIVE_SECONDS)
+            )
+        except (TypeError, ValueError):
+            raise ValueError("AI_SECURITY_KEEPALIVE_SECONDS must be positive and finite") from None
+        if not math.isfinite(self.keepalive_expiry_seconds) or self.keepalive_expiry_seconds <= 0:
+            raise ValueError("AI_SECURITY_KEEPALIVE_SECONDS must be positive and finite")
         self._calls = []
         # Task-local timing context isolates concurrent calls sharing this owned client. It holds
         # only a statistics record and monotonic origin; no messages, secrets or HTTP headers.
@@ -333,10 +349,12 @@ class ProjectModelTransport:
     def _client_for_call(self):
         """Functionality: Reuse one client without global or cross-loop state. Inputs: Transport
         configuration and current event loop. Outputs: Owned SDK client. Logic: Bind the first
-        call's loop, create once with original options, reject later foreign loops or closed state.
+        call's loop, create once with original model options and SDK connection-count limits;
+        use the validated finite idle expiry and reject later foreign loops or closed state.
         Constraints: No implicit retry, failed-call client replacement or recreation after close.
         Connection reuse is HTTP pooling,
         not a replacement model. Client creation is synchronous and does not issue a model call.
+        A longer idle lifetime permits reuse; it cannot prevent peer EOF or TCP window restart.
         """
         if self._closed:
             raise RuntimeError("security transport already closed")
@@ -352,11 +370,22 @@ class ProjectModelTransport:
                 max_retries=0,
                 http_client=DefaultAsyncHttpxClient(
                     verify=self._ssl_context,
+                    limits=httpx.Limits(
+                        max_connections=DEFAULT_CONNECTION_LIMITS.max_connections,
+                        max_keepalive_connections=DEFAULT_CONNECTION_LIMITS.max_keepalive_connections,
+                        keepalive_expiry=self.keepalive_expiry_seconds,
+                    ),
                     event_hooks={
                         "request": [self._http_request],
                         "response": [self._http_response],
                     },
                 ),
+            )
+            logger.info(
+                "Security pool initialized keepalive_s=%s max_connections=%s max_keepalive=%s",
+                self.keepalive_expiry_seconds,
+                DEFAULT_CONNECTION_LIMITS.max_connections,
+                DEFAULT_CONNECTION_LIMITS.max_keepalive_connections,
             )
         return self._client
 
@@ -399,7 +428,12 @@ class ProjectModelTransport:
             "tls_policy": "verified-context-per-transport-httpx-default-trust-v1",
             "tls_initialization_ms": self._tls_initialization_ms,
             "sdk_initialization_ms": self._sdk_initialization_ms,
-            "connection_strategy": "owned-client-same-event-loop-v1",
+            "connection_strategy": "owned-client-same-event-loop-explicit-keepalive-v2",
+            "http_connection_limits": {
+                "max_connections": DEFAULT_CONNECTION_LIMITS.max_connections,
+                "max_keepalive_connections": DEFAULT_CONNECTION_LIMITS.max_keepalive_connections,
+                "keepalive_expiry_seconds": self.keepalive_expiry_seconds,
+            },
             "pool_close_ms": self._close_ms,
             "pool_close_status": self._close_status,
             "endpoint_sha256": hashlib.sha256(self._base_url.encode()).hexdigest(),

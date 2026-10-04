@@ -12,6 +12,8 @@ Declaration Index:
 - test_provider_cancellation.wait_response: 接受 SDK 参数并等待取消。
 - test_factory_precedence: 确认只读取统一根目录配置，进程环境覆盖文件且不改变环境。
 - test_missing_credentials: 缺少凭据时立即失败。
+- test_keepalive_configuration: Reject invalid idle lifetimes before any SDK/client initialization.
+- test_keepalive_override: Verify explicit idle expiry reaches the real HTTP pool with SDK limits.
 
 Variable Index:
 None
@@ -109,6 +111,13 @@ async def test_provider_request(monkeypatch, provider_config, behavior_request, 
     assert result.verdict == "compliant"
     assert constructor.call_args.kwargs["max_retries"] == 0
     assert constructor.call_args.kwargs["timeout"] == 30
+    limits = module.DefaultAsyncHttpxClient.call_args.kwargs["limits"]
+    assert limits.keepalive_expiry == 60
+    assert limits.max_connections == module.DEFAULT_CONNECTION_LIMITS.max_connections
+    assert (
+        limits.max_keepalive_connections
+        == module.DEFAULT_CONNECTION_LIMITS.max_keepalive_connections
+    )
     method = client.chat.completions.create if provider == "dashscope" else client.responses.create
     method.assert_awaited_once()
     kwargs = method.call_args.kwargs
@@ -195,3 +204,45 @@ def test_missing_credentials(provider_config):
     provider_config["DASHSCOPE_API_KEY"] = ""
     with pytest.raises(ValueError, match="API_KEY"):
         ProjectBehaviorReviewer(module.ProjectModelTransport(provider_config, 30))
+
+
+@pytest.mark.parametrize("value", ["", None, "nan", "inf", "-1", "0", "invalid"])
+def test_keepalive_configuration(monkeypatch, provider_config, value):
+    """Functionality: Reject invalid network configuration. Inputs: Dummy provider plus malformed,
+    nonfinite or nonpositive idle lifetime. Outputs: Explicit ValueError before resource setup.
+    Logic: Guard the SDK constructor and trust-loader against use. Constraints: No credential
+    content in errors, no default substitution for an explicit invalid value, no network traffic.
+    """
+    provider_config["AI_SECURITY_KEEPALIVE_SECONDS"] = value
+    constructor = MagicMock()
+    trust = MagicMock()
+    monkeypatch.setattr(module, "AsyncOpenAI", constructor)
+    monkeypatch.setattr(module, "_verified_tls_context", trust)
+    with pytest.raises(ValueError, match="AI_SECURITY_KEEPALIVE_SECONDS"):
+        module.ProjectModelTransport(provider_config, 30)
+    constructor.assert_not_called()
+    trust.assert_not_called()
+
+
+async def test_keepalive_override(provider_config):
+    """Functionality: Verify explicit configuration reaches the installed SDK HTTP pool.
+    Inputs: Dummy provider configuration with the original five-second control value.
+    Outputs: Real pool limits and exported metadata match that value; client closes explicitly.
+    Logic: Construct the actual client without issuing a request and inspect its pool configuration.
+    Constraints: No external service validation or model call; loop ownership/cleanup stay original.
+    """
+    provider_config["AI_SECURITY_KEEPALIVE_SECONDS"] = "5"
+    transport = module.ProjectModelTransport(provider_config, 30)
+    try:
+        pool = transport._client_for_call()._client._transport._pool
+        assert pool._keepalive_expiry == 5
+        assert pool._max_connections == module.DEFAULT_CONNECTION_LIMITS.max_connections
+        assert (
+            pool._max_keepalive_connections
+            == module.DEFAULT_CONNECTION_LIMITS.max_keepalive_connections
+        )
+        assert transport.metadata()["http_connection_limits"]["keepalive_expiry_seconds"] == 5
+        assert transport.metadata()["sdk_max_retries"] == 0
+        assert transport.metadata()["sdk_timeout_seconds"] == 30
+    finally:
+        await transport.aclose()

@@ -47,6 +47,16 @@ Redis/Celery 接入不修改模型、采样参数、评分策略、推荐权重�
 `/etc/ai-interviewer/app.env.before-speech-20261003`；原始文件权限保持 `0600`。
 当前机器的 SSH 管理信息按用户要求保存在仓库根目录 `server_info.txt`，已加入 Git 忽略，
 不进入 Git 提交、Kaggle 数据或源码发布归档。真实麦克风及完整设备体验仍须现场验证。
+
+2026-10-05 已完成安全引擎连接保活专项更新：私有 `app.env` 显式配置
+`AI_SECURITY_KEEPALIVE_SECONDS=60`，只替换安全传输模块并重启 ASGI；原模型、5 秒
+审查门槛、SDK 零重试及其他服务配置不变。更新前的原传输文件和私有配置保存在
+`/var/backups/ai-interviewer/security-network-20261005-181442/`，目录 0700、备份 0600。
+当前整版本标识仍是 `c3d96fd617419f96ef0e44d2845b63ab1e710339`，专项文件哈希另存回执；
+本地代码尚未提交推送，后续整版本发布必须包含本次修复，避免覆盖已生效的传输代码。
+当前服务器的 324 次完整安全回归/稳定性/并发检查均通过原门槛，部署后 5 次实际安装
+引擎检查均正确。数据、原失败记录边界及运行环境见
+[安全引擎网络连接优化](../security_evaluation/network_optimization/README.md)。
 本次同时合并远程 main 的 Plan and Execute 版本；面试时长和题数安全上限沿用该远程版本。
 生产配置通过 `DJANGO_SETTINGS_MODULE=config.production` 显式启用；默认开发启动仍使用 SQLite。
 PostgreSQL 配置不全或连接失败时明确报错，不回退到 SQLite。
@@ -190,3 +200,15 @@ Actions 使用独立 `DEPLOY_SSH_KEY` 和固定 `DEPLOY_KNOWN_HOSTS`；密钥只
 不会自动删除，目前需管理员按磁盘占用维护。
 
 验证记录：main 推送已实际触发 GitHub Actions 完成测试和服务器切换；线上 PDF 经 Redis/Celery、沙箱和真实视觉模型返回 result，取消在 worker 日志确认，损坏 PDF 明确返回 error。发布归档已验证普通文件可用，拒绝路径穿越、链接和环境秘密文件。
+
+## 面试安全引擎临时停用
+
+后端默认 `AI_SECURITY_ENABLED=true`。算法开发期间显式设置 `AI_SECURITY_ENABLED=false`，
+并重启后端：面试网关不创建安全引擎或审查模型，跳过安全扫描预算和语义审查。
+这是明确的开发配置，不是审查失败后的自动放行；重新设置 `true` 并重启即可恢复原有检查。
+独立安全引擎 CLI 与离线评测不受此后端开关影响。
+
+登录、数据归属、请求生命周期、公开输出结构、正文摘要及保存时的状态版本检查仍执行。
+开发输出的内部收据为 `status=disabled`，区别于实际审查通过的 `status=allow`；
+历史请求接口通过 `security_review_status` 返回实际状态。重新启用不会把旧开发结果改成已审查。
+生产配置位于 `/etc/ai-interviewer/app.env`；修改前备份，修改后重启应用服务。

@@ -1,7 +1,8 @@
 """Responsibilities: verify real ASGI, input binding, output checking, database, and historical
 public boundary closure.
 Implementation: replace only business and safety models; retain actual state machine, gateway,
-transaction, protocol, and HTTP history handling.
+transaction, protocol, and HTTP history handling. Explicitly enable safety for this test class,
+independently of a developer's temporary environment switch.
 Related Modules: agent_safety/agent_socket/agent_records/agent_history; reuse existing deterministic
 business test data.
 
@@ -55,7 +56,7 @@ import json
 from unittest.mock import patch
 from uuid import uuid4
 
-from django.test import TransactionTestCase
+from django.test import TransactionTestCase, override_settings
 from django.utils import timezone
 
 from ai_security.errors import SecurityContextChanged
@@ -65,9 +66,9 @@ from interviews.agent_records import complete_request, reserve_request
 from interviews.agent_safety import (
     InterviewIOGateway,
     IOSafetyError,
-    approved_response,
     make_output_receipt,
     validate_progress,
+    verified_response,
 )
 from interviews.agent_socket import Prepare
 from shared.contracts.behavior import BehaviorAssessment
@@ -139,6 +140,7 @@ class ScriptedReviewer:
         )
 
 
+@override_settings(AI_SECURITY_ENABLED=True)
 class IOSafetyTests(TransactionTestCase):
     """Function: regression of real closed loop; logic: independent database and controllable port;
     constraint: no change to production model parameters or five-second budget.
@@ -624,7 +626,7 @@ class IOSafetyTests(TransactionTestCase):
                 }
                 await record.asave(update_fields=["response"])
                 allowed = mode in {"public", "missing"}
-                self.assertEqual(approved_response(record), payload if allowed else None)
+                self.assertEqual(verified_response(record), payload if allowed else None)
                 detail = (await self.async_client.get(base)).json()
                 saved = (await self.async_client.get(f"{base}requests/{record.id}/")).json()
                 self.assertEqual(saved["security_output_available"], allowed)

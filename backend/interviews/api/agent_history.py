@@ -20,15 +20,15 @@ Declaration Index:
 - AgentHistoryViewSet.finalize_response: Set no-cache headers for both successful and errored
   responses.
 - AgentHistoryViewSet.retrieve: Reconstruct public materials, questions, and evaluations from
-  approved responses.
-  Include personal answers, timestamps, progress, and exception metadata; do not expose unapproved
+  integrity-verified gateway responses.
+  Include personal answers, timestamps, progress, and exception metadata; do not expose unreceipted
   Agent content.
 - AgentHistoryViewSet.requests: Paginated return of current interview request metadata.
-- AgentHistoryViewSet.request_result: Retrieve checked results by both interview and request, return
-  404 across interviews.
+- AgentHistoryViewSet.request_result: Retrieve receipt-verified results and actual review status by
+  interview/request, returning 404 across interviews.
 
 Variable Index:
-- logger: Log only interview-related ID, number of approved requests, and visible questions; do not
+- logger: Log only interview-related ID, number of verified requests, and visible questions; do not
   log model content or user data.
 """
 
@@ -40,7 +40,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from ..agent_models import AgentInterview, AgentRequest
-from ..agent_safety import approved_response
+from ..agent_safety import verified_response
 
 logger = logging.getLogger(__name__)
 
@@ -70,8 +70,7 @@ class InterviewSummary(serializers.ModelSerializer):
 
 
 class RequestSummary(serializers.ModelSerializer):
-    """Public request status and fixed error codes, no materials or response body returned in lists.
-    """
+    """List public status and fixed error codes without materials or response bodies."""
 
     class Meta:
         """Define request metadata fields; response body must be explicitly retrieved via
@@ -117,12 +116,13 @@ class AgentHistoryViewSet(
         return response
 
     def retrieve(self, request, *args, **kwargs):
-        """Return approved outputs and personally accepted answers, distinguishing internal
+        """Return receipt-verified outputs and personally accepted answers, distinguishing internal
         submissions from publicly available results.
 
         Input is interview UUID from URL; read-only database, no model invocation.
-        Evaluations are empty if no evaluation was approved for public release.
-        Old records or rejected results are not automatically approved; do not read original
+        Evaluations are empty if no valid gateway receipt exists for public release.
+        Explicit disabled receipts preserve development history without asserting semantic review.
+        Old records or rejected results are not automatically authorized; do not read original
         context, question.payload, or answer.evaluation.
         Evaluation extracted from checked response of same answer request; final report extracted
         from checked finished;
@@ -135,11 +135,11 @@ class AgentHistoryViewSet(
         personal relationship records,
         not filled in from internal JSON.
         Success query logs contain only associated ID and output count, aiding diagnosis of missing
-        approval records,
+        gateway receipts,
         without logging Q&A content.
         """
         interview = self.get_object()
-        approved = {}
+        verified = {}
         visible_questions = {}
         profile = job = state = latest_action = None
         result = {}
@@ -147,10 +147,10 @@ class AgentHistoryViewSet(
             ("interview_plan", "plan_history", "topic_progress", "decision_logs")
         )
         for record in interview.requests.filter(status="succeeded").order_by("finished_at", "id"):
-            payload = approved_response(record)
+            payload = verified_response(record)
             if payload is None:
                 continue
-            approved[str(record.id)] = payload
+            verified[str(record.id)] = payload
             if payload["type"] == "prepared":
                 profile = payload["candidate_profile"]
             elif payload["type"] == "question":
@@ -170,7 +170,7 @@ class AgentHistoryViewSet(
             if checked_question is None:
                 continue
             answer = getattr(question, "answer", None)
-            checked_answer = approved.get(str(answer.request_id), {}) if answer else {}
+            checked_answer = verified.get(str(answer.request_id), {}) if answer else {}
             evaluation = checked_answer.get("last_evaluation")
             if checked_answer.get("type") == "finished":
                 evaluation = next(
@@ -199,9 +199,9 @@ class AgentHistoryViewSet(
                 }
             )
         logger.info(
-            "Agent history read interview=%s schema=2 approved_requests=%d visible_questions=%d",
+            "Agent history read interview=%s schema=2 verified_requests=%d visible_questions=%d",
             interview.id,
-            len(approved),
+            len(verified),
             len(questions),
         )
         return Response(
@@ -213,7 +213,7 @@ class AgentHistoryViewSet(
                     interview.requests.filter(status__in=["failed", "interrupted"]), many=True
                 ).data,
                 "can_resume": False,
-                "security_output_available": bool(approved),
+                "security_output_available": bool(verified),
                 "candidate_profile": profile,
                 "job_profile": job,
                 "interview_state": state,
@@ -240,16 +240,20 @@ class AgentHistoryViewSet(
 
     @action(detail=True, methods=["get"], url_path=r"requests/(?P<request_id>[0-9a-f-]{36})")
     def request_result(self, request, pk=None, request_id=None):
-        """Input interview and request ID; return metadata and checked content or None, return 404
-        across interviews; no retry or model invocation.
+        """Input interview and request ID; return metadata and verified content or None, return 404
+        across interviews; no retry or model invocation. security_review_status reports allow or
+        disabled only for intact receipts; disabled history is not retroactively checked.
         """
         interview = self.get_object()
         record = get_object_or_404(interview.requests, id=request_id)
-        payload = approved_response(record)
+        payload = verified_response(record)
         return Response(
             {
                 **RequestSummary(record).data,
                 "response": payload,
                 "security_output_available": payload is not None,
+                "security_review_status": record.response["_security"]["status"]
+                if payload is not None
+                else None,
             }
         )

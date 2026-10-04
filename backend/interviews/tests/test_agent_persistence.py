@@ -90,7 +90,7 @@ from interviews.agent_records import (
     reserve_request,
 )
 from interviews.agent_repository import DjangoInterviewRepository
-from interviews.agent_safety import approved_response
+from interviews.agent_safety import verified_response
 from interviews.agent_session import AgentSession
 from interviews.agent_socket import Answer, Start, agent_socket
 from shared.contracts import CandidateAnswer, InterviewAction
@@ -200,7 +200,7 @@ class PersistenceTests(SafetyTestMixin, TransactionTestCase):
         saved_request = await AgentRequest.objects.aget(id=command.request_id)
         turn = await AgentTurn.objects.aget(feedback_request_id=command.request_id)
         self.assertEqual(record.status, "completed")
-        self.assertEqual(approved_response(saved_request), result)
+        self.assertEqual(verified_response(saved_request), result)
         self.assertEqual(answer.committed_state_version, turn.state_version)
         self.assertEqual(answer.evaluation["request_id"], str(command.request_id))
         self.assertLess(result["result"]["interview_state"]["elapsed_seconds"], 120)

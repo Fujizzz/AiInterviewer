@@ -1,7 +1,8 @@
 """Responsibilities: Enforce safe input and output boundaries for real interview state without
 changing tools or scoring.
 Implementation: Bind command provenance before execution; inspect complete responses and refresh
-database state before delivery callbacks.
+database state before delivery callbacks when enabled. Explicit disabled mode releases unchecked
+development outputs with distinct receipts, without constructing an engine or model reviewer.
 Related Modules: agent_socket owns one gateway per connection, agent_records stores receipts, and
 history views validate response digests.
 
@@ -9,17 +10,19 @@ Declaration Index:
 - IOSafetyError: Fixed input, output, or state contract failure without candidate content.
 - security_error_code: Map safety exceptions to the finite protocol error-code set.
 - read_io_snapshot: Read ownership, pending requests, and Agent state from the database.
-- make_output_receipt: Record server-side integrity data for an approved complete output.
-- approved_response: Return only successful responses whose body matches a valid receipt.
+- make_output_receipt: Record integrity and allow/disabled review status for a body.
+- verified_response: Return successful responses whose body and review status match a valid receipt.
 - validate_progress: Validate bounded progress events that contain no model-generated body.
 - InterviewIOGateway: Per-connection input and output safety boundary.
-- InterviewIOGateway.__init__: Create independent reviewers and explicit policy without calling a
-  model.
+- InterviewIOGateway.__init__: Capture activation; create policy and reviewers only when enabled,
+  without calling a model.
 - InterviewIOGateway.aclose: Close the gateway-owned safety pool after connection tasks stop.
 - InterviewIOGateway.bind_input: Bind a validated command to real backend state before business
   model calls.
 - InterviewIOGateway._request: Build a behavior request from the complete response and current
   interview evidence.
+- InterviewIOGateway._validate_output: Check the output protocol, ownership identity and phase in
+  both explicit activation modes without a model or semantic judgment.
 - InterviewIOGateway.publish: Inspect and refresh state before passing the same body to storage or
   delivery callbacks.
 - InterviewIOGateway.publish.refresh: Reload database state and rebuild the request for the same
@@ -40,10 +43,12 @@ The optional _owned_reviewer is closed after connection tasks stop; injected rev
 caller-owned. Engine and reviewer share the gateway's event loop without a global connection pool.
 It does not classify prompt attacks, rewrite or redact bodies, retry, or generate replacement
 answers.
-Every business output is inspected as a whole, including attached assessments, plans, and diagnostic
-fields; failures suppress the entire response.
+Enabled mode inspects every business output as a whole; failures suppress the entire response.
+AI_SECURITY_ENABLED=false explicitly suspends safety budgets and engine checks, never as a response
+to review failure. Ownership, lifecycle, public shape and persistence integrity remain active.
 Receipts depend on backend database write access. SHA-256 is not a signature, and unchecked internal
-writes cannot be exposed through history.
+writes without valid receipts cannot be exposed through history. Disabled-mode historical results
+remain readable after reactivation; their disabled receipts never assert semantic approval.
 This boundary does not roll back Agent scoring or state already committed internally; it protects
 candidate-visible output, and network delivery is not a database transaction.
 """
@@ -53,6 +58,7 @@ import json
 import logging
 
 from asgiref.sync import sync_to_async
+from django.conf import settings
 
 from agents.domain.models import InterviewContext
 from ai_security import BehaviorBlocked, BehaviorCheckFailed, BehaviorEngine, SecurityPolicy
@@ -199,28 +205,31 @@ def read_io_snapshot(interview_id, request_id, owner_id):
     }
 
 
-def make_output_receipt(payload, request_id, state_version):
-    """Create a receipt for an inspected JSON body, request ID, and version; call only from the
-    trusted release callback.
+def make_output_receipt(payload, request_id, state_version, *, review_status="allow"):
+    """Create integrity metadata from payload, request ID, version and allow/disabled review status.
+    Only trusted release callbacks may supply disabled for explicitly suspended review.
 
     This function does not inspect content. Its digest is neither a signature nor an external
-    authorization token.
+    authorization token. Unknown review statuses raise ValueError; existing allow receipts retain
+    their exact schema and historical digest semantics. No database write or model call occurs.
     """
+    if review_status not in {"allow", "disabled"}:
+        raise ValueError("unknown output review status")
     return {
         "version": "agent-io-v1",
-        "status": "allow",
+        "status": review_status,
         "request_id": str(request_id),
         "state_version": state_version,
         "payload_sha256": hashlib.sha256(canonical_json(payload).encode()).hexdigest(),
     }
 
 
-def approved_response(record):
-    """Read an approved historical response from an AgentRequest, returning a detached response or
-    None without model calls.
+def verified_response(record):
+    """Read an integrity-verified AgentRequest response, returning a detached body or None.
 
     Missing, unsuccessful, invalid, or body-mismatched receipts are never exposed; this does not
-    infer safety or rewrite legacy rows.
+    infer safety or rewrite legacy rows. Valid disabled receipts remain readable after reactivation,
+    without retrospective approval. Inputs: record status/body/ID; no writes or model calls.
     """
     if record.status != "succeeded" or not isinstance(record.response, dict):
         return None
@@ -232,7 +241,9 @@ def approved_response(record):
     if type(version) is not int or version < 0:
         return None
     try:
-        if receipt != make_output_receipt(payload, record.id, version):
+        if receipt != make_output_receipt(
+            payload, record.id, version, review_status=receipt.get("status")
+        ):
             return None
         if payload.get("type") not in OUTPUT_FIELDS:
             return None
@@ -271,29 +282,37 @@ def validate_progress(data):
 
 
 class InterviewIOGateway:
-    """Guard candidate inputs and outputs with per-connection state and semantic reviewers; this is
-    not a tool proxy or sandbox.
+    """Bind candidate I/O to per-connection state; enabled mode adds semantic reviewers.
+    Constraints: Explicit process configuration controls activation, never a review failure.
     """
 
     def __init__(self, interview_id, *, owner_id, connection_id, reviewer=None):
         """Initialize with server interview/connection IDs, authenticated owner_id, and optional
         explicit test ports; issue no model request.
 
-        Preserve the existing 100,000-character and five-second review budgets; provide no disable
-        switch, implicit stub, or failure fallback.
+        Read settings.AI_SECURITY_ENABLED once. Enabled mode preserves existing 100,000-character
+        and five-second budgets. Disabled mode constructs neither engine nor reviewer, including
+        injected ports; it retains authenticated state contracts and marks outputs unchecked.
         """
         self.interview_id, self.owner_id = str(interview_id), owner_id
         self.actor_id = f"user-{owner_id}" if owner_id is not None else f"local-{connection_id}"
-        self.policy = SecurityPolicy(
-            policy_version="agent-io-v1",
-            max_scan_chars=100000,
-            allowed_actions=tuple(f"publish_{kind}" for kind in OUTPUT_FIELDS),
-            semantic_timeout_seconds=5.0,
-        )
-        self._owned_reviewer = create_behavior_reviewer() if reviewer is None else None
-        self.engine = BehaviorEngine(
-            self.policy, reviewer if reviewer is not None else self._owned_reviewer
-        )
+        self.enabled = settings.AI_SECURITY_ENABLED
+        if type(self.enabled) is not bool:
+            raise ValueError("AI_SECURITY_ENABLED must be boolean")
+        self.policy = self.engine = self._owned_reviewer = None
+        if self.enabled:
+            self.policy = SecurityPolicy(
+                policy_version="agent-io-v1",
+                max_scan_chars=100000,
+                allowed_actions=tuple(f"publish_{kind}" for kind in OUTPUT_FIELDS),
+                semantic_timeout_seconds=5.0,
+            )
+            self._owned_reviewer = create_behavior_reviewer() if reviewer is None else None
+            self.engine = BehaviorEngine(
+                self.policy, reviewer if reviewer is not None else self._owned_reviewer
+            )
+        else:
+            logger.warning("Interview safety review disabled interview=%s", self.interview_id)
         self._command = None
         self._failed = False
 
@@ -322,7 +341,8 @@ class InterviewIOGateway:
 
         Do not reject based on attack wording or promote a job title or answer to authority; keep
         raw text only in connection memory.
-        Enforce the existing explicit scan-size budget. On failure, disable this connection's
+        Enabled mode enforces the explicit scan-size budget; disabled mode retains protocol limits
+        only. On failure, stop this connection's
         gateway and log no body content.
         """
         if self._failed:
@@ -330,7 +350,7 @@ class InterviewIOGateway:
         try:
             snapshot = type(command).model_validate_json(command.model_dump_json())
             raw = snapshot.model_dump(mode="json")
-            if len(canonical_json(raw)) > self.policy.max_scan_chars:
+            if self.enabled and len(canonical_json(raw)) > self.policy.max_scan_chars:
                 raise IOSafetyError("input exceeds security budget")
             stored = await read_io_snapshot(self.interview_id, snapshot.request_id, self.owner_id)
             context = stored["context"]
@@ -372,6 +392,44 @@ class InterviewIOGateway:
                 raise
             raise IOSafetyError("input binding failed") from exc
 
+    def _validate_output(self, payload, stored):
+        """Functionality: Validate protocol envelope and interview phase without safety inference.
+        Inputs: Frozen output, owned pending request snapshot, and bound command. Outputs:
+        (kind, phase, stage). Logic: Require known public fields, matching request kind, supported
+        state and interview IDs. Constraints: No content scan, evidence construction, model call,
+        database write or repair; both modes retain these business interface contracts.
+        """
+        kind = payload.get("type")
+        if kind not in OUTPUT_FIELDS or set(payload) != OUTPUT_FIELDS[kind]:
+            raise IOSafetyError("unknown output envelope")
+        if not has_public_job_profile(payload):
+            raise IOSafetyError("invalid public job profile")
+        if stored["kind"] != self._command.type:
+            raise IOSafetyError("command kind changed")
+        context = stored["context"]
+        phase, stage = "preparation", "intro"
+        if context is not None:
+            phases = {"active": "active", "finished": "completed"}
+            if context.state.status not in phases:
+                raise IOSafetyError("unsupported agent state")
+            phase, stage = phases[context.state.status], context.state.stage.value
+        expected_phase = {
+            "prepared": "preparation",
+            "question": "active",
+            "assessment": "completed",
+            "finished": "completed",
+        }[kind]
+        if phase != expected_phase:
+            raise IOSafetyError("output inconsistent with phase")
+        if kind == "question" and payload.get("interview_id") != self.interview_id:
+            raise IOSafetyError("output interview mismatch")
+        if (
+            kind == "finished"
+            and payload.get("result", {}).get("interview_id") != self.interview_id
+        ):
+            raise IOSafetyError("report interview mismatch")
+        return kind, phase, stage
+
     def _request(self, payload, stored):
         """Build a behavior request from the complete response and refreshed database snapshot
         without changing response fields.
@@ -381,15 +439,8 @@ class InterviewIOGateway:
         Treat this turn's input, the candidate's own Q&A history, and state scores as evidence, not
         as derived proposed output.
         """
-        kind = payload.get("type")
-        if kind not in OUTPUT_FIELDS or set(payload) != OUTPUT_FIELDS[kind]:
-            raise IOSafetyError("unknown output envelope")
-        if not has_public_job_profile(payload):
-            raise IOSafetyError("invalid public job profile")
+        kind, phase, stage = self._validate_output(payload, stored)
         context = stored["context"]
-        phase, stage = "preparation", "intro"
-        if stored["kind"] != self._command.type:
-            raise IOSafetyError("command kind changed")
         evidence = []
         for field, source in (
             ("resume_text", "resume"),
@@ -407,10 +458,6 @@ class InterviewIOGateway:
                     )
                 )
         if context is not None:
-            phases = {"active": "active", "finished": "completed"}
-            if context.state.status not in phases:
-                raise IOSafetyError("unsupported agent state")
-            phase, stage = phases[context.state.status], context.state.stage.value
             evidence.append(
                 SecurityContent(
                     content_id="interview_evidence",
@@ -431,21 +478,6 @@ class InterviewIOGateway:
                     readable_by=("candidate", "staff", "internal"),
                 )
             )
-        expected_phase = {
-            "prepared": "preparation",
-            "question": "active",
-            "assessment": "completed",
-            "finished": "completed",
-        }[kind]
-        if phase != expected_phase:
-            raise IOSafetyError("output inconsistent with phase")
-        if kind == "question" and payload.get("interview_id") != self.interview_id:
-            raise IOSafetyError("output interview mismatch")
-        if (
-            kind == "finished"
-            and payload.get("result", {}).get("interview_id") != self.interview_id
-        ):
-            raise IOSafetyError("report interview mismatch")
         operation = f"publish_{kind}"
         fields = tuple(sorted(payload))
         boundary = BehaviorBoundary(
@@ -472,7 +504,7 @@ class InterviewIOGateway:
                     operation=operation,
                     effect="output",
                     roles=("interview_service",),
-                    phases=(expected_phase,),
+                    phases=(phase,),
                     stages=(stage,),
                     resource_ids=(self.interview_id,),
                     fields=fields,
@@ -507,10 +539,12 @@ class InterviewIOGateway:
         """Publish a response dictionary through an async delivery(body, receipt) callback and
         return its result.
 
+        Explicit disabled mode skips engine construction/checks and emits a disabled receipt for
+        the frozen body after protocol validation. It is never entered after an enabled check fails.
         Do not deliver after rejection, timeout, cancellation, or state change; business repair and
         fallback logic cannot swallow review failures.
-        Delivery must use the inspected body; final persistence must atomically recheck ownership
-        and state version.
+        Delivery must use the frozen released body; enabled mode releases only its inspected copy.
+        Final persistence must atomically recheck ownership and state version.
         """
         if self._failed or self._command is None:
             raise IOSafetyError("output without active input boundary")
@@ -519,6 +553,20 @@ class InterviewIOGateway:
             stored = await read_io_snapshot(
                 self.interview_id, self._command.request_id, self.owner_id
             )
+            if not self.enabled:
+                self._validate_output(frozen, stored)
+                receipt = make_output_receipt(
+                    frozen,
+                    self._command.request_id,
+                    stored["state_version"],
+                    review_status="disabled",
+                )
+                logger.info(
+                    "Interview output released interview=%s request=%s review_status=disabled",
+                    self.interview_id,
+                    self._command.request_id,
+                )
+                return await delivery(frozen, receipt)
             request = self._request(frozen, stored)
 
             async def refresh():
