@@ -36,6 +36,7 @@ from ai_security.errors import SecurityContextChanged
 
 from .agent_models import AgentAnswer, AgentInterview, AgentRequest, AgentTurn
 from .agent_safety import make_output_receipt
+from .evaluation_models import AgentEvaluation
 from .resume_models import ResumeVersion
 
 logger = logging.getLogger(__name__)
@@ -45,9 +46,10 @@ logger = logging.getLogger(__name__)
 def discard_interview(interview_id, owner_id):
     """Functionality: Honor the user's explicit end-without-saving choice.
     Inputs: Server session ID and authenticated connection owner; no arbitrary client ID.
-    Outputs: None; deletes the matching interview and its requests, answers and turns.
-    Logic: After awaiting cancellation, verify ownership and delete protected turn/answer links
-    before the interview in one transaction; database failure rolls back the entire removal.
+    Outputs: None; deletes the matching interview, scoring receipts, requests, answers and turns.
+    Logic: After awaiting cancellation, verify ownership and delete protected scoring/turn/answer
+    links before the interview in one transaction; failure rolls back the entire removal.
+    This explicit discard is the lifecycle exception to append-only scoring retention.
     Constraints: Saved resume versions are preserved; database failures propagate and are logged
     by the socket. Already sent vendor calls may finish but cannot recreate the deleted session.
     """
@@ -55,6 +57,7 @@ def discard_interview(interview_id, owner_id):
         owned = AgentInterview.objects.filter(id=interview_id, owner_id=owner_id)
         if not owned.exists():
             return
+        AgentEvaluation.objects.filter(interview_id=interview_id).delete()
         AgentTurn.objects.filter(interview_id=interview_id).delete()
         AgentAnswer.objects.filter(question__interview_id=interview_id).delete()
         deleted, _ = owned.delete()

@@ -6,6 +6,7 @@ from app.adapters.llm import GeneratedText
 from app.parsing.resume import ResumeExtraction
 from app.reporting.final_report import ReportNarrative
 from tests.agent.mocks.dialogue_output import plan_for, selection_for
+from tests.evaluation.port_helpers import SCHEMAS, evaluation_output
 
 
 class FixtureLLM:
@@ -17,6 +18,8 @@ class FixtureLLM:
         if schema.__name__ == "QuestionQualityReview":
             return schema(issues=[])
         self.calls.append((schema, data))
+        if schema in SCHEMAS:
+            return evaluation_output(prompt, data, schema)
         if schema is ResumeExtraction:
             topics = ["Book Recommendation System", "Log Analysis Pipeline"]
             assert all(topic in data["resume_text"] for topic in topics)

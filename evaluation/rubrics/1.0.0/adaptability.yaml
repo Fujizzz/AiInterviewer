@@ -1,0 +1,69 @@
+schema_version: '1.0'
+rubric_version: 1.0.0
+competency: adaptability
+name: 适应与学习
+description: 依据新信息下的学习、调整和迁移评估适应能力。
+criteria:
+- criterion_id: adaptability.learning
+  name: 补足知识
+  description: 识别知识缺口并验证学到的内容能解决当前问题。
+  weight: 1.0
+  required: true
+  anchors:
+  - anchor_id: adaptability.learning.l1
+    level: 1
+    behavior: 在已知知识不足时仍沿用错误理解，未采取学习或求证动作。
+  - anchor_id: adaptability.learning.l2
+    level: 2
+    behavior: 查阅资料或求助，但未说明如何验证理解。
+  - anchor_id: adaptability.learning.l3
+    level: 3
+    behavior: 识别具体知识缺口，通过资料、求助或实验补足并应用于任务。
+  - anchor_id: adaptability.learning.l4
+    level: 4
+    behavior: 比较信息来源，用小规模验证纠正误解并说明学到的适用条件。
+  - anchor_id: adaptability.learning.l5
+    level: 5
+    behavior: 在陌生领域建立有效的学习和反馈路径，以独立验证证明解决了关键问题。
+- criterion_id: adaptability.response_to_change
+  name: 响应变化
+  description: 根据新约束或反馈调整行动并检查效果。
+  weight: 1.0
+  required: true
+  anchors:
+  - anchor_id: adaptability.response_to_change.l1
+    level: 1
+    behavior: 面对明确的新约束仍沿用失效做法，未解释调整依据。
+  - anchor_id: adaptability.response_to_change.l2
+    level: 2
+    behavior: 按要求改变做法，但没有检查变更是否解决新问题。
+  - anchor_id: adaptability.response_to_change.l3
+    level: 3
+    behavior: 说明新信息如何改变行动，并核实调整后的结果。
+  - anchor_id: adaptability.response_to_change.l4
+    level: 4
+    behavior: 区分反馈噪声与有效信号，调整计划同时管理变更风险。
+  - anchor_id: adaptability.response_to_change.l5
+    level: 5
+    behavior: 在持续变化下设计短反馈周期和可逆步骤，并用结果证明调整策略有效。
+- criterion_id: adaptability.transfer
+  name: 反思与迁移
+  description: 把经验提炼为有边界的做法并在新情境验证。
+  weight: 1.0
+  required: true
+  anchors:
+  - anchor_id: adaptability.transfer.l1
+    level: 1
+    behavior: 将旧方案机械套用于明显不同的场景并重复相同错误。
+  - anchor_id: adaptability.transfer.l2
+    level: 2
+    behavior: 能总结经验，但未识别新旧场景的关键差异。
+  - anchor_id: adaptability.transfer.l3
+    level: 3
+    behavior: 说明可迁移的经验及适用条件，并针对新场景调整。
+  - anchor_id: adaptability.transfer.l4
+    level: 4
+    behavior: 在新情境中验证迁移效果，识别失效假设并修正做法。
+  - anchor_id: adaptability.transfer.l5
+    level: 5
+    behavior: 从多个情境提炼可检验的通用原则，明确反例并通过后续应用持续修正。

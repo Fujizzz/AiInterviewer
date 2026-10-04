@@ -1,0 +1,132 @@
+schema_version: '1.0'
+rubric_version: 1.0.0
+competency: debugging
+name: 故障诊断
+description: 依据可复现事实、假设检验和修复验证评估排障过程。
+criteria:
+- criterion_id: debugging.problem_framing
+  name: 问题界定
+  description: 区分症状、影响范围和触发条件。
+  weight: 1.0
+  required: true
+  anchors:
+  - anchor_id: debugging.problem_framing.l1
+    level: 1
+    behavior: 将猜测当作症状，未区分预期行为与实际行为。
+  - anchor_id: debugging.problem_framing.l2
+    level: 2
+    behavior: 能描述症状，但触发条件或影响范围不明确。
+  - anchor_id: debugging.problem_framing.l3
+    level: 3
+    behavior: 明确预期与实际差异、影响范围和可复现的触发条件。
+  - anchor_id: debugging.problem_framing.l4
+    level: 4
+    behavior: 利用时间线和正常对照缩小故障边界，区分主故障与连带症状。
+  - anchor_id: debugging.problem_framing.l5
+    level: 5
+    behavior: 在间歇性或多组件故障中建立可检验的问题模型，并验证边界划分。
+- criterion_id: debugging.hypotheses
+  name: 假设构建
+  description: 提出可证伪假设并安排排查顺序。
+  weight: 1.0
+  required: true
+  anchors:
+  - anchor_id: debugging.hypotheses.l1
+    level: 1
+    behavior: 未经证据直接认定单一原因，且无法说明如何检验。
+  - anchor_id: debugging.hypotheses.l2
+    level: 2
+    behavior: 提出可能原因，但没有区分各假设的验证方式。
+  - anchor_id: debugging.hypotheses.l3
+    level: 3
+    behavior: 根据已知现象提出可检验假设，说明验证和排除条件。
+  - anchor_id: debugging.hypotheses.l4
+    level: 4
+    behavior: 依据概率、影响和验证成本排序假设，并随新证据更新。
+  - anchor_id: debugging.hypotheses.l5
+    level: 5
+    behavior: 设计高区分度实验以排除多种竞争假设，解释剩余不确定性。
+- criterion_id: debugging.diagnostic_method
+  name: 诊断方法
+  description: 使用日志、指标、追踪或实验收集有区分力的证据。
+  weight: 1.0
+  required: true
+  anchors:
+  - anchor_id: debugging.diagnostic_method.l1
+    level: 1
+    behavior: 反复尝试无关修改，未收集能解释故障的诊断信息。
+  - anchor_id: debugging.diagnostic_method.l2
+    level: 2
+    behavior: 收集日志或指标，但无法说明这些数据如何检验原因。
+  - anchor_id: debugging.diagnostic_method.l3
+    level: 3
+    behavior: 选择与假设对应的诊断数据或工具，并解释观察结果。
+  - anchor_id: debugging.diagnostic_method.l4
+    level: 4
+    behavior: 通过对照、二分或链路追踪定位故障环节，控制干扰变量。
+  - anchor_id: debugging.diagnostic_method.l5
+    level: 5
+    behavior: 针对观测盲区设计低扰动的诊断实验，交叉验证难以直接观测的失效机制。
+- criterion_id: debugging.root_cause
+  name: 根因验证
+  description: 建立原因到症状的因果链并排除替代解释。
+  weight: 1.0
+  required: true
+  anchors:
+  - anchor_id: debugging.root_cause.l1
+    level: 1
+    behavior: 将重启后恢复直接视为根因已被证实。
+  - anchor_id: debugging.root_cause.l2
+    level: 2
+    behavior: 发现相关现象，但没有验证它是否导致故障。
+  - anchor_id: debugging.root_cause.l3
+    level: 3
+    behavior: 通过复现或对照验证原因到症状的因果关系。
+  - anchor_id: debugging.root_cause.l4
+    level: 4
+    behavior: 验证触发因素和必要条件，并用实验排除主要替代解释。
+  - anchor_id: debugging.root_cause.l5
+    level: 5
+    behavior: 解释多因素交互形成的故障链，并在受控条件下验证其必要或充分条件。
+- criterion_id: debugging.fix_verification
+  name: 修复验证
+  description: 验证修复解决原故障且未引入明显回归。
+  weight: 1.0
+  required: true
+  anchors:
+  - anchor_id: debugging.fix_verification.l1
+    level: 1
+    behavior: 仅凭改动已上线宣布修复完成，未检查原症状。
+  - anchor_id: debugging.fix_verification.l2
+    level: 2
+    behavior: 检查原症状消失，但未复测触发场景或相关回归。
+  - anchor_id: debugging.fix_verification.l3
+    level: 3
+    behavior: 复测原始触发场景并执行相关回归，确认修复有效。
+  - anchor_id: debugging.fix_verification.l4
+    level: 4
+    behavior: 覆盖边界与失败路径，结合灰度监测和回退条件验证实际效果。
+  - anchor_id: debugging.fix_verification.l5
+    level: 5
+    behavior: 通过压力、故障注入或长期监测验证修复的稳定边界，并明确残余风险。
+- criterion_id: debugging.prevention
+  name: 预防与复盘
+  description: 把故障经验转化为可执行并验证的预防措施。
+  weight: 1.0
+  required: true
+  anchors:
+  - anchor_id: debugging.prevention.l1
+    level: 1
+    behavior: 在同类故障已重复出现时仍未采取预防措施。
+  - anchor_id: debugging.prevention.l2
+    level: 2
+    behavior: 提出笼统的加强测试或监控，没有具体责任和检查方式。
+  - anchor_id: debugging.prevention.l3
+    level: 3
+    behavior: 根据故障原因增加具体测试、告警或流程措施并落实责任。
+  - anchor_id: debugging.prevention.l4
+    level: 4
+    behavior: 跟踪措施的误报、漏报或复发情况，验证并调整预防效果。
+  - anchor_id: debugging.prevention.l5
+    level: 5
+    behavior: 识别跨系统共性失效模式，推广可复用防护并用后续数据验证收益和成本。

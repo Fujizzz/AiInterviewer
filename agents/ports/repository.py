@@ -8,6 +8,7 @@ from agents.domain.models import (
     CommitTurnResult,
     InterviewContext,
 )
+from evaluation.persistence import EvaluationRecord
 from shared.contracts import InterviewAction, InterviewPlan, InterviewState, PlannedQuestion
 
 
@@ -17,6 +18,8 @@ class InterviewRepositoryPort(Protocol):
     async def initialize_interview(self, context: InterviewContext) -> InterviewContext: ...
 
     async def commit_turn(self, request: CommitTurnRequest) -> CommitTurnResult: ...
+
+    async def get_evaluation_records(self, interview_id: str) -> list[EvaluationRecord]: ...
 
     async def get_processed_feedback_action(
         self,

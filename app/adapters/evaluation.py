@@ -1,4 +1,4 @@
-"""Extract conversation analysis and independently grounded multi-dimensional evidence."""
+"""Legacy EvaluationPort retained for compatibility and shadow comparisons."""
 
 import asyncio
 import re

@@ -1,0 +1,69 @@
+schema_version: '1.0'
+rubric_version: 1.0.0
+competency: technical_depth
+name: 技术深度
+description: 依据候选人对机制、实现和边界的解释评估技术理解。
+criteria:
+- criterion_id: technical_depth.mechanism
+  name: 机制理解
+  description: 解释组件内部机制及其对可观察行为的影响。
+  weight: 1.0
+  required: true
+  anchors:
+  - anchor_id: technical_depth.mechanism.l1
+    level: 1
+    behavior: 能描述组件的用途，但把关键内部步骤或因果关系解释错误。
+  - anchor_id: technical_depth.mechanism.l2
+    level: 2
+    behavior: 能说明主要处理步骤，但无法解释状态变化或关键依赖。
+  - anchor_id: technical_depth.mechanism.l3
+    level: 3
+    behavior: 能结合具体实现解释数据流、状态变化和关键依赖。
+  - anchor_id: technical_depth.mechanism.l4
+    level: 4
+    behavior: 能沿执行路径解释并发、资源限制或异常条件如何改变系统行为。
+  - anchor_id: technical_depth.mechanism.l5
+    level: 5
+    behavior: 能从机制推导非显然的边界行为，并用实验或实现细节验证推导。
+- criterion_id: technical_depth.implementation
+  name: 实现细节
+  description: 说明个人实现中的接口、数据结构和正确性约束。
+  weight: 1.0
+  required: true
+  anchors:
+  - anchor_id: technical_depth.implementation.l1
+    level: 1
+    behavior: 描述的实现遗漏必要的数据传递或状态维护，无法完成所述功能。
+  - anchor_id: technical_depth.implementation.l2
+    level: 2
+    behavior: 能描述正常路径的实现，但无法处理输入边界或失败路径。
+  - anchor_id: technical_depth.implementation.l3
+    level: 3
+    behavior: 能说明数据结构、接口约束以及输入校验和错误处理的具体实现。
+  - anchor_id: technical_depth.implementation.l4
+    level: 4
+    behavior: 能解释并验证并发安全、幂等性或一致性等与该实现相关的约束。
+  - anchor_id: technical_depth.implementation.l5
+    level: 5
+    behavior: 能定位实现约束间的冲突，设计可验证的改进并说明适用边界。
+- criterion_id: technical_depth.system_limits
+  name: 系统边界
+  description: 将资源成本和系统限制与方案适用范围联系起来。
+  weight: 1.0
+  required: true
+  anchors:
+  - anchor_id: technical_depth.system_limits.l1
+    level: 1
+    behavior: 声称方案没有容量或适用限制，或将资源瓶颈归因于无关机制。
+  - anchor_id: technical_depth.system_limits.l2
+    level: 2
+    behavior: 识别一种容量限制，但没有解释它如何影响当前系统。
+  - anchor_id: technical_depth.system_limits.l3
+    level: 3
+    behavior: 结合实际负载解释主要瓶颈、复杂度和方案的适用条件。
+  - anchor_id: technical_depth.system_limits.l4
+    level: 4
+    behavior: 通过测量比较负载变化下的瓶颈转移，并提出有代价说明的改进。
+  - anchor_id: technical_depth.system_limits.l5
+    level: 5
+    behavior: 建立并验证容量或故障模型，据此给出可操作的扩展和降级边界。

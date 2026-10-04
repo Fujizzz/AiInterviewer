@@ -9,6 +9,7 @@ from agents.domain.models import (
     CommitTurnResult,
     InterviewContext,
 )
+from evaluation.persistence import EvaluationRecord, validate_turn_evaluation
 from shared.contracts import InterviewAction, PlannedQuestion
 
 
@@ -22,6 +23,12 @@ class InMemoryInterviewRepository:
         self.interview_question_ids: dict[str, list[str]] = {}
         self.decision_logs: list[AgentDecisionLog] = []
         self.processed_feedback_actions: dict[tuple[str, str], InterviewAction] = {}
+        self._evaluation_records: dict[str, list[EvaluationRecord]] = {}
+
+    async def get_evaluation_records(self, interview_id: str) -> list[EvaluationRecord]:
+        if interview_id not in self.contexts:
+            raise InvalidAgentState("Interview context was not found")
+        return [r.model_copy(deep=True) for r in self._evaluation_records.get(interview_id, [])]
 
     async def get_interview_context(self, interview_id: str) -> InterviewContext:
         try:
@@ -77,6 +84,7 @@ class InMemoryInterviewRepository:
         )
         saved_context.state = request.new_state.model_copy(deep=True)
         saved_context.state.state_version = current_version + 1
+        saved_context.pending_evaluation = None
         if request.feedback_request_id is not None:
             saved_context.processed_feedback_ids = list(
                 dict.fromkeys([*stored.processed_feedback_ids, request.feedback_request_id])
@@ -94,8 +102,16 @@ class InMemoryInterviewRepository:
                 "Decision log state_version must match the committed state version"
             )
 
+        evaluation_record = validate_turn_evaluation(
+            request,
+            stored,
+            self._evaluation_records.get(request.interview_id, []),
+            self.questions.get(stored.state.current_question_id),
+        )
         # No await occurs while publishing these values, so readers see all or none.
         self.contexts[request.interview_id] = saved_context
+        if evaluation_record is not None:
+            self._evaluation_records.setdefault(request.interview_id, []).append(evaluation_record)
         if saved_question is not None:
             self.questions[saved_question.question_id] = saved_question
             self.question_interviews[saved_question.question_id] = request.interview_id

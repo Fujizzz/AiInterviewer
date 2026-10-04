@@ -68,7 +68,6 @@ from agents.domain.models import (
     RetrievalBatch,
     TopicSelection,
 )
-from agents.evidence import apply_evidence
 from agents.orchestrator.replay import replay_decision as replay_policy_decision
 from agents.orchestrator.state_machine import InterviewStageMachine
 from agents.orchestrator.termination import TerminationPolicy
@@ -88,6 +87,7 @@ from agents.question.react import QuestionAgentResult, ReactQuestionAgent
 from agents.routing import ContextBuilder, RAGRouter
 from agents.timeouts import call_with_timeout
 from agents.tracing import emit_trace
+from evaluation.integration import apply_evaluation
 from shared.contracts import (
     CONTRACT_VERSION,
     CandidateAnswer,
@@ -401,7 +401,7 @@ class InterviewAgentService:
             InterviewHistoryEntry(
                 question=current_question.model_copy(deep=True),
                 answer=answer.model_copy(deep=True) if answer is not None else None,
-                feedback=feedback.model_copy(deep=True),
+                feedback=EvaluationFeedback.model_validate(feedback.model_dump()),
             )
         )
         updated.question_history = updated.question_history[
@@ -418,7 +418,7 @@ class InterviewAgentService:
         updated.thread_difficulty = self._difficulty_controller.adjust(
             current_question.difficulty, feedback
         )
-        apply_evidence(updated, current_question, answer, feedback)
+        apply_evaluation(updated, current_question, answer, feedback)
         if updated.active_thread is not None:
             updated.active_thread.no_information_count = (
                 0
@@ -438,7 +438,7 @@ class InterviewAgentService:
         feedback_limit = self._settings.context.recent_feedback
         feedback_history = [
             *updated.recent_feedback,
-            feedback.model_copy(deep=True),
+            EvaluationFeedback.model_validate(feedback.model_dump()),
         ]
         updated.recent_feedback = feedback_history[-feedback_limit:] if feedback_limit else []
         return updated
@@ -873,6 +873,7 @@ class InterviewAgentService:
             expected_state_version=original_context.state.state_version,
             new_state=updated_context.state,
             new_context=updated_context,
+            evaluation_record=updated_context.pending_evaluation,
             question=question,
             decision_log=decision_log,
             feedback_request_id=feedback_request_id,

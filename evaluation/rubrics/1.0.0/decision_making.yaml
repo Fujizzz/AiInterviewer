@@ -1,0 +1,69 @@
+schema_version: '1.0'
+rubric_version: 1.0.0
+competency: decision_making
+name: 决策判断
+description: 依据目标、备选方案和决策后的验证评估判断质量。
+criteria:
+- criterion_id: decision_making.framing
+  name: 目标与约束
+  description: 明确要解决的问题、成功条件和决策约束。
+  weight: 1.0
+  required: true
+  anchors:
+  - anchor_id: decision_making.framing.l1
+    level: 1
+    behavior: 选择方案时使用与业务目标无关的判断依据。
+  - anchor_id: decision_making.framing.l2
+    level: 2
+    behavior: 能描述目标，但没有识别会影响选择的主要约束。
+  - anchor_id: decision_making.framing.l3
+    level: 3
+    behavior: 明确目标、成功条件和关键约束，并说明优先级。
+  - anchor_id: decision_making.framing.l4
+    level: 4
+    behavior: 区分硬约束与可协商目标，说明冲突及证据不足的假设。
+  - anchor_id: decision_making.framing.l5
+    level: 5
+    behavior: 通过验证或利益相关方协商修正问题定义，使冲突目标形成可检验的决策标准。
+- criterion_id: decision_making.tradeoffs
+  name: 备选与取舍
+  description: 比较可行替代方案的成本、收益和风险。
+  weight: 1.0
+  required: true
+  anchors:
+  - anchor_id: decision_making.tradeoffs.l1
+    level: 1
+    behavior: 仅凭偏好选择方案，且忽略已知的关键负面后果。
+  - anchor_id: decision_making.tradeoffs.l2
+    level: 2
+    behavior: 提到替代方案，但比较缺少共同标准或实际约束。
+  - anchor_id: decision_making.tradeoffs.l3
+    level: 3
+    behavior: 用一致标准比较至少两个可行方案，并解释接受的代价。
+  - anchor_id: decision_making.tradeoffs.l4
+    level: 4
+    behavior: 结合数据或试验比较短期与长期成本，解释风险和不确定性如何影响选择。
+  - anchor_id: decision_making.tradeoffs.l5
+    level: 5
+    behavior: 分析关键假设变化对方案排序的影响，并给出可逆决策或分阶段验证策略。
+- criterion_id: decision_making.validation
+  name: 决策验证
+  description: 跟踪决策结果并根据证据调整选择。
+  weight: 1.0
+  required: true
+  anchors:
+  - anchor_id: decision_making.validation.l1
+    level: 1
+    behavior: 已出现与目标相反的结果仍坚持原决策，且未解释依据。
+  - anchor_id: decision_making.validation.l2
+    level: 2
+    behavior: 凭主观反馈判断决策成功，没有对照原定目标。
+  - anchor_id: decision_making.validation.l3
+    level: 3
+    behavior: 对照事先明确的成功条件检查结果，并说明偏差。
+  - anchor_id: decision_making.validation.l4
+    level: 4
+    behavior: 设置监测和回退条件，依据结果调整方案并核实改进。
+  - anchor_id: decision_making.validation.l5
+    level: 5
+    behavior: 明确证伪条件和复审时点，结合长期结果更新决策规则及其适用范围。

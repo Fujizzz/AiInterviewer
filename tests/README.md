@@ -5,6 +5,8 @@
 - `agent/integration/`: Agent service and failure-mode tests;
 - `agent/mocks/`: reusable Agent port test doubles;
 - `app/`: terminal MVP, provider and resume parsing tests.
+- `evaluation/`: Evaluation-owned contracts, rubrics, analyzer/extractor, deterministic IDs,
+  model deadlines and failure recovery through the existing Planner/feedback path.
 - `security/`: current behavior contracts, provenance permissions, guarded execution, model transport and the single CLI.
 
 `security/test_behavior.py` covers the primary behavior-boundary contract, deterministic permits,

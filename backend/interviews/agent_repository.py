@@ -2,7 +2,7 @@
 repository interface.
 
 Implementation: Uses version-conditioned UPDATE to preempt single-round commits, followed by atomic
-writes of questions, feedback, actions, and logs within the same transaction.
+writes of questions, feedback, actions, scoring receipts and logs within the same transaction.
 Related Modules: AgentSession injects this adapter; does not modify Agent policy, scoring,
 questions, or logical timing parameters.
 
@@ -11,6 +11,8 @@ Declaration Index:
 - DjangoInterviewRepository.__init__: Only stores scope and pending feedback, does not open database
   or model connection.
 - DjangoInterviewRepository._scope: Validates incoming interview identifier matches adapter scope.
+- DjangoInterviewRepository._evaluation_records: Validate scoring payload identities in turn order.
+- DjangoInterviewRepository.get_evaluation_records: Read the scoped internal scoring ledger.
 - DjangoInterviewRepository.get_interview_context: Reads and validates latest context and
   relationship version consistency.
 - DjangoInterviewRepository.initialize_interview: Upgrades preparation state to initialized context,
@@ -18,7 +20,7 @@ Declaration Index:
 - DjangoInterviewRepository.accept_answer: Saves answer before evaluation, validates request,
   current question, and session ownership.
 - DjangoInterviewRepository.commit_turn: Atomically publishes new version, question, feedback
-  evidence, and audit log.
+  evidence, validated scoring receipt and audit log.
 - DjangoInterviewRepository.get_processed_feedback_action: Queries only submitted feedback actions
   within the same interview.
 - DjangoInterviewRepository.get_question: Reads immutable snapshot by question ID and interview dual
@@ -46,9 +48,11 @@ from django.utils import timezone
 
 from agents.domain.errors import InvalidAgentState, StateConflictError
 from agents.domain.models import AgentDecisionLog, CommitTurnResult, InterviewContext
+from evaluation.persistence import EvaluationRecord, validate_turn_evaluation
 from shared.contracts import InterviewAction, PlannedQuestion
 
 from .agent_models import AgentAnswer, AgentInterview, AgentQuestion, AgentRequest, AgentTurn
+from .evaluation_models import AgentEvaluation
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +75,36 @@ class DjangoInterviewRepository:
         """
         if str(interview_id) != self.interview_id:
             raise InvalidAgentState("Repository interview scope mismatch")
+
+    def _evaluation_records(self):
+        """Read ordered receipts and reject payload/relational identity mismatches.
+
+        Uses the bound interview scope; returns validated internal EvaluationRecord objects.
+        ORM and schema errors propagate. Call inside the turn transaction when validating a write.
+        """
+        records = []
+        for row in AgentEvaluation.objects.filter(interview_id=self.interview_id):
+            record = EvaluationRecord.model_validate(row.payload)
+            snapshot = record.scored.evaluation.score_snapshot
+            if (
+                record.input.interview_id != self.interview_id
+                or record.input.request_id != str(row.feedback_request_id)
+                or record.input.answer.answer_id != str(row.answer_id)
+                or record.base_state_version != row.base_state_version
+                or (snapshot.snapshot_id if snapshot else None) != row.snapshot_id
+            ):
+                raise InvalidAgentState("Stored evaluation does not match its relational identity")
+            records.append(record)
+        return records
+
+    @sync_to_async
+    def get_evaluation_records(self, interview_id):
+        """Return ordered scoring receipts after rejecting a different interview ID.
+
+        Runs ORM reads in the synchronous adapter thread; never exposes receipts to client APIs.
+        """
+        self._scope(interview_id)
+        return self._evaluation_records()
 
     @sync_to_async
     def get_interview_context(self, interview_id):
@@ -181,7 +215,23 @@ class DjangoInterviewRepository:
                 )
                 saved.state = request.new_state.model_copy(deep=True)
                 saved.state.state_version = version + 1
+                saved.pending_evaluation = None
                 saved.processed_feedback_ids = list(stored.processed_feedback_ids)
+                # Replay/identity validation and the receipt insert share the same CAS transaction
+                # as the answer and next action. Any subsequent failure rolls everything back.
+                evaluation_record = None
+                if request.evaluation_record is not None:
+                    question = AgentQuestion.objects.get(
+                        id=stored.state.current_question_id, interview_id=self.interview_id
+                    )
+                    evaluation_record = validate_turn_evaluation(
+                        request,
+                        stored,
+                        self._evaluation_records(),
+                        PlannedQuestion.model_validate(question.payload),
+                    )
+                else:
+                    validate_turn_evaluation(request, stored, [], None)
                 if request.feedback_request_id is not None:
                     feedback = self.pending_feedback
                     if feedback is None or feedback.request_id != request.feedback_request_id:
@@ -196,6 +246,22 @@ class DjangoInterviewRepository:
                         question__interview_id=self.interview_id,
                         committed_state_version__isnull=True,
                     )
+                    if evaluation_record is not None:
+                        source = evaluation_record.input.answer
+                        if str(answer.id) != source.answer_id or answer.text != source.text:
+                            raise InvalidAgentState("Evaluation must quote the accepted answer")
+                        if feedback.model_dump() != evaluation_record.feedback.model_dump():
+                            raise InvalidAgentState("Pending feedback does not match evaluation")
+                        snapshot = evaluation_record.scored.evaluation.score_snapshot
+                        AgentEvaluation.objects.create(
+                            interview_id=self.interview_id,
+                            answer=answer,
+                            feedback_request_id=feedback.request_id,
+                            base_state_version=version,
+                            committed_state_version=version + 1,
+                            snapshot_id=snapshot.snapshot_id if snapshot else None,
+                            payload=evaluation_record.model_dump(mode="json"),
+                        )
                     answer.evaluation = feedback.model_dump(mode="json")
                     answer.committed_state_version = version + 1
                     answer.save(update_fields=["evaluation", "committed_state_version"])
