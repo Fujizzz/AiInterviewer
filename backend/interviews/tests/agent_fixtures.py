@@ -40,6 +40,7 @@ from interviews.agent_records import complete_request
 from interviews.agent_safety import make_output_receipt
 from shared.contracts.behavior import BehaviorAssessment
 from tests.agent.mocks.dialogue_output import plan_for, selection_for
+from tests.evaluation.port_helpers import SCHEMAS, evaluation_output
 
 RESUME = "Alex built a Python log analysis pipeline, tested malformed records with pytest."
 ANSWER = "I implemented a bounded-memory parser and tested malformed records separately."
@@ -97,6 +98,8 @@ class FixtureLLM:
         if schema.__name__ == "QuestionQualityReview":
             return schema(issues=[])
         self.calls.append(schema)
+        if schema in SCHEMAS:
+            return evaluation_output(prompt, data, schema)
         if schema is ResumeExtraction:
             output = {
                 "candidate_name": "Alex",

@@ -7,6 +7,7 @@ from agents.domain.models import (
     CommitTurnResult,
     InterviewContext,
 )
+from evaluation.persistence import EvaluationRecord, validate_turn_evaluation
 from shared.contracts import InterviewAction, InterviewPlan, InterviewState, PlannedQuestion
 
 
@@ -24,6 +25,12 @@ class InMemoryRepository:
         self.processed_feedback_actions: dict[tuple[str, str], InterviewAction] = {}
         # Compatibility view for v1.0 adapters that keyed request IDs globally.
         self.processed_feedback_ids: dict[str, InterviewAction] = {}
+        self._evaluation_records: dict[str, list[EvaluationRecord]] = {}
+
+    async def get_evaluation_records(self, interview_id: str) -> list[EvaluationRecord]:
+        if interview_id not in self.contexts:
+            raise InvalidAgentState("Interview context was not found")
+        return [r.model_copy(deep=True) for r in self._evaluation_records.get(interview_id, [])]
 
     async def get_interview_context(self, interview_id: str) -> InterviewContext:
         try:
@@ -83,6 +90,7 @@ class InMemoryRepository:
         )
         saved_context.state = request.new_state.model_copy(deep=True)
         saved_context.state.state_version = current_version + 1
+        saved_context.pending_evaluation = None
         if request.feedback_request_id is not None:
             saved_context.processed_feedback_ids = list(
                 dict.fromkeys([*stored.processed_feedback_ids, request.feedback_request_id])
@@ -99,7 +107,15 @@ class InMemoryRepository:
                 "Decision log state_version must be the version produced by commit_turn"
             )
 
+        evaluation_record = validate_turn_evaluation(
+            request,
+            stored,
+            self._evaluation_records.get(request.interview_id, []),
+            self.questions.get(stored.state.current_question_id),
+        )
         self.contexts[request.interview_id] = saved_context
+        if evaluation_record is not None:
+            self._evaluation_records.setdefault(request.interview_id, []).append(evaluation_record)
         self.states[request.interview_id] = saved_context.state.model_copy(deep=True)
         self.plans[request.interview_id] = saved_context.plan.model_copy(deep=True)
         if saved_question is not None:

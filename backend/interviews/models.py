@@ -43,6 +43,7 @@ from .agent_models import (  # noqa: F401
     AgentRequest,
     AgentTurn,
 )
+from .evaluation_models import AgentEvaluation  # noqa: F401
 from .resume_models import ResumeVersion  # noqa: F401
 
 

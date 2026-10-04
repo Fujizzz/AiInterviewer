@@ -9,6 +9,7 @@ from uuid import uuid4
 from agents.orchestrator import InterviewAgentService
 from agents.tracing import emit_trace
 from app.adapters import InMemoryInterviewRepository, LLMEvaluationAdapter, ProviderLLMAdapter
+from app.adapters.rubric_evaluation import build_evaluation_adapter
 from app.parsing.resume import parse_resume_profile
 from app.providers.llm import OpenAILLM, StructuredLLM
 from app.reporting.final_report import build_final_report
@@ -43,11 +44,17 @@ class MVPInterviewApplication:
         llm: StructuredLLM,
         *,
         repository: InMemoryInterviewRepository | None = None,
+        evaluation_mode: str | None = None,
     ) -> None:
         self.llm = TracedLLM(llm)
         self.repository = repository or InMemoryInterviewRepository()
         self.agent_llm = ProviderLLMAdapter(self.llm)
-        self.evaluation = LLMEvaluationAdapter(self.llm, self.repository)
+        self.evaluation = build_evaluation_adapter(
+            self.llm,
+            self.repository,
+            LLMEvaluationAdapter(self.llm, self.repository),
+            mode=evaluation_mode,
+        )
 
     async def run(
         self,

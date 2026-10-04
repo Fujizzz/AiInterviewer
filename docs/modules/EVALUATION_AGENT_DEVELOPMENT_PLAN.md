@@ -15,36 +15,35 @@
 - 证据 quote 必须是当前回答的原文子串。
 - 同一回答不允许重复返回同一 competency。
 - Evaluation 超时、模型失败或证据校验失败时，会保留回答但不产生分数或虚构证据。
-- `agents/evidence.py` 会将当前 `DimensionEvidence` 聚合到 `CompetencyState`。
+- 第五阶段将旧 `DimensionEvidence` 聚合迁到 `evaluation/compatibility.py`；
+  Agent 只应用 Evaluation 投影，`agents/evidence.py` 保留兼容导入。
 - `app/reporting/final_report.py` 使用岗位权重计算 overall score，LLM 只负责报告文案。
 - 第一阶段已完成（2026-10-03）：`evaluation/contracts.py` 提供内部 schema `1.0`；
   `evaluation/rubric.py` 提供 loader、schema 和 assessment 引用校验；
   `evaluation/rubrics/1.0.0/` 包含六项能力、21 个 criterion、105 个行为锚点。
 - `tests/evaluation/` 已覆盖新契约、Rubric 和 Evidence → CriterionAssessment →
-  ScoreSnapshot 示例；正式模块尚未接入运行链路，当前分数仍由原 adapter 产生。
+  ScoreSnapshot 示例；正式模块已通过 shadow 接入，用户可见分数仍沿用旧评分。
 - 第二阶段已完成（2026-10-03）：`evaluation/analyzer.py`、`extractor.py` 和
   `service.py` 提供独立 schema/Prompt、Planner 目标输入、原子多片段提取、确定性 ID
-  及阶段化 fail-closed 恢复；本阶段为可单独调用的内部服务，线上接入仍在第五阶段。
+  及阶段化 fail-closed 恢复；第五阶段已通过正式端口接入运行链路。
 - 第三阶段已完成（2026-10-03）：`validator.py`、`resolution.py`、`resolver.py` 和
   `eligibility.py` 提供完整来源校验、claim 比较键、六类关系、独立组、撤回与矛盾状态，
   并按 criterion 限制同组贡献。`evaluate_resolved()` 可编排前三阶段；尚不生成分数。
 - 第四阶段已完成（2026-10-03）：`judge.py`、`policy.py`、`aggregation.py` 和
   `aggregator.py` 提供独立 Rubric Judge、版本化质量权重、三级聚合、coverage/reliability、
-  显式发布门槛与完整重放记录。`evaluate_scored()` 可编排前四阶段；未接入线上评分。
+  显式发布门槛与完整重放记录。`evaluate_scored()` 可编排前四阶段。
+- 第五阶段已完成（2026-10-04）：正式端口与并行 shadow 已接入 CLI/Django，
+  Repository 在状态 CAS 内追加完整评估日志，并保存失败/缺口状态；新分数不进入用户界面。
 
 与目标架构相比，仍存在以下缺口：
 
-- 正式 `evaluation/` 已有契约、Rubric、Analyzer、Extractor、Resolver、Judge 和
-  Aggregator；运行链路接入、shadow mode、持久化与标注校准仍待后续阶段实现。
-- 当前线上旧 adapter 仍由一次模型调用负责对话分析、证据提取、competency 识别和
-  rubric level 判定；第二阶段内部服务已拆分前两者，等待后续评分模块与第五阶段接入。
-- `DimensionEvidence` 缺少原文 span、criterion、rubric 版本、独立性和纳入或排除原因。
-- Agent 核心仍在重新计算 score 和 coverage，与“Evaluation 负责评分”的边界不一致。
-- 线上旧评分的简单平均仍没有区分 supported、weak、duplicate 和 disputed evidence。
-- 线上旧评分中未覆盖 competency 可能在 overall score 的权重重新归一化中被忽略；
-  第四阶段内部评分已保留完整重要性分母，并要求覆盖、mandatory 和 anchor 门槛。
-- 尚无 append-only evidence ledger；第四阶段已提供可重放 score snapshot 配套记录，
-  第五阶段需持久化完整 AggregationRecord，而不是仅保存分数。
+- 正式评分已运行并持久化，但尚未切换用户可见报告；新报告和人工标注校准在第六阶段。
+- 旧 `DimensionEvidence` 仍用于兼容显示，缺少的 span、criterion、anchor、质量原因和
+  完整聚合 trace 已保存在内部 EvaluationRecord，不通过当前用户 API 暴露。
+- 用户当前看到的旧评分仍使用简单平均与旧 overall 归一化；shadow 使用新门禁和完整
+  岗位重要性分母。未校准配置不会通过环境开关直接用于正式发布。
+- mandatory/anchor 蓝图、生产阈值、reliability 校准、人工标注数据与偏差评估仍待完成。
+- 历史失败与 legacy 缺口不会自动消失；本阶段只显式保留阻断状态，补评工作流待后续设计。
 
 ## 模块边界
 
@@ -499,6 +498,8 @@ reason_codes = [...]
 
 ### 阶段五 集成和持久化
 
+状态：**已完成（2026-10-04）**。
+
 交付内容：
 
 1. 实现正式 `EvaluationPort`。
@@ -507,6 +508,50 @@ reason_codes = [...]
 4. 将 score 和 coverage 聚合从 `agents/evidence.py` 迁移到 Evaluation。
 5. Repository 保存 append-only evidence ledger、criterion assessments 和 score snapshots。
 6. 使用 `base_state_version` 和 CAS 防止基于过期证据计算分数。
+
+实际交付与验收：
+
+- `app/adapters/rubric_evaluation.py` 提供正式 `RubricEvaluationAdapter` 和并行
+  `ShadowEvaluationAdapter`，CLI/Django 默认装配 shadow；`EVALUATION_MODE=legacy`
+  保留旧调用路径。新端口提供 Planner 目标、按提交顺序构造的 thread history 和完整
+  已提交证据；Extractor/Judge 仍不接收当前分数或岗位权重。
+- `evaluation/compatibility.py` 接管旧证据去重、score/coverage 计算；Agent 只调用
+  `evaluation/integration.py` 应用结果。Shadow 的共享反馈、旧 CompetencyState、报告
+  和用户历史 API 保持兼容；正式端口可消费新 snapshot，但线上不提供 formal 环境开关。
+- `evaluation/persistence.py` 的 `EvaluationRecord` 包含当前不可变输入、反馈和完整
+  `ScoredEvaluation`，包括来源 ledger、关系、criterion assessments、score snapshot
+  及完整 `AggregationRecord`。记录通过私有反馈封装传递，序列化不泄露给问答侧/UI，
+  再经 `CommitTurnRequest.evaluation_record` 与回答、下一动作、状态原子提交。
+- 内存仓库和 Django 仓库提供 `get_evaluation_records()`。Django 新表
+  `AgentEvaluation` 由迁移 `0010_evaluation_ledger` 创建；按请求、回答、提交版本和
+  snapshot 唯一约束保存自包含 JSON 记录，仓库仅支持读取与追加。每轮重评完整历史，
+  新 snapshot 链接前序成功 snapshot，旧来源/决策前缀及旧记录保持不变。
+- 提交同时核对 `base_state_version`、CAS 版本、不可变问题、已接受原回答、Planner
+  目标、历史输入、ledger 完整前缀、前序 snapshot 与失败门禁，并确定性重放聚合记录。
+  过期反馈不可随 Agent 重算下一动作时重新绑定新版本；重复已提交请求复用原结果。
+  任一后续数据库写入失败，全部新状态与评分记录回滚，预先接受的原回答仍保留。
+- 失败轮次无 evidence/assessment/snapshot，但保留失败记录；后续评分携带
+  `unassessed_feedback:<request_id>`，legacy 切换缺口也显式阻断 overall。历史失败不会
+  因下一次成功自动清除。Shadow 失败不改变旧反馈；正式失败不完成 topic，仍可继续问答。
+- 本阶段新增 **34 项测试**：根目录新增 26 项端口/集成测试，Django 新增 8 项数据库测试。
+  全仓 `.venv/bin/pytest -q` 为 **699 passed，5 subtests passed**；Evaluation 共 **444 项**。
+  Django 的 Evaluation persistence、原 Agent persistence、Agent 和 progress 回归共
+  **45 项通过**。覆盖双引擎并行、兼容输出、完整 JSON/数据库重放、历史截断拒绝、失败
+  延续、历史保留窗口、重复请求、取消、CAS 冲突、事务回滚、漏存拒绝和来源身份校验。
+  Ruff、`git diff --check` 和 Django `makemigrations --check --dry-run` 通过。
+
+版本、迁移与后续边界：
+
+- 新增内部持久化版本 `evaluation-ledger-1.0.0`；Evaluation schema `1.0`、Rubric
+  `1.0.0`、聚合/重放版本和共享 Agent contract `2.0` 不变。Repository 新增可选 receipt，
+  旧上下文无需改写；部署先执行 Django migrate，仅创建新表，不回填或重写历史分数。
+- `evaluation/config/shadow-v1.json` 是显式 `shadow-uncalibrated-1` 配置；不代表正式
+  发布阈值。正式端口构造必须由调用方提供 policy/profile，当前 shadow 岗位配置未声明
+  mandatory/anchor 蓝图已完成。分数报告、人工校准和补评工作流仍留待后续。
+- Shadow 等待双方返回再提交，可能增加模型用量和单轮等待时间；各新阶段有独立期限，
+  取消会取消未完成分支，迟到结果不写入日志。自包含记录会重复保存历史以支持离线重放。
+- 验收使用模型替身与隔离数据库，未调用在线模型。后端验证临时从 conda-forge 提供
+  libomp 运行库以满足本机已有 LightGBM 依赖，不修改项目依赖或真实业务数据库。
 
 ### 阶段六 报告和校准
 

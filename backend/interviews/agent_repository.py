@@ -32,9 +32,11 @@ from django.utils import timezone
 
 from agents.domain.errors import InvalidAgentState, StateConflictError
 from agents.domain.models import AgentDecisionLog, CommitTurnResult, InterviewContext
+from evaluation.persistence import EvaluationRecord, validate_turn_evaluation
 from shared.contracts import InterviewAction, PlannedQuestion
 
 from .agent_models import AgentAnswer, AgentInterview, AgentQuestion, AgentRequest, AgentTurn
+from .evaluation_models import AgentEvaluation
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +53,27 @@ class DjangoInterviewRepository:
         """验证传入面试标识与适配器作用域一致；不匹配抛 InvalidAgentState，无 I/O。"""
         if str(interview_id) != self.interview_id:
             raise InvalidAgentState("Repository interview scope mismatch")
+
+    def _evaluation_records(self):
+        records = []
+        for row in AgentEvaluation.objects.filter(interview_id=self.interview_id):
+            record = EvaluationRecord.model_validate(row.payload)
+            snapshot = record.scored.evaluation.score_snapshot
+            if (
+                record.input.interview_id != self.interview_id
+                or record.input.request_id != str(row.feedback_request_id)
+                or record.input.answer.answer_id != str(row.answer_id)
+                or record.base_state_version != row.base_state_version
+                or (snapshot.snapshot_id if snapshot else None) != row.snapshot_id
+            ):
+                raise InvalidAgentState("Stored evaluation does not match its relational identity")
+            records.append(record)
+        return records
+
+    @sync_to_async
+    def get_evaluation_records(self, interview_id):
+        self._scope(interview_id)
+        return self._evaluation_records()
 
     @sync_to_async
     def get_interview_context(self, interview_id):
@@ -147,7 +170,21 @@ class DjangoInterviewRepository:
                 )
                 saved.state = request.new_state.model_copy(deep=True)
                 saved.state.state_version = version + 1
+                saved.pending_evaluation = None
                 saved.processed_feedback_ids = list(stored.processed_feedback_ids)
+                evaluation_record = None
+                if request.evaluation_record is not None:
+                    question = AgentQuestion.objects.get(
+                        id=stored.state.current_question_id, interview_id=self.interview_id
+                    )
+                    evaluation_record = validate_turn_evaluation(
+                        request,
+                        stored,
+                        self._evaluation_records(),
+                        PlannedQuestion.model_validate(question.payload),
+                    )
+                else:
+                    validate_turn_evaluation(request, stored, [], None)
                 if request.feedback_request_id is not None:
                     feedback = self.pending_feedback
                     if feedback is None or feedback.request_id != request.feedback_request_id:
@@ -162,6 +199,22 @@ class DjangoInterviewRepository:
                         question__interview_id=self.interview_id,
                         committed_state_version__isnull=True,
                     )
+                    if evaluation_record is not None:
+                        source = evaluation_record.input.answer
+                        if str(answer.id) != source.answer_id or answer.text != source.text:
+                            raise InvalidAgentState("Evaluation must quote the accepted answer")
+                        if feedback.model_dump() != evaluation_record.feedback.model_dump():
+                            raise InvalidAgentState("Pending feedback does not match evaluation")
+                        snapshot = evaluation_record.scored.evaluation.score_snapshot
+                        AgentEvaluation.objects.create(
+                            interview_id=self.interview_id,
+                            answer=answer,
+                            feedback_request_id=feedback.request_id,
+                            base_state_version=version,
+                            committed_state_version=version + 1,
+                            snapshot_id=snapshot.snapshot_id if snapshot else None,
+                            payload=evaluation_record.model_dump(mode="json"),
+                        )
                     answer.evaluation = feedback.model_dump(mode="json")
                     answer.committed_state_version = version + 1
                     answer.save(update_fields=["evaluation", "committed_state_version"])

@@ -17,7 +17,11 @@ Owns bounded model dialogue decisions, validation, and deterministic fallbacks.
 Other modules should call `InterviewAgentService` or implement a port from `agents/ports/`.
 They should not import policy classes, domain persistence models or orchestrator internals.
 
-The Agent module does not own HTTP routes, databases, resume parsing or UI. The application extracts evidence; agents/evidence.py aggregates it inside the atomic turn.
+The Agent module does not own HTTP routes, databases, resume parsing, scoring or UI.
+Evaluation owns score and coverage aggregation. `evaluation/integration.py` applies its
+projection inside the atomic turn; `agents/evidence.py` remains an import compatibility shim.
+Formal/shadow feedback carries a private `base_state_version` receipt that is committed
+with the answer and next action. See [Evaluation](../evaluation/README.md) for rollout and persistence.
 
 ## Project and topic budgets
 

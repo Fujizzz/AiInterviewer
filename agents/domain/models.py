@@ -5,6 +5,7 @@ Repository and shared contracts use version 2.0.
 
 from pydantic import BaseModel, Field, model_validator
 
+from evaluation.persistence import EvaluationRecord
 from shared.contracts import (
     CandidateAnswer,
     CandidateProfile,
@@ -137,6 +138,7 @@ class InterviewContext(BaseModel):
     closed_threads: list[DialogueThread] = Field(default_factory=list)
     used_topic_keys: list[str] = Field(default_factory=list)
     evidence_records: list[EvidenceRecord] = Field(default_factory=list)
+    pending_evaluation: EvaluationRecord | None = Field(default=None, exclude=True, repr=False)
     processed_feedback_ids: list[str] = Field(default_factory=list)
     topic_progress: dict[str, TopicProgress] = Field(default_factory=dict)
     plan_history: list[PlanRevision] = Field(default_factory=list)
@@ -164,6 +166,7 @@ class CommitTurnRequest(BaseModel):
     feedback_request_id: str | None = None
     resulting_action: InterviewAction
     new_context: InterviewContext | None = None
+    evaluation_record: EvaluationRecord | None = None
 
     @model_validator(mode="after")
     def validate_turn(self) -> "CommitTurnRequest":

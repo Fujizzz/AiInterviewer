@@ -3,8 +3,8 @@
 第一阶段提供 Evaluation 内部数据契约和行为锚定 Rubric；第二阶段提供可单独调用的
 Conversation Analyzer、Evidence Extractor 和失败恢复编排；第三阶段提供原文校验、
 Evidence Resolver、确定性关系重放及 criterion 贡献门禁；第四阶段提供 Rubric Judge、
-版本化权重、纯程序聚合与完整重放记录。当前可通过内部服务完成评分；线上接入、
-shadow mode、数据库和 append-only 存储按第五阶段推进。
+版本化权重、纯程序聚合与完整重放记录。第五阶段提供正式 EvaluationPort、默认 shadow
+运行、追加式数据库日志，以及与回答/Agent 状态绑定的 CAS 提交。
 
 ## 文件与边界
 
@@ -26,6 +26,12 @@ shadow mode、数据库和 append-only 存储按第五阶段推进。
 - `aggregator.py`：criterion/competency/overall 聚合、发布门禁、snapshot ID 和纯程序重放。
 - `model_calls.py`：独立调用期限、schema 重验和阶段化错误边界。
 - `service.py`：提取、解析和评分三个入口，以及各阶段 fail-closed 恢复。
+- `persistence.py`：版本化 EvaluationRecord、私有反馈封装、完整历史前缀和提交校验。
+- `integration.py`：将 Evaluation 结果投影到共享状态；Agent 不再自行计算分数。
+- `compatibility.py`：保留旧 DimensionEvidence 的去重、score/coverage 计算行为。
+- `config/shadow-v1.json`：显式、未校准的 shadow 阈值，不作为正式发布配置。
+- `../app/adapters/rubric_evaluation.py`：正式端口、并行 shadow 包装和运行开关。
+- `../backend/interviews/evaluation_models.py`：持久化完整审计记录的内部追加式日志。
 - `../tests/evaluation/`：契约、Rubric、提取、失败恢复及 Planner 集成回归。
 
 数据模型依赖 `shared/contracts` 的公共契约；运行组件复用现有
@@ -33,8 +39,51 @@ shadow mode、数据库和 append-only 存储按第五阶段推进。
 不引用 Agent 内部决策策略。内部 `schema_version=1.0` 与现有 Agent
 `contract_version=2.0` 是独立的版本空间，不构成替换或迁移。
 `EvaluationResult` 包含内部评分数据，不能直接提供给 Question Agent。
-后续第五阶段才实现 `agents/ports/evaluation.py` 并映射到公共接口。
-现有 `app/adapters/evaluation.py`、Planner 和最终报告保持原有行为。
+`RubricEvaluationAdapter` 实现 `agents/ports/evaluation.py` 的接口。
+现有 `app/adapters/evaluation.py` 作为过渡层保留；默认 shadow 输出沿用旧反馈和最终报告。
+
+## 运行接入与持久化
+
+CLI 和 Django 的应用组合默认使用 `EVALUATION_MODE=shadow`，并行运行旧适配器和四阶段
+新评分。新模型调用各有 30 秒阶段期限；等待双方结束后才进入原子提交，可能增加模型用量
+及单轮等待时间。`EVALUATION_MODE=legacy` 可回退到旧流程；环境变量不接受 `formal`，
+避免把未校准的 shadow 阈值用于线上发布。直接构造正式端口时必须显式提供 policy/profile。
+
+部署前执行 Django `python manage.py migrate`。新增迁移 `0010_evaluation_ledger` 只创建
+`AgentEvaluation` 表，不重写旧上下文或历史分数。CLI 的同一接口使用内存存储。
+每条记录保存本轮输入、旧/安全反馈，以及新评分的完整 `ScoredEvaluation`：包含原始
+evidence ledger、关系决策、criterion assessments、snapshot 和完整 `AggregationRecord`。
+每轮重新 Judge 全部已提交证据，并通过 `supersedes_snapshot_id` 连接前一个成功快照。
+这会重复保存历史以保证每个记录自包含；仓库没有覆盖、更新或删除记录的接口。
+
+`EvaluatedFeedback` 的私有 receipt 不参与 `model_dump()`；Question Agent、Planner、
+用户报告及历史 API 仍读取共享安全投影。调用方必须把端口返回对象直接交给
+`apply_evaluation_feedback(..., answer=answer)`，不要先转 JSON 再构造共享反馈，否则会
+丢失进程内 receipt。持久化通过 `CommitTurnRequest.evaluation_record` 显式传递。
+
+提交校验要求 `base_state_version` 等于 Repository CAS 的当前版本，且问题、已接受回答、
+Planner 目标、输入历史、旧 ledger 前缀、失败门禁及前序 snapshot 都一致。仓库还会
+执行确定性重放。过期结果报 `StateConflictError`；调用方需重新读取和评估，不能仅修改版本。
+事务后半段失败会回滚状态、下一题、反馈和全部评分记录；Django 预先接受的原回答仍保留。
+同一已提交请求返回保存的反馈/动作，不重新调用模型，也不重复追加记录。
+
+失败轮次保存无 evidence/assessment/snapshot 的失败记录。后续成功评分继续携带
+`unassessed_feedback:<request_id>` 门禁；从 legacy 切换产生的历史缺口采用同样机制，
+不会假定旧回答已经正式评分。Shadow 失败不更改旧反馈的 topic completion 或用户分数；
+正式端口失败则不完成 topic，仍保留回答并允许继续追问。新报告、人工校准、历史失败的
+补评工作流及正式上线门槛仍属于后续工作。
+
+可从新仓库实例读取并离线重放：
+
+```python
+from evaluation.aggregator import replay_aggregation
+
+records = await repository.get_evaluation_records(interview_id)
+for record in records:
+    if record.scored.aggregation is not None:
+        snapshot = replay_aggregation(record.scored.aggregation)
+        assert snapshot == record.scored.evaluation.score_snapshot
+```
 
 ## 使用
 
@@ -346,7 +395,10 @@ schema 主版本并增加显式迁移器，当前阶段没有需要迁移的线�
 Rubric `1.0.0` 与共享合同 `2.0` 不变，无线上数据迁移。参数全文进入 snapshot 输入哈希，
 同一 configuration_id 下的参数变化也生成不同 ID；规则变化须提升对应版本，保留旧重放实现。
 新增完整 AggregationRecord 是 ScoreSnapshot 的配套内部审计记录，不扩展线上端口。
-持久化 append-only 和 CAS 留在第五阶段。
+第五阶段新增 `evaluation-ledger-1.0.0` 与 Django 迁移 `0010_evaluation_ledger`；
+共享合同仍为 `2.0`，Repository 提交契约新增可选内部 receipt，旧调用者和旧上下文兼容。
+现有算法、Rubric 和身份版本不变。Shadow 配置名为 `shadow-uncalibrated-1`，
+岗位所有权重进入聚合输入，当前 shadow 不声明 mandatory/anchor 蓝图已经校准。
 
 ## 示例与验证
 

@@ -1,4 +1,4 @@
-"""Internal evaluation stages; live port integration and persistence are phase five."""
+"""Internal evaluation stages used by the formal and shadow runtime ports."""
 
 from agents.tracing import emit_trace
 from app.providers.llm import StructuredLLM
