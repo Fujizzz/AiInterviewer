@@ -1,17 +1,27 @@
-"""职责：存储本人简历的不可变输入版本和显式解析生命周期。
-实现：原文件保存在数据库，避免公开媒体路径；文本和文件均不覆盖历史版本。
-关联：resume_versions 提供授权 API，AgentInterview 固定引用和资料快照。
-状态索引：id 为版本 UUID；owner 为用户归属；label 为展示标签；original_name/original_pdf
-保存原始 PDF 名称和私有字节；text 为输入或解析正文；status/error_code 为处理状态与固定错误码；
-is_current 为当前选择；extraction_mode 记录解析时选定的模式，未开始为空；created_at/updated_at
-为审计时间。Meta.constraints 定义状态及当前唯一约束。
-source_version 引用原件根版本，edited_from 引用编辑基线；均 PROTECT，不能删除仍被编辑稿引用的版本。
-units 保存用户单元文本，recommendation_slots 保存用户确认的推荐字段；原件留空字典。
-目录：
-- ResumeVersion：保存输入、解析结果、当前选择与失败码。
-- ResumeVersion.Meta：按创建时间排序并限制每个用户最多一个当前版本。
-关键变量：
-（无模块级变量。）
+"""Responsibilities: Store immutable input versions of user's resume and explicit parsing lifecycle.
+Implementation: Original file stored in database, avoiding public media paths; neither text nor file
+overwrites historical versions.
+Related Modules: resume_versions provides authorized API; AgentInterview fixes references and data
+snapshots.
+Declaration Index:
+- ResumeVersion: Stores input, parsing results, current selection, and failure codes.
+- ResumeVersion.Meta: Sorts by creation time and limits each user to at most one current version.
+Variable Index:
+None
+
+Field and State Notes:
+ResumeVersion.id is the version UUID and owner is the owning user; label is the display label.
+original_name/original_pdf preserve the original PDF name and private bytes; text stores input or
+parsed text.
+status/error_code record parsing lifecycle and a fixed error code; is_current selects the current
+version.
+extraction_mode records the selected mode during parsing and is empty before parsing starts;
+created_at/updated_at are audit timestamps.
+Meta.constraints defines lifecycle and current-version uniqueness constraints.
+source_version references the root original version; edited_from references the edit baseline; both
+use PROTECT so referenced versions cannot be deleted.
+units stores user-authored section text; recommendation_slots stores confirmed recommendation
+fields; originals initialize these JSON fields as empty dictionaries.
 """
 
 import uuid
@@ -22,10 +32,13 @@ from django.db.models import Q
 
 
 class ResumeVersion(models.Model):
-    """功能：持久化版本；输入为授权 API 的有界 PDF 或文本，输出为数据库记录。
-    逻辑：PDF 从 uploaded 经 parsing 到 ready/failed/interrupted；文本直接 ready。
-    单元编辑保存新的 ready 快照，保留原件根和基线。
-    约束：owner 不为空，原文件和输入不可修改，当前标记不改变版本内容；解析不自动重试。
+    """Function: Persist version; input is bounded PDF or text from authorized API, output is
+    database record.
+    Logic: PDF moves from uploaded through parsing to ready/failed/interrupted; text goes directly
+    to ready.
+    Unit edits save new ready snapshots, preserving original root and baseline.
+    Constraints: owner must not be empty, original file and input are immutable, current flag does
+    not alter version content; parsing does not auto-retry.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -50,7 +63,9 @@ class ResumeVersion(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        """功能：排序与状态约束；逻辑：条件唯一约束限制当前选择；约束：不按内容合并版本。"""
+        """Function: Sorting and state constraint; logic: conditional uniqueness constraint limits
+        current selection; constraint: versions are not merged by content.
+        """
 
         ordering = ["-created_at", "-id"]
         constraints = [

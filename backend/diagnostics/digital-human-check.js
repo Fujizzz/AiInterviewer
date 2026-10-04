@@ -1,36 +1,41 @@
 /**
  * @module digital-human-check
- * Independent local avatar and speech diagnostics; no interview or scoring fixtures.
+ * Responsibilities: Provide independent local avatar and speech diagnostics without interview or scoring fixtures.
+ * Implementation: Send explicit TTS playback and generated-audio STT checks to the local UE player and speech endpoint, and clean up the active player on page exit.
+ * Related Modules: /stream-demo/pixel-player.js wraps the official UE player; /stream-demo/pcm-resampler.js converts decoded samples for the STT WebSocket.
  *
- * 目录：
- * - element：Read a diagnostic control by its unique ID.
- * - record：Append a bounded timestamped event log.
- * - controls：Apply connection, playback and cached-audio eligibility.
- * - onAvatar：Record actual UE playback events and ignore obsolete utterances.
- * - onConnection：Show the official player's current connection status.
- * - play：Send the cached WAV to UE without synthesizing it again.
- * - synthesize：Request actual TTS, keep the returned URL and begin playback.
- * - transcribe：Send generated test audio as PCM through the real STT WebSocket.
- * - transcribe.callback1：Encode one resampled sample as little-endian PCM16.
- * - transcribe.callback2：Keep the STT handshake promise's completion functions.
- * - transcribe.callback3：Keep the final-transcript promise's completion functions.
- * - transcribe.callback4：Consume a final-promise rejection if the handshake fails first.
- * - transcribe.callback5：Pace generated PCM at the real-time recognition rate.
- * - transcribe.socket.onmessage：Resolve the handshake or final transcript from the socket.
- * - transcribe.socket.onerror：Report a recognition connection failure.
- * - transcribe.socket.onclose：Reject an unexpected recognition disconnect.
- * - callback1：Connect the official local avatar player.
- * - callback2：Run one explicit text-to-speech check.
- * - callback3：Stop the current UE utterance.
- * - callback4：Run one explicit transcription of cached test audio.
- * - callback5：Release the avatar connection when leaving the diagnostic page.
+ * Declaration Index:
+ * - element: Read a diagnostic control by its unique ID.
+ * - record: Append a bounded timestamped event log.
+ * - controls: Apply connection, playback and cached-audio eligibility.
+ * - onAvatar: Record actual UE playback events and ignore obsolete utterances.
+ * - onConnection: Show the official player's current connection status.
+ * - play: Send the cached WAV to UE without synthesizing it again.
+ * - synthesize: Request actual TTS, keep the returned URL and begin playback.
+ * - transcribe: Send generated test audio as PCM through the real STT WebSocket.
+ * - transcribe.callback1: Encode one resampled sample as little-endian PCM16.
+ * - transcribe.callback2: Keep the STT handshake promise's completion functions.
+ * - transcribe.callback3: Keep the final-transcript promise's completion functions.
+ * - transcribe.callback4: Consume a final-promise rejection if the handshake fails first.
+ * - transcribe.callback5: Pace generated PCM at the real-time recognition rate.
+ * - transcribe.socket.onmessage: Resolve the handshake or final transcript from the socket.
+ * - transcribe.socket.onerror: Report a recognition connection failure.
+ * - transcribe.socket.onclose: Reject an unexpected recognition disconnect.
+ * - callback1: Connect the official local avatar player.
+ * - callback2: Run one explicit text-to-speech check.
+ * - callback3: Stop the current UE utterance.
+ * - callback4: Run one explicit transcription of cached test audio.
+ * - callback5: Release the avatar connection when leaving the diagnostic page.
  *
- * 关键变量：
- * - element：Lookup function for the diagnostic page's unique control IDs.
- * - player：Official Pixel Streaming player and response channel.
- * - audio：Most recently generated temporary WAV response.
- * - activeId：Utterance whose playback events may change the controls.
- * - busy：An outstanding TTS request or UE playback.
+ * Variable Index:
+ * - element: Lookup function for the diagnostic page's unique control IDs.
+ * - player: Official Pixel Streaming player and response channel.
+ * - audio: Most recently generated temporary WAV response.
+ * - activeId: Utterance whose playback events may change the controls.
+ * - busy: An outstanding TTS request or UE playback.
+ *
+ * Constraints:
+ * Uses only generated or cached diagnostic audio, does not access the microphone, and does not submit interview answers or scoring data.
  */
 import { AvatarPlayer } from "/stream-demo/pixel-player.js";
 import { PCM16Resampler } from "/stream-demo/pcm-resampler.js";

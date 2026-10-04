@@ -1,42 +1,65 @@
-"""将 MVP 用例拆为可等待用户输入的网络会话，决策与评分仍由现有核心负责。
+"""Responsibilities: Adapt MVP use cases into a waitable network session that accepts user input.
+Implementation: Preserve the existing Agent decision and scoring control while adding request-scoped
+progress events and persistence.
+Related Modules: agent_socket creates one session; agent_repository persists state; the MVP app
+performs parsing, evaluation, and reporting.
 
-实现：可选预解析只缓存本连接的候选人资料；阶段事件包围真实 await，评分先于报告文字发送。
-关联：agent_socket 设置请求级 emit_event；app 提供解析、评价和报告，Agent 保持决策顺序。
+Implementation: Optional pre-parsing caches candidate data for this connection only; stage events
+wrap real await, with scoring preceding report text transmission.
+Related Modules: agent_socket sets request-level emit_event; app provides parsing, evaluation, and
+reporting, while Agent maintains decision order.
 
-目录：
-- AgentSession：
-  保存一次连接的应用组合，使用数据库仓库持久化 Agent 状态与回答。
-- AgentSession.__init__：
-  构造一次连接独占的 MVP 应用组合，不启动面试或调用模型。
-- AgentSession.start：
-  从已验证的 Start 命令初始化候选人、岗位及 Agent，再返回首个可展示动作。
-- AgentSession.prepare：
-  解析或复用当前连接内完全相同的简历文本，返回可供预览的资料，不消耗题目预算。
-- AgentSession._stage：
-  围绕真实异步阶段发送进度并记录完成、取消和失败耗时，不修改超时或重试。
-- AgentSession._emit：
-  仅向明确启用事件的请求发送通知，网络失败按原异常路径传播。
-- AgentSession.answer：
-  将当前答案转成标准反馈，驱动一次 Agent 决策并返回下一题或最终报告。
-- AgentSession._response：
-  将 Agent 动作规范化为 question/finished，连同计划修订、话题进度和决策快照交给整包输出检查。
-- AgentSession._response.observe_report：
-  观察报告模型是否抛错并原样传播给既有报告函数，明确标记原有摘要回退，不新增回退。
-- AgentSession.close：
-  向支持 close 的模型实例移交清理请求，不主动清空仍被后台调用引用的状态。
+Declaration Index:
+- AgentSession:
+  Stores an application composition for one connection, persisting Agent state and responses via
+  database repository.
+- AgentSession.__init__:
+  Constructs a unique MVP application composition for one connection, without starting interview or
+  invoking model.
+- AgentSession.start:
+  Initializes candidate, position, and Agent from a validated Start command, then returns the first
+  actionable output.
+- AgentSession.prepare:
+  Parses or reuses identical resume text within the current connection, returning preview-ready
+  profile without consuming question budget.
+- AgentSession._stage:
+  Wraps real asynchronous stages to send progress updates and record completion, cancellation, and
+  failure durations, without modifying timeout or retry behavior.
+- AgentSession._emit:
+  Sends notifications only to explicitly enabled requests; network failures propagate along original
+  exception path.
+- AgentSession.answer:
+  Converts answer/skip/finish into feedback, records empty speech without competency evidence,
+  and returns the next question or explicit early report.
+- AgentSession._response:
+  Normalizes Agent actions into question/finished format, along with planned revisions, topic
+  progress, and decision snapshots, for full output validation.
+- AgentSession._response.observe_report:
+  Observes whether report model throws error and propagates it unchanged to existing report
+  function, clearly marking original summary rollback without adding new rollback.
+- AgentSession.close:
+  Transfers cleanup requests to model instances supporting close, without proactively clearing state
+  still referenced by background calls.
 
-关键变量：
-- logger：
-  记录阶段名称、面试标识、耗时和异常类型，不记录简历、回答或模型正文。
+- AgentSession.finish: Evaluate optional current speech and produce a user-ended report without
+  another question.
 
-关键状态说明：
-AgentSession.interview_id 为会话标识；app 持有本会话仓库与适配器。
-history 为已提交回答的展示缓存；action 为最近提交的 Agent 动作。
-profile、candidate_name 在 prepare 中建立；prepared_text 仅用于本连接精确匹配。
-job、service 在 start 中建立；emit_event 是当前请求的异步回调或 None。
-缓存随连接关闭释放；数据库历史保留，但本模块尚不提供恢复连接或重新执行请求。
-解析失败不会被当作成功资料复用；请求层保存所选版本与输入快照，
-成功资料响应与 Agent 上下文由数据库仓库保存。
+Variable Index:
+- logger:
+  Logs stage name, interview identifier, duration, and exception type, without recording resume,
+  answers, or model content.
+
+Key State Explanations:
+AgentSession.interview_id is session identifier; app holds repository and adapter for this session.
+history is display cache of submitted answers; action is most recent submitted Agent action.
+profile, candidate_name established in prepare; prepared_text used only for exact matching within
+this connection.
+job, service established in start; emit_event is current request’s async callback or None.
+Cache released upon connection closure; database history retained, but this module does not support
+reconnecting or re-executing requests.
+Parsing failure is not treated as successful reuse of cached data; request layer saves selected
+version and input snapshot,
+successful profile response and Agent context saved by database repository.
 """
 
 import asyncio
@@ -51,7 +74,9 @@ from app.parsing.resume import parse_resume_profile
 from app.reporting.final_report import build_final_report
 from app.settings import interview_settings
 from shared.contracts import (
+    AnswerAnalysis,
     CandidateAnswer,
+    EvaluationFeedback,
     EvaluationRequest,
     InitializeInterviewRequest,
     InterviewActionType,
@@ -66,14 +91,20 @@ logger = logging.getLogger(__name__)
 
 
 class AgentSession:
-    """保存一次连接的应用组合，使用数据库仓库持久化 Agent 状态与回答。"""
+    """Stores an application composition for one connection, persisting Agent state and responses
+    using a database repository.
+    """
 
     def __init__(self, llm=None):
-        """构造一次连接独占的 MVP 应用组合，不启动面试或调用模型。
+        """Constructs a unique MVP application composition for one connection, without starting
+        interview or invoking model.
 
-        输入：可选 StructuredLLM；测试显式注入替身，省略时读取真实供应商配置。
-        状态：生成 interview_id，创建绑定该 ID 的数据库适配器，将 history 置空、action 置为 None。
-        异常：模型配置或 SDK 初始化失败直接传播，由协议层返回配置错误。
+        Input: Optional StructuredLLM; test explicitly injects stubs, omitting defaults to read real
+        vendor configuration.
+        State: Generates interview_id, creates database adapter bound to this ID, sets history to
+        empty, action to None.
+        Exception: Model configuration or SDK initialization failure is directly propagated,
+        returned by protocol layer as configuration error.
         """
         self.interview_id = str(uuid4())
         self.llm = llm if llm is not None else BackendLLM(interview_id=self.interview_id)
@@ -86,16 +117,21 @@ class AgentSession:
         self.emit_event = None
 
     async def _emit(self, data):
-        """输入为服务端事件字典；仅调用当前请求的 emit_event，返回 None，发送失败不吞掉。"""
+        """Input is server-side event dictionary; invokes only current request’s emit_event, returns
+        None, and does not swallow send failures.
+        """
         if self.emit_event is not None:
             await self.emit_event(data)
 
     @asynccontextmanager
     async def _stage(self, name):
-        """输入固定阶段名；发送进入/完成事件并测量实际耗时，yield 不提供业务值。
+        """Input is fixed stage name; sends enter/complete events and measures actual duration,
+        yielding no business value.
 
-        读取本会话 ID 和当前事件回调；异常及取消均记录类型后原样传播。
-        此计时只用于观测，不参与 Agent 的逻辑时间预算，也不触发自动重试。
+        Reads session ID and current event callback; exceptions and cancellations logged by type and
+        propagated unchanged.
+        This timing is only for observation, not part of Agent’s logical time budget, nor triggers
+        automatic retry.
         """
         started = perf_counter()
         await self._emit({"type": "progress", "stage": name, "state": "running"})
@@ -124,10 +160,13 @@ class AgentSession:
             )
 
     async def prepare(self, command):
-        """输入命令的 resume_text，解析为共享资料并返回 prepared 预览；不初始化 Agent。
+        """Input is resume_text from command; parses into shared profile and returns prepared
+        preview; does not initialize Agent.
 
-        同一连接内文本完全相同才复用；更换文本先使旧缓存失效，再调用既有解析器。
-        模型异常保持传播；不自动解析输入中的每次编辑。协议层保存成功响应，不保存原始简历。
+        Reuses only if text is exactly identical within same connection; changing text invalidates
+        old cache before calling existing parser.
+        Model exceptions preserved in propagation; does not auto-parse every edit in input. Protocol
+        layer saves successful response, not raw resume.
         """
         if self.prepared_text != command.resume_text:
             self.prepared_text = None
@@ -141,13 +180,18 @@ class AgentSession:
         return {"type": "prepared", "candidate_profile": self.profile.model_dump(mode="json")}
 
     async def start(self, command):
-        """从已验证的 Start 命令初始化候选人、岗位及 Agent，再返回首个可展示动作。
+        """Initializes candidate, job, and Agent from validated Start command, then returns first
+        actionable output.
 
-        前置条件：协议层保证本连接尚未开始；参数类型和范围已通过 Start 校验。
-        逻辑：精确复用或解析简历→构造岗位→装配端口→初始化计划→规范化阶段转换。
-        预算：分钟时长转换为真实时间预算；题数仅作为安全上限，Planner 规划目标和分配。
-        返回：question 响应字典，或 Agent 直接结束时的 finished 响应字典。
-        副作用：调用模型并原子写入数据库上下文；面试壳由协议层先建立，异常向上传播。
+        Precondition: Protocol layer ensures this connection has not started; parameter types and
+        ranges already validated by Start.
+        Logic: Precisely reuses or parses resume → constructs job → assembles ports → initializes
+        plan → normalizes stage transition.
+        Budget: Minutes duration converted to real time budget; number of questions only serves as
+        safety upper limit, Planner determines goals and allocation.
+        Return: question response dict, or finished response dict if Agent ends immediately.
+        Side effect: Invokes model and atomically writes to database context; interview shell
+        created by protocol layer first, exceptions propagated upward.
         """
         await self.prepare(command)
         self.job = JobProfile(
@@ -155,7 +199,8 @@ class AgentSession:
             title=command.job_title,
             competency_importance=DEFAULT_COMPETENCY_IMPORTANCE,
         )
-        # CLI 和网页共用预算解析；旧追问参数只在此入口转换一次。
+        # CLI and web share budget parsing; old follow-up parameters converted only once at this
+        # entry point.
         settings = interview_settings(
             max_questions=command.max_questions,
             max_follow_up_per_topic=command.max_follow_up_per_topic,
@@ -182,15 +227,24 @@ class AgentSession:
         self.action = initialized.first_action
         return await self._response()
 
-    async def answer(self, command):
-        """将当前答案转成标准反馈，驱动一次 Agent 决策并返回下一题或最终报告。
+    async def answer(self, command, *, finishing=False):
+        """Converts current answer into standard feedback, drives one Agent decision, and returns
+        next question or final report.
 
-        输入：已验证的 Answer 命令；协议层保证会话就绪、问题 ID 当前有效且请求唯一。
-        逻辑：先保存待评价回答→提取证据→原子提交反馈与状态→追加展示缓存→生成响应。
-        原子边界：数据库仓库将回答评价、状态、下一动作和日志一起提交。
-        提交失败时保留未评分回答，但不追加展示缓存；协议层显式结束连接，不自动重试。
-        时间语义：Agent 根据持久化的首题开始时刻计算真实耗时，包含输入和模型等待。
-        异常：评价、仓库或响应生成错误向上传播；本方法不重发答案或重试整轮。
+        Input: Validated Answer, Skip, or Finish command; finishing selects explicit early finish.
+        Skip stores an empty answer with non_answer analysis and no competency dimensions; it
+        does not invoke the evaluator or fabricate spoken words. Protocol validates the current
+        question ID and request uniqueness.
+        Logic: Save pending evaluation answer → extract evidence → atomically submit feedback and
+        state → append display cache → generate response.
+        Atomic boundary: Database repository commits answer evaluation, state, next action, and logs
+        together.
+        On submission failure, keep un-scored answer but do not append display cache; protocol layer
+        explicitly ends connection, no automatic retry.
+        Time semantics: Agent calculates real duration based on persisted first-question start time,
+        including input and model waiting.
+        Exception: Evaluation, repository, or response generation errors propagated upward; this
+        method does not re-send answer or retry entire round.
         """
         question = self.action.question
         answer = CandidateAnswer(
@@ -201,12 +255,27 @@ class AgentSession:
         )
         await self.app.repository.accept_answer(command.request_id, answer)
         async with self._stage("answer_evaluation"):
-            feedback = await self.app.evaluation.evaluate(
-                EvaluationRequest(
+            feedback = (
+                EvaluationFeedback(
                     request_id=str(command.request_id),
-                    interview_id=self.interview_id,
-                    question=question,
-                    answer=answer,
+                    question_id=question.question_id,
+                    answer_relevance=0,
+                    evidence_strength=0,
+                    analysis=AnswerAnalysis(
+                        status="non_answer",
+                        answer_scope="none",
+                        thread_complete=True,
+                        summary="No speech was recognized before automatic closure.",
+                    ),
+                )
+                if command.type == "skip"
+                else await self.app.evaluation.evaluate(
+                    EvaluationRequest(
+                        request_id=str(command.request_id),
+                        interview_id=self.interview_id,
+                        question=question,
+                        answer=answer,
+                    )
                 )
             )
         history_entry = {
@@ -232,25 +301,56 @@ class AgentSession:
         }
         self.app.repository.pending_feedback = feedback
         async with self._stage("next_action"):
-            self.action = await self.service.apply_evaluation_feedback(
+            advance = (
+                self.service.finish_interview
+                if finishing
+                else self.service.apply_evaluation_feedback
+            )
+            self.action = await advance(
                 self.interview_id,
-                feedback,
-                answer=answer,
+                feedback=feedback,
+                answer=answer if command.type != "skip" else None,
             )
         self.history.append(history_entry)
         return await self._response()
 
-    async def _response(self):
-        """将 Agent 动作及进度快照交给整包输出检查。
+    async def finish(self, command):
+        """Functionality: Evaluate the optional current transcript and generate an early report.
+        Inputs: Validated Finish with optional current question ID and nonempty answer text.
+        Outputs: The existing finished envelope, approved/persisted by the socket gateway.
+        Logic: A supplied answer uses the regular evaluator and an atomic finish commit; without
+        an answer only previously committed evidence contributes. No next question is generated.
+        Constraints: Empty/unfinished speech is not scored; model and persistence errors propagate.
+        """
+        logger.info(
+            "Agent early finish interview=%s include_current_answer=%s",
+            self.interview_id,
+            bool(command.answer_text),
+        )
+        if command.answer_text:
+            return await self.answer(command, finishing=True)
+        self.action = await self.service.finish_interview(self.interview_id)
+        return await self._response()
 
-        逻辑：复用 MVP 的阶段推进方法，读取已提交状态；问题分支附最近评价，结束分支构建报告。
-        返回：question 含问题、状态、评价、计划修订、话题进度及决策日志；
-        finished.result 与终端 MVP 字段一致；快照在发布前保存并接受同一检查。
-        依赖：调用 MVP 的内部阶段辅助方法，升级该接口时须同步核对本适配器和一致性测试。
-        异常：无文本的问题或非预期动作抛 RuntimeError；其他错误保留原传播方式。
-        报告生成器沿用 MVP 的评分与文字备用逻辑；启用事件时先发送仅含确定性数值的
-        assessment，再生成报告文字，assessment 不表示文字报告已成功或可恢复会话。
-        报告调用观察器只记录原有回退状态，不修改 prompt、schema、数值或异常捕获边界。
+    async def _response(self):
+        """Delivers Agent action and progress snapshot to full package output check.
+
+        Logic: Reuses MVP stage advancement method, reads committed state; question branches attach
+        latest evaluation, end branches build report.
+        Return: question contains problem, status, evaluation, planned revision, topic progress, and
+        decision log;
+        finished.result matches terminal MVP field; snapshot saved before release and accepted by
+        same check.
+        Dependency: Calls internal stage helper methods of MVP; interface upgrade requires
+        synchronized verification of this adapter and consistency tests.
+        Exception: No text problem or unexpected action raises RuntimeError; other errors preserved
+        in original propagation.
+        Report generator uses MVP’s scoring and fallback text logic; when events enabled, send
+        assessment with only deterministic values first,
+        then generate report text; assessment does not indicate report text success or session
+        recoverability.
+        Report observer only records original rollback state, without modifying prompt, schema,
+        values, or exception capture boundaries.
         """
         self.action = await self.app._advance_non_question_actions(
             self.service, self.interview_id, self.action
@@ -303,10 +403,13 @@ class AgentSession:
         narrative_status = "completed"
 
         def observe_report(prompt, data, schema):
-            """输入报告函数的原始模型参数，返回原模型结果；抛错时标记 fallback 并原样重抛。
+            """Input is original model parameters for report function, returns original model
+            result; throws error with fallback marker and rethrows unchanged.
 
-            捕获 Exception 与现有 build_final_report 的叙述回退边界相同，调用在其工作线程中，
-            返回前已完成本标记写入；取消后不发送事件或追加模型调用，不记录异常正文。
+            Catches Exception and shares same fallback boundary as existing build_final_report; call
+            executed in worker thread,
+            marker written before return; after cancellation, no event sent or additional model call
+            appended, no exception body recorded.
             """
             nonlocal narrative_status
             try:
@@ -350,11 +453,15 @@ class AgentSession:
         }
 
     def close(self):
-        """向支持 close 的模型实例移交清理请求，不主动清空仍被后台调用引用的状态。
+        """Transfers cleanup request to model instances supporting close, without proactively
+        clearing state still referenced by background calls.
 
-        前置条件：协议层已取消并等待本地异步任务；同步 SDK 请求可能仍在工作线程中。
-        BackendLLM 负责延迟释放在途客户端；测试替身可只记录关闭标志。
-        返回 None；会话对象随连接任务退出失去引用，close 的异常保持向上传播。
+        Precondition: Protocol layer canceled and waited for local async tasks; synchronous SDK
+        requests may still be in worker thread.
+        BackendLLM responsible for delayed release of in-flight clients; test stubs can just record
+        close flag.
+        Returns None; session object loses reference upon connection task exit; close exception
+        preserved in upward propagation.
         """
         if hasattr(self.llm, "close"):
             self.llm.close()

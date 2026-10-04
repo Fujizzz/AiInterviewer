@@ -1,31 +1,29 @@
-"""职责：提供离线业务/安全模型及显式测试保存帮助函数，生产路由不引用。
-实现：业务输出通过真实契约验证；安全替身固定完整放行，只验证接线和业务回归。
-关联：供 Agent 协议、持久化和阶段测试使用；拒绝与故障由 test_agent_safety 独立验证。
+"""Responsibilities: Provide offline business/safety model fixtures and explicit test-only
+persistence helpers.
+Implementation: Validate business outputs with production contracts; the safety reviewer always
+approves and only verifies wiring.
+Related Modules: Agent protocol, persistence, and phase tests use these fixtures; test_agent_safety
+covers rejection and failure behavior.
+Declaration Index:
+- FixtureBehaviorReviewer: Explicit offline reviewer that returns a complete approval result.
+- FixtureBehaviorReviewer.assess: Produce an assessment covering every requested safety requirement.
+- SafetyTestMixin: Isolate business regression tests from the external safety service.
+- SafetyTestMixin.setUp: Patch the safety port for one test lifecycle and register cleanup.
+- complete_fixture_request: Attach an explicit test receipt and persist an offline result for direct
+  repository tests.
+- FixtureLLM: Generate deterministic offline outputs validated by the real Pydantic schemas.
+- FixtureLLM.__init__: Initialize per-instance call tracking and resource state without opening a
+  model connection.
+- FixtureLLM.__call__: Return schema-specific deterministic outputs and reject unknown schema
+  requests.
+- FixtureLLM.close: Mark fixture cleanup for lifecycle assertions.
+Variable Index:
+- RESUME: Synthetic resume text used only by offline tests.
+- ANSWER: Synthetic answer text associated with the fixture project.
 
-目录：
-- FixtureLLM：
-  提供通过真实 Pydantic 契约验证的离线数据，统计调用并可注入失败。
-- FixtureLLM.__init__：
-  每个测试会话独立统计，不建立模型连接。
-- FixtureLLM.__call__：
-  按实际 MVP 所需 schema 构造确定性输出，未知调用立即失败。
-- FixtureLLM.close：
-  标记资源清理，让断线测试验证生命周期。
-- FixtureBehaviorReviewer：显式离线放行替身，不评估真实安全效果。
-- FixtureBehaviorReviewer.assess：返回覆盖全部要求的合格结果。
-- SafetyTestMixin：隔离已有业务回归的安全外部调用。
-- SafetyTestMixin.setUp：仅在测试生命周期注入离线安全端口并注册清理。
-- complete_fixture_request：为直接测试仓库的离线结果附加测试批准记录。
-
-关键变量：
-- ANSWER：
-  与虚构项目配套的固定答案，只用于离线测试。
-- RESUME：
-  虚构的固定简历文本，只用于离线测试。
-
-关键状态说明：
-FixtureLLM.calls 记录请求 schema；closed 标记清理是否发生。
-测试输出不代表真实模型能力，也不进入生产默认路径。
+Constraints:
+FixtureLLM.calls records requested schemas and closed records cleanup. Fixture results do not
+establish real model capability and are not used by the production path.
 """
 
 from unittest.mock import patch
@@ -47,10 +45,21 @@ ANSWER = "I implemented a bounded-memory parser and tested malformed records sep
 
 
 class FixtureBehaviorReviewer:
-    """功能：隔离外部模型；逻辑：固定放行；约束：仅用于业务回归，不能证明真实安全检测能力。"""
+    """Functionality: Isolate business regressions from the external behavior-review model.
+    Inputs: A behavior assessment request.
+    Outputs: A compliant result covering every boundary requirement.
+    Logic: Return a deterministic approval without changing the request.
+    Constraints: This fixture verifies integration wiring only and cannot establish real safety
+    detection quality.
+    """
 
     async def assess(self, request):
-        """输入真实行为请求，返回完整要求覆盖；不联网、不修改请求，不模拟数据库。"""
+        """Functionality: Return an approval covering all requested behavior requirements.
+        Inputs: A production-shaped behavior review request.
+        Outputs: A compliant BehaviorAssessment with all requirement identifiers checked.
+        Logic: Build the response from the request boundary without external calls.
+        Constraints: Does not modify the request or access a database; approval is synthetic.
+        """
         return BehaviorAssessment(
             verdict="compliant",
             checked_requirement_ids=tuple(r.requirement_id for r in request.boundary.requirements),
@@ -59,10 +68,22 @@ class FixtureBehaviorReviewer:
 
 
 class SafetyTestMixin:
-    """功能：为旧业务回归提供显式安全替身；逻辑：逐测试 patch；约束：生产入口不加载。"""
+    """Functionality: Provide an explicit offline safety reviewer to legacy business regression
+    tests.
+    Inputs: The test framework lifecycle.
+    Outputs: A patched safety port registered for restoration after the test.
+    Logic: Start a unittest patch in setUp and register its stop method as cleanup.
+    Constraints: Production entry points do not load this mixin.
+    """
 
     def setUp(self):
-        """无外部参数；读取测试生命周期，替换安全端口并注册还原，返回 None。"""
+        """Functionality: Patch the behavior-review port for this test lifecycle.
+        Inputs: The inherited test setup state.
+        Outputs: None; registers patch cleanup with unittest.
+        Logic: Run the parent setup, start the fixture reviewer patch, and register its stop
+        callback.
+        Constraints: The patch is scoped to the test and is always restored by cleanup.
+        """
         super().setUp()
         patcher = patch("interviews.agent_safety.create_behavior_reviewer", FixtureBehaviorReviewer)
         patcher.start()
@@ -70,9 +91,14 @@ class SafetyTestMixin:
 
 
 async def complete_fixture_request(interview_id, request_id, result):
-    """输入直接 Agent 单元测试的离线结果，显式构造测试凭据并保存；不宣称完成安全审查。
-
-    仅供仓库/评分业务测试绕过外部检测模型；真实网关的检查与拒绝由 test_agent_safety 覆盖。
+    """Functionality: Persist a direct Agent-test result with an explicit synthetic approval
+    receipt.
+    Inputs: Interview identifier, request identifier, and the offline business result.
+    Outputs: Completes after the request record is updated.
+    Logic: Load interview ownership/version state, create a test receipt, and call the existing
+    completion helper.
+    Constraints: This bypass is test-only and does not claim a real safety review; gateway checks
+    are tested separately.
     """
     record = await AgentInterview.objects.aget(id=interview_id)
     await complete_request(
@@ -85,15 +111,31 @@ async def complete_fixture_request(interview_id, request_id, result):
 
 
 class FixtureLLM:
-    """提供通过真实 Pydantic 契约验证的离线数据，统计调用并可注入失败。"""
+    """Functionality: Provide deterministic schema-valid model outputs for offline tests.
+    Inputs: The per-call prompt, data, and requested Pydantic schema.
+    Outputs: A schema instance for supported requests.
+    Logic: Record requested schemas and build synthetic results for the Agent pipeline.
+    Constraints: Unknown schema requests fail immediately and no model connection is created.
+    """
 
     def __init__(self, *, interview_id=None):
-        """每个测试会话独立统计，不建立模型连接。"""
+        """Functionality: Initialize per-instance fixture call and cleanup state.
+        Inputs: An optional interview identifier accepted for interface compatibility.
+        Outputs: Empty call history and an open fixture state.
+        Logic: Initialize local attributes only.
+        Constraints: No external model connection is opened.
+        """
         self.calls = []
         self.closed = False
 
     def __call__(self, prompt, data, schema):
-        """按实际 MVP 所需 schema 构造确定性输出，未知调用立即失败。"""
+        """Functionality: Return deterministic fixture data for supported production schemas.
+        Inputs: Prompt text, request data, and the requested output schema.
+        Outputs: An instance validated against the requested schema.
+        Logic: Record the schema, construct a schema-specific synthetic payload, and validate it.
+        Constraints: Unsupported schemas raise AssertionError; the fixture does not evaluate
+        semantic quality.
+        """
         # Scripted semantic pass; this fixture does not evaluate question quality.
         if schema.__name__ == "QuestionQualityReview":
             return schema(issues=[])
@@ -153,5 +195,10 @@ class FixtureLLM:
         return schema.model_validate(output)
 
     def close(self):
-        """标记资源清理，让断线测试验证生命周期。"""
+        """Functionality: Mark fixture cleanup for connection-lifecycle assertions.
+        Inputs: The fixture instance state.
+        Outputs: None; sets closed to True.
+        Logic: Update only the local cleanup marker.
+        Constraints: No external resource is released because no connection was opened.
+        """
         self.closed = True

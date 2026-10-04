@@ -1,23 +1,34 @@
-"""职责：验证版本 API 的用户隔离、解析生命周期和面试绑定，不访问真实模型服务。
-实现：真实隔离测试数据库与 HTTP 请求，解析流使用显式替身，保留生产管线调用边界。
-关联：resume_versions、agent_records、agent_history 与迁移后的关系约束。
-目录：
-- parsing_fixture：提供一个确定性成功解析事件。
-- failed_fixture：提供显式解析失败事件。
-- pending_fixture：提供尚未结束的解析进度。
-- ResumeVersionTests：版本与权限集成验证。
-- ResumeVersionTests.setUp：建立两个账号和已登录客户端。
-- ResumeVersionTests.test_versions_current_and_permissions：验证不可变版本、当前选择与跨用户拒绝。
-- ResumeVersionTests.test_pdf_parse_and_private_download：
-  验证上传/解析分离、持久化文本与原文件下载。
-- ResumeVersionTests.test_interview_binding_and_deletion：验证绑定快照、历史归属及引用删除限制。
-- ResumeVersionTests.test_invalid_source_and_unready_version：验证输入互斥和未就绪版本不触发模型。
-- ResumeVersionTests.test_failed_and_interrupted_parse：验证失败和关闭流的状态，不声称解析成功。
-- VersionSocketTests：真实协议与数据库的版本接入回归。
-- VersionSocketTests.test_prepare_start_binds_same_version：
-  验证授权版本通过安全网关并固定资料与历史。
-关键变量：
-（无模块级变量。）
+"""Responsibilities: Verify user isolation, parsing lifecycle, and interview binding in version API
+without accessing real model services.
+Implementation: Use real isolated test database and HTTP requests; explicit stubs for parsing
+streams; maintain production pipeline call boundaries.
+Related Modules: resume_versions, agent_records, agent_history, and their post-migration
+relationship constraints.
+Declaration Index:
+- parsing_fixture: Provides a deterministic successful parsing event.
+- failed_fixture: Provides explicitly failed parsing events.
+- pending_fixture: Provides non-terminal parsing progress.
+- ResumeVersionTests: Version and permission integration verification.
+- ResumeVersionTests.setUp: Establishes two accounts and an authenticated client.
+- ResumeVersionTests.test_versions_current_and_permissions: Validates immutable versions, current
+  selection, and cross-user rejection.
+- ResumeVersionTests.test_pdf_parse_and_private_download: Validates upload/parsing separation,
+  persistent text, and original file
+  download.
+- ResumeVersionTests.test_interview_binding_and_deletion: Validates bound snapshots, historical
+  ownership, and reference deletion
+  restrictions.
+- ResumeVersionTests.test_invalid_source_and_unready_version: Validates mutually exclusive inputs
+  and unready versions not triggering
+  models.
+- ResumeVersionTests.test_failed_and_interrupted_parse: Validates failed and interrupted stream
+  states without claiming successful parsing.
+- VersionSocketTests: Real protocol and database version access regression.
+- VersionSocketTests.test_prepare_start_binds_same_version: Validates authorized version passing
+  through secure gateway and fixed
+  data/history.
+Variable Index:
+None
 """
 
 import json
@@ -42,25 +53,35 @@ from .test_agent_progress import collect_until, disconnect, read, send_command
 
 
 async def parsing_fixture(data, *, mode="traditional"):
-    """输入替身 PDF 和模式（默认传统），输出确定性 result；模拟外部解析，不验证 PDF 或视觉服务。"""
+    """Input mock PDF and mode (default traditional), output deterministic result; simulate external
+    parsing without validating PDF or visual service.
+    """
     yield b'{"type":"result","text":"Built Python APIs","pages":[]}'
 
 
 async def failed_fixture(data, *, mode="traditional"):
-    """输入替身字节和模式，输出固定错误事件，模拟管线已报告失败，不吞掉真实异常。"""
+    """Input mock bytes and mode, output fixed error event; simulate pipeline reporting failure,
+    without swallowing real exceptions.
+    """
     yield b'{"type":"error","detail":"test-only"}'
 
 
 async def pending_fixture(data, *, mode="traditional"):
-    """输入替身字节和模式，输出非终态进度，供消费后关闭流并验证 interrupted。"""
+    """Input mock bytes and mode, output non-terminal progress; used to consume and close stream,
+    verifying interrupted state.
+    """
     yield b'{"type":"progress","stage":"rules"}'
 
 
 class ResumeVersionTests(APITestCase):
-    """功能：验证授权与持久化；输入为隔离账号和数据库；约束：所有收费模型均不调用。"""
+    """Function: Validate authorization and persistence; input is isolated account and database;
+    constraint: no billing model calls are made.
+    """
 
     def setUp(self):
-        """建立两个测试用户并认证第一个；测试框架隔离数据库，不依赖本地用户或真实秘密。"""
+        """Establish two test users and authenticate the first; test framework isolates database,
+        independent of local users or real secrets.
+        """
         self.owner = get_user_model().objects.create_user(
             username="resume-owner", password="test-only"
         )
@@ -70,7 +91,9 @@ class ResumeVersionTests(APITestCase):
         self.client.force_authenticate(self.owner)
 
     def test_versions_current_and_permissions(self):
-        """两次上传生成不同版本，选择当前不覆盖文本；跨用户查询/选择/删除返回 404，匿名拒绝。"""
+        """Two uploads generate distinct versions; current selection does not overwrite text;
+        cross-user queries/selection/deletion return 404, anonymous access denied.
+        """
         first = self.client.post("/api/resume-versions/", {"text": "Version one"}, format="json")
         second = self.client.post("/api/resume-versions/", {"text": "Version two"}, format="json")
         self.assertEqual(first.status_code, 201)
@@ -92,8 +115,9 @@ class ResumeVersionTests(APITestCase):
         self.assertEqual(self.client.get("/api/resume-versions/").status_code, 403)
 
     def test_pdf_parse_and_private_download(self):
-        """使用非真实 PDF 的解析替身；上传只存文件，显式消费流才完成解析。
-        下载原字节且不可重复解析。
+        """Use non-real PDF parsing stub; upload only stores file, explicit stream consumption
+        completes parsing.
+        Download raw bytes and prevent re-parsing.
         """
         data = b"%PDF-test-only"
         response = self.client.post(
@@ -138,7 +162,9 @@ class ResumeVersionTests(APITestCase):
         self.assertEqual(self.client.get(url + "download/").status_code, 404)
 
     def test_interview_binding_and_deletion(self):
-        """真实事务绑定版本；后续当前选择不改变历史文本，引用版本拒删，无引用版本可删。"""
+        """Real transaction binds version; subsequent current selection does not alter historical
+        text; referenced versions cannot be deleted, unreferenced ones may be.
+        """
         version = ResumeVersion.objects.create(
             owner=self.owner, text="Original input", status="ready"
         )
@@ -164,7 +190,9 @@ class ResumeVersionTests(APITestCase):
         self.assertEqual(self.client.get(f"/api/agent-interviews/{interview_id}/").status_code, 404)
 
     def test_invalid_source_and_unready_version(self):
-        """校验互斥来源及本人 ready 条件；无模型替身调用，因为失败发生在读取输入之前。"""
+        """Validate mutually exclusive sources and personal ready condition; no model stub calls, as
+        failure occurs before input reading.
+        """
         version = ResumeVersion.objects.create(owner=self.owner)
         command = Start(request_id=uuid4(), type="start", resume_version_id=version.pk)
         for owner_id in [self.owner.pk, self.other.pk, None]:
@@ -192,7 +220,9 @@ class ResumeVersionTests(APITestCase):
         )
 
     async def test_failed_and_interrupted_parse(self):
-        """模拟既有错误事件和提前关闭；真实数据库状态不得变成 ready，不验证外部服务故障。"""
+        """Simulate existing error events and premature closure; real database state must not become
+        ready, and external service failures are not validated.
+        """
         from asgiref.sync import sync_to_async
 
         version = await sync_to_async(ResumeVersion.objects.create)(
@@ -220,13 +250,14 @@ class ResumeVersionTests(APITestCase):
 
 
 class VersionSocketTests(SafetyTestMixin, TransactionTestCase):
-    """功能：验证版本完整协议路径；逻辑：真实 Agent/数据库配合模型与安全替身。
-    约束：无真实供应商。
+    """Function: Validate complete version protocol path; logic: real Agent/database works with
+    model and security stubs.
+    Constraint: No real vendor involved.
     """
 
     async def test_prepare_start_binds_same_version(self):
-        """认证 scope 使用本人 ready 版本；prepare/start 均走网关。
-        结构化资料保存在上下文且引用固定。
+        """Authenticate scope uses personal ready version; prepare/start both go through gateway.
+        Structured data saved in context with fixed references.
         """
         from asgiref.sync import sync_to_async
 

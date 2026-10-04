@@ -1,18 +1,25 @@
-"""职责：验证 PDF 队列失败、消费隔离和取消边界，不访问 Redis 或真实模型。
+"""Responsibilities: Verify PDF queue failure, consumption isolation, and cancellation boundaries,
+without accessing Redis or real models.
 
-实现：只替换消息传输端口，真实执行队列生成器及任务入口；外部集成另由部署探针验证。
-关联：pdf_queue、tasks 和 resume_api 的 NDJSON 协议。
-目录：
-- PdfQueueTests：队列生命周期和一次性执行回归。
-- PdfQueueTests.test_success_stream_and_cleanup：返回原终态并删除临时正文/消费标记。
-- PdfQueueTests.test_advanced_mode_reaches_worker：
-  队列和 worker 均透传显式高级模式，无真实 Redis/模型调用。
-- PdfQueueTests.test_publish_failure_has_no_inline_fallback：发布失败不调用原管线或重发。
-- PdfQueueTests.test_close_cancels_consumer：浏览器关闭流会通知 worker，不保留消费标记。
-- PdfQueueTests.test_duplicate_task_does_not_call_pipeline：已被取走的输入不重复处理。
-- PdfQueueTests.test_disconnected_task_does_not_consume：消费标记失效的任务不读取 PDF。
-关键变量：
-（无模块级变量。）
+Implementation: Replace the message-transport boundary and execute the production queue generator
+and task entry. These tests validate local behavior with stubs and do not establish Redis or Celery
+availability.
+Related Modules: pdf_queue, tasks, and resume_api's NDJSON protocol.
+Declaration Index:
+- PdfQueueTests: Queue lifecycle and one-time execution regression.
+- PdfQueueTests.test_success_stream_and_cleanup: Return original terminal state and delete temporary
+  body/consumption marker.
+- PdfQueueTests.test_advanced_mode_reaches_worker:
+  Queue and worker both transparently pass explicit advanced mode, no real Redis/model calls.
+- PdfQueueTests.test_publish_failure_has_no_inline_fallback: Publishing failure does not invoke
+  original pipeline or retry.
+- PdfQueueTests.test_close_cancels_consumer: Browser closing stream notifies worker, does not retain
+  consumption marker.
+- PdfQueueTests.test_duplicate_task_does_not_call_pipeline: Already consumed input not reprocessed.
+- PdfQueueTests.test_disconnected_task_does_not_consume: Consumed marker invalid tasks do not read
+  PDF.
+Variable Index:
+None
 """
 
 from unittest.mock import AsyncMock, patch
@@ -24,10 +31,14 @@ from interviews.tasks import execute_pdf
 
 
 class PdfQueueTests(SimpleTestCase):
-    """模拟 Redis/Celery 端口验证状态转换，不把替身通过解释为外部服务可用。"""
+    """Simulate Redis/Celery port validation for state transition, do not treat stub passing as
+    proof of external service availability.
+    """
 
     async def test_success_stream_and_cleanup(self):
-        """单次发布后收到 result；发送的 Celery 参数不包含正文，客户端临时键被删除。"""
+        """Single publish receives result; sent Celery parameters do not include body, client-side
+        temporary key deleted.
+        """
         redis = AsyncMock()
         line = b'{"type":"result","text":"synthetic"}\n'
         redis.xread.return_value = [(b"stream", [(b"1-0", {b"line": line, b"terminal": b"1"})])]
@@ -47,7 +58,9 @@ class PdfQueueTests(SimpleTestCase):
         redis.aclose.assert_awaited_once()
 
     async def test_publish_failure_has_no_inline_fallback(self):
-        """发布失败只产生固定 error，异常正文不泄漏，不调用本机模型管线。"""
+        """Publish failure produces only fixed error, exception body not leaked, no invocation of
+        local model pipeline.
+        """
         redis = AsyncMock()
         with (
             patch("interviews.pdf_queue.redis_client", return_value=redis),
@@ -64,8 +77,9 @@ class PdfQueueTests(SimpleTestCase):
         inline.assert_not_called()
 
     async def test_advanced_mode_reaches_worker(self):
-        """消息和 Redis 均替身；验证显式 advanced 随发布参数及 worker 管线传递。
-        不证明外部服务可用。
+        """Messages and Redis both stubbed; verify explicit advanced mode passed with publish
+        parameters and worker pipeline.
+        Does not prove external service availability.
         """
         redis = AsyncMock()
         line = b'{"type":"result"}\n'
@@ -90,7 +104,9 @@ class PdfQueueTests(SimpleTestCase):
         producer.assert_awaited_once_with(redis, "test-job", b"synthetic", mode="advanced")
 
     async def test_close_cancels_consumer(self):
-        """流在 queued 后关闭仍执行 finally，worker 将观察到消费者标记删除。"""
+        """Stream continues executing finally after queued close, worker observes consumer marker
+        deletion.
+        """
         redis = AsyncMock()
         with (
             patch("interviews.pdf_queue.redis_client", return_value=redis),
@@ -104,7 +120,9 @@ class PdfQueueTests(SimpleTestCase):
         self.assertTrue(any(key.endswith(":input") for key in deleted))
 
     async def test_duplicate_task_does_not_call_pipeline(self):
-        """原子取走输入返回空时结束，即使 Celery 重投也不能重复计费。"""
+        """Atomically consuming empty input ends process, even if Celery retries, no repeated
+        billing.
+        """
         redis = AsyncMock()
         redis.exists.return_value = 1
         redis.eval.return_value = None
@@ -117,7 +135,9 @@ class PdfQueueTests(SimpleTestCase):
         redis.eval.assert_awaited_once()
 
     async def test_disconnected_task_does_not_consume(self):
-        """已经断开的消费者即使任务尚在队列，也不读取输入或发送模型请求。"""
+        """Disconnected consumers do not read input or send model requests, even if task remains in
+        queue.
+        """
         redis = AsyncMock()
         redis.exists.return_value = 0
         with patch("interviews.tasks.redis_client", return_value=redis):

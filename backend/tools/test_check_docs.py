@@ -1,30 +1,34 @@
-"""注释检查器回归测试：以临时源码验证漏检、过期目录与解析边界，不加载业务应用。
-
-目录：
-- DocumentationTests：
-  独立验证检查器，不调用 Django、网络、模型或实际数据库。
-- DocumentationTests.test_definitions_inside_control_flow_keep_qualified_names：
-  if、for 与异常处理器内的定义必须被发现，且限定名只增加函数或类层级。
-- DocumentationTests.test_variables_exclude_imports_and_local_state：
-  模块分支和解包赋值属于目录范围，导入、类成员及函数局部变量不属于该集合。
-- DocumentationTests.test_catalog_reports_renamed_and_removed_symbols：
-  重命名后必须同时报告缺失的新名称和残留的旧名称，不能只检查目录存在。
-- DocumentationTests.test_catalog_rejects_empty_or_duplicate_descriptions：
-  有名称无说明、重复条目和缺少段标题均不能形成有效目录。
-- DocumentationTests.test_javascript_declarations_require_adjacent_jsdoc：
-  具名箭头函数、导出函数和带回调默认值的方法均计数；缺少 JSDoc 的方法报缺失。
-- DocumentationTests.test_javascript_ignores_comment_and_string_examples：
-  注释或字符串中的伪函数声明不能计数；普通行注释不能充当函数 JSDoc。
-- DocumentationTests.test_checker_detects_missing_nested_doc_and_skips_dependencies：
-  端到端扫描必须发现嵌套函数缺注释，同时忽略依赖目录中的无效源码。
-- DocumentationTests.test_checker_reports_javascript_catalog_and_syntax_errors：
-  缺失 JS 函数注释、失效索引和 Python 语法错误均产生明确诊断。
-
-关键变量：
-（无模块级变量。）
-
-设计说明：
-执行说明：python tools/test_check_docs.py；测试只在临时目录写入虚构源码并自动清理，不加载业务应用。
+"""Responsibilities: Verify the documentation checker's declaration and variable index contracts.
+Implementation: Use temporary Python and JavaScript sources to exercise parser boundaries and
+diagnostics.
+Related Modules: check_docs and javascript_docs implement the inspected behavior.
+Declaration Index:
+- DocumentationTests: Exercise AST collection, index parsing, JSDoc adjacency, and end-to-end
+  diagnostics.
+- DocumentationTests.test_definitions_inside_control_flow_keep_qualified_names: Check qualified
+  names in control
+  flow.
+- DocumentationTests.test_variables_exclude_imports_and_local_state: Check module-variable
+  collection boundaries.
+- DocumentationTests.test_catalog_reports_renamed_and_removed_symbols: Require missing and stale
+  declaration reports.
+- DocumentationTests.test_catalog_rejects_empty_or_duplicate_descriptions: Reject malformed, empty,
+  duplicate, and absent
+  sections.
+- DocumentationTests.test_javascript_declarations_require_adjacent_jsdoc: Check declaration and
+  callback JSDoc coverage.
+- DocumentationTests.test_javascript_ignores_comment_and_string_examples: Ignore pseudo-declarations
+  in text and ordinary
+  comments.
+- DocumentationTests.test_checker_detects_missing_nested_doc_and_skips_dependencies:
+  Check nested docs
+  and ignored
+  dependency
+  directories.
+- DocumentationTests.test_checker_reports_javascript_catalog_and_syntax_errors: Check language
+  diagnostics.
+Variable Index:
+None
 """
 
 import ast
@@ -43,10 +47,21 @@ from check_docs import (
 
 
 class DocumentationTests(unittest.TestCase):
-    """独立验证检查器，不调用 Django、网络、模型或实际数据库。"""
+    """Functionality: Verify documentation-index parser and checker contracts.
+    Inputs: Synthetic Python and JavaScript snippets written only to temporary directories.
+    Outputs: unittest assertions over names, counts, and emitted diagnostics.
+    Logic: Exercise declaration discovery, bidirectional indexes, and syntax/JSDoc failure paths.
+    Constraints: No Django, network, model, real database, or project source execution is required.
+    """
 
     def test_definitions_inside_control_flow_keep_qualified_names(self):
-        """if、for 与异常处理器内的定义必须被发现，且限定名只增加函数或类层级。"""
+        """Functionality: Verify declarations nested in control-flow nodes.
+        Inputs: A parsed sample containing class, function, loop, exception, and branch
+        declarations.
+        Outputs: The expected lexical sequence of qualified names.
+        Logic: Compare iter_definitions output against explicit class/function nesting.
+        Constraints: Control-flow constructs do not add name components.
+        """
         tree = ast.parse("""
 class Suite:
     def run(self):
@@ -68,7 +83,12 @@ if True:
         )
 
     def test_variables_exclude_imports_and_local_state(self):
-        """模块分支和解包赋值属于目录范围，导入、类成员及函数局部变量不属于该集合。"""
+        """Functionality: Verify module-level assignment collection boundaries.
+        Inputs: Parsed assignments at module, branch, class, and function scope.
+        Outputs: The set of module assignment target names.
+        Logic: Compare module_variables output with module-scope names.
+        Constraints: Imports, class members, and function locals are excluded.
+        """
         tree = ast.parse("""
 from elsewhere import imported
 LIMIT = 4
@@ -83,34 +103,77 @@ def work():
         self.assertEqual(module_variables(tree), {"LIMIT", "left", "right", "OPTIONAL"})
 
     def test_catalog_reports_renamed_and_removed_symbols(self):
-        """重命名后必须同时报告缺失的新名称和残留的旧名称，不能只检查目录存在。"""
-        header = "目录：\n- old：旧函数。\n关键变量：\n（无）"
-        problems = compare_catalog(header, "目录", {"new"})
+        """Functionality: Require missing and stale diagnostics after a symbol rename.
+        Inputs: A header documenting an old declaration and an empty variable index, plus the actual
+        new name.
+        Outputs: Two mismatch diagnostics.
+        Logic: Compare actual and documented names in both directions.
+        Constraints: Index names and delimiters follow the English ASCII-colon format.
+        """
+        header = "Declaration Index:\n- old: Former function.\nVariable Index:\nNone"
+        problems = compare_catalog(header, "Declaration Index", {"new"})
         self.assertEqual(len(problems), 2)
         self.assertIn("missing: new", problems[0])
         self.assertIn("stale: old", problems[1])
 
     def test_catalog_rejects_empty_or_duplicate_descriptions(self):
-        """有名称无说明、重复条目和缺少段标题均不能形成有效目录。"""
-        for header in ("目录：\n- f：", "目录：\n- f：a\n- f：b", "目录中提到了 f"):
+        """Functionality: Reject incomplete and ambiguous index syntax.
+        Inputs: Headers with blank entries, duplicates, absent sections, or valid continuation text.
+        Outputs: ValueError for malformed inputs and a mapping for valid entries.
+        Logic: Check parser failures and continuation parsing.
+        Constraints: Section headings and bullet delimiters use ASCII colons; an empty section uses
+        None.
+        """
+        for header in (
+            "Declaration Index:\n- f:",
+            "Declaration Index:\n- f: a\n- f: b",
+            "Declaration Index mentions f",
+            "Declaration Index:\n- f： a\nVariable Index:\nNone",
+            "目录：\n- f： a",
+            "Variable Index:\nNone\nNone",
+            "Variable Index:\n None",
+            "Variable Index:\nNone ",
+            "Variable Index:",
+        ):
             with self.subTest(header=header), self.assertRaises(ValueError):
-                catalog_entries(header, "目录")
+                catalog_entries(header, "Declaration Index")
         self.assertEqual(
-            catalog_entries("目录：\n- f：\n  计算结果。\n关键变量：\n（无）", "目录"),
-            {"f": " 计算结果。"},
+            catalog_entries(
+                "Declaration Index:\n- f: result\n  Additional detail.\nVariable Index:\nNone",
+                "Declaration Index",
+            ),
+            {"f": "result Additional detail."},
         )
+        self.assertEqual(catalog_entries("Variable Index:\nNone", "Variable Index"), {})
 
     def test_javascript_declarations_require_adjacent_jsdoc(self):
-        """具名箭头函数、导出函数和带回调默认值的方法均计数；缺少 JSDoc 的方法报缺失。"""
-        source = """/** 模块功能 */
+        """Functionality: Check JavaScript declaration and callback JSDoc coverage.
+        Inputs: Source with documented declarations, one undocumented method, and a callback
+        default.
+        Outputs: Declaration documentation flags, module variables, and anonymous callback count.
+        Logic: Parse symbols and compare exact names and flags.
+        Constraints: A module header does not count as declaration documentation.
+        """
+        source = """/** @module sample
+ * Responsibilities: sample module.
+ * Declaration Index:
+ * - lookup: helper.
+ * - run: async entry.
+ * - Client: client.
+ * - Client.constructor: initialize.
+ * - Client.constructor.callback1: callback.
+ * - Client.close: close.
+ * Variable Index:
+ * - LIMIT: configured limit.
+ */
 const LIMIT = 1;
-/** 辅助查询 */
+/** helper query */
 const lookup = (id) => id;
-/** 异步入口 */
+/** asynchronous entry */
 export async function run() {}
-/** 客户端 */
+/** client */
 export class Client {
-  /** 初始化回调 */
+  /** initialize callback */
   constructor(url, { onData = () => {} } = {}) {}
   close() {}
 }
@@ -132,7 +195,12 @@ export class Client {
         self.assertEqual(anonymous, 1)
 
     def test_javascript_ignores_comment_and_string_examples(self):
-        """注释或字符串中的伪函数声明不能计数；普通行注释不能充当函数 JSDoc。"""
+        """Functionality: Ignore pseudo-declarations in comments and strings.
+        Inputs: JavaScript with fake declarations in a block comment and template literal.
+        Outputs: One real declaration marked undocumented.
+        Logic: Inspect parser-derived definitions.
+        Constraints: An ordinary line comment cannot satisfy JSDoc adjacency.
+        """
         source = """/* function fake() {} */
 const text = `
 function phantom() {}
@@ -144,19 +212,24 @@ function real() {}
         self.assertEqual(definitions, [("real", 6, False)])
 
     def test_checker_detects_missing_nested_doc_and_skips_dependencies(self):
-        """端到端扫描必须发现嵌套函数缺注释，同时忽略依赖目录中的无效源码。"""
+        """Functionality: Check nested declaration documentation and traversal behavior.
+        Inputs: Temporary documented source plus an invalid ignored dependency file.
+        Outputs: One missing-doc diagnostic and counts for the inspected Python module.
+        Logic: Run check_documentation over the temporary project tree.
+        Constraints: Temporary files are cleaned up; dependency source is excluded.
+        """
         with tempfile.TemporaryDirectory(prefix="backend-doc-check-") as directory:
             root = Path(directory)
             (root / "sample.py").write_text(
-                '''"""测试模块。
-目录：
-- outer：外层函数。
-- outer.inner：嵌套函数。
-关键变量：
-（无）
+                '''"""Test module.
+Declaration Index:
+- outer: Outer function.
+- outer.inner: Nested function.
+Variable Index:
+None
 """
 def outer():
-    """只定义嵌套函数。"""
+    """Defines a nested function."""
     if True:
         def inner():
             pass
@@ -173,17 +246,23 @@ def outer():
             self.assertIn("undocumented outer.inner", problems[0])
 
     def test_checker_reports_javascript_catalog_and_syntax_errors(self):
-        """缺失 JS 函数注释、失效索引和 Python 语法错误均产生明确诊断。"""
+        """Functionality: Check JavaScript index, JSDoc, and Python syntax diagnostics.
+        Inputs: A malformed Python file and JavaScript with a stale index and undocumented
+        declaration.
+        Outputs: Diagnostics for syntax failure, missing documentation, and missing/stale names.
+        Logic: Run the checker over a temporary source tree.
+        Constraints: Parser dependency failures remain explicit checker errors.
+        """
         with tempfile.TemporaryDirectory(prefix="backend-doc-check-") as directory:
             root = Path(directory)
             (root / "bad.py").write_text("def broken(:", encoding="utf-8")
             (root / "sample.js").write_text(
                 """/**
  * @module sample
- * 目录：
- * - old：已移除。
- * 关键变量：
- * （无）
+ * Declaration Index:
+ * - old: Removed.
+ * Variable Index:
+ * None
  */
 const LIMIT = 1;
 function current() {}

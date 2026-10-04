@@ -1,12 +1,12 @@
-"""职责：新增简历版本存储及面试绑定，不回填或认领旧记录。
-实现：添加私有 PDF/文本表、当前版本唯一约束和面试 PROTECT 外键；旧面试引用保持空。
-关联：ResumeVersion 与 AgentInterview，依赖账号归属迁移和认证用户表。
-目录：
-- Migration：定义版本表、绑定列及状态约束；逆迁移删除这些新增数据和列。
-关键变量：
-（无模块级变量。）
-配置说明：
-dependencies 固定迁移顺序；operations 仅调整结构，不调用模型或修改评分。
+"""Responsibilities: Add resume version storage and bind interviews to a version snapshot.
+Implementation: Add private PDF/text storage, current-version constraints, and protected interview
+references; old interviews remain unbound.
+Related Modules: ResumeVersion, AgentInterview, account ownership migration, and the configured
+authentication model.
+Declaration Index:
+- Migration: Define the resume version table, interview fields, and status constraints.
+Variable Index:
+None
 """
 
 import uuid
@@ -17,7 +17,12 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    """功能：结构迁移；逻辑：先创建版本再绑定；约束：不改变已有面试状态或实验参数。"""
+    """Functionality: Add resume version storage and interview snapshot binding.
+    Inputs: Existing Agent interview schema and configured authentication model.
+    Outputs: Creates ResumeVersion and adds resume snapshot and protected version reference fields.
+    Logic: Apply schema operations in dependency order.
+    Constraints: Existing interviews are not backfilled and retain their prior state.
+    """
 
     dependencies = [
         ("interviews", "0006_account_ownership"),

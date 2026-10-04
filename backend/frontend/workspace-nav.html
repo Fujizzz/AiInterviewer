@@ -1,22 +1,29 @@
 <!--
-职责：所有产品页面的固定顶部导航，将概览、面试、简历、岗位和复盘作为同级任务。
-实现：服务端标记当前路由；简历页内岗位入口由 resumes.js 切换面板，账号菜单使用原生 details。
-关联：workspace.css、account-nav.html、i18n.js；不请求业务数据或改变会话。
-目录：品牌；主导航；语言选择；账号菜单。函数和类：None。
-变量索引：request.path 决定初始 aria-current；user/csrf_token 交给账号模板；interview-language 保持面试脚本的语言事件契约。
-约束：复盘保留独立顶部入口；所有链接均为同源；窄屏导航在自身区域横向滚动。
+Responsibilities: Provide shared navigation for Overview, Mock interview, My resumes, Job matches and Interview review.
+Implementation: Django marks the current route; resumes.js handles the job panel; native details provides the account menu.
+Related Modules: workspace.css, account-nav.html and i18n.js; this template performs no business requests.
+Declaration Index:
+None
+Variable Index:
+None
+Template Context:
+request.path controls initial aria-current; user/csrf_token is passed to account navigation.
+Element Index:
+interview-language retains the interview scripts' language-selector event contract; workspace links identify resume/job panels.
+Constraints:
+Review keeps its standalone top-level route. All links are same-origin; narrow-screen navigation scrolls within its own region. Initial system labels are English; explicit language selection remains available.
 -->
 <header class="workspace-header">
   <a class="workspace-brand" href="/"><span aria-hidden="true">ai</span> Interviewer</a>
-  <nav class="workspace-navigation" aria-label="主导航" data-i18n-attr="aria-label:nav_label">
-    <a href="/" data-i18n="ws_overview"{% if request.path == "/" %} aria-current="page"{% endif %}>概览</a>
-    <a href="/agent/" data-i18n="ws_practice"{% if request.path == "/agent/" or request.path == "/stream-demo/agent.html" %} aria-current="page"{% endif %}>模拟面试</a>
-    <a href="/resumes/" data-workspace-link="resume-files" data-i18n="ws_resumes"{% if request.path == "/resumes/" or request.path == "/stream-demo/resumes.html" %} aria-current="page"{% endif %}>我的简历</a>
-    <a href="/resumes/#job-recommendations" data-workspace-link="job-recommendations" data-i18n="ws_jobs">岗位推荐</a>
-    <a href="/interview-review/" data-i18n="review_nav"{% if request.path == "/interview-review/" or request.path == "/stream-demo/interview-review.html" %} aria-current="page"{% endif %}>面试复盘</a>
+  <nav class="workspace-navigation" aria-label="Page navigation" data-i18n-attr="aria-label:nav_label">
+    <a href="/" data-i18n="ws_overview"{% if request.path == "/" %} aria-current="page"{% endif %}>Overview</a>
+    <a href="/agent/" data-i18n="ws_practice"{% if request.path == "/agent/" or request.path == "/stream-demo/agent.html" %} aria-current="page"{% endif %}>Mock interview</a>
+    <a href="/resumes/" data-workspace-link="resume-files" data-i18n="ws_resumes"{% if request.path == "/resumes/" or request.path == "/stream-demo/resumes.html" %} aria-current="page"{% endif %}>My resumes</a>
+    <a href="/resumes/#job-recommendations" data-workspace-link="job-recommendations" data-i18n="ws_jobs">Job matches</a>
+    <a href="/interview-review/" data-i18n="review_nav"{% if request.path == "/interview-review/" or request.path == "/stream-demo/interview-review.html" %} aria-current="page"{% endif %}>Interview review</a>
   </nav>
   <div class="workspace-utilities">
-    <label class="language-picker"><span class="visually-hidden" data-language-label>界面语言</span><select id="interview-language" data-language-selector aria-label="界面语言" data-i18n-attr="aria-label:language"><option value="system" data-i18n="language_system">跟随系统</option><option value="zh" data-i18n="language_zh">中文</option><option value="en" data-i18n="language_en">English</option></select></label>
+    <label class="language-picker"><span class="visually-hidden" data-language-label>Language</span><select id="interview-language" data-language-selector aria-label="Language" data-i18n-attr="aria-label:language"><option value="system" data-i18n="language_system">Follow system</option><option value="zh" data-i18n="language_zh">Chinese</option><option value="en" data-i18n="language_en">English</option></select></label>
     {% include "account-nav.html" %}
   </div>
 </header>

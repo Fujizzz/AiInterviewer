@@ -1,13 +1,18 @@
-"""REST 路由注册。资源使用DefaultRouter，PDF阶段流与实验推荐由独立视图处理。
+"""Responsibilities: Register REST and auxiliary API routes.
+Implementation: Use DefaultRouter for resource endpoints and explicit routes for PDF stage
+streaming, profile data, and recommendations.
+Related Modules: api.views handles request adapters; resume_api provides PDF parsing;
+recommendation.api provides recommendation sorting.
 
-目录：
-（无本地函数或类定义。）
+Declaration Index:
+None
 
-关键变量：
-- router：
-  注册 questions、sessions、只读 agent-interviews 与本人 resume-versions 的路由器。
-- urlpatterns：
-  Django路由列表，包含本人资料、PDF解析和双向推荐入口；资源路由附加在末尾。
+Variable Index:
+- router:
+  Router registering questions, sessions, read-only agent-interviews, and user's resume-versions.
+- urlpatterns:
+  Django route list, including user profile, PDF parsing, and bidirectional recommendation entry
+  points; resource routes appended at end.
 """
 
 from django.urls import path

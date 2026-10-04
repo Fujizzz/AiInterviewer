@@ -1,19 +1,24 @@
 <!--
-职责：共享顶部导航的账号入口；登录后以原生菜单展示个人资料和退出，匿名时展示登录/注册。
-实现：Django 自动转义身份，退出必须以带 CSRF 的 POST 提交；details 仅改变菜单可见性。
-关联：workspace-nav.html、workspace.css、account.css、i18n.js；不请求或持久化资料。
-目录：已登录账号菜单；匿名登录/注册链接。函数和类：None。
-变量索引：user 为认证用户；csrf_token 由模板上下文生成；不保存客户端状态。
-约束：用户名过长由样式省略，title 保留完整转义文本；不更改认证或注销契约。
+Responsibilities: Provide account navigation shared by product pages.
+Implementation: Render authenticated profile/logout controls or anonymous login/register links; Django escapes identity and supplies CSRF for POST logout.
+Related Modules: workspace-nav.html, workspace.css, account.css and i18n.js; accounts.py owns authentication.
+Declaration Index:
+None
+Variable Index:
+None
+Template Context:
+user determines authentication and escaped identity; csrf_token authorizes the logout POST.
+Constraints:
+Native details changes menu visibility only. Styling truncates long names while the escaped title retains the complete name. No credentials or account state are stored in the browser.
 -->
 {% if user.is_authenticated %}
 <details class="workspace-account">
   <summary title="{{ user.username }}">{{ user.username }}</summary>
   <div class="workspace-account-menu">
-    <a href="/resumes/#profile-panel" data-i18n="rm_account">个人信息</a>
-    <form method="post" action="/logout/">{% csrf_token %}<button type="submit" class="account-logout" data-i18n="auth_logout">退出</button></form>
+    <a href="/resumes/#profile-panel" data-i18n="rm_account">Personal information</a>
+    <form method="post" action="/logout/">{% csrf_token %}<button type="submit" class="account-logout" data-i18n="auth_logout">Sign out</button></form>
   </div>
 </details>
 {% else %}
-<div class="account-nav"><a href="/login/" data-i18n="auth_login">登录</a><a class="account-register-link" href="/register/" data-i18n="auth_register">注册</a></div>
+<div class="account-nav"><a href="/login/" data-i18n="auth_login">Sign in</a><a class="account-register-link" href="/register/" data-i18n="auth_register">Sign up</a></div>
 {% endif %}

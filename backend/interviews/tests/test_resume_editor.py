@@ -1,37 +1,62 @@
-"""职责：验证在线单元编辑、独立快照、私有来源及推荐槽位的真实数据库/API 契约。
-实现：隔离测试用户与数据库，真实 DRF 校验和文件响应；不调用外部提取或收费模型。
-关联：resume_editor、resume_models、resume_versions 和现有 CandidateInput。
-目录：
-- ResumeEditorTests：独立编辑版本的持久化与权限回归。
-- ResumeEditorTests.setUp：建立本人、其他用户和虚构 ready 原件。
-- ResumeEditorTests.test_independent_editions_and_export：原件不可覆盖，连续保存可追溯，引用受保护。
-- ResumeEditorTests.test_slots_reusable_without_inference：严格槽位可直接组成推荐请求，未知不猜测。
-- ResumeEditorTests.test_invalid_editions_do_not_write：
-  未知字段、超长正文、非法类型拒绝且不新增版本。
-- ResumeEditorTests.test_owner_and_ready_boundaries：所有新增接口保持本人授权与 ready 前置条件。
-- ResumeEditorTests.test_heading_grouping_retains_content：标题分组保留正文，未识别段落不丢失。
-- ResumeEditorTests.test_extracted_fields_are_not_confirmed_until_saved：
-  提取覆盖契约，GET 不写库，编辑稿保留人工清空。
-关键变量：
-（无模块级变量。）
+"""Responsibilities: Verify resume edition persistence, ownership, source handling, and
+recommendation-slot API contracts.
+Implementation: Use isolated database users and real DRF validation/download responses; external
+extraction and paid models are not called.
+Related Modules: interviews.resume_editor, resume_models, resume_versions, and recommendation
+CandidateInput.
+Declaration Index:
+- ResumeEditorTests: Verify edition persistence, access boundaries, section parsing, and slot
+  confirmation.
+- ResumeEditorTests.setUp: Create isolated users and a synthetic ready source resume.
+- ResumeEditorTests.test_independent_editions_and_export: Ensure editions remain traceable and
+  protect referenced versions.
+- ResumeEditorTests.test_slots_reusable_without_inference: Validate reusable confirmed slots without
+  inferred values.
+- ResumeEditorTests.test_invalid_editions_do_not_write: Reject invalid edit payloads without
+  creating versions.
+- ResumeEditorTests.test_owner_and_ready_boundaries: Enforce owner authorization and ready-state
+  prerequisites.
+- ResumeEditorTests.test_heading_grouping_retains_content: Preserve content while grouping
+  recognized and unknown headings.
+- ResumeEditorTests.test_english_labels_round_trip_through_section_parser: Verify every English
+  display label maps back
+  to its section
+  identifier.
+- ResumeEditorTests.test_extracted_fields_are_not_confirmed_until_saved: Keep suggestions
+  unconfirmed until an
+  explicit edition save.
+Variable Index:
+None
 
-约束：
-API 与数据库真实执行；测试不能证明真实 PDF 提取、模型效果或浏览器排版。
+Constraints:
+Database and API behavior execute against the test database; these tests do not establish real PDF
+extraction, model quality, or browser layout.
 """
 
 from django.contrib.auth import get_user_model
 from rest_framework.test import APITestCase
 
 from interviews.recommendation.schemas import JobsRequest
-from interviews.resume_editor import UNIT_LABELS, split_units
+from interviews.resume_editor import UNIT_LABELS, render_units, split_units
 from interviews.resume_models import ResumeVersion
 
 
 class ResumeEditorTests(APITestCase):
-    """功能：验证编辑契约；逻辑：使用真实授权 API；约束：所有记录只在测试数据库生成。"""
+    """Functionality: Verify the resume-edition API contract.
+    Inputs: Isolated test users, synthetic resume data, and authenticated HTTP requests.
+    Outputs: Assertions over API responses and test-database state.
+    Logic: Exercise real authorization, validation, persistence, and export paths.
+    Constraints: All records are created in the isolated test database.
+    """
 
     def setUp(self):
-        """无外部输入；建立两个隔离账号和虚构原件字节，认证本人，不解析 PDF。"""
+        """Functionality: Create the shared test owner, second user, source resume, and
+        authenticated client.
+        Inputs: No external data; all account and PDF bytes are synthetic.
+        Outputs: Initializes owner, other, original, URL, and authenticated client state.
+        Logic: Persist the ready source resume directly without invoking PDF parsing.
+        Constraints: The database is isolated by APITestCase and no real file is read.
+        """
         self.owner = get_user_model().objects.create_user(username="editor-owner")
         self.other = get_user_model().objects.create_user(username="editor-other")
         self.original = ResumeVersion.objects.create(
@@ -46,7 +71,16 @@ class ResumeEditorTests(APITestCase):
         self.client.force_authenticate(self.owner)
 
     def test_independent_editions_and_export(self):
-        """连续保存保留根和基线、原字节及原正文；下载独立正文，引用版本删除返回 409。"""
+        """Functionality: Verify edition lineage, source preservation, exports, and protected
+        deletion.
+        Inputs: The synthetic ready source resume and two edition payloads.
+        Outputs: Assertions over saved lineage, source bytes/text, export headers/content, and
+        delete statuses.
+        Logic: Create two successive editions, inspect the source and snapshots, then exercise
+        download/export/delete routes.
+        Constraints: No external extraction or model call occurs; referenced source editions cannot
+        be deleted.
+        """
         first = self.client.post(
             self.url + "editions/",
             {
@@ -60,7 +94,7 @@ class ResumeEditorTests(APITestCase):
         self.assertEqual(edition.source_version, self.original)
         self.assertEqual(edition.edited_from, self.original)
         self.assertIsNone(edition.original_pdf)
-        self.assertEqual(edition.text, "项目经历\n缓存项目\n优化延迟 <script>")
+        self.assertEqual(edition.text, "Projects\n缓存项目\n优化延迟 <script>")
         self.assertFalse(edition.is_current)
         edition_url = f"/api/resume-versions/{edition.pk}/"
         second = self.client.post(
@@ -89,7 +123,14 @@ class ResumeEditorTests(APITestCase):
         self.assertEqual(self.client.delete(f"/api/resume-versions/{derived.pk}/").status_code, 204)
 
     def test_slots_reusable_without_inference(self):
-        """确认 0/false/[] 保持；自然语言不推断未知字段；推荐 JSON 通过现有真实 schema。"""
+        """Functionality: Verify confirmed recommendation slots remain typed and reusable.
+        Inputs: An initial profile request and an edition with explicit list, zero, false, and null
+        values.
+        Outputs: A validated JobsRequest built from the saved candidate profile.
+        Logic: Save explicit slots, retrieve the profile, and validate it with the existing
+        recommendation schema.
+        Constraints: Unknown fields remain null; natural language is not used to infer slot values.
+        """
         initial = self.client.get(self.url + "editor/").data
         self.assertEqual(set(initial["units"]), set(UNIT_LABELS))
         self.assertIsNone(initial["slots"]["skills"])
@@ -134,7 +175,13 @@ class ResumeEditorTests(APITestCase):
         self.assertEqual(request.candidate.candidate_id, response.data["id"])
 
     def test_invalid_editions_do_not_write(self):
-        """严格校验拒绝未知 ID、无正文、超长总正文和非法字段类型；原件/版本数不改变。"""
+        """Functionality: Verify invalid edition payloads are rejected without persistence.
+        Inputs: Payloads with missing/unknown sections, oversized text, identity injection, or
+        invalid slot types.
+        Outputs: HTTP 400 for every invalid payload and an unchanged version count.
+        Logic: Submit each invalid body independently and inspect the resulting database state.
+        Constraints: The source version remains untouched and no external service is called.
+        """
         invalid = [
             {"units": {}},
             {"units": {"unknown": "Text"}},
@@ -154,7 +201,14 @@ class ResumeEditorTests(APITestCase):
         self.assertEqual(ResumeVersion.objects.count(), 1)
 
     def test_owner_and_ready_boundaries(self):
-        """跨用户所有新动作 404，匿名拒绝；本人 uploaded 原件不得编辑/导出/获取推荐资料。"""
+        """Functionality: Verify ownership and ready-state access boundaries for edition endpoints.
+        Inputs: The owner, a different authenticated user, an anonymous client state, and the source
+        version.
+        Outputs: Expected not-found, forbidden, and bad-request responses for protected operations.
+        Logic: Exercise editor, export, profile, and edition creation under each identity and source
+        state.
+        Constraints: Authorization failures do not expose another user's source content.
+        """
         self.client.force_authenticate(self.other)
         for action in ("editor/", "export/", "recommendation-profile/"):
             self.assertEqual(self.client.get(self.url + action).status_code, 404)
@@ -174,15 +228,46 @@ class ResumeEditorTests(APITestCase):
         )
 
     def test_heading_grouping_retains_content(self):
-        """只识别整行标题；正文空白/HTML 字符保留，未知段落留在 other，不伪造槽位。"""
+        """Functionality: Verify standalone heading grouping preserves source content.
+        Inputs: Text containing an unknown heading-like line, a recognized education heading, and an
+        English projects heading.
+        Outputs: Section text retaining whitespace and HTML-like characters, with unknown text under
+        other.
+        Logic: Call split_units and compare exact section strings.
+        Constraints: Only standalone recognized headings change the active section; unknown content
+        is not discarded.
+        """
         units = split_units("姓名 <img>\n1. 教育经历：\n  计算机专业\nProjects\nAPI\n")
         self.assertEqual(units["other"], "姓名 <img>\n")
         self.assertEqual(units["education"], "  计算机专业\n")
         self.assertEqual(units["projects"], "API\n")
         self.assertEqual(units["skills"], "")
 
+    def test_english_labels_round_trip_through_section_parser(self):
+        """Functionality: Verify each English display label is recognized by the section parser.
+        Inputs: Every section identifier with a unique nonempty synthetic body, tested one at a
+        time.
+        Outputs: The original section mapping after render_units followed by split_units.
+        Logic: Render each single-section payload and parse the generated heading back to its stable
+        identifier.
+        Constraints: Single-section cases isolate heading compatibility from separator whitespace
+        between multiple sections.
+        """
+        for key in UNIT_LABELS:
+            with self.subTest(unit=key):
+                units = {name: f"content for {name}" if name == key else "" for name in UNIT_LABELS}
+                self.assertEqual(split_units(render_units(units)), units)
+
     def test_extracted_fields_are_not_confirmed_until_saved(self):
-        """真实授权 editor 提供全字段建议及证据；GET 不确认，显式 editions 保存后推荐才读取值。"""
+        """Functionality: Verify extracted slot suggestions stay unconfirmed until explicitly saved.
+        Inputs: A source resume with synthetic skills and GPA evidence.
+        Outputs: Assertions that editor GET is read-only and recommendation reads only saved slot
+        values.
+        Logic: Compare initial suggestions and persisted state, save an edition, and reload its
+        editor/profile.
+        Constraints: Suggestions are not written automatically; manual clearing of a slot is
+        preserved.
+        """
         self.original.text = "关键技能\nPython, Django\n教育经历\nGPA: 3.8 / 4.0\n"
         self.original.save(update_fields=["text"])
         editor = self.client.get(self.url + "editor/").data

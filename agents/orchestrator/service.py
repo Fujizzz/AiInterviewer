@@ -1,4 +1,46 @@
-"""Public Agent service with restart-safe, atomic interview orchestration."""
+"""Responsibilities: Own versioned interview planning, question decisions, feedback and termination.
+Implementation: Load context for each turn, validate supplied contracts, apply bounded policies and
+commit context/action/evidence atomically through RepositoryPort. Explicit user finish skips
+planning and new question generation, preserving the same evidence and persistence boundaries.
+Related Modules: agents.planning/question/policies implement decisions; ports abstract persistence,
+RAG and model calls; app and backend AgentSession adapt evaluation and report presentation.
+Declaration Index:
+- InterviewAgentService: Versioned Agent orchestration service shared by CLI and web adapters.
+- InterviewAgentService.__init__: Compose reusable policies and injected ports.
+- InterviewAgentService.initialize_interview: Initialize a new interview and obtain its first
+  action.
+- InterviewAgentService.next_action: Advance the interview using its committed context.
+- InterviewAgentService.apply_evaluation_feedback: Consume evaluated current-question feedback once.
+- InterviewAgentService.replay_decision: Recompute deterministic policy fields for comparison.
+- InterviewAgentService.finish_interview: Commit an explicit user finish with optional current
+  feedback.
+- InterviewAgentService._run_turn: Load, decide and atomically commit one interview turn.
+- InterviewAgentService._context_after_feedback: Construct the updated conversation/evidence
+  snapshot.
+- InterviewAgentService._decide_and_commit: Choose termination, stage transition or another
+  question.
+- InterviewAgentService._ask_question: Admit and generate the next constrained question.
+- InterviewAgentService._change_stage: Commit an explicit stage transition.
+- InterviewAgentService._finish: Commit terminal state and close unfinished agenda items.
+- InterviewAgentService._commit_turn: Publish one versioned context/action/question transaction.
+- InterviewAgentService._decision_log: Build diagnostic metadata for the selected action.
+- InterviewAgentService._generate_question: Generate and validate question text using the configured
+  pipeline.
+- InterviewAgentService._generation_prompt_name: Expose the configured question prompt name.
+- InterviewAgentService._get_previous_questions: Load the bounded recent question snapshots.
+- InterviewAgentService._get_context: Load this interview context through its repository port.
+- InterviewAgentService._get_processed_action: Resolve feedback idempotency from persisted state.
+- InterviewAgentService._repository_call: Bound and annotate repository failures.
+- InterviewAgentService._build_plan: Construct the initial configured interview plan.
+- InterviewAgentService._sync_clock: Update actual elapsed/remaining time and active-topic duration.
+- InterviewAgentService._normalize_stages: Normalize explicitly enabled stages.
+- InterviewAgentService._allocate_stage_budgets: Allocate integer seconds evenly across enabled
+  stages.
+- InterviewAgentService._validate_contract_version: Validate the shared contract version.
+- InterviewAgentService._elapsed_ms: Measure nonnegative operation latency.
+Variable Index:
+- ResultT: Generic result type used by the bounded repository-call wrapper.
+"""
 
 from __future__ import annotations
 
@@ -87,6 +129,15 @@ class InterviewAgentService:
         settings: AgentSettings | None = None,
         clock=time,
     ) -> None:
+        """Functionality: Compose reusable policies and injected ports.
+        Inputs: repository, rag, evaluation, llm, settings, clock.
+        Outputs: None; instance policy/port references are initialized.
+        Logic: Store repository, optional RAG/evaluation/LLM, settings (loaded if omitted) and clock
+        (wall time by default); create enabled planners and generators without initializing an
+        interview.
+        Constraints: No candidate state is stored on the service; each turn loads repository
+        context.
+        """
         self._repository = repository
         self._rag = rag
         self._evaluation = evaluation
@@ -115,6 +166,14 @@ class InterviewAgentService:
         self,
         request: InitializeInterviewRequest,
     ) -> InitializeInterviewResponse:
+        """Functionality: Initialize a new interview and obtain its first action.
+        Inputs: request.
+        Outputs: InitializeInterviewResponse with committed first action and latest state/plan.
+        Logic: Validate contract/stage/time constraints, copy profiles, create plan and empty
+        competency state, optionally revise initial plan, persist then run the first turn.
+        Constraints: Time planning accepts only project deep dive and at least 60 seconds;
+        repository/model failures propagate.
+        """
         self._validate_contract_version(request.contract_version)
         self._validate_contract_version(request.candidate_profile.contract_version)
         self._validate_contract_version(request.job_profile.contract_version)
@@ -170,6 +229,12 @@ class InterviewAgentService:
         )
 
     async def next_action(self, interview_id: str) -> InterviewAction:
+        """Functionality: Advance the interview using its committed context.
+        Inputs: interview_id.
+        Outputs: Committed InterviewAction.
+        Logic: Delegate to the versioned turn loop without new feedback.
+        Constraints: Uses normal plan/stage/termination policies and existing conflict bounds.
+        """
         return await self._run_turn(interview_id)
 
     async def apply_evaluation_feedback(
@@ -180,6 +245,14 @@ class InterviewAgentService:
         elapsed_seconds: int = 0,
         answer: CandidateAnswer | None = None,
     ) -> InterviewAction:
+        """Functionality: Consume evaluated current-question feedback once.
+        Inputs: interview_id, feedback, elapsed_seconds, answer.
+        Outputs: Committed InterviewAction, including an existing action for duplicate feedback.
+        Logic: Reject negative elapsed time and mismatched/empty supplied answers, validate
+        versions, return an already processed action or enter the turn loop.
+        Constraints: Answer may be None for explicit unobserved/non-answer feedback; capability
+        evidence must remain grounded.
+        """
         if elapsed_seconds < 0:
             raise InvalidAgentState("elapsed_seconds must be nonnegative")
         self._validate_contract_version(feedback.contract_version)
@@ -204,6 +277,36 @@ class InterviewAgentService:
 
         return replay_policy_decision(context, self._settings)
 
+    async def finish_interview(
+        self,
+        interview_id: str,
+        *,
+        feedback: EvaluationFeedback | None = None,
+        answer: CandidateAnswer | None = None,
+    ) -> InterviewAction:
+        """Functionality: End on the user's explicit request without planning another question.
+        Inputs: Interview ID and optional evaluated current answer/feedback.
+        Outputs: Atomically committed FINISH action, with USER_FINISHED decision reason.
+        Logic: Validate supplied contracts and question identity, then use the normal versioned
+        turn transaction; feedback and final state share the same commit.
+        Constraints: No model-generated question or automatic change to scoring criteria.
+        Repository conflicts retain the existing bounded recomputation policy.
+        """
+        if feedback is not None:
+            self._validate_contract_version(feedback.contract_version)
+        if answer is not None:
+            self._validate_contract_version(answer.contract_version)
+            if (
+                feedback is None
+                or answer.interview_id != interview_id
+                or answer.question_id != feedback.question_id
+                or not answer.text.strip()
+            ):
+                raise InvalidAgentState("Final answer must match current feedback and be nonempty")
+        return await self._run_turn(
+            interview_id, feedback=feedback, answer=answer, finish_reason="USER_FINISHED"
+        )
+
     async def _run_turn(
         self,
         interview_id: str,
@@ -211,7 +314,17 @@ class InterviewAgentService:
         feedback: EvaluationFeedback | None = None,
         elapsed_seconds: int = 0,
         answer: CandidateAnswer | None = None,
+        finish_reason: str | None = None,
     ) -> InterviewAction:
+        """Functionality: Load, decide and atomically commit one interview turn.
+        Inputs: interview_id, feedback, elapsed_seconds, answer, finish_reason.
+        Outputs: Committed InterviewAction.
+        Logic: Check feedback idempotency, reload context, apply optional feedback; finish_reason
+        bypasses planning and question generation; otherwise use normal policies. Recompute only on
+        StateConflictError.
+        Constraints: Only configured conflict recomputations are permitted; other exceptions
+        propagate and no vendor call is silently retried here.
+        """
         maximum_recomputations = self._settings.retries.state_conflict_recomputations
         for attempt in range(maximum_recomputations + 1):
             attempt_started = perf_counter()
@@ -229,6 +342,14 @@ class InterviewAgentService:
                     answer=answer,
                 )
             try:
+                if finish_reason is not None:
+                    self._sync_clock(context)
+                    return await self._finish(
+                        context,
+                        feedback_request_id=feedback.request_id if feedback is not None else None,
+                        started_at=attempt_started,
+                        reason=finish_reason,
+                    )
                 return await self._decide_and_commit(
                     context,
                     feedback_request_id=(feedback.request_id if feedback is not None else None),
@@ -255,6 +376,14 @@ class InterviewAgentService:
         elapsed_seconds: int,
         answer: CandidateAnswer | None = None,
     ) -> InterviewContext:
+        """Functionality: Construct the updated conversation/evidence snapshot.
+        Inputs: context, feedback, elapsed_seconds, answer.
+        Outputs: New InterviewContext; original context is preserved.
+        Logic: Require the current asked question, copy context, append bounded history, update
+        clock, difficulty, grounded evidence, thread information and planner feedback statistics.
+        Constraints: Dimensions require actual answer quotes; no capability evidence is invented for
+        absent answers.
+        """
         state = context.state
         if feedback.question_id not in state.asked_question_ids:
             raise InvalidAgentState(
@@ -321,6 +450,14 @@ class InterviewAgentService:
         feedback_request_id: str | None,
         started_at: float,
     ) -> InterviewAction:
+        """Functionality: Choose termination, stage transition or another question.
+        Inputs: context, feedback_request_id, started_at.
+        Outputs: Committed InterviewAction.
+        Logic: Synchronize time, review enabled plans if not already terminal, check finish/stage
+        policies, delegate to the appropriate committing branch.
+        Constraints: Policy order is preserved; callbacks may consume real elapsed time and
+        repository failures propagate.
+        """
         self._sync_clock(context)
         if context.plan.planning_enabled and not self._termination_policy.should_finish(
             context.state, context.plan
@@ -352,6 +489,15 @@ class InterviewAgentService:
         feedback_request_id: str | None,
         started_at: float,
     ) -> InterviewAction:
+        """Functionality: Admit and generate the next constrained question.
+        Inputs: context, feedback_request_id, started_at.
+        Outputs: ASK_QUESTION action or FINISH when no topic/time remains.
+        Logic: Select dialogue/project/topic, enforce available time and topic limits,
+        plan/retrieve/generate/validate, recheck elapsed time, update counters/thread/progress and
+        commit question plus audit.
+        Constraints: Preserves existing retrieval/generation fallbacks and configured budgets;
+        counters advance only with the committed question.
+        """
         state = context.state
         planner_started = perf_counter()
         project, topic, probe = choose_dialogue(context, self._settings)
@@ -609,6 +755,14 @@ class InterviewAgentService:
         feedback_request_id: str | None,
         started_at: float,
     ) -> InterviewAction:
+        """Functionality: Commit an explicit stage transition.
+        Inputs: context, feedback_request_id, started_at.
+        Outputs: CHANGE_STAGE action.
+        Logic: Copy state/context, select next enabled stage and close the active thread/reset
+        consecutive probes, create transition action/log and commit without a question.
+        Constraints: No candidate answer is evaluated in this branch; expected state version
+        protects persistence.
+        """
         state = context.state
         next_stage = self._stage_machine.next_stage(state, context.plan)
         updated_context = context.model_copy(deep=True)
@@ -650,6 +804,14 @@ class InterviewAgentService:
         started_at: float,
         reason: str | None = None,
     ) -> InterviewAction:
+        """Functionality: Commit terminal state and close unfinished agenda items.
+        Inputs: context, feedback_request_id, started_at, reason.
+        Outputs: FINISH action.
+        Logic: Copy context, mark pending/active progress skipped, close active thread, set finished
+        stage/status, build FINISH action/log and atomically commit optional feedback.
+        Constraints: Explicit reason overrides normal termination reason; no final-report model is
+        invoked in this core method.
+        """
         state = context.state
         updated_context = context.model_copy(deep=True)
         if context.plan.planning_enabled:
@@ -697,6 +859,15 @@ class InterviewAgentService:
         decision_log: AgentDecisionLog,
         feedback_request_id: str | None,
     ) -> InterviewAction:
+        """Functionality: Publish one versioned context/action/question transaction.
+        Inputs: original_context, updated_context, action, question, decision_log,
+        feedback_request_id.
+        Outputs: Repository-returned action.
+        Logic: Construct CommitTurnRequest using original state version, await the repository
+        adapter, require committed=True and trace the resulting state/action.
+        Constraints: Context, optional question, feedback identity and log share the repository
+        transaction; uncommitted outcomes raise RepositoryUnavailable.
+        """
         request = CommitTurnRequest(
             interview_id=original_context.interview_id,
             expected_state_version=original_context.state.state_version,
@@ -743,6 +914,16 @@ class InterviewAgentService:
         decision_reasons: dict[str, str] | None = None,
         question_agent_result: QuestionAgentResult | None = None,
     ) -> AgentDecisionLog:
+        """Functionality: Build diagnostic metadata for the selected action.
+        Inputs: action, context, difficulty, probe_depth, topic, question_type, rag_sources,
+        failed_sources, timeout_sources, fallback_used, planner_latency_ms, retrieval_latency_ms,
+        generation_latency_ms, total_agent_latency_ms, decision_reasons, question_agent_result.
+        Outputs: AgentDecisionLog.
+        Logic: Collect supplied selection/timing/retrieval/reason values with current context,
+        planned progress and optional ReAct result; bind the next state version.
+        Constraints: No repository writes; defaults describe absent question/retrieval fields rather
+        than fabricated model reasoning.
+        """
         return AgentDecisionLog(
             decision_id=action.action_id,
             interview_id=context.interview_id,
@@ -796,6 +977,16 @@ class InterviewAgentService:
         previous_questions: Sequence[PlannedQuestion],
         agent_result: QuestionAgentResult,
     ) -> tuple[PlannedQuestion, str]:
+        """Functionality: Generate and validate question text using the configured pipeline.
+        Inputs: question_plan, context, project, force_fallback, interview, previous_questions,
+        agent_result.
+        Outputs: Pair of PlannedQuestion and generation reason string; agent_result receives ReAct
+        observations.
+        Logic: Use autonomous ReAct when enabled, otherwise bounded legacy generation/repair;
+        preserve existing candidate-specific or generic fallback question policy.
+        Constraints: force_fallback selects the established fallback path; no changes to original
+        model limits or quality criteria.
+        """
         if not force_fallback and self._question_agent is not None:
             result = await self._question_agent.generate(
                 question_plan,
@@ -836,6 +1027,13 @@ class InterviewAgentService:
 
     @property
     def _generation_prompt_name(self) -> str:
+        """Functionality: Expose the configured question prompt name.
+        Inputs: Instance configuration only..
+        Outputs: Prompt-name string.
+        Logic: Select ReactQuestionAgent prompt when its instance exists, otherwise
+        QuestionGenerator prompt.
+        Constraints: Read-only property; no model call.
+        """
         return (
             ReactQuestionAgent.prompt_name
             if self._question_agent is not None
@@ -846,6 +1044,13 @@ class InterviewAgentService:
         self,
         state: InterviewState,
     ) -> list[PlannedQuestion]:
+        """Functionality: Load the bounded recent question snapshots.
+        Inputs: state.
+        Outputs: List of PlannedQuestion in ID order.
+        Logic: Take recent_questions IDs from state; gather repository reads or return an empty list
+        when retention is zero.
+        Constraints: Each read uses the existing repository timeout and error translation.
+        """
         limit = self._settings.context.recent_questions
         question_ids = state.asked_question_ids[-limit:] if limit else []
         if not question_ids:
@@ -863,6 +1068,13 @@ class InterviewAgentService:
         )
 
     async def _get_context(self, interview_id: str) -> InterviewContext:
+        """Functionality: Load this interview context through its repository port.
+        Inputs: interview_id.
+        Outputs: InterviewContext.
+        Logic: Await get_interview_context through the bounded repository wrapper.
+        Constraints: No local cache or memory fallback; failures propagate as
+        AgentError/RepositoryUnavailable.
+        """
         return await self._repository_call(
             self._repository.get_interview_context(interview_id),
             operation="load interview context",
@@ -873,6 +1085,12 @@ class InterviewAgentService:
         interview_id: str,
         feedback_request_id: str,
     ) -> InterviewAction | None:
+        """Functionality: Resolve feedback idempotency from persisted state.
+        Inputs: interview_id, feedback_request_id.
+        Outputs: InterviewAction or None.
+        Logic: Read the previously committed feedback action through the repository wrapper.
+        Constraints: No decision is recomputed when an existing action is returned.
+        """
         return await self._repository_call(
             self._repository.get_processed_feedback_action(
                 interview_id,
@@ -887,6 +1105,14 @@ class InterviewAgentService:
         *,
         operation: str,
     ) -> ResultT:
+        """Functionality: Bound and annotate repository failures.
+        Inputs: awaitable, operation.
+        Outputs: The awaited repository result, generic ResultT.
+        Logic: Await the supplied operation under repository_seconds; preserve AgentError and wrap
+        other exception types with operation context.
+        Constraints: No transaction or retry is introduced; exception messages contain
+        operation/type rather than input bodies.
+        """
         try:
             return await call_with_timeout(
                 awaitable,
@@ -907,6 +1133,13 @@ class InterviewAgentService:
         request: InitializeInterviewRequest,
         enabled_stages: Sequence[InterviewStage],
     ) -> InterviewPlan:
+        """Functionality: Construct the initial configured interview plan.
+        Inputs: request, enabled_stages.
+        Outputs: InterviewPlan.
+        Logic: Allocate stage budgets from duration and copy safety question limits/planning flag
+        from validated request and settings.
+        Constraints: No model or persistence call; the caller validates stage/time constraints.
+        """
         return InterviewPlan(
             interview_id=request.interview_id,
             duration_seconds=request.duration_seconds,
@@ -918,6 +1151,14 @@ class InterviewAgentService:
         )
 
     def _sync_clock(self, context):
+        """Functionality: Update actual elapsed/remaining time and active-topic duration.
+        Inputs: context.
+        Outputs: None; context state/progress are mutated in memory.
+        Logic: When planning is active and first question has started, use nondecreasing wall-clock
+        elapsed seconds and increment active-topic time by the elapsed delta.
+        Constraints: Finished/unstarted/nonplanning context is unchanged; remaining time is clamped
+        to zero.
+        """
         if (
             not context.plan.planning_enabled
             or context.state.clock_started_at is None
@@ -938,6 +1179,12 @@ class InterviewAgentService:
 
     @staticmethod
     def _normalize_stages(stages: Sequence[InterviewStage]) -> list[InterviewStage]:
+        """Functionality: Normalize explicitly enabled stages.
+        Inputs: stages.
+        Outputs: List of enabled nonfinished InterviewStage values.
+        Logic: Remove FINISHED, preserve first occurrence order and reject an empty result.
+        Constraints: No implicit stage is inserted.
+        """
         enabled = list(dict.fromkeys(stage for stage in stages if stage != InterviewStage.FINISHED))
         if not enabled:
             raise InvalidAgentState("At least one non-finished interview stage must be enabled")
@@ -948,6 +1195,13 @@ class InterviewAgentService:
         duration_seconds: int,
         stages: Sequence[InterviewStage],
     ) -> list[StagePlan]:
+        """Functionality: Allocate integer seconds evenly across enabled stages.
+        Inputs: duration_seconds, stages.
+        Outputs: List of StagePlan whose budgets sum to duration_seconds.
+        Logic: Use quotient/remainder division; earlier stages receive the residual second.
+        Constraints: Caller supplies a nonempty validated stage sequence and sufficient positive
+        duration.
+        """
         base_budget, remainder = divmod(duration_seconds, len(stages))
         return [
             StagePlan(
@@ -959,6 +1213,12 @@ class InterviewAgentService:
 
     @staticmethod
     def _validate_contract_version(contract_version: str) -> None:
+        """Functionality: Validate the shared contract version.
+        Inputs: contract_version.
+        Outputs: None on success; ContractVersionError otherwise.
+        Logic: Accept legacy 1.0 or current CONTRACT_VERSION; reject other strings.
+        Constraints: Does not mutate or migrate input contracts.
+        """
         if contract_version not in {"1.0", CONTRACT_VERSION}:
             raise ContractVersionError(
                 f"Unsupported contract version {contract_version!r}; expected {CONTRACT_VERSION!r}"
@@ -966,4 +1226,11 @@ class InterviewAgentService:
 
     @staticmethod
     def _elapsed_ms(started_at: float) -> int:
+        """Functionality: Measure nonnegative operation latency.
+        Inputs: started_at.
+        Outputs: Integer milliseconds.
+        Logic: Subtract started_at from perf_counter, convert to rounded milliseconds and clamp at
+        zero.
+        Constraints: Presentation/diagnostic timing only; does not alter interview budgets.
+        """
         return max(0, round((perf_counter() - started_at) * 1000))

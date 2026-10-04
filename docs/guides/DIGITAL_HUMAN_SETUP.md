@@ -8,9 +8,9 @@
 | 控制器 | 已生成 `BP_InterviewerController`，管理 Idle / Listening / Thinking / Speaking / Interrupted |
 | 原生音频桥接 | 已编译、打包并运行：HTTP 下载 WAV，同一份 PCM 分别用于播放和 MetaHuman 音频求解 |
 | 网页数字人播放器 | 使用 Epic UE 5.8 官方 SDK；实际浏览器已显示打包场景并收到 UE 控制器反馈 |
-| TTS | 已接入百炼新加坡 Qwen3-TTS-Flash-Realtime；收集实时 PCM 后封装整句 WAV，临时音频缓存有容量和期限限制 |
+| TTS | 已接入 Qwen3-TTS-Flash-Realtime，支持显式地区配置，当前生产使用北京；收集实时 PCM 后封装整句 WAV，临时音频缓存有容量和期限限制 |
 | STT | 已接入 Qwen-Audio-3.1-ASR-Flash-Streaming：浏览器 PCM → 语音 WebSocket → 中间/最终转录 → 可修改的回答框 |
-| 面试闭环 | 接入原有 question / answer / finished 消息；只有确认提交才交给 Agent 评价 |
+| 面试闭环 | 接入原有 question / answer / finished 消息；支持 15 秒准备、5 秒静默自动提交及语义结束确认后的 MCP 提交，均交给原 Agent 评价 |
 | 人物 Rig 与 Assembly | **已完成**；当前场景已放入 `BP_NewMetaHumanCharacter`，Avatar 与 InterviewCamera 引用已核对 |
 | 自然身体动作 | 状态事件已提供；**尚未配置身体待机循环和手势动画资产** |
 | 云端英文语音 | **短句实测通过**：24 kHz PCM16 TTS 和 16 kHz PCM STT；尚未完成真实麦克风与技术术语的整轮验收 |
@@ -29,7 +29,7 @@ flowchart LR
     Avatar -->|Pixel Streaming 画面与声音| Page
     Mic[浏览器麦克风] -->|16 kHz PCM WebSocket| Speech
     Speech -->|转录草稿与最终文本| Page
-    Page -->|用户修改并确认 answer| Agent
+    Page -->|静默自动提交或语义确认后的 MCP 提交| Agent
 ```
 
 数字人只负责呈现；简历分析、追问和评分由既有 Agent 负责。用户的麦克风不连接面试官口型，也不经 Pixel Streaming 上行。
@@ -178,9 +178,9 @@ Qwen TTS 使用新的专用 SDK 适配；把 CosyVoice 的 model 字符串换成
 1. 点击数字人连接/播放按钮，确认角色可见。
 2. 填写英文简历和目标岗位，开始面试。
 3. 后端返回完整问题，网页显示字幕并请求 TTS。
-4. 角色朗读完毕后点击 **开始回答**，授权浏览器麦克风并用英文回答。
-5. 点击 **结束回答**，等待最终转录。回答最多 120 秒。
-6. 检查并修改回答框，再点击 **确认提交回答**。
+4. 题目显示后准备 15 秒，倒计时结束自动开启麦克风；首次需授权浏览器麦克风，可用中文或英文回答。
+5. 连续静默 5 秒或检测到结束意图时自动收尾，等待完整最终转写。回答最多 120 秒，到限也自动收尾。
+6. 字幕用于查看转写，完整回答自动提交；页面不提供回答编辑或手动开始／提交按钮。可随时通过 **结束面试** 选择评判并保存、结束且不保存或继续。
 7. 下一题重复上述过程，最终显示原有 Agent 生成的报告。
 
 临时转录不触发追问。正常情况下声音只由 UE 播放；数字人不可用时才由浏览器播放语音。
@@ -277,4 +277,6 @@ $audioTestProcess.ExitCode
 | `backend/frontend/speech-capture.js` / `speech-worklet.js` / `pcm-resampler.js` | 采集、重采样、最终转录边界 |
 | `backend/frontend/digital-human` | 官方 Pixel Streaming SDK 包装、构建和前端测试 |
 
-这仍是本机单用户原型。没有加入流式 TTS、自动结束回答、自动语音打断、声音克隆、招聘者端或公网部署。
+数字人呈现仍需本机 GPU 运行；尚未加入流式 TTS、自动语音打断、声音克隆或招聘者端。
+网页自动结束回答见[结束检测说明](../../backend/docs/answer-completion.md)，公网后端配置见
+[部署说明](../../deploy/README.md)。两者不代表真实数字人设备体验已经验收。

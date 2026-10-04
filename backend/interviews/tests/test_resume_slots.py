@@ -1,17 +1,27 @@
-"""职责：验证推荐字段规则提取的完整性、严格类型、证据及未知/冲突边界。
-实现：纯合成单元与实际 CandidateInput；不请求模型、不读取个人文件、不操作数据库。
-关联：resume_slots、resume_editor.SLOT_UNITS 及推荐输入契约。
-目录：
-- ResumeSlotTests：规则契约与保守提取回归。
-- ResumeSlotTests.test_all_fields_and_original_units：11 字段完整且不改变 GPA/月/小时单位。
-- ResumeSlotTests.test_missing_is_unknown：缺失不是零，不按学校、日期或项目猜测偏好。
-- ResumeSlotTests.test_conflicts_require_confirmation：矛盾数值/不支持单位不得选择一个结果。
-- ResumeSlotTests.test_skill_lists_and_inline_intent：明确技能列表和行内求职意向保留真实名称。
-- ResumeSlotTests.test_limits_and_unsupported_descriptions：契约超限和描述段落保留证据但值未知。
-关键变量：
-（无模块级变量。）
-约束：
-这些用例证明规则及契约，不证明任意排版 PDF 的识别质量或推荐效果。
+"""Responsibilities: Verify completeness, strict typing, evidence, and unknown/conflict behavior in
+recommendation-slot extraction.
+Implementation: Exercise synthetic text with the real CandidateInput schema; no model, personal
+file, or database is used.
+Related Modules: interviews.resume_slots, interviews.resume_editor, and
+interviews.recommendation.schemas.
+Declaration Index:
+- ResumeSlotTests: Verify conservative rule extraction and slot-contract boundaries.
+- ResumeSlotTests.test_all_fields_and_original_units: Check all eleven fields and preserve GPA,
+  month, and hour units.
+- ResumeSlotTests.test_missing_is_unknown: Ensure missing data remains unknown rather than inferred
+  from school, date, or project.
+- ResumeSlotTests.test_conflicts_require_confirmation: Reject conflicting values and unsupported
+  units without choosing a value.
+- ResumeSlotTests.test_skill_lists_and_inline_intent: Extract explicit skill groups and tagged
+  inline job intent.
+- ResumeSlotTests.test_limits_and_unsupported_descriptions: Retain evidence while rejecting
+  over-limit or unsupported descriptions.
+Variable Index:
+None
+
+Constraints:
+These cases verify rules and schemas; they do not establish recognition quality on arbitrary PDF
+layouts or recommendation effectiveness.
 """
 
 from django.test import SimpleTestCase
@@ -22,10 +32,19 @@ from interviews.resume_slots import collect_slots
 
 
 class ResumeSlotTests(SimpleTestCase):
-    """功能：验证提取；逻辑：合成明确证据与歧义输入；约束：无数据库或供应商执行。"""
+    """Functionality: Verify recommendation-slot extraction and validation boundaries.
+    Inputs: Synthetic resume-section text with explicit, missing, repeated, conflicting, and
+    unsupported evidence.
+    Outputs: Assertions over extracted values, issue codes, evidence locations, and CandidateInput
+    compatibility.
+    Logic: Exercise the pure extraction function under Django's database-free SimpleTestCase.
+    Constraints: No external model, vendor, personal file, or database is accessed.
+    """
 
     def test_all_fields_and_original_units(self):
-        """输入覆盖每个字段的显式标签，输出与真实推荐 schema 完全相同的字段集和严格类型。"""
+        """Input covers every field with explicit labels; output contains identical field set and
+        strict types as real recommendation schema.
+        """
         result = collect_slots(
             {
                 "other": "\n".join(
@@ -72,7 +91,9 @@ class ResumeSlotTests(SimpleTestCase):
         CandidateInput.model_validate({"candidate_id": "fixture", **values})
 
     def test_missing_is_unknown(self):
-        """输入学历、日期和项目；无明确推荐标签的字段为 null，不虚构年级、经验、意愿或论文数。"""
+        """Input includes education, date, and project; fields without explicit recommendation
+        labels are null, no fabricated grades, experience, intent, or paper count.
+        """
         result = collect_slots(
             {
                 "education": "NUS | 计算机 | 硕士 2026.08–2027.10",
@@ -84,7 +105,10 @@ class ResumeSlotTests(SimpleTestCase):
         self.assertEqual(set(result["missing"]), set(SLOT_UNITS))
 
     def test_conflicts_require_confirmation(self):
-        """不同 GPA 或错误单位输入必须未知并附问题码；重复一致标量不算冲突，不换算周到月。"""
+        """Invalid GPA or erroneous unit input must be unknown and accompanied by an error code;
+        repeated consistent scalars do not constitute a conflict, and no conversion from weeks to
+        months is performed.
+        """
         result = collect_slots(
             {
                 "education": "GPA: 3.8\nGPA: 3.5",
@@ -98,7 +122,9 @@ class ResumeSlotTests(SimpleTestCase):
         self.assertEqual(result["values"]["hours_per_week"], 20)
 
     def test_skill_lists_and_inline_intent(self):
-        """技能标题分组后分类列表及单标识符可提取；含联系方式的行内意向只取标签后的方向。"""
+        """Skill title groups can be extracted into categorized lists with single identifiers; for
+        inline intent containing contact information, only the direction after the tag is taken.
+        """
         units = split_units(
             "求职意向：Agent 开发 / AI Infra | 联系邮箱：demo@example.test\n关键技能\n"
             "Agent: Python, Tool / Function Calling, RAG\nAI Infra: vLLM, Python\n- SQL\n"
@@ -113,7 +139,9 @@ class ResumeSlotTests(SimpleTestCase):
         self.assertEqual(prose["values"]["skills"], ["Python", "SQL"])
 
     def test_limits_and_unsupported_descriptions(self):
-        """超长技能或自然语言熟练程度不得整体作为特征；契约超限产生问题码，证据保留。"""
+        """Excessively long skills or natural language proficiency levels must not be treated as
+        full features; contract overlimit triggers an error code, and evidence is retained.
+        """
         result = collect_slots(
             {"skills": "技能：熟悉 Python，负责接口开发", "education": "专业：" + "x" * 513}
         )

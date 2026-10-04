@@ -1,17 +1,21 @@
 /**
- * @module pcm-resampler
- * Local speech presentation; no interview evaluation or automatic answer submission.
  *
- * 目录：
- * - PCM16Resampler：
+ * @module pcm-resampler
+ * Responsibilities: Convert streaming audio samples into signed PCM16 at the recognition service's target rate.
+ * Implementation: Preserve fractional sample area across worklet blocks, average each target sample interval, then clip and quantize.
+ * Related Modules: speech-worklet.js uses the resampler during microphone capture; digital-human-check.js uses it for generated test audio.
+ *
+ * Declaration Index:
+ * - PCM16Resampler:
  *   Streaming area-average resampling: preserve phase across AudioWorklet blocks.
- * - PCM16Resampler.constructor：
+ * - PCM16Resampler.constructor:
  *   Set the sample-rate ratio and retain partial output-sample accumulation.
- * - PCM16Resampler.process：
+ * - PCM16Resampler.process:
  *   Downsample across block boundaries and quantize clipped samples to signed PCM16.
  *
- * 关键变量：
- * （无模块级变量。）
+ * Variable Index:
+ * None
+ *
  */
 /** Streaming area-average resampling: preserve phase across AudioWorklet blocks. */
 export class PCM16Resampler {

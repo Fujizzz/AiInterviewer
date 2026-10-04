@@ -133,6 +133,8 @@ class InterviewContext(BaseModel):
     state: InterviewState
     recent_feedback: list[EvaluationFeedback] = Field(default_factory=list)
     question_history: list[InterviewHistoryEntry] = Field(default_factory=list)
+    # Durable no-answer receipts survive bounded prompt-history pruning and process restarts.
+    unobserved_feedback_ids: list[str] = Field(default_factory=list)
     thread_difficulty: int = 2
     active_thread: DialogueThread | None = None
     closed_threads: list[DialogueThread] = Field(default_factory=list)

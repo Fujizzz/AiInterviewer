@@ -1,33 +1,45 @@
-"""业务数据模型与数据库约束。题目快照和状态时间关系在存储层得到保护。
+"""Responsibilities: Define practice interview data models and enforce their database constraints.
+Implementation: Store question snapshots, session state, timing, and optimistic-concurrency version
+at the database boundary.
 
-关联：导入 agent_models/resume_models 注册 Agent 与简历版本表；练习模型及其计时规则保持不变。
+Related Modules: Import agent_models/resume_models to register Agent and resume version tables;
+practice model and its timing rules remain unchanged.
 
-目录：
-- Question：
-  题库实体。排序字段决定新场次取题顺序；停用不影响已创建的题目快照。
-- Question.Meta：
-  按 position、创建时间和主键稳定排序，避免同序号下的随机顺序。
-- PracticeSession：
-  场次实体。保存固定准备/回答时长、状态、时间和乐观并发版本。
-- PracticeSession.Status：
-  场次状态域：active 可修改，completed 为不可重新开启的终态。
-- PracticeSession.Meta：
-  按创建时间倒序检索，并约束状态与 finished_at 的空值关系。
-- SessionQuestion：
-  单题快照与作答实体。关联源题目可置空，历史文字和作答仍保留。
-- SessionQuestion.Status：
-  单题状态域：pending、answering、completed、skipped。
-- SessionQuestion.Meta：
-  约束同场次题目顺序唯一、最多一题 answering，以及合法状态时间组合。
+Declaration Index:
+- Question:
+  Question bank entity. Sorting field determines question selection order in new sessions;
+  deactivation does not affect already created question snapshots.
+- Question.Meta:
+  Sort by position, creation time, and primary key for stable ordering, avoiding random order under
+  same position.
+- PracticeSession:
+  Session entity. Stores fixed preparation/answer durations, status, time, and optimistic
+  concurrency version.
+- PracticeSession.Status:
+  Session status domain: active is modifiable, completed is terminal and cannot be reopened.
+- PracticeSession.Meta:
+  Retrieve by creation time in descending order, and constrain status and finished_at null
+  relationship.
+- SessionQuestion:
+  Snapshot and answer entity for single question. Source question can be null; historical text and
+  answers are retained.
+- SessionQuestion.Status:
+  Single-question status domain: pending, answering, completed, skipped.
+- SessionQuestion.Meta:
+  Constrain unique question order within same session, at most one answering question, and valid
+  status-time combinations.
 
-关键变量：
-（无模块级变量。）
+Variable Index:
+None
 
-关键状态说明：
-PracticeSession.version 用于乐观并发控制；prep_seconds/answer_seconds 保留练习计时。
-PracticeSession.owner 是创建用户；旧记录保持 null，不自动分配给后来注册的账号。
-SessionQuestion.question_text 保存题目快照。
-各 Meta.constraints 约束状态/时间组合、同场次顺序唯一和最多一题作答中。
+Key State Explanations:
+PracticeSession.version used for optimistic concurrency control; prep_seconds/answer_seconds
+preserve practice timing.
+PracticeSession.owner is the creator; null owner indicates old local records, not assigned to any
+registered account.
+SessionQuestion.question_text stores question snapshot.
+Each Meta.constraints enforces status/time combination, unique order within session, and at most one
+answering question.
 """
 
 import uuid
@@ -48,7 +60,9 @@ from .resume_models import ResumeVersion  # noqa: F401
 
 
 class Question(models.Model):
-    """题库实体。排序字段决定新场次取题顺序；停用不影响已创建的题目快照。"""
+    """Question bank entity. Sorting field determines question selection order in new sessions;
+    deactivation does not affect already created question snapshots.
+    """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     text = models.TextField(max_length=4000)
@@ -58,16 +72,22 @@ class Question(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        """按 position、创建时间和主键稳定排序，避免同序号下的随机顺序。"""
+        """Sort by position, creation time, and primary key for stable ordering, avoiding random
+        order under same position.
+        """
 
         ordering = ["position", "created_at", "id"]
 
 
 class PracticeSession(models.Model):
-    """保存创建用户、固定计时与版本；owner 为空仅表示旧的本地记录，不属于任何注册用户。"""
+    """Stores creator, fixed timing, and version; null owner indicates old local records, not
+    belonging to any registered user.
+    """
 
     class Status(models.TextChoices):
-        """场次状态域：active 可修改，completed 为不可重新开启的终态。"""
+        """Session status domain: active is modifiable, completed is terminal and cannot be
+        reopened.
+        """
 
         ACTIVE = "active"
         COMPLETED = "completed"
@@ -88,7 +108,9 @@ class PracticeSession(models.Model):
     finished_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        """按创建时间倒序检索，并约束状态与 finished_at 的空值关系。"""
+        """Retrieve by creation time in descending order, and constrain status and finished_at null
+        relationship.
+        """
 
         ordering = ["-started_at", "id"]
         constraints = [
@@ -101,10 +123,13 @@ class PracticeSession(models.Model):
 
 
 class SessionQuestion(models.Model):
-    """单题快照与作答实体。关联源题目可置空，历史文字和作答仍保留。"""
+    """Single-question snapshot and response entity. Associated source question may be null, but
+    historical text and responses are retained.
+    """
 
     class Status(models.TextChoices):
-        """单题状态域：pending、answering、completed、skipped。"""
+        """Single-question status fields: pending, answering, completed, skipped.
+        """
 
         PENDING = "pending"
         ANSWERING = "answering"
@@ -123,7 +148,9 @@ class SessionQuestion(models.Model):
     finished_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        """约束同场次题目顺序唯一、最多一题 answering，以及合法状态时间组合。"""
+        """Constraints: unique order within the same session, at most one question in 'answering'
+        state, and valid temporal state transitions.
+        """
 
         ordering = ["position"]
         constraints = [

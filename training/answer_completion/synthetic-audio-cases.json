@@ -1,0 +1,18 @@
+{
+  "suite_id": "synthetic-audio-20261003-v1",
+  "description": "Fictional authored smoke cases, not an independent accuracy benchmark or human speech gold standard. Expectations are fixed before audio generation.",
+  "cases": [
+    {"id": "en_direct", "language": "en", "category": "direct_end", "mode": "single", "expected_events": 1, "expected_receipt": true, "clips": ["I separated the background workers from the request handler and used an idempotency key for each job. That is all for my answer to this question."]},
+    {"id": "zh_direct", "language": "zh", "category": "direct_end", "mode": "single", "expected_events": 1, "expected_receipt": true, "clips": ["我通过独立队列处理后台任务，并使用唯一任务标识避免重复写入。这个问题我已经回答完毕了，没有其他补充。"]},
+    {"id": "en_indirect", "language": "en", "category": "indirect_end", "mode": "single", "expected_events": 1, "expected_receipt": true, "clips": ["I have explained the design and the tradeoffs I considered. I have nothing further to add to this question; please go ahead with the next one."]},
+    {"id": "zh_indirect", "language": "zh", "category": "indirect_end", "mode": "single", "expected_events": 1, "expected_receipt": true, "clips": ["关于这个方案，我想说明的设计思路和取舍都已经讲清楚了。本题我没有其他要说的了，可以请您问下一个问题。"]},
+    {"id": "en_negated", "language": "en", "category": "negated_end", "mode": "single", "expected_events": 0, "expected_receipt": false, "clips": ["I have not finished answering this question. I still need to explain how we chose the retry limit and how we measured the failure rate."]},
+    {"id": "zh_negated", "language": "zh", "category": "negated_end", "mode": "single", "expected_events": 0, "expected_receipt": false, "clips": ["我还没有回答完毕。我还要解释为什么选择这个重试次数，以及我们怎样统计失败率，请稍等我继续说明。"]},
+    {"id": "en_quoted", "language": "en", "category": "quoted_end", "mode": "single", "expected_events": 0, "expected_receipt": false, "clips": ["One candidate in our test recording said, my answer is complete. I was describing that recording, and I still need to explain our monitoring design."]},
+    {"id": "zh_quoted", "language": "zh", "category": "quoted_end", "mode": "single", "expected_events": 0, "expected_receipt": false, "clips": ["在那段测试录音里，另一位候选人说了回答完毕。这是我引用录音的内容，我自己还需要继续解释监控系统的设计。"]},
+    {"id": "en_continuation", "language": "en", "category": "later_continuation", "mode": "single", "expected_events": 0, "expected_receipt": false, "clips": ["That is all for the queue design. I also want to explain how the retry policy avoids duplicate writes, so I will continue with that part now."]},
+    {"id": "zh_continuation", "language": "zh", "category": "later_continuation", "mode": "single", "expected_events": 0, "expected_receipt": false, "clips": ["队列设计这一部分我已经讲完了。不过我还想补充重试机制怎样避免重复写入，接下来我继续说明这一点。"]},
+    {"id": "en_supplement_within_one_second", "language": "en", "category": "audio_supplement", "mode": "gap", "gap_seconds": 1.0, "expected_events": 0, "expected_receipt": false, "clips": ["I separated the background workers from the request handler and used an idempotency key for each job. That is all for my answer to this question.", "Actually, I have not finished answering yet. I still need to add a point about how the monitoring records repeated failures."]},
+    {"id": "zh_supplement_during_flush", "language": "zh", "category": "audio_revocation_after_notice", "mode": "after_notice", "expected_events": 1, "expected_receipt": false, "clips": ["我通过独立队列处理后台任务，并使用唯一任务标识避免重复写入。这个问题我已经回答完毕了，没有其他补充。", "等一下，我还没有说完，还需要补充一点。我接下来要说明监控系统怎样记录连续失败，请让我继续回答。"]}
+  ]
+}

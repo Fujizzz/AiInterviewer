@@ -8,6 +8,18 @@ from shared.contracts import CompetencyState
 
 def apply_evaluation(context, question, answer, feedback):
     if not isinstance(feedback, EvaluatedFeedback):
+        # Silent skips intentionally bypass model evaluation. Keep their identities in
+        # committed state so later scoring does not mistake them for lost evaluations.
+        if (
+            answer is None
+            and feedback.analysis.status == "non_answer"
+            and feedback.analysis.answer_scope == "none"
+            and not feedback.analysis.new_information
+            and not feedback.dimensions
+            and not feedback.evidence_ids
+            and feedback.request_id not in context.unobserved_feedback_ids
+        ):
+            context.unobserved_feedback_ids.append(feedback.request_id)
         # Contract 2.0 callers remain supported by the Evaluation compatibility layer.
         apply_evidence(context, question, answer, feedback)
         return

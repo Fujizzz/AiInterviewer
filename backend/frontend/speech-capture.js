@@ -1,58 +1,45 @@
 /**
+ *
  * @module speech-capture
- * 职责：PCM 采集及有界 STT 传输；通过回调交付转写，不直接提交面试回答。
- * 实现：麦克风授权/握手后采集，flush 后发送 stop；时限收尾不代表用户确认提交。
- * 关联：interview-voice.js 接收部分/最终文本并控制字幕和结束确认。
+ * Responsibilities: PCM capture and bounded STT transmission; deliver transcriptions via callback without directly submitting interview responses.
+ * Implementation: Capture after microphone permission and handshake; send stop after flush; subscribe to backend's independent end detection and final credentials.
+ * Related Modules: interview-voice.js receives partial/final text and controls subtitles and end confirmation.
  *
- * 目录：
- * - SpeechCapture：
- *   Browser PCM capture and one STT task; completion delivers text to the caller, never an interview command.
- * - SpeechCapture.constructor：
- *   Store transcript callbacks and initialize one capture session's resources.
- * - SpeechCapture.start：
- *   Obtain microphone permission and start PCM capture after the STT handshake.
- * - SpeechCapture.start.callback1：
- *   Wait for recognition startup and attach bounded socket lifecycle handlers.
- * - SpeechCapture.start.callback1.callback1：
- *   Reject the pending startup after its deadline.
- * - SpeechCapture.start.callback1.socket.onmessage：
- *   Process draft, final and error messages without submitting an interview answer.
- * - SpeechCapture.start.callback1.socket.onerror：
- *   Report a recognition transport failure and release the microphone.
- * - SpeechCapture.start.callback1.socket.onclose：
- *   Detect a connection that ended without a final transcript.
- * - SpeechCapture.start.this.node.port.onmessage：
- *   Forward PCM with a backlog limit and acknowledge worklet flushing.
- * - SpeechCapture.start.callback2：
- *   End recording automatically at the fixed 120-second capture limit.
- * - SpeechCapture.end：
- *   Flush audio before sending stop, then wait for the provider's final transcript.
- * - SpeechCapture.end.callback1：
- *   Wait for the worklet's final PCM to precede the stop message.
- * - SpeechCapture.end.callback1.callback1：
- *   Fail capture if the worklet cannot flush promptly.
- * - SpeechCapture.end.callback1.this.flushResolve：
- *   Resolve the flush acknowledgement and clear its timer.
- * - SpeechCapture.end.callback2：
- *   Report a provider that failed to finalize the ended answer.
- * - SpeechCapture.fail：
- *   Reject startup and release resources after a public error message.
- * - SpeechCapture.releaseAudio：
- *   Stop microphone tracks, detach the worklet and close its audio context.
- * - SpeechCapture.releaseAudio.callback1：
- *   Stop one acquired microphone track.
- * - SpeechCapture.close：
- *   Invalidate socket callbacks and end the local capture lifecycle.
+ * Declaration Index:
+ * - SpeechCapture: Browser PCM capture and one STT task; completion delivers text to the caller, never an interview command.
+ * - SpeechCapture.constructor: Input transcription/failure callbacks and options (questionId, onCompletion, onActivity); output a capture instance.
+ * - SpeechCapture.start: Obtain microphone permission and start PCM capture after the STT handshake.
+ * - SpeechCapture.start.callback1: Wait for recognition startup and attach bounded socket lifecycle handlers.
+ * - SpeechCapture.start.callback1.callback1: Reject the pending startup after its deadline.
+ * - SpeechCapture.start.callback1.socket.onmessage: Process draft, final and error messages without submitting an interview answer.
+ * - SpeechCapture.start.callback1.socket.onerror: Report a recognition transport failure and release the microphone.
+ * - SpeechCapture.start.callback1.socket.onclose: Detect a connection that ended without a final transcript.
+ * - SpeechCapture.start.this.node.port.onmessage: Forward PCM with a backlog limit and acknowledge worklet flushing.
+ * - SpeechCapture.start.callback2: End recording automatically at the fixed 120-second capture limit.
+ * - SpeechCapture.end: Flush audio before sending stop, then wait for the provider's final transcript.
+ * - SpeechCapture.end.callback1: Wait for the worklet's final PCM to precede the stop message.
+ * - SpeechCapture.end.callback1.callback1: Fail capture if the worklet cannot flush promptly.
+ * - SpeechCapture.end.callback1.this.flushResolve: Resolve the flush acknowledgement and clear its timer.
+ * - SpeechCapture.end.callback2: Report a provider that failed to finalize the ended answer.
+ * - SpeechCapture.fail: Reject startup and release resources after a public error message.
+ * - SpeechCapture.releaseAudio: Stop microphone tracks, detach the worklet and close its audio context.
+ * - SpeechCapture.releaseAudio.callback1: Stop one acquired microphone track.
+ * - SpeechCapture.close: Invalidate socket callbacks and end the local capture lifecycle.
+ * Variable Index:
+ * None
  *
- * 关键变量：
- * （无模块级变量。）
  */
 /** Browser PCM capture and one STT task; completion delivers text to the caller, never an interview command. */
 export class SpeechCapture {
-  /** Store transcript callbacks and initialize one capture session's resources. */ constructor(onPartial, onFinal, onError) {
+  /**
+ *  Input transcription/failure callbacks and options (questionId, onCompletion, onActivity); output a capture instance.
+ * onActivity reports PCM energy above the existing server RMS floor (0.015), without exposing or storing audio.
+ * Subscribe to backend end detection only when questionId is provided; final credentials are passed as the third argument to onFinal, without direct submission.
+ */ constructor(onPartial, onFinal, onError, options = {}) {
     this.onPartial = onPartial;
     this.onFinal = onFinal;
     this.onError = onError;
+    this.options = options;
     this.closed = false;
     this.recording = false;
     this.socket = null;
@@ -87,10 +74,13 @@ export class SpeechCapture {
           if (this.closed) return;
           try {
             const message = JSON.parse(data);
-            if (message.type === "hello") socket.send(JSON.stringify({ type: "start" }));
+            if (message.type === "hello") socket.send(JSON.stringify(this.options.questionId
+              ? { type: "start", completion_detection: true, question_id: this.options.questionId }
+              : { type: "start" }));
             if (message.type === "started") { clearTimeout(timeout); this.startReject = null; resolve(); }
             if (message.type === "partial") this.onPartial(message.text);
-            if (message.type === "final") { this.onFinal(message.text, message.finalization_ms); void this.close(); }
+            if (message.type === "answer_completion" && message.question_id === this.options.questionId) this.options.onCompletion?.();
+            if (message.type === "final") { this.onFinal(message.text, message.finalization_ms, message.completion_receipt); void this.close(); }
             if (message.type === "error") this.fail(new Error(`${message.code}: ${message.detail}`));
           } catch (error) { this.fail(error); }
         };
@@ -105,7 +95,16 @@ export class SpeechCapture {
         if (data.type === "pcm" && !this.closed) {
           if (socket.readyState !== WebSocket.OPEN || socket.bufferedAmount > 1024 * 1024) {
             this.fail(new Error("Speech connection is not keeping up; check the connection and start a new recording."));
-          } else socket.send(data.buffer);
+          } else {
+            const samples = new DataView(data.buffer);
+            let energy = 0;
+            for (let index = 0; index < samples.byteLength; index += 2) {
+              const value = samples.getInt16(index, true) / 32768;
+              energy += value * value;
+            }
+            if (samples.byteLength && Math.sqrt(energy / (samples.byteLength / 2)) >= 0.015) this.options.onActivity?.();
+            socket.send(data.buffer);
+          }
         }
       };
       this.context.createMediaStreamSource(this.stream).connect(this.node);

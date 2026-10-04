@@ -1,74 +1,76 @@
 /**
+ *
  * @module resumes-client-test
- * 职责：验证真实简历管理客户端的数据流和失败边界，不请求外部服务或生产数据库。
- * 实现：实际模板 ID、最小 DOM、真实 Response/ReadableStream/UTF-8 解码与显式 REST 替身。
- * 关联：frontend/resumes.js、resumes.html；不能替代真实浏览器布局、供应商或权限测试。
- * 目录：
- * - Element：仅实现客户端使用的 DOM 接口。
- * - Element.constructor：初始化控件与可观察子节点。
- * - Element.constructor.toggle：维护模拟 CSS class 集合。
- * - Element.addEventListener：登记事件。
- * - Element.click：记录原生选择器触发，不读取磁盘或创建文件。
- * - Element.focus：记录客户端主动焦点目标，不模拟浏览器布局。
- * - Element.scrollIntoView：记录客户端导航目标，不模拟滚动距离。
- * - Element.append：追加纯 DOM 节点。
- * - Element.replaceChildren：清除旧卡片。
- * - Element.querySelectorAll：递归返回按钮。
- * - Element.setAttribute：保存 aria 状态。
- * - Element.closest：测试按钮返回自身。
- * - makePage：执行实际客户端并返回隔离页面与 REST 状态。
- * - makePage.getElement：拒绝查询模板以外的元素。
- * - makePage.createElement：创建模拟 DOM 节点。
- * - makePage.fetch：记录请求、断言 CSRF 并执行模拟版本接口。
- * - makePage.fetch.byOriginal：按来源读取合成原件。
- * - makePage.fetch.byId：按 URL 版本 ID 匹配合成记录。
- * - makePage.sectionNavigation：返回合成侧栏节点。
- * - makePage.selectors：语言选择器为空，避免依赖国际化模块。
- * - makePage.t：返回可断言的翻译 key 与参数。
- * - makePage.confirm：显式批准模拟删除确认，无真实删除。
- * - makePage.replaceState：记录显式哈希修改，不访问浏览器。
- * - workspaceDraft：验证分区切换保留草稿、无请求且程序化定位先显示面板。
- * - makePage.ignore：替代窗口事件和日志，不访问用户设备。
- * - makePage.run：调用实际客户端函数。
- * - json：生成 JSON HTTP 响应。
- * - stream：构建逐字节 NDJSON，验证跨字节中文解码。
- * - stream.start：推送字节并结束流。
- * - record：生成虚构的完整版本元数据。
- * - textUpload：验证文本保存不调用解析且正文安全显示。
- * - textUpload.isParse：筛选解析请求。
- * - pdfUpload：验证 PDF 大小边界、multipart 上传和保存后不自动解析。
- * - pdfModes：验证 PDF 保存与默认/高级两种显式解析模式。
- * - pdfModes.isParse：定位显式提取请求。
- * - failedStream：验证失败不采用模型中间正文、不自动重试。
- * - failedStream.isParse：统计提取次数。
- * - incompleteStream：验证缺失终态不能宣布成功。
- * - currentAndDelete：验证当前选择、保护冲突、确认删除与清理预览。
- * - editionSave：验证单元保存的独立性及推荐值类型。
- * - dirtyCancel.page.context.window.confirm：拒绝合成丢弃确认。
- * - dirtyCancel：验证取消离开保留输入且不发送当前选择请求。
- * - nearbyParse：验证附件就近按钮只在上传后解析一次。
- * - singleUploadEntry：验证选择上传、取消、忙碌锁及按状态显示的解析工具。
- * - fileUploadFailure：上传失败仍保留未保存编辑，且不隐式重试或解析。
- * - fileUploadFailure.rejectUpload：模拟仅原件 POST 失败，其他读取仍走 REST 替身。
- * - preventDefault：替代文件选择测试事件的默认行为取消，不操作浏览器。
- * - suggestedSlots：建议回填待保存草稿，确认值不覆盖，人工清空不重新提取。
- * - failedSave：保存失败保留单元输入与离开保护，显式空数组不变成未知。
- * - failedSave.rejectEdition：模拟保存 HTTP 400，不重试其他写操作。
- * - invalidSlots：非法数值不发送保存请求。
- * - profileSave：本人资料只用 PATCH 和 CSRF 保存，回填服务端结果。
- * - savedRecommendations：显式请求保存版本，安全展示岗位，不自动推荐；编辑后清除结果。
- * - recommendationFailure：来源故障不生成替代卡片，不自动重试，并恢复操作控件。
- * - recommendationReasons：双语理由安全展示，语言切换不再次请求，最终顺序不改变。
- * - makePage.language：读取合成语言状态，不调用真实浏览器语言。
- * - recommendationSelection：跨历史分页完整选择 ready 版本，不自动推荐或修改 current。
- * - recommendationGuidance：无简历、待解析和缺少推荐字段时显示对应下一步动作。
- * - recommendationUnsaved：取消版本切换保留输入/选择，显示就近保存按钮。
- * - recommendationUnsaved.rejectSwitch：模拟用户拒绝丢弃未保存内容。
- * 关键变量：
- * - SCRIPT：实际客户端源码。
- * - HTML：实际模板，用于验证元素契约。
- * 约束：
- * makePage 的 items/requests/errors 仅保存合成数据；真实服务权限由 Django 测试覆盖。
+ * Responsibilities: Validate data flow and failure boundaries of the real resume management client, without requesting external services or production databases.
+ * Implementation: Actual template ID, minimal DOM, real Response/ReadableStream/UTF-8 decoding, and explicit REST stubs.
+ * Related Modules: frontend/resumes.js, resumes.html; cannot substitute for real browser layout, vendor, or permission testing.
+ * Declaration Index:
+ * - Element: Implements only DOM interfaces used by the client.
+ * - Element.constructor: Initializes controls and observable child nodes.
+ * - Element.constructor.toggle: Maintains simulated CSS class collection.
+ * - Element.addEventListener: Registers events.
+ * - Element.click: Records native selector triggers, does not read disk or create files.
+ * - Element.focus: Records client-initiated focus targets, does not simulate browser layout.
+ * - Element.scrollIntoView: Records client navigation targets, does not simulate scroll distance.
+ * - Element.append: Appends pure DOM nodes.
+ * - Element.replaceChildren: Clears old cards.
+ * - Element.querySelectorAll: Recursively returns buttons.
+ * - Element.setAttribute: Saves aria state.
+ * - Element.closest: Tests button returns self.
+ * - makePage: Executes actual client and returns isolated page and REST state.
+ * - makePage.getElement: Rejects queries for elements outside the template.
+ * - makePage.createElement: Creates simulated DOM nodes.
+ * - makePage.fetch: Records requests, asserts CSRF, and executes mocked version of interface.
+ * - makePage.fetch.byOriginal: Reads synthesized original by source.
+ * - makePage.fetch.byId: Matches synthesized records by URL version ID.
+ * - makePage.sectionNavigation: Returns synthesized sidebar node.
+ * - makePage.selectors: Language selector is empty, avoiding dependency on internationalization module.
+ * - makePage.t: Returns translatable key and parameters for assertion.
+ * - makePage.confirm: Explicitly approves simulated delete confirmation, no real deletion.
+ * - makePage.replaceState: Records explicit hash modifications, does not access browser.
+ * - workspaceDraft: Validates partition switching preserves draft, no requests, and programmatic positioning displays panel first.
+ * - makePage.ignore: Replaces window events and logs, does not access user device.
+ * - makePage.run: Calls actual client functions.
+ * - json: Generates JSON HTTP response.
+ * - stream: Builds byte-by-byte NDJSON, validates cross-byte Chinese decoding.
+ * - stream.start: Pushes bytes and ends stream.
+ * - record: Generates fictional full version metadata.
+ * - textUpload: Validates text save does not invoke parsing and safely displays body.
+ * - textUpload.isParse: Filters parsing requests.
+ * - pdfUpload: Validates PDF size limits, multipart upload, and no automatic parsing after save.
+ * - pdfModes: Validates PDF save and two explicit parsing modes: default and advanced.
+ * - pdfModes.isParse: Locates explicit extraction requests.
+ * - failedStream: Validates failure does not adopt model intermediate content, does not auto-retry.
+ * - failedStream.isParse: Counts extraction attempts.
+ * - incompleteStream: Validates missing final state cannot declare success.
+ * - currentAndDelete: Validates current selection, protects against conflicts, confirms deletion, and cleans preview.
+ * - editionSave: Validates independence of unit saves and recommended value types.
+ * - dirtyCancel.page.context.window.confirm: Rejects synthetic discard confirmation.
+ * - dirtyCancel: Validates canceling departure preserves input and does not send current selection request.
+ * - nearbyParse: Validates attachment near button parses only once after upload.
+ * - singleUploadEntry: Validates select upload, cancel, busy lock, and parsing tools displayed by status.
+ * - fileUploadFailure: Upload failure retains unsaved edits, does not implicitly retry or parse.
+ * - fileUploadFailure.rejectUpload: Simulates POST failure only on original, other reads still go through REST stub.
+ * - preventDefault: Replaces default behavior cancellation for file selection test events, does not manipulate browser.
+ * - suggestedSlots: Suggests backfilling unsaved draft, confirmed values do not overwrite, manual clear does not re-extract.
+ * - failedSave: Save failure retains unit input and leave protection, explicit empty array does not become unknown.
+ * - failedSave.rejectEdition: Simulates save HTTP 400, does not retry other write operations.
+ * - invalidSlots: Invalid values do not trigger save requests.
+ * - profileSave: Personal profile uses only PATCH and CSRF for saving, backfills server-side results.
+ * - savedRecommendations: Explicitly requests save version, safely displays position, does not auto-recommend; clears results after edit.
+ * - recommendationFailure: Source failure does not generate alternative card, does not auto-retry, restores operation controls.
+ * - recommendationReasons: Bilingual reasons safely displayed, language switch does not re-request, final order remains unchanged.
+ * - makePage.language: Reads synthesized language state, does not call real browser language.
+ * - recommendationSelection: Completes full selection across history pages for ready versions, does not auto-recommend or modify current.
+ * - recommendationGuidance: Displays appropriate next action when no resume, pending parse, or missing recommendation field.
+ * - recommendationUnsaved: Canceling version switch preserves input/selection, shows nearby save button.
+ * - recommendationUnsaved.rejectSwitch: Simulates user rejecting discarding unsaved content.
+ * Variable Index:
+ * - SCRIPT: Actual client source code.
+ * - HTML: Actual template, used to validate element contract.
+ * Constraints:
+ * makePage's items/requests/errors store only synthesized data; real service permissions are covered by Django tests.
+ *
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -76,59 +78,95 @@ import test from "node:test";
 import vm from "node:vm";
 const SCRIPT = readFileSync(new URL("../frontend/resumes.js", import.meta.url), "utf8");
 const HTML = readFileSync(new URL("../frontend/resumes.html", import.meta.url), "utf8");
-/** 无参数、无返回值；文件选择测试事件的无副作用替身，不模拟浏览器导航。 */
+/**
+ *  No parameters, no return value; dummy for file selection test events with no side effects, does not simulate browser navigation.
+ */
 function preventDefault() {}
 
-/** 功能：最小 DOM 状态；逻辑：只实现真实脚本依赖；约束：无布局或浏览器权限模拟。 */
+/**
+ *  Function: Minimal DOM state; Logic: Implements only real script dependencies; Constraint: No layout or browser permission simulation.
+ */
 class Element {
-  /** 输入标签名，输出空节点状态；classList 使用真实 Set 以观察错误标记。 */
+  /**
+ *  Input tag name, output empty node state; use real Set for classList to observe error markers.
+ */
   constructor(tag = "div") {
     this.tagName = tag; this.value = ""; this.textContent = ""; this.disabled = false;
     this.files = []; this.dataset = {}; this.children = []; this.listeners = {}; this.attributes = {};
     this.classList = new Set();
-    /** 输入类名和布尔值，以调用者 Set 为状态；无浏览器副作用。 */
+    /**
+ *  Input class name and boolean value, use caller's Set as state; no browser side effects.
+ */
     function toggle(key, enabled) { if (enabled) this.add(key); else this.delete(key); }
     this.classList.toggle = toggle;
   }
-  /** 输入事件与处理器，保存不自行执行。 */
+  /**
+ *  Input event and handler, save without executing automatically.
+ */
   addEventListener(name, handler) { this.listeners[name] = handler; }
-  /** 无输入；记录 input.click 的选择器请求，不模拟系统选中文件或触发 change。 */
+  /**
+ *  No input; record input.click selector request, does not simulate system file selection or trigger change.
+ */
   click() { this.clicked = true; }
-  /** 记录主动焦点请求；输入可选浏览器参数，无真实页面副作用。 */
+  /**
+ *  Record active focus request; input optional browser parameters, no real page side effects.
+ */
   focus(options) { this.focused = options; }
-  /** 记录滚动定位；输入可选浏览器参数，不模拟尺寸或动画。 */
+  /**
+ *  Record scroll positioning; input optional browser parameters, does not simulate dimensions or animations.
+ */
   scrollIntoView(options) { this.scrolled = options; }
-  /** 输入节点列表，保存子节点，不解释字符串为 HTML。 */
+  /**
+ *  Input node list, save children, does not interpret strings as HTML.
+ */
   append(...nodes) { this.children.push(...nodes); }
-  /** 清除全部子节点；不删除模板元素。 */
+  /**
+ *  Clear all child nodes; does not remove template elements.
+ */
   replaceChildren() { this.children = []; }
-  /** 输入选择器，仅本脚本使用 button；输出递归按钮集合。 */
+  /**
+ *  Input selector, returns recursive button set for internal script use only.
+ */
   querySelectorAll(selector) {
     assert.equal(selector, "button");
     const result = [];
     for (const child of this.children) { if (child.tagName === "button") result.push(child); result.push(...child.querySelectorAll(selector)); }
     return result;
   }
-  /** 保存属性字符串，以检查 aria-busy。 */
+  /**
+ *  Save attribute string to check aria-busy.
+ */
   setAttribute(name, value) { this.attributes[name] = value; }
-  /** 返回本节点供动作委托与建议面板观察；不模拟真实祖先选择或布局。 */
+  /**
+ *  Return this node for action delegation and suggestion panel observation; does not simulate real ancestor selection or layout.
+ */
   closest() { return this; }
 }
-/** 输入数据与状态码，输出真实 Response；模拟接口 JSON 编码。 */
+/**
+ *  Input data and status code, output real Response; simulates interface JSON encoding.
+ */
 function json(data, status = 200) { return new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } }); }
-/** 输入事件数组，输出真实逐字节 UTF-8 流；不访问网络。 */
+/**
+ *  Input event array, output real byte-by-byte UTF-8 stream; does not access network.
+ */
 function stream(events) {
   const bytes = new TextEncoder().encode(events.map(JSON.stringify).join("\n") + "\n");
-  /** 输入流控制器，逐字节入队以验证 TextDecoder 边界处理。 */
+  /**
+ *  Input stream controller, enqueues bytes one by one to verify TextDecoder boundary handling.
+ */
   function start(controller) { for (const byte of bytes) controller.enqueue(Uint8Array.of(byte)); controller.close(); }
   return new Response(new ReadableStream({ start }));
 }
-/** 输入 ID/status，输出仅供测试的元数据与正文；不使用真实候选人数据。 */
+/**
+ *  Input ID/status, output test-only metadata and body; does not use real candidate data.
+ */
 function record(id, status = "ready") {
   return { id, status, label: "<script>label</script>", original_name: status === "uploaded" ? "sample.pdf" : "", extraction_mode: "", error_code: "", is_current: false, created_at: "2026-10-01T00:00:00Z", text: "中文 <img src=x> 简历" };
 }
-/** 输入初始记录、流事件与可选分页大小，输出真实脚本 VM 和请求；分页仅为明确接口替身。
- * pageSize 为 null 时保留旧单页 fixture；正数模拟服务端分段，不改变生产分页参数。
+/**
+ *  Input initial record, stream events, and optional page size, output real script VM and request; pagination is only for explicit interface stub.
+ * When pageSize is null, retain old single-page fixture; positive number simulates server-side segmentation, does not alter production pagination parameters.
+ *
  */
 async function makePage(initial = [], events = [{ type: "result", text: "中文提取", pages: [] }], pageSize = null) {
   const elements = new Map();
@@ -136,11 +174,17 @@ async function makePage(initial = [], events = [{ type: "result", text: "中文�
   elements.get("csrf-token").content = "synthetic-csrf";
   elements.get("parse-mode").value = "traditional"; elements.get("upload-kind").value = "pdf";
   const items = initial; const requests = []; const errors = [];
-  /** 输入 ID，只允许真实模板元素，缺失明确失败。 */
+  /**
+ *  Input ID, only allows real template elements, fails explicitly if missing.
+ */
   function getElement(id) { assert.ok(elements.has(id), id); return elements.get(id); }
-  /** 输入标签，输出无窗口的 DOM 节点。 */
+  /**
+ *  Input tag, output DOM node without window.
+ */
   function createElement(tag) { return new Element(tag); }
-  /** 输入路径/参数，验证写操作带 CSRF；模拟版本 CRUD、提取及显式个人推荐，不运行模型。 */
+  /**
+ *  Input path/parameters, validate write operations include CSRF; simulate version CRUD, extraction, and explicit personal recommendations, does not run model.
+ */
   async function fetch(url, options) {
     requests.push({ url, ...options });
     const method = options.method || "GET";
@@ -162,13 +206,17 @@ async function makePage(initial = [], events = [{ type: "result", text: "中文�
       items.unshift(item); return json(item, 201);
     }
     const item = items.find(byId);
-    /** 输入元数据，按请求的第一段 ID 精确匹配。 */
+    /**
+ *  Input metadata, match exactly by first segment ID of request.
+ */
     function byId(value) { return value.id === path.split("/")[0]; }
     assert.ok(item, path);
     if (method === "POST" && path.endsWith("recommendations/")) return json(item.recommendation_response, item.recommendation_status || 200);
     if (method === "GET" && path.endsWith("editor/")) {
       const original = items.find(byOriginal) || item;
-      /** 输入合成记录，只按编辑稿来源匹配原件。 */
+      /**
+ *  Input synthesized record, match only by edit draft source.
+ */
       function byOriginal(value) { return value.id === item.source_version; }
       return json({ ...item, units: item.units || { other: item.text }, slots: item.slots || {}, slot_suggestions: item.slot_suggestions || null, slot_units: {skills:"skills",gpa:"education",commit_to_summer:"preferences",months_experience:"experience",num_publications:"publications"}, source_version: original.id, original_name: original.original_name, original_text: original.text });
     }
@@ -190,28 +238,46 @@ async function makePage(initial = [], events = [{ type: "result", text: "中文�
     }
     assert.fail(path);
   }
-  /** 输入 key/参数，返回可断言的纯文本；不证明英文资源质量。 */
+  /**
+ *  Input key/parameters, return assertable plain text; does not validate English resource quality.
+ */
   function t(key, values = {}) { return key + JSON.stringify(values); }
-  /** 批准模拟页面删除对话框；不向真实服务发请求。 */
+  /**
+ *  Approve simulated page delete dialog box; does not send request to real service.
+ */
   function confirm() { return true; }
-  /** 接收模拟日志/监听器注册，不操作真实窗口。 */
+  /**
+ *  Receive simulated logs/listeners registration without manipulating real windows.
+ */
   function ignore(...args) { errors.push(args); }
-  /** 无语言模块，返回空选择器集合；不模拟 HTML 布局。 */
+  /**
+ *  No language module present; return empty selector set; do not simulate HTML layout.
+ */
   function selectors() { return []; }
-  /** 输入侧栏选择器；返回单一合成节点以验证事件注册。 */
+  /**
+ *  Input sidebar selector; return a single synthetic node to validate event registration.
+ */
   function sectionNavigation(selector) { assert.equal(selector, ".section-navigation"); return new Element(); }
-  /** 无外部参数；读取合成页面语言，用于验证双语理由，无网络副作用。 */
+  /**
+ *  No external parameters; read synthetic page language for validating bilingual rationale, no network side effects.
+ */
   function language() { return context.document.documentElement.lang.startsWith("en") ? "en" : "zh"; }
   const pageLocation = { hash: "" };
-  /** 输入原生 history 参数；只记录测试哈希，不模拟页面加载或触发事件。 */
+  /**
+ *  Input native history parameter; only record test hash, do not simulate page load or trigger events.
+ */
   function replaceState(state, title, url) { assert.equal(state, null); assert.equal(title, ""); pageLocation.hash = url; }
   const context = vm.createContext({ document: { getElementById: getElement, createElement, querySelectorAll: selectors, querySelector: sectionNavigation, documentElement: { lang: "zh-CN" } }, window: { location: pageLocation, history: { replaceState }, AppI18n: { t, language }, confirm, addEventListener: ignore }, console: { error: ignore }, fetch, Headers, FormData, Response, ReadableStream, TextEncoder, TextDecoder, AbortController, DOMException });
   await vm.runInContext(SCRIPT, context);
-  /** 输入本地函数调用表达式，输出其返回值或 Promise；仅使用测试固定源码。 */
+  /**
+ *  Input native function call expression; output its return value or Promise; use only test-fixed source code.
+ */
   function run(code) { return vm.runInContext(code, context); }
   return { elements, requests, items, run, errors, context };
 }
-/** 文本保存真实走 JSON，之后只预览持久化详情；HTML 字符保留为 textarea 文本，无提取调用。 */
+/**
+ *  Text saved in real JSON format; afterward preview persistent details only; HTML characters preserved as textarea text, no extraction calls.
+ */
 async function textUpload() {
   const page = await makePage();
   page.elements.get("upload-kind").value = "text";
@@ -220,11 +286,15 @@ async function textUpload() {
   assert.equal(page.items[0].status, "ready");
   assert.equal(page.elements.get("preview-text").value, "中文 <img src=x> 简历");
   assert.equal(page.requests.filter(isParse).length, 0);
-  /** 输入请求，判断是否显式提取调用。 */
+  /**
+ *  Input request; determine whether explicit extraction call is required.
+ */
   function isParse(request) { return request.url.endsWith("parse/"); }
   assert.equal(page.elements.get("upload-submit").disabled, false);
 }
-/** 空文件不发送请求；有效 PDF 仅创建 uploaded 版本，不隐式调用解析。 */
+/**
+ *  Empty file does not send request; valid PDF creates only uploaded version, no implicit parsing invocation.
+ */
 async function pdfUpload() {
   const page = await makePage();
   await page.run("rmUpload({preventDefault(){}})");
@@ -237,7 +307,9 @@ async function pdfUpload() {
   assert.equal(page.items[0].status, "uploaded");
   assert.equal(page.elements.get("preview-text").value, "");
 }
-/** 两种 PDF 模式均只在显式 parse 时提交 mode；跨字节中文结果需完整终态。 */
+/**
+ *  Both PDF modes submit mode only when explicitly parsed; cross-byte Chinese results require complete final state.
+ */
 async function pdfModes() {
   for (const mode of ["traditional", "advanced"]) {
     const page = await makePage([record("pdf", "uploaded")]);
@@ -245,14 +317,18 @@ async function pdfModes() {
     page.elements.get("parse-mode").value = mode;
     await page.run("rmRun(function parse(){return rmParse('pdf')})");
     const request = page.requests.find(isParse);
-    /** 输入已记录请求，定位唯一解析写入。 */
+    /**
+ *  Input recorded request; locate unique parsing write operation.
+ */
     function isParse(value) { return value.url.endsWith("parse/"); }
     assert.equal(JSON.parse(request.body).mode, mode);
     assert.equal(page.elements.get("preview-text").value, "中文提取");
     assert.match(page.elements.get("operation-status").textContent, /^rm_parsed/);
   }
 }
-/** 显式服务端错误不采用任何文本，不自动请求第二次 parse，并恢复按钮。 */
+/**
+ *  Explicit server error does not adopt any text, does not automatically request second parse, and restores button.
+ */
 async function failedStream() {
   const page = await makePage([record("pdf", "uploaded")], [{ type: "progress", detail: "处理中" }, { type: "error", detail: "视觉校对失败" }]);
   await page.run("rmRun(function parse(){return rmParse('pdf')})");
@@ -260,17 +336,23 @@ async function failedStream() {
   assert.equal(page.elements.get("operation-status").textContent, "视觉校对失败");
   assert.equal(page.elements.get("refresh-versions").disabled, false);
   assert.equal(page.requests.filter(isParse).length, 1);
-  /** 输入请求，定位写入提取动作，不包括后续 GET 刷新。 */
+  /**
+ *  Input request; locate write extraction action, excluding subsequent GET refreshes.
+ */
   function isParse(value) { return value.url.endsWith("parse/"); }
 }
-/** HTTP 200 但缺失 result 的流不能变成成功文案。 */
+/**
+ *  HTTP 200 with missing result stream cannot become success message.
+ */
 async function incompleteStream() {
   const page = await makePage([record("pdf", "uploaded")], [{ type: "progress", detail: "处理中" }]);
   await page.run("rmRun(function parse(){return rmParse('pdf')})");
   assert.match(page.elements.get("operation-status").textContent, /^rm_incomplete/);
   assert.equal(page.elements.get("preview-text").value, "");
 }
-/** 当前选择真实发 POST；409 不清空数据，确认删除成功才清除所选正文。 */
+/**
+ *  Current selection sends real POST; 409 does not clear data, confirm successful deletion before clearing selected content.
+ */
 async function currentAndDelete() {
   const item = record("text"); const page = await makePage([item]);
   await page.run("rmAction({target:{closest(){return {dataset:{action:'current',id:'text'}}}}})");
@@ -285,7 +367,9 @@ async function currentAndDelete() {
   assert.equal(page.items.length, 0);
   assert.equal(page.elements.get("preview-text").value, "");
 }
-/** 姓名与邮箱在个人中心保存；不修改用户名，不自动创建/解析简历。 */
+/**
+ *  Name and email saved in profile center; do not modify username, do not auto-create or parse resume.
+ */
 async function profileSave() {
   const page = await makePage();
   page.elements.get("profile-name").value = " 姓名 ";
@@ -306,7 +390,9 @@ test("incomplete stream never announces success", incompleteStream);
 test("current selection and protected deletion preserve version state", currentAndDelete);
 test("profile information is maintained through the unified personal center", profileSave);
 
-/** 保存真实客户端输入；REST 为替身，验证单元、严格槽位、来源、原文和下载路径，不验证服务写库。 */
+/**
+ *  Save real client input; REST acts as proxy, validate unit, strict slot, source, original, and download path, do not validate service database write.
+ */
 async function editionSave() {
   const original = record("original");
   original.original_name = "original.pdf";
@@ -334,13 +420,17 @@ async function editionSave() {
   assert.equal(page.run("rmAttachment.id"), original.id);
   assert.match(page.elements.get("uploaded-file-name").textContent, /^original.pdf/);
 }
-/** 用户拒绝丢弃修改时不切换当前版本或刷新，编辑内容和 dirty 状态保留。 */
+/**
+ *  When user refuses to discard changes, do not switch current version or refresh; retain edit content and dirty state.
+ */
 async function dirtyCancel() {
   const page = await makePage([record("one"), record("two")]);
   await page.run("rmPreview('one')");
   page.elements.get("unit-projects").value = "unsaved";
   await page.run("rmDirty({currentTarget:rmEl('unit-projects')})");
-  /** 拒绝合成对话框，不向真实窗口发送请求。 */
+  /**
+ *  Reject synthetic dialog box; do not send requests to real window.
+ */
   page.context.window.confirm = function reject() { return false; };
   const count = page.requests.length;
   await page.run("rmAction({target:{closest(){return {dataset:{action:'current',id:'two'}}}}})");
@@ -349,7 +439,9 @@ async function dirtyCancel() {
   assert.equal(page.elements.get("unit-projects").value, "unsaved");
   assert.equal(page.run("rmEditorDirty"), true);
 }
-/** 附件上传后启用邻近解析，成功后禁用；不重复解析已完成附件。 */
+/**
+ *  Enable adjacent parsing after attachment upload; disable after success; do not re-parse already completed attachments.
+ */
 async function nearbyParse() {
   const page = await makePage();
   assert.equal(page.elements.get("uploaded-parse").disabled, true);
@@ -362,7 +454,9 @@ async function nearbyParse() {
   await page.run("rmParseUploaded()");
   assert.equal(page.requests.length, count);
 }
-/** 模拟明确 change 和取消选择；真实客户端应一次保存、显式解析，并按附件和流状态展示操作。 */
+/**
+ *  Simulate explicit change and cancel selection; real client must save once, explicitly parse, and display actions based on attachment and stream status.
+ */
 async function singleUploadEntry() {
   const page = await makePage();
   assert.equal(page.elements.get("upload-submit").hidden, true);
@@ -399,7 +493,9 @@ async function singleUploadEntry() {
   assert.equal(page.elements.get("upload-submit").hidden, false);
   assert.equal(page.elements.get("pdf-input").hidden, true);
 }
-/** 模拟原件保存失败；验证选中文件后只请求一次，并保留当前在线稿和 dirty，不向模型发请求。 */
+/**
+ *  Simulate original save failure; after validating selected file, request only once, retain current draft and dirty state, do not send request to model.
+ */
 async function fileUploadFailure() {
   const page = await makePage([record("one")]);
   await page.run("rmPreview('one')");
@@ -407,7 +503,9 @@ async function fileUploadFailure() {
   await page.run("rmDirty({currentTarget:rmEl('unit-projects')})");
   const originalFetch = page.context.fetch;
   let attempts = 0;
-  /** 仅拒绝新原件 POST，保留既有授权读取；不请求实际本地服务或生产库。 */
+  /**
+ *  Only reject new original POST; retain existing authorization read; do not request actual local service or production database.
+ */
   async function rejectUpload(url, options) {
     if (url === "/api/resume-versions/" && options.method === "POST") { attempts += 1; return json({ code: "invalid" }, 400); }
     return originalFetch(url, options);
@@ -422,7 +520,9 @@ async function fileUploadFailure() {
   assert.equal(page.elements.get("choose-file").disabled, false);
   assert.match(page.elements.get("operation-status").textContent, /^rm_http_error/);
 }
-/** 使用替身 DOM 中的非法数字，真实客户端必须在发请求前拒绝，保留当前输入。 */
+/**
+ *  Use invalid number from proxy DOM; real client must reject before sending request, retain current input.
+ */
 async function invalidSlots() {
   const page = await makePage([record("one")]);
   await page.run("rmPreview('one')");
@@ -439,7 +539,9 @@ test("one upload entry saves selected files and exposes only available actions",
 test("failed file selection upload preserves the unsaved online draft", fileUploadFailure);
 test("invalid recommendation count is rejected before saving", invalidSlots);
 
-/** REST 替身拒绝新稿；真实客户端仍须保留输入/dirty，并保持 untouched 显式空数组语义。 */
+/**
+ *  REST proxy rejects new draft; real client still retains input/dirty and maintains untouched explicit empty array semantics.
+ */
 async function failedSave() {
   const item = record("one"); item.slots = { interests: [] };
   const page = await makePage([item]);
@@ -448,7 +550,9 @@ async function failedSave() {
   page.elements.get("unit-projects").value = "keep draft";
   await page.run("rmDirty({currentTarget:rmEl('unit-projects')})");
   const fetchOriginal = page.context.fetch;
-  /** 拒绝 editions POST；其他请求通过既有合成 REST，不访问外部服务。 */
+  /**
+ *  Reject editions POST; other requests pass through existing synthetic REST, no access to external services.
+ */
   async function rejectEdition(url, options) {
     if (url.endsWith("editions/")) return json({ code: "invalid" }, 400);
     return fetchOriginal(url, options);
@@ -462,7 +566,9 @@ async function failedSave() {
 }
 test("failed save retains unsaved text and explicit empty keywords", failedSave);
 
-/** REST 替身给出建议；真实回填/保存代码必须区分确认与待确认，保持 0/false 并允许清空后保存。 */
+/**
+ *  REST proxy provides suggestions; real backfill/save code must distinguish confirmed from pending confirmation, maintain 0/false and allow saving after clearing.
+ */
 async function suggestedSlots() {
   const original = record("suggested");
   original.slots = {gpa: 0};
@@ -489,7 +595,9 @@ async function suggestedSlots() {
 }
 test("extracted recommendation suggestions require saving and preserve manual confirmation", suggestedSlots);
 
-/** 合成 REST 提供岗位，真实客户端仅点击才请求保存 ID；原样文本不执行，编辑清空结果并禁用推荐。 */
+/**
+ *  Synthetic REST provides job; real client only requests save ID upon click; raw text not executed, editing clears result and disables recommendation.
+ */
 async function savedRecommendations() {
   const item = record("saved"); item.slots = {skills: ["Python"]};
   item.recommendation_response = {source_name: "Synthetic jobs", source_kind: "experience", results: [
@@ -520,7 +628,9 @@ async function savedRecommendations() {
 }
 test("recommendations use only saved features and clear results on edits", savedRecommendations);
 
-/** 来源错误明确展示且无假岗位/自动重试，单操作锁释放后允许用户显式再次请求。 */
+/**
+ *  Source error clearly displayed with no fake jobs or automatic retry; single operation lock released allows user to explicitly request again.
+ */
 async function recommendationFailure() {
   const item = record("saved"); item.slots = {skills: ["Python"]};
   item.recommendation_status = 502; item.recommendation_response = {code: "recommendation_llm_invalid_output"};
@@ -535,7 +645,9 @@ async function recommendationFailure() {
 }
 test("recommendation LLM failure stays explicit without fabricated jobs", recommendationFailure);
 
-/** 模拟精排返回五岗；理由与标题中的 HTML 只作文本，切换语言不请求 API 或重排。 */
+/**
+ *  Simulate refined ranking returning five jobs; HTML in reason and title treated as plain text only; switching language does not request API or re-rank.
+ */
 async function recommendationReasons() {
   const item = record("saved"); item.slots = {skills: ["Python"]};
   const results = [];
@@ -556,7 +668,9 @@ async function recommendationReasons() {
 }
 test("LLM reasons stay safe and switch language without another API call", recommendationReasons);
 
-/** 合成 API 分三页，实际客户端选择器列出全部版本；显式选择只读详情，保留历史分页与 current。 */
+/**
+ *  Synthetic API splits into three pages; actual client selector lists all versions; explicit selection shows read-only details, retains historical pagination and current.
+ */
 async function recommendationSelection() {
   const ready = record("older"); ready.slots = { skills: ["Python"] };
   const page = await makePage([record("pdf", "uploaded"), record("recent"), ready], [], 1);
@@ -580,7 +694,9 @@ async function recommendationSelection() {
 }
 test("recommendation picker includes older pages and selects without automatic writes", recommendationSelection);
 
-/** 真实状态分支显示上传/解析/核对动作；解析仍显式，空槽位不能请求推荐，核对只导航不写入。 */
+/**
+ *  Real state branch displays upload/parsing/verification actions; parsing remains explicit; empty slots cannot request recommendation; verification only navigates, does not write.
+ */
 async function recommendationGuidance() {
   const empty = await makePage();
   assert.equal(empty.elements.get("recommendation-resume").disabled, true);
@@ -593,7 +709,7 @@ async function recommendationGuidance() {
   assert.match(page.elements.get("recommendation-state").textContent, /^rj_parse_first/);
   const parseEvent = { currentTarget: { id: "recommendation-parse" } };
   const parsing = page.elements.get("recommendation-parse").listeners.click(parseEvent);
-  parseEvent.currentTarget = null; // 模拟原生事件在异步处理返回后清空 currentTarget。
+  parseEvent.currentTarget = null; // Simulate native event clearing currentTarget after asynchronous processing returns.
   await parsing;
   assert.equal(page.elements.get("job-recommendations").scrolled.block, "start");
   assert.equal(page.run("rmEditorBase"), "pdf");
@@ -609,7 +725,9 @@ async function recommendationGuidance() {
 }
 test("recommendation empty and unparsed states expose actionable next steps", recommendationGuidance);
 
-/** 跨版本切换取消时不读写服务端，选择器还原已载入版本，未保存值及就近保存提示保持。 */
+/**
+ *  Cross-version switching cancellation does not read/write server; selector restores loaded version; unsaved values and nearby save prompt remain.
+ */
 async function recommendationUnsaved() {
   const original = record("saved"); original.slots = { skills: ["Python"] };
   const page = await makePage([original, record("other")]);
@@ -618,7 +736,9 @@ async function recommendationUnsaved() {
   await page.run("rmDirty({currentTarget:rmEl('slot-skills')})");
   assert.equal(page.elements.get("recommendation-save").hidden, false);
   assert.equal(page.elements.get("recommend-jobs").disabled, true);
-  /** 模拟取消丢弃，仅作用于本次隔离窗口。 */
+  /**
+ *  Simulate cancel discard; effect applies only to this isolated window.
+ */
   function rejectSwitch() { return false; }
   page.context.window.confirm = rejectSwitch;
   const before = page.requests.length;
@@ -632,7 +752,9 @@ async function recommendationUnsaved() {
 }
 test("recommendation switching protects pending details and offers nearby saving", recommendationUnsaved);
 
-/** 只模拟 REST 与 DOM：切换面板不能丢弃未保存正文或触发保存；真实滚动尺寸需浏览器验证。 */
+/**
+ *  Simulate only REST and DOM: tab panels must not discard unsaved content or trigger save; actual scroll dimensions must be verified by the browser.
+ */
 async function workspaceDraft() {
   const item = record("resume"); item.is_current = true; item.slots = { skills: ["Python"] };
   const page = await makePage([item]);

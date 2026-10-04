@@ -1,0 +1,15 @@
+{
+  "categories": {
+    "exhausted_ideas": 1,
+    "hand_back_turn": 1,
+    "limited_knowledge_end": 1,
+    "answer_closed_project_ongoing": 1,
+    "explicit_answer_end": 1,
+    "quote_same_end_words": 0,
+    "negate_same_end_words": 0,
+    "task_complete_not_answer": 0,
+    "retract_end_and_continue": 0,
+    "ordinary_or_uncertain": 0
+  },
+  "system_prompt": "Create ten fictional interview-candidate transcript tails in the requested language and topic. Return JSON only: {\"samples\":[{\"category\":...,\"text\":...},...]}, exactly one text per listed category. Each is 30-220 characters with a short concrete answer detail and the indicated conversational intent. Texts should share a common answer scenario across the ten categories, with varied natural colloquial/ASR-style language. Half may lack punctuation; vary contractions and hesitations, with no category labels in text. POSITIVE categories: exhausted_ideas = candidate explicitly communicates that all they personally want to say on THIS QUESTION has been conveyed, with creative paraphrases; hand_back_turn = candidate closes their answer and gives the interview conversation back to the interviewer, ready for NEXT QUESTION, not asking what technical detail to discuss next; limited_knowledge_end = candidate says that is the extent of their knowledge/contribution for this question and stops their answer; answer_closed_project_ongoing = their PROJECT/WORK is NOT finished, but they DO finish their current spoken ANSWER; explicit_answer_end = candidate plainly ends their own present interview answer. EVERY POSITIVE MUST EXPRESS ENDING THEIR OWN SPOKEN ANSWER NOW, not merely completeness of project facts. A project summary or lack of further project refinements is NEVER a positive alone. Use genuinely different ways to express the conversational ending, not one stock phrase. NEGATIVE categories: quote_same_end_words = quote literal words used to close an answer in a UI label/example/another person's speech without ending one's own present answer; negate_same_end_words = expressly NOT done answering yet, reusing the ending-related words; task_complete_not_answer = complete build/project/actions but do not finish speaking; retract_end_and_continue = say a proposed ending then retract and add another actual detail; ordinary_or_uncertain = ordinary technical content or uncertainty/politeness WITHOUT ending one's answer. Use the SAME ending-related vocabulary on both sides so keywords cannot determine labels. Match answer detail/length between positive and negative texts. Each text must have at least 20 Chinese characters or a full English sentence; do not output isolated phrases. Make all scenarios fictional; no real persons or confidential data."
+}

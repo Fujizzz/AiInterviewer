@@ -1,28 +1,41 @@
-"""职责：验证真实用户/session/CSRF 与对象权限，使用隔离数据库且不调用外部模型。
+"""Responsibilities: Validate real user/session/CSRF and object permissions using isolated database
+without calling external models.
 
-实现：两名用户交叉访问练习和面试；ASGI 握手及退出后消息校验使用真实 session 表。
-关联：accounts、session_socket、两个历史 API 与 reserve_request；不模拟密码校验或归属查询。
+Implementation: Two users cross-access practice and interview; ASGI handshake and exit message
+validation use real session table.
+Related Modules: accounts, session_socket, two legacy APIs, and reserve_request; do not simulate
+password validation or ownership queries.
 
-目录：
-- AccountTests：HTTP 注册、登录、安全跳转、CSRF 和对象归属测试。
-- AccountTests.setUp：在独立测试事务中创建两名真实用户和两道共享题。
-- AccountTests.test_public_entry_and_protected_routes：匿名主页/账号页可读，业务页面和 API 受保护。
-- AccountTests.test_registration_short_password_and_escaping：
-  一字符密码可注册，哈希保存且用户名转义。
-- AccountTests.test_login_errors_and_safe_next：
-  错误密码不登录，外站 next 不被采用，正确登录可进入面试。
-- AccountTests.test_duplicate_and_empty_registration：重名/空输入明确失败，不创建额外用户。
-- AccountTests.test_csrf_and_logout：真实 CSRF token 才可登录/注销；注销使业务 API 再次拒绝。
-- AccountTests.test_practice_ownership：练习只能由本人查询和修改，共享题库不按用户拆分。
-- AccountTests.test_agent_history_ownership：面试详情/请求/列表都隔离，旧未归属数据不可见。
-- SocketAccountTests：真实数据库 session 下验证 WebSocket 门禁，不调用模型。
-- SocketAccountTests.test_anonymous_and_logout_rejected：
-  匿名拒绝，登录允许，注销阻止已开连接的新消息。
-- SocketAccountTests.test_owner_reserved_before_model：
-  请求预留保存服务器认证用户，跨用户归属被拒绝。
+Declaration Index:
+- AccountTests: HTTP registration, login, secure redirect, CSRF, and object ownership tests.
+- AccountTests.setUp: Create two real users and two shared questions within isolated test
+  transaction.
+- AccountTests.test_public_entry_and_protected_routes: Anonymous homepage/account page readable;
+  business pages and APIs protected.
+- AccountTests.test_registration_short_password_and_escaping: One-character password allowed for
+  registration; hash stored, username
+  escaped.
+- AccountTests.test_login_errors_and_safe_next: Incorrect password does not log in; external next is
+  not accepted; correct login grants access to
+  interview.
+- AccountTests.test_duplicate_and_empty_registration: Duplicate or empty input fails explicitly; no
+  extra users created.
+- AccountTests.test_csrf_and_logout: Valid CSRF token required for login/logout; logout causes
+  business API to reject again.
+- AccountTests.test_practice_ownership: Practice accessible only by owner; shared question bank not
+  split by user.
+- AccountTests.test_agent_history_ownership: Interview details/requests/lists are isolated; old
+  unowned data not visible.
+- SocketAccountTests: Verify WebSocket gatekeeping under real database session, without model
+  invocation.
+- SocketAccountTests.test_anonymous_and_logout_rejected: Anonymous rejected; login allowed; logout
+  blocks new messages on open connection.
+- SocketAccountTests.test_owner_reserved_before_model: Request reservation saves server-side
+  authenticated user; cross-user ownership
+  denied.
 
-关键变量：
-（无模块级变量。）
+Variable Index:
+None
 """
 
 import json
@@ -42,10 +55,14 @@ from interviews.models import PracticeSession, Question
 
 @override_settings(INTERVIEW_REQUIRE_LOGIN=True)
 class AccountTests(TestCase):
-    """在默认测试客户端与显式 CSRF 客户端中验证账号行为，所有写入只发生在临时数据库。"""
+    """Validate account behavior in default test client and explicit CSRF client; all writes occur
+    only in temporary database.
+    """
 
     def setUp(self):
-        """创建真实短密码用户与共享题库；不使用弱哈希替身，不连接供应商。"""
+        """Create real short-password user and shared question bank; do not use weak hash stubs, do
+        not connect to vendors.
+        """
         self.alice = get_user_model().objects.create_user(username="alice", password="a")
         self.bob = get_user_model().objects.create_user(username="bob", password="b")
         Question.objects.all().delete()
@@ -53,7 +70,9 @@ class AccountTests(TestCase):
         Question.objects.create(text="Second shared question", position=2)
 
     def test_public_entry_and_protected_routes(self):
-        """匿名可读主页/表单/共享样式；业务 HTML 跳转而 API 返回 401，静态别名同样保护。"""
+        """Anonymous can read homepage/form/shared styles; business HTML redirects while APIs return
+        401; static aliases also protected.
+        """
         for path in (
             "/",
             "/login/",
@@ -67,7 +86,9 @@ class AccountTests(TestCase):
         self.assertEqual(self.client.get("/stream-demo/agent.html").status_code, 302)
 
     def test_registration_short_password_and_escaping(self):
-        """一字符密码通过；用户名按文本渲染，密码只有标准哈希而非明文，注册后自动登录。"""
+        """One-character password passes; username rendered as text, password hashed via standard
+        algorithm, not plaintext; auto-login after registration.
+        """
         response = self.client.post("/register/", {"username": "<new>", "password": "1"})
         self.assertRedirects(response, "/")
         user = get_user_model().objects.get(username="<new>")
@@ -78,7 +99,9 @@ class AccountTests(TestCase):
         self.assertEqual(self.client.get("/api/health/").status_code, 200)
 
     def test_login_errors_and_safe_next(self):
-        """错误凭据返回 400；next 不可指向外站或账号循环，正确密码可跳转受保护面试页。"""
+        """Invalid credentials return 400; next cannot point to external site or account loop; valid
+        password allows redirect to protected interview page.
+        """
         self.assertEqual(
             self.client.post("/login/", {"username": "alice", "password": "x"}).status_code, 400
         )
@@ -107,7 +130,9 @@ class AccountTests(TestCase):
         )
 
     def test_duplicate_and_empty_registration(self):
-        """用户名重复和空密码均失败；不发送验证码，不创建用户副本。"""
+        """Duplicate username and empty password both fail; no verification code sent, no user
+        duplicates created.
+        """
         before = get_user_model().objects.count()
         for values in (
             {"username": "alice", "password": "1"},
@@ -118,7 +143,9 @@ class AccountTests(TestCase):
         self.assertEqual(get_user_model().objects.count(), before)
 
     def test_csrf_and_logout(self):
-        """真实 Cookie/CSRF 流程验证登录和注销，GET 退出不改变会话；未知 token 不接受。"""
+        """Real Cookie/CSRF flow validated for login/logout; GET exit does not change session;
+        unknown token is rejected.
+        """
         client = Client(enforce_csrf_checks=True)
         client.get("/login/")
         self.assertEqual(
@@ -138,7 +165,9 @@ class AccountTests(TestCase):
         self.assertEqual(client.get("/api/health/").status_code, 401)
 
     def test_practice_ownership(self):
-        """本人可创建/查询场次；另一账号的详情、结束和单题写入均 404，状态版本不变。"""
+        """Owner can create/query sessions; other user's details, end, and single-question writes
+        return 404; state version unchanged.
+        """
         self.client.force_login(self.alice)
         response = self.client.post("/api/sessions/", {}, content_type="application/json")
         self.assertEqual(response.status_code, 201)
@@ -166,7 +195,9 @@ class AccountTests(TestCase):
         self.assertEqual(self.client.get("/api/questions/").json()["count"], 2)
 
     def test_agent_history_ownership(self):
-        """历史及子请求只能由本人读取，未归属旧数据不会被首个注册用户继承。"""
+        """Historical and sub-requests accessible only by owner; unowned old data not inherited by
+        first registered user.
+        """
         own = AgentInterview.objects.create(owner=self.alice)
         other = AgentInterview.objects.create(owner=self.bob)
         AgentInterview.objects.create()
@@ -181,10 +212,14 @@ class AccountTests(TestCase):
 
 @override_settings(INTERVIEW_REQUIRE_LOGIN=True)
 class SocketAccountTests(TransactionTestCase):
-    """用真实提交的 session 行验证异步认证边界；不通过真实网络或调用模型。"""
+    """Verify asynchronous authentication boundaries using real submitted session; no real network
+    used, no model invoked.
+    """
 
     async def test_anonymous_and_logout_rejected(self):
-        """匿名握手拒绝；有效 session 可接收 hello，注销后已开连接的消息被拒绝。"""
+        """Anonymous handshake rejected; valid session accepts hello; after logout, new messages on
+        open connection rejected.
+        """
         scope = {
             "type": "websocket",
             "path": "/ws/echo/",
@@ -212,7 +247,9 @@ class SocketAccountTests(TransactionTestCase):
         await communicator.wait()
 
     async def test_owner_reserved_before_model(self):
-        """请求预留使用服务器 owner_id；另一身份无法在相同面试下追加请求，不触发模型。"""
+        """Request reservation uses server owner_id; another identity cannot append request in same
+        interview; no model triggered.
+        """
         user = await sync_to_async(get_user_model().objects.create_user)(
             username="owner", password="1"
         )

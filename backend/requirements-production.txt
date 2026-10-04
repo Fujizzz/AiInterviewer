@@ -1,4 +1,7 @@
-# 职责：在既有应用依赖上增加 PostgreSQL 驱动；不变更模型或解析库版本。
-# 目录：无函数或类。变量索引：psycopg[binary] 为独立 PostgreSQL 运行驱动。
+# Responsibilities: Add the PostgreSQL driver to the existing application dependencies.
+# Implementation: Include requirements.txt without changing model or parser versions.
+# Related Modules: config.production uses this driver for PostgreSQL connections.
+# Declaration Index: None.
+# Variable Index: psycopg[binary] is the PostgreSQL runtime driver.
 -r requirements.txt
 psycopg[binary]==3.3.3

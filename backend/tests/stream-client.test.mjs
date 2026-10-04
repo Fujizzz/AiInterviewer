@@ -1,43 +1,49 @@
 /**
  * @module stream-client-test
- * 功能：脱离实际网络验证 StreamClient 的载荷校验、超时和主动取消语义。
+ * Purpose: Verify StreamClient's payload validation, timeout, and active cancellation semantics without actual network.
  *
- * 目录：
- * - connectedClient：
- *   创建最小连接替身，让用例只验证客户端状态逻辑。
- * - connectedClient.client.socket.close：
- *   提供不访问网络的关闭替身，使测试仅观察客户端状态。
- * - callback1：
- *   更改载荷最后一个字节，验证哈希校验拒绝且完成计数不增加。
- * - callback2：
- *   验证不存在的序号和缺少 ACK 的二进制消息不能满足等待项。
- * - callback3：
- *   伪造最终累计量，确认客户端不提前标记 finished。
- * - callback4：
- *   将测试用超时设为 10 ms，验证异常只通知一次且清理所有等待项。
- * - callback4.client.onError：
- *   累计错误通知次数，以验证超时只通知一次。
- * - callback5：
- *   主动关闭连接时，验证未完成 Promise 被拒绝，且无重连路径。
+ * Declaration Index:
+ * - connectedClient:
+ *   Create a minimal connected stub to test client state logic only.
+ * - connectedClient.client.socket.close:
+ *   Provide a no-network-access close stub so tests observe only client state.
+ * - callback1:
+ *   Modify the last byte of the payload to verify hash check rejection and that completion count does not increase.
+ * - callback2:
+ *   Verify that messages with non-existent sequence numbers and missing ACKs cannot fulfill pending items.
+ * - callback3:
+ *   Forge final cumulative value to confirm the client does not prematurely mark finished.
+ * - callback4:
+ *   Set test timeout to 10 ms to verify exceptions are notified only once and all pending items are cleaned up.
+ * - callback4.client.onError:
+ *   Count error notifications to verify timeout triggers only once.
+ * - callback5:
+ *   When the connection is closed explicitly, verify uncompleted Promises are rejected and there is no reconnection path.
  *
- * 关键变量：
- * （无模块级变量。）
+ * Variable Index:
+ * None
  *
- * 关键状态说明：
- * 各 test 回调创建独立 client；用例覆盖损坏载荷、错误 ACK、最终计数、超时和主动取消。只改变局部测试参数，不修改生产默认值。
+ * Key State Explanation:
+ * Each test callback creates an independent client; test cases cover corrupted payloads, invalid ACKs, final counts, timeouts, and active cancellation. Only local test parameters are changed, production defaults remain unchanged.
  */
 import assert from "node:assert/strict";
 import test from "node:test";
 import { StreamClient, sha256 } from "../frontend/stream-client.js";
 
-/** 构造仅支持关闭和缓冲状态的连接替身，用于隔离测试客户端状态逻辑。 */
+/**
+ *  Construct a connection stub supporting only close and buffer states for isolating client state logic testing.
+ */
 function connectedClient() {
   const client = new StreamClient("ws://localhost/ws/echo/");
-  client.socket = { /** 提供不访问网络的关闭替身，使测试仅观察客户端状态。 */ close() {}, readyState: 1, bufferedAmount: 0 };
+  client.socket = { /**
+ *  Provide a no-network-access close stub so tests observe only client state.
+ */ close() {}, readyState: 1, bufferedAmount: 0 };
   return client;
 }
 
-/** 更改载荷最后一个字节，验证哈希校验拒绝且完成计数不增加。 */
+/**
+ *  Modify the last byte of the payload to verify hash check rejection and that completion count does not increase.
+ */
 test("frontend rejects corrupted echoed bytes", async () => {
   const client = connectedClient();
   const original = new Uint8Array([1, 2, 3]).buffer;
@@ -47,33 +53,43 @@ test("frontend rejects corrupted echoed bytes", async () => {
   assert.equal(client.verifiedChunks, 0);
 });
 
-/** 验证不存在的序号和缺少 ACK 的二进制消息不能满足等待项。 */
+/**
+ *  Verify that binary messages with non-existent sequence numbers and missing ACKs cannot satisfy pending items.
+ */
 test("frontend rejects missing or incorrect acknowledgement", async () => {
   const client = connectedClient();
   await assert.rejects(client.receive(JSON.stringify({ type: "ack", sequence: 99, bytes: 3, sha256: "wrong" })), /acknowledgement/);
   await assert.rejects(client.receive(new Uint8Array([0, 0, 0, 1, 1]).buffer), /SHA-256/);
 });
 
-/** 伪造最终累计量，确认客户端不提前标记 finished。 */
+/**
+ *  Forge final cumulative value to confirm the client does not prematurely mark finished.
+ */
 test("frontend rejects mismatched final counts", async () => {
   const client = connectedClient();
   await assert.rejects(client.receive(JSON.stringify({ type: "finished", chunk_count: 1, byte_count: 10 })), /counts/);
   assert.equal(client.finished, false);
 });
 
-/** 将测试用超时设为 10 ms，验证异常只通知一次且清理所有等待项。 */
+/**
+ *  Set test timeout to 10 ms to verify exceptions are notified only once and all pending items are cleaned up.
+ */
 test("timeouts reject pending operations and report failure", async () => {
   const client = connectedClient();
   client.timeoutMs = 10;
   let errors = 0;
-  /** 累计错误通知次数，以验证超时只通知一次。 */
+  /**
+ *  Count error notifications to verify timeout triggers only once.
+ */
   client.onError = () => { errors += 1; };
   await assert.rejects(client.waitFor("pong:missing"), /Timed out/);
   assert.equal(errors, 1);
   assert.equal(client.waiters.size, 0);
 });
 
-/** 主动关闭连接时，验证未完成 Promise 被拒绝，且无重连路径。 */
+/**
+ * Verify that explicitly closing a connection rejects unfinished Promises without a reconnection path.
+ */
 test("explicit close rejects pending operations without reconnect", async () => {
   const client = connectedClient();
   const pending = client.waitFor("hello");

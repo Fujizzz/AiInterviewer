@@ -1,18 +1,12 @@
-"""题库种子迁移。使用稳定 UUID 初始化原有两道通用题，保留已有编辑。
-
-目录：
-- seed：
-  功能：向 schema_editor 指定数据库写入两道稳定 ID 的通用题。
-- Migration：
-  依赖初始 schema 后执行种子写入；逆向不删除可能被用户修改的题目。
-
-关键变量：
-- QUESTIONS：
-  既有两道种子题的稳定 UUID、文字与顺序；迁移不覆盖已有记录。
-
-关键状态说明：
-Migration.dependencies 指向初始建表迁移；operations 调用 seed。
-逆向操作采用既有 noop，保留已有题目。
+"""Responsibilities: Seed the two stable default interview questions.
+Implementation: Use historical models and get_or_create so reapplication preserves any existing
+edits; reversal is a no-op.
+Related Modules: The initial interviews schema and Django's migration runner.
+Declaration Index:
+- seed: Insert the stable question identifiers and order into the migration database.
+- Migration: Run the seed function after the initial schema migration.
+Variable Index:
+- QUESTIONS: Stable identifiers and English prompt text for the two initial questions.
 """
 
 from django.db import migrations
@@ -27,8 +21,12 @@ QUESTIONS = [
 
 
 def seed(apps, schema_editor):
-    """功能：向 schema_editor 指定数据库写入两道稳定 ID 的通用题。
-    方法：使用历史模型和 get_or_create，重复应用不覆盖已有内容。"""
+    """Functionality: Insert the two stable default questions into the migration database.
+    Inputs: Historical app registry and schema editor.
+    Outputs: Creates missing question rows with their stable identifiers and positions.
+    Logic: Resolve the historical Question model and use get_or_create.
+    Constraints: Existing rows are preserved; the reverse operation is a no-op.
+    """
     Question = apps.get_model("interviews", "Question")
     for position, (pk, text) in enumerate(QUESTIONS, start=1):
         Question.objects.using(schema_editor.connection.alias).get_or_create(
@@ -37,7 +35,12 @@ def seed(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    """依赖初始 schema 后执行种子写入；逆向不删除可能被用户修改的题目。"""
+    """Functionality: Apply the question seed after the initial schema.
+    Inputs: Prior migration state.
+    Outputs: Runs seed during forward migration.
+    Logic: Declare the initial migration dependency and seed operation.
+    Constraints: Reversal intentionally preserves potentially edited questions.
+    """
 
     dependencies = [("interviews", "0001_initial")]
     # Do not delete potentially edited user questions when this data migration is reversed.

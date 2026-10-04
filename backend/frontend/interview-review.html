@@ -1,19 +1,26 @@
 <!doctype html>
 <!--
-职责：独立面试复盘页面，顶部导航与个人中心并列；仅读取本人已保存面试。
-实现：复用 interview-history.js 的分页和只读详情弹窗，不加载简历管理脚本。
-关联：/interview-review/ 与 demo_asset 登录门禁；API /api/agent-interviews/ 按归属过滤。
-目录：共享顶部导航与语言选择；复盘标题；面试记录列表与分页；滚动详情弹窗；页脚。
-函数/类：None。变量索引：user/request/csrf_token 为 Django 上下文；history-list 为分页卡片，
-history-refresh/history-previous/history-next 显式读取列表；history-dialog/history-detail-body
-展示本人问题、回答与报告，history-close 关闭详情并恢复焦点。
-约束：不编辑资料、恢复面试或调用模型；不在浏览器持久化问答；模型内容以纯文本呈现。
+Responsibilities: Render the current user's standalone interview review page.
+Implementation: interview-history.js loads paginated saved interviews and opens read-only detail dialogs; resume management is not loaded.
+Related Modules: demo_asset protects /interview-review/; /api/agent-interviews/ enforces ownership; workspace-nav.html and i18n.js supply navigation/text.
+Declaration Index:
+None
+Variable Index:
+None
+Template Context:
+user/request/csrf_token serve shared navigation.
+Element Index:
+history-list contains cards; history-refresh/history-previous/history-next explicitly fetch pages; history-dialog/history-detail-body displays saved questions, answers and reports; history-close closes details and restores focus.
+Page Regions:
+Navigation/language selection, review heading, paginated records, scrollable details and footer.
+Constraints:
+There is no editing, interview restoration or model invocation. Question/answer content is plain text and is not persisted in the browser.
 -->
-<html lang="zh-CN" data-page-title="review_page_title">
+<html lang="en" data-page-title="review_page_title">
 <head>
   <meta charset="utf-8"><meta id="csrf-token" name="csrf-token" content="{{ csrf_token }}">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>AI Interviewer · 面试复盘</title>
+  <title>AI Interviewer · Interview review</title>
   <script type="module" src="/stream-demo/i18n.js"></script>
   <script type="module" src="/stream-demo/interview-history.js"></script>
   <link rel="stylesheet" href="/stream-demo/style.css">
@@ -23,15 +30,15 @@ history-refresh/history-previous/history-next 显式读取列表；history-dialo
 <link rel="stylesheet" href="/stream-demo/workspace.css">
 </head>
 <body class="home-page review-page workspace-page">
-  <a class="skip-link" href="#main-content" data-i18n="home_skip">跳转到主要内容</a>
+  <a class="skip-link" href="#main-content" data-i18n="home_skip">Skip to main content</a>
   <div class="home-shell">
     {% include "workspace-nav.html" %}
     <main id="main-content">
-      <header class="review-heading"><h1 data-i18n="review_history">面试复盘</h1><p class="hint" data-i18n="review_hint">查看本人面试的题目、回答、评价和报告。中断或失败的过程也会保留；暂不支持续接。</p></header>
-<section id="interview-history" class="panel" aria-labelledby="history-title"><div class="section-heading"><h2 id="history-title" data-i18n="review_records">面试记录</h2><button id="history-refresh" type="button" class="secondary">刷新</button></div><p id="history-status" role="status" aria-live="polite"></p><div id="history-list" aria-busy="true"></div><div class="pagination"><button id="history-previous" type="button" class="secondary" disabled>上一页</button><span id="history-page"></span><button id="history-next" type="button" class="secondary" disabled>下一页</button></div></section>
-<dialog id="history-dialog" class="history-dialog" aria-labelledby="history-dialog-title"><div class="history-dialog-header"><h2 id="history-dialog-title" data-i18n="review_history">面试复盘</h2><button id="history-close" type="button" class="secondary" data-i18n="review_close">关闭复盘</button></div><div id="history-detail-body" class="history-detail-body" tabindex="0"></div></dialog>
+      <header class="review-heading"><h1 data-i18n="review_history">Interview review</h1><p class="hint" data-i18n="review_hint">Review your questions, answers, evaluations and reports. Interrupted and failed conversations are retained; resuming is not supported yet.</p></header>
+<section id="interview-history" class="panel" aria-labelledby="history-title"><div class="section-heading"><h2 id="history-title" data-i18n="review_records">Interview history</h2><button id="history-refresh" type="button" class="secondary" data-i18n="rm_refresh">Refresh</button></div><p id="history-status" role="status" aria-live="polite"></p><div id="history-list" aria-busy="true"></div><div class="pagination"><button id="history-previous" type="button" class="secondary" data-i18n="rm_previous" disabled>Previous</button><span id="history-page"></span><button id="history-next" type="button" class="secondary" data-i18n="rm_next" disabled>Next</button></div></section>
+<dialog id="history-dialog" class="history-dialog" aria-labelledby="history-dialog-title"><div class="history-dialog-header"><h2 id="history-dialog-title" data-i18n="review_history">Interview review</h2><button id="history-close" type="button" class="secondary" data-i18n="review_close">Close review</button></div><div id="history-detail-body" class="history-detail-body" tabindex="0"></div></dialog>
     </main>
-    <footer class="home-footer"><span>AI Interviewer</span><span data-i18n="home_step_review_text">回顾问答、能力评价和需要补充的证据。</span></footer>
+    <footer class="home-footer"><span>AI Interviewer</span><span data-i18n="home_step_review_text">Review the dialogue, skill assessment, and missing evidence.</span></footer>
   </div>
 </body>
 </html>

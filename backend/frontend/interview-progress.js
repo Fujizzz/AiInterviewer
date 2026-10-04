@@ -1,24 +1,25 @@
 /**
  * @module interview-progress
- * 职责：把已检查的 Agent 快照转换成进度与异常展示；供工作台和个人中心共用。
- * 实现：题数按当前分配减已问题数计算；本地单调时钟推进剩余预算，不发结束命令。
- * 关联：agent.js 只交付已收到的业务包，interview-history.js 读取只读历史 API。
- * 目录：
- * - reviewText：读取中英文展示资源并插值。
- * - reviewTopics：计算话题展示及剩余配额的总题数估计。
- * - InterviewProgress：快照呈现与时钟生命周期协调器。
- * - InterviewProgress.constructor：初始化快照、时钟及去重集合。
- * - InterviewProgress.update：接受业务快照，更新唯一计时器和异常。
- * - InterviewProgress.render：更新进度区纯文本。
- * - InterviewProgress.renderClock：仅更新倒计时，避免重建滚动中的话题列表。
- * - InterviewProgress.freeze：停止计时并冻结估计值。
- * - InterviewProgress.reset：清除页面快照及异常。
- * - InterviewProgress.warn：去重追加固定异常提示。
- * - InterviewProgress.anomalies：读取既有诊断标志。
- * 关键变量：
- * - REVIEW_TEXT：中英文展示资源，不包含模型参数或评分规则。
- * 约束：
- * 无模型调用、重试或持久化；断线后冻结最后估计值；缺失旧数据显示未记录。
+ * Responsibilities: Convert checked Agent snapshots into progress and anomaly display; shared by dashboard and personal center.
+ * Implementation: Number of questions calculated as current assignment minus completed count; monotonic local clock advances remaining budget, no end command sent.
+ * Related Modules: agent.js delivers only received business packages, interview-history.js reads read-only history API.
+ * Declaration Index:
+ * - reviewText: reads bilingual display resources and interpolates.
+ * - reviewTopics: calculates topic display and total estimated question count based on remaining quota.
+ * - InterviewProgress: coordinator between snapshot presentation and clock lifecycle.
+ * - InterviewProgress.constructor: initializes snapshot, clock, and deduplication set.
+ * - InterviewProgress.update: receives business snapshot, updates unique timer and anomalies.
+ * - InterviewProgress.render: updates plain text progress area.
+ * - InterviewProgress.renderClock: updates countdown only, avoids rebuilding scrollable topic list.
+ * - InterviewProgress.freeze: stops timing and freezes estimated values.
+ * - InterviewProgress.reset: clears page snapshot and anomalies.
+ * - InterviewProgress.warn: deduplicates and appends fixed anomaly warning.
+ * - InterviewProgress.anomalies: reads existing diagnostic flags.
+ * Variable Index:
+ * - REVIEW_TEXT: bilingual display resources, excludes model parameters or scoring rules.
+ * Constraints:
+ * No model calls, retries, or persistence; frozen last estimate upon disconnection; missing old data shows as unrecorded.
+ *
  */
 const REVIEW_TEXT = {
   zh: {
@@ -138,14 +139,18 @@ const REVIEW_TEXT = {
     uncertainties: "Uncertainties"
   },
 };
-/** 输入资源键与插值，返回当前界面语言的纯文本；不翻译模型正文。 */
+/**
+ * Given resource key and interpolation, returns plain text in current interface language; does not translate model content.
+ */
 export function reviewText(key, values = {}) {
   let text = REVIEW_TEXT[window.AppI18n?.language() === "en" ? "en" : "zh"][key] ?? key;
   for (const [name, value] of Object.entries(values)) text = text.replaceAll(`{${name}}`, String(value));
   return text;
 }
-/** 输入已检快照，输出展示行与总题数估计；分配为累计目标，已完成/跳过项无剩余配额。
- * 不将计划估计当作保证；旧记录无计划返回 null，不读取内部状态或猜测默认配额。
+/**
+ * Given inspected snapshot, outputs display line and total estimated question count; assignment is cumulative target, completed/skipped items have no remaining quota.
+ * Do not treat plan estimate as guarantee; return null for old records without plan, do not read internal state or guess default quota.
+ *
  */
 export function reviewTopics(snapshot) {
   if (!snapshot?.interview_plan) return null;
@@ -164,18 +169,26 @@ export function reviewTopics(snapshot) {
   const total = count === null || !snapshot.topic_progress ? null : Math.min(plan.max_questions, count + remaining);
   return { rows, count, total, max: plan.max_questions, version: plan.version };
 }
-/** 协调已检业务快照的显示生命周期；不控制后端预算、录音或评分。 */
+/**
+ * Coordinates the display lifecycle of inspected business snapshots; does not control backend budget, recording, or scoring.
+ */
 export class InterviewProgress {
-  /** 无外部参数；初始化快照、单调时钟、定时器及已展示异常集合。 */
+  /**
+ * No external parameters; initializes snapshot, monotonic clock, timer, and set of displayed anomalies.
+ */
   constructor() { this.snapshot = null; this.anchor = null; this.timer = null; this.running = false; this.seen = new Set(); }
-  /** 输入已检 question 或 finished.result；替换快照并启动唯一计时器，扫描固定诊断字段。 */
+  /**
+ * Given inspected question or finished.result; replaces snapshot and starts unique timer, scans fixed diagnostic fields.
+ */
   update(snapshot) {
     this.freeze(); this.snapshot = snapshot; this.anchor = performance.now(); this.running = !!snapshot.interview_state && snapshot.interview_state.status !== "finished" && Number.isFinite(snapshot.interview_state.remaining_seconds);
     this.render();
     if (this.running) this.timer = setInterval(this.renderClock.bind(this), 1000);
     this.anomalies(snapshot);
   }
-  /** 读取实例快照和当前单调时间，更新纯文本进度；不使用服务端 clock_started_at 与客户端时间相减。 */
+  /**
+ * Given instance snapshot and current monotonic time, updates plain text progress; does not subtract client time from server clock_started_at.
+ */
   render() {
     if (!this.snapshot) return;
     const get = document.getElementById.bind(document);
@@ -194,14 +207,18 @@ export class InterviewProgress {
       list.append(item);
     }
   }
-  /** 读取已检剩余秒数与接收时单调时钟；只更新计时文字，不重绘话题或触发网络命令。 */
+  /**
+ * Given remaining seconds and monotonic clock at receipt; updates only countdown text, does not re-render topics or trigger network commands.
+ */
   renderClock() {
     if (!this.snapshot) return;
     const seconds = this.snapshot.interview_state?.remaining_seconds;
     const remaining = Number.isFinite(seconds) ? Math.max(0, Math.ceil(seconds - (this.running ? (performance.now() - this.anchor) / 1000 : 0))) : null;
     document.getElementById("interview-remaining").textContent = remaining === null ? reviewText("unknown") : `${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, "0")}`;
   }
-  /** 清除唯一计时器，并把停止时估计预算固定到快照副本；原始响应不变。 */
+  /**
+ * Clears unique timer and freezes estimated budget to snapshot copy; original response remains unchanged.
+ */
   freeze() {
     if (this.timer !== null) clearInterval(this.timer); this.timer = null;
     if (this.running && this.snapshot?.interview_state) {
@@ -210,16 +227,22 @@ export class InterviewProgress {
     }
     this.running = false; this.render();
   }
-  /** 新面试/清空时清理实例与 DOM；不删除后端历史记录。 */
+  /**
+ * Clears instance and DOM on new interview or reset; does not delete backend history records.
+ */
   reset() { this.freeze(); this.snapshot = null; this.seen.clear(); document.getElementById("interview-progress").hidden = true; document.getElementById("interview-alerts").replaceChildren(); document.getElementById("interview-alert-panel").hidden = true; }
-  /** 输入固定诊断标识和安全文字；去重追加告警，不记录简历、回答或供应商原始异常。 */
+  /**
+ * Given fixed diagnostic identifier and safe text; deduplicates and appends alert, does not record resume, answers, or vendor raw anomalies.
+ */
   warn(key, text) {
     if (this.seen.has(key)) return; this.seen.add(key);
     const item = document.createElement("li"); item.textContent = text;
     document.getElementById("interview-alerts").append(item); document.getElementById("interview-alert-panel").hidden = false;
     console.info("Interview notice", { code: key });
   }
-  /** 输入已检快照；只根据已有失败/超时/备用标志提示，不增加备用策略。 */
+  /**
+ * Given inspected snapshot; only prompts based on existing failure/timeout/backup flags, does not add backup strategy.
+ */
   anomalies(snapshot) {
     for (const log of snapshot.decision_logs ?? []) {
       if (log.fallback_used) this.warn(`fallback:${log.decision_id}`, reviewText("fallback"));

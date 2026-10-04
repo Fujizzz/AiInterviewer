@@ -1,0 +1,156 @@
+{
+  "format": "minilm-mean-l2-logistic-v2",
+  "experiment_id": "semantic-completion-v2-20261003",
+  "base_model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+  "base_revision": "e8f8c211226b894fcb81acc59f3b34ba3efd5f42",
+  "release_approved": true,
+  "inference_batch_size": 1,
+  "sha256": {
+    "encoder.onnx": "d0069d6febe5f16760e756a84b97558c65a4e45d34e01f873e24c4dc5856d065",
+    "tokenizer.json": "2c3387be76557bd40970cec13153b3bbf80407865484b209e655e5e4729076b8",
+    "head.json": "1973549605e678b7b13d2e24c56116bcc1f74a60f0ff4dd00b5e1feaf0619ca5"
+  },
+  "data_sha256": "2be294d2d9cccfef54b3928273f8acbf711f5bd0ffe62bdfb9f1a4f1ec9f2f67",
+  "evaluation": {
+    "validation": {
+      "overall": {
+        "n": 200,
+        "tp": 73,
+        "fn": 0,
+        "fp": 28,
+        "tn": 99,
+        "recall": 1.0,
+        "negative_rejection": 0.7795275590551181,
+        "precision": 0.7227722772277227,
+        "qwen_pass_fraction": 0.505
+      },
+      "zh": {
+        "n": 100,
+        "tp": 42,
+        "fn": 0,
+        "fp": 12,
+        "tn": 46,
+        "recall": 1.0,
+        "negative_rejection": 0.7931034482758621,
+        "precision": 0.7777777777777778,
+        "qwen_pass_fraction": 0.54
+      },
+      "en": {
+        "n": 100,
+        "tp": 31,
+        "fn": 0,
+        "fp": 16,
+        "tn": 53,
+        "recall": 1.0,
+        "negative_rejection": 0.7681159420289855,
+        "precision": 0.6595744680851063,
+        "qwen_pass_fraction": 0.47
+      }
+    },
+    "test": {
+      "overall": {
+        "n": 200,
+        "tp": 76,
+        "fn": 0,
+        "fp": 34,
+        "tn": 90,
+        "recall": 1.0,
+        "negative_rejection": 0.7258064516129032,
+        "precision": 0.6909090909090909,
+        "qwen_pass_fraction": 0.55
+      },
+      "zh": {
+        "n": 100,
+        "tp": 39,
+        "fn": 0,
+        "fp": 16,
+        "tn": 45,
+        "recall": 1.0,
+        "negative_rejection": 0.7377049180327869,
+        "precision": 0.7090909090909091,
+        "qwen_pass_fraction": 0.55
+      },
+      "en": {
+        "n": 100,
+        "tp": 37,
+        "fn": 0,
+        "fp": 18,
+        "tn": 45,
+        "recall": 1.0,
+        "negative_rejection": 0.7142857142857143,
+        "precision": 0.6727272727272727,
+        "qwen_pass_fraction": 0.55
+      }
+    },
+    "challenge": {
+      "overall": {
+        "n": 80,
+        "tp": 39,
+        "fn": 1,
+        "fp": 36,
+        "tn": 4,
+        "recall": 0.975,
+        "negative_rejection": 0.1,
+        "precision": 0.52,
+        "qwen_pass_fraction": 0.9375
+      },
+      "zh": {
+        "n": 40,
+        "tp": 19,
+        "fn": 1,
+        "fp": 17,
+        "tn": 3,
+        "recall": 0.95,
+        "negative_rejection": 0.15,
+        "precision": 0.5277777777777778,
+        "qwen_pass_fraction": 0.9
+      },
+      "en": {
+        "n": 40,
+        "tp": 20,
+        "fn": 0,
+        "fp": 19,
+        "tn": 1,
+        "recall": 1.0,
+        "negative_rejection": 0.05,
+        "precision": 0.5128205128205128,
+        "qwen_pass_fraction": 0.975
+      }
+    },
+    "known_v1_regression": {
+      "overall": {
+        "n": 80,
+        "tp": 40,
+        "fn": 0,
+        "fp": 34,
+        "tn": 6,
+        "recall": 1.0,
+        "negative_rejection": 0.15,
+        "precision": 0.5405405405405406,
+        "qwen_pass_fraction": 0.925
+      },
+      "zh": {
+        "n": 40,
+        "tp": 20,
+        "fn": 0,
+        "fp": 16,
+        "tn": 4,
+        "recall": 1.0,
+        "negative_rejection": 0.2,
+        "precision": 0.5555555555555556,
+        "qwen_pass_fraction": 0.9
+      },
+      "en": {
+        "n": 40,
+        "tp": 20,
+        "fn": 0,
+        "fp": 18,
+        "tn": 2,
+        "recall": 1.0,
+        "negative_rejection": 0.1,
+        "precision": 0.5263157894736842,
+        "qwen_pass_fraction": 0.95
+      }
+    }
+  }
+}

@@ -1,19 +1,27 @@
-"""固定v4-B双向树推理。校验随仓库发布的权重，输出排序分数和资料可用性，不联网下载。
+"""Responsibilities: Run fixed v4-B bidirectional tree inference.
+Implementation: Validate the repository model artifact and return ranking scores with
+data-availability metadata without downloading weights.
+Related Modules: schemas validates request data; features builds the trained feature vector; api
+maps inference failures to HTTP responses.
 
-目录：
-- ModelUnavailable：模型文件、版本或推理异常，交给API映射为503。
-- load_bundle：核验清单、SHA256、输入列数和树数并缓存本地模型。
-- rank_pairs：构造缺失感知特征、批量推理并按指定方向稳定排序。
+Declaration Index:
+- ModelUnavailable: model file, version, or inference anomaly; mapped to 503 via API.
+- load_bundle: verifies manifest, SHA256, input column count, and number of trees, then caches local
+  model.
+- rank_pairs: constructs missing-aware features, batch inference, and stable sort by specified
+  direction.
 
-关键变量：
-- MODEL_ID：唯一接入的实验模型版本。
-- MODEL_DIR：只读模型包的固定目录，HTTP不能指定路径。
-- logger：仅记录版本、请求规模、状态和异常，不记录简历或字段值。
-- _PREDICT_LOCK：进程内串行化模型初始化和推理，避免共享Booster并发访问。
+Variable Index:
+- MODEL_ID: unique access point for experimental model version.
+- MODEL_DIR: fixed read-only model package directory; HTTP cannot specify path.
+- logger: logs only version, request scale, status, and exception, without resume or field values.
+- _PREDICT_LOCK: process-level serialization of model initialization and inference to prevent shared
+  Booster concurrent access.
 
-设计说明：
-schemas负责数据契约，features负责原11维顺序。全NaN配对返回依据不足，
-其余按CPU两线程计算两个原始分数；不归一化、不补零、不切换备用模型、不读取数据库。
+Design Notes:
+schemas handle data contract; features handle original 11-dimensional order. All-NaN pairs return
+insufficient evidence; otherwise, compute two raw scores using CPU dual threads. No normalization,
+no zero-filling, no fallback model switching, no database reading.
 """
 
 import hashlib
@@ -36,16 +44,22 @@ _PREDICT_LOCK = Lock()
 
 
 class ModelUnavailable(RuntimeError):
-    """功能：表示本地模型不可用；逻辑：API转换503并记录原因；约束：不触发重试或替代评分。"""
+    """Function: indicates local model unavailable; logic: maps to 503 via API and logs cause;
+    constraint: does not trigger retry or alternative scoring.
+    """
 
 
 @lru_cache(maxsize=1)
 def load_bundle() -> tuple:
-    """功能：读取固定模型包；输入固定MODEL_DIR及安装版本，输出manifest和pref/qual两个Booster。
+    """Function: reads fixed model bundle; inputs fixed MODEL_DIR and installed version, outputs
+    manifest and two Boosters (pref/qual).
 
-    逻辑：先校验清单及字节哈希，再加载并核对11维、100/20棵树；成功结果进程内缓存。
-    约束：调用方持有推理锁；文件/格式/库错误记录异常并抛ModelUnavailable；不联网或修复文件。
-    缓存生效后更新模型需要重启进程，不支持请求级切换。
+    Logic: first verify manifest and byte hash, then load and confirm 11 dimensions and 100/20
+    trees; successful result cached in-process.
+    Constraints: caller holds inference lock; file/format/library errors logged and raise
+    ModelUnavailable; no network or file repair.
+    After cache activation, updating model requires process restart; no request-level switching
+    supported.
     """
     try:
         manifest = json.loads((MODEL_DIR / "manifest.json").read_text(encoding="utf-8"))
@@ -76,12 +90,17 @@ def load_bundle() -> tuple:
 
 
 def rank_pairs(pairs: list[tuple[CandidateInput, JobInput]], direction: str) -> dict:
-    """功能：对一个查询的候选池排序；输入验证后的配对列表和jobs/candidates方向，输出JSON字典。
+    """Function: ranks candidate pool for a query; inputs validated pair list and jobs/candidates
+    direction, outputs JSON dictionary.
 
-    逻辑：可用特征大于零的行才推理；两模型原始分数都返回，按pref或qual降序稳定排序。
-    全NaN行最后返回，rank和分数为None并标记insufficient_evidence；同分保持请求次序。
-    约束：上游保证1至100行且查询身份一致；未知方向/溢出抛ValueError，推理失败抛ModelUnavailable。
-    仅记录统计日志，无数据库写入；available_feature_count不代表置信度，排名不是招聘决策。
+    Logic: only infer rows with available features > 0; return both model raw scores, sorted
+    descending by pref or qual.
+    All-NaN rows returned last, with rank and score as None and marked insufficient_evidence; ties
+    preserve request order.
+    Constraints: upstream guarantees 1 to 100 rows and consistent query identity; unknown direction
+    or overflow raises ValueError; inference failure raises ModelUnavailable.
+    Only log statistics; no database write; available_feature_count does not indicate confidence;
+    ranking is not a hiring decision.
     """
     if direction not in ("jobs", "candidates") or not pairs:
         raise ValueError("Invalid recommendation direction or empty pool")

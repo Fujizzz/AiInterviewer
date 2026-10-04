@@ -1,16 +1,12 @@
-"""职责：为简历版本新增独立编辑稿的来源关系、单元文本和用户确认推荐槽位。
-实现：旧记录的来源为空、JSON 字段为空字典；不推断旧资料或改写原件/提取正文。
-关联：ResumeVersion、resume_editor 与本人版本 API；依赖 0008。
-目录：
-- Migration：添加来源关系和编辑内容字段，逆迁移删除新增列。
-关键变量：
-（无模块级变量。）
-
-配置说明：
-Migration.dependencies 规定顺序；operations 添加两个 PROTECT 自关联与两个 JSON 列。
-
-约束：
-逆迁移会丢失编辑结构/来源元数据；编辑稿 text 仍在原有列，不进行模型调用或训练改动。
+"""Responsibilities: Add derived resume edition metadata, editable units, and user-confirmed
+recommendation slots.
+Implementation: Add protected self-references and JSON fields with empty defaults; existing records
+are not inferred or rewritten.
+Related Modules: ResumeVersion, resume_editor, and the owner-scoped version API.
+Declaration Index:
+- Migration: Add edition source relationships and structured edit fields.
+Variable Index:
+None
 """
 
 import django.db.models.deletion
@@ -18,7 +14,12 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    """功能：添加编辑快照元数据；逻辑：默认不回填；约束：保护原件与基线被引用时的删除。"""
+    """Functionality: Add structured resume edition source and edit metadata.
+    Inputs: ResumeVersion schema from migration 0008.
+    Outputs: Adds protected self-relations and JSON fields for units and recommendation slots.
+    Logic: Apply the declared AddField operations.
+    Constraints: No historical values are inferred; reverse migration removes the added metadata.
+    """
 
     dependencies = [
         ("interviews", "0008_resume_extraction_mode"),

@@ -1,16 +1,15 @@
-"""统一主页与开发测试页的资源交付模块，供 config.urls 的页面和资源路由复用。
+"""Responsibilities: Serve the unified homepage, development pages, and explicitly allowed frontend
+assets.
+Implementation: Read only ASSETS entries, render HTML through Django templates with account
+navigation/CSRF context, and disable caching.
+Related Modules: config.urls routes pages and assets here; frontend and diagnostics directories
+provide the allowlisted files.
 
-实现：按 ASSETS 白名单读取 frontend、数字人 dist 构建及 diagnostics 内文件，
-HTML 通过 Django 模板加入账号导航与 CSRF token，其他资源返回明确类型和禁止缓存响应。
-个人中心、复盘与版本面试页无论本地门禁设置如何都要求登录，静态 HTML 别名执行相同校验。
+Declaration Index:
+- demo_asset: Serve an allowlisted resource and prohibit HTTP caching.
 
-目录：
-- demo_asset：
-  返回白名单资源，并显式禁止 HTTP 缓存。
-
-关键变量：
-- ASSETS：
-  允许通过静态资源接口读取的文件名白名单，排除 .env 等秘密文件。
+Variable Index:
+- ASSETS: Allowlist of static resource filenames; secret files such as .env are excluded.
 """
 
 from pathlib import Path
@@ -54,12 +53,15 @@ ASSETS = {
 
 
 def demo_asset(request, name):
-    """返回白名单资源，并显式禁止 HTTP 缓存。
+    """Serve an allowlisted resource without HTTP caching.
 
-    参数：request 为 Django 请求；name 为单一资源名，不是可遍历的相对路径。
-    方法：先检查白名单；个人中心/复盘/面试 HTML 未登录跳转 /login/，HTML 渲染已转义账号上下文。
-    返回：HttpResponse 或登录重定向；不在白名单中或资源/构建不存在时抛出 Http404。
-    副作用：只读应用资源；不读取或持久化媒体数据。
+    Inputs are a Django request and one resource filename, never a traversable path. Check the
+    allowlist first; redirect
+    anonymous users from account, review, and interview HTML pages to /login/. Render HTML with
+    escaped account context.
+    Return HttpResponse or a login redirect; missing allowlisted assets/builds raise Http404. Read
+    application assets only,
+    without reading or persisting media data.
     """
     if name not in ASSETS:
         raise Http404

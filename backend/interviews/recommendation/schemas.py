@@ -1,26 +1,33 @@
-"""推荐接口的严格输入契约。将JSON省略/null保留为未知，不猜测简历未提供的属性。
+"""Responsibilities: Define strict input contracts for recommendation requests.
+Implementation: Preserve null or omitted JSON fields as unknown; do not infer values absent from the
+supplied resume data.
+Related Modules: recommendation.api validates requests with these schemas; features consumes the
+validated values.
 
-目录：
-- Profile：所有输入对象的严格校验基类。
-- CandidateInput：候选人可选资料，数值单位沿用训练协议。
-- JobInput：岗位可选要求；明确空技能要求仍按训练约束拒绝。
-- JobsRequest：一个候选人与一个有界岗位列表。
-- JobsRequest.unique_jobs：拒绝同一请求重复岗位ID。
-- CandidatesRequest：一个岗位与一个有界候选人列表。
-- CandidatesRequest.unique_candidates：拒绝同一请求重复候选人ID。
+Declaration Index:
+- Profile: strict validation base class for all input objects.
+- CandidateInput: optional candidate data, with units following training protocol.
+- JobInput: optional job requirements; explicitly empty skill requirements still rejected per
+  training constraints.
+- JobsRequest: one candidate and bounded list of jobs.
+- JobsRequest.unique_jobs: rejects duplicate job IDs within same request.
+- CandidatesRequest: one job and bounded list of candidates.
+- CandidatesRequest.unique_candidates: rejects duplicate candidate IDs within same request.
 
-关键变量：
-- MAX_ITEMS：一次排序最多100个对象，是HTTP资源上限而非模型阈值。
-- Text：包含非空白内容的原样字符串，保留大小写和空格。
-- Number：有限且非负的严格数值，不接受布尔或数字字符串。
-- Count：有限且非负的严格整数。
-- Names：最多256个原样字符串的列表；空列表表示明确为空。
-- AcademicLevel：原实验的11个学业阶段代码，不映射产品seniority。
-- WorkMode：原始数据的工作方式类别，No Preference仍按类别精确匹配。
+Variable Index:
+- MAX_ITEMS: maximum 100 objects per sort, HTTP resource limit, not model threshold.
+- Text: original string with non-whitespace content, preserving case and spaces.
+- Number: strict finite non-negative numeric value; rejects boolean or numeric strings.
+- Count: strict finite non-negative integer.
+- Names: list of up to 256 original strings; empty list means explicitly empty.
+- AcademicLevel: 11 original academic stage codes from experiment, not mapped to product seniority.
+- WorkMode: original work mode category; No Preference still matched exactly by category.
 
-关键状态说明：
-Profile.model_config拒绝额外字段、类型强转和非有限数；所有可选资料默认None。
-majors合并原实验的本科/第二/硕士已知专业，空列表和未知分开。
+Key State Notes:
+Profile.model_config rejects extra fields, type coercion, and non-finite numbers; all optional data
+defaults to None.
+majors merge original undergraduate/second/master known majors; empty list and unknown are kept
+separate.
 """
 
 from typing import Annotated, Literal
@@ -39,19 +46,23 @@ WorkMode = Literal["In Person", "Online", "No Preference", "Hybrid"]
 
 
 class Profile(BaseModel):
-    """功能：统一严格校验；输入JSON对象，输出类型化资料；额外字段和非法类型抛ValidationError。
+    """Function: unified strict validation; inputs JSON object, outputs typed data; extra fields and
+    invalid types raise ValidationError.
 
-    逻辑：拒绝NaN/Infinity，HTTP未知必须为null；无数据库、网络或日志副作用。
+    Logic: rejects NaN/Infinity; HTTP unknown must be null; no database, network, or logging side
+    effects.
     """
 
     model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
 
 
 class CandidateInput(Profile):
-    """功能：描述一名候选人；输入ID及可选资料，输出验证对象。
+    """Function: describes a candidate; inputs ID and optional data, outputs validated object.
 
-    逻辑：省略资料保留None；明确0/false/空列表保留；约束：月/小时/GPA单位由调用者确认，
-    不从技能或项目推断学历、经验和工作偏好，不自动填补或缩放GPA。
+    Logic: omitted data preserved as None; explicit 0/false/empty list preserved; constraint:
+    month/hour/GPA units confirmed by caller,
+    no inference of education, experience, or work preference from skills or projects, no automatic
+    GPA filling or scaling.
     """
 
     candidate_id: Text
@@ -69,10 +80,12 @@ class CandidateInput(Profile):
 
 
 class JobInput(Profile):
-    """功能：描述一个岗位；输入ID及可选要求，输出验证对象。
+    """Function: describes a job; inputs ID and optional requirements, outputs validated object.
 
-    逻辑：未知要求不解释为无要求；约束：required_skills可未知但已知时不可为空，
-    所有数值采用训练单位，不将seniority等其他业务标签映射到学业阶段。
+    Logic: unknown requirements not interpreted as no requirements; constraint: required_skills may
+    be unknown but must not be empty if known,
+    all numerical values use training units; no mapping of other business tags like seniority to
+    academic level.
     """
 
     job_id: Text
@@ -89,28 +102,36 @@ class JobInput(Profile):
 
 
 class JobsRequest(Profile):
-    """功能：岗位排序请求；输入一人和1至100个岗位；输出有序候选池契约，不做数据库查询。"""
+    """Function: job ranking request; inputs one person and 1 to 100 jobs; outputs ordered candidate
+    pool contract, without database query.
+    """
 
     candidate: CandidateInput
     jobs: Annotated[list[JobInput], Field(min_length=1, max_length=MAX_ITEMS)]
 
     @model_validator(mode="after")
     def unique_jobs(self):
-        """功能：验证岗位ID唯一；输入已验证实例，输出self；重复抛ValueError，无去重副作用。"""
+        """Function: validates job ID uniqueness; inputs validated instance, outputs self;
+        duplicates raise ValueError, no deduplication side effect.
+        """
         if len({job.job_id for job in self.jobs}) != len(self.jobs):
             raise ValueError("Duplicate job IDs are not allowed")
         return self
 
 
 class CandidatesRequest(Profile):
-    """功能：候选人排序请求；输入一岗和1至100人；输出有序候选池契约，不读取面试记录。"""
+    """Function: candidate ranking request; inputs one job and 1 to 100 people; outputs ordered
+    candidate pool contract, without reading interview records.
+    """
 
     job: JobInput
     candidates: Annotated[list[CandidateInput], Field(min_length=1, max_length=MAX_ITEMS)]
 
     @model_validator(mode="after")
     def unique_candidates(self):
-        """功能：验证候选人ID唯一；输入已验证实例，输出self；重复抛ValueError，不静默合并。"""
+        """Function: validates candidate ID uniqueness; inputs validated instance, outputs self;
+        duplicates raise ValueError, no silent merging.
+        """
         if len({candidate.candidate_id for candidate in self.candidates}) != len(self.candidates):
             raise ValueError("Duplicate candidate IDs are not allowed")
         return self

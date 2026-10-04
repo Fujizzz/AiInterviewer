@@ -1,31 +1,49 @@
-"""阶段事件、预解析缓存与先行评分的离线回归；真实 Agent 配合显式 FixtureLLM。
+"""Responsibilities: Verify preparation events, prepared-result reuse, early scoring, and failure
+handling in the Agent protocol.
 
-实现：通过 ASGI 通道验证顺序、关联、失效和取消；用事件屏障证明报告未完成时评分已送达。
-关联：复用 agent_socket、AgentSession 与固定测试数据；TransactionTestCase 隔离持久化数据库。
-目录：
-- connect：建立本机同源测试连接并验证能力公告。
-- read：读取一条 JSON 事件，超时或非文本响应直接失败。
-- send_command：发送显式订阅事件的唯一命令，返回请求 ID。
-- collect_until：收集请求内事件直到指定终态，验证关联且拒绝意外错误。
-- disconnect：断开并等待 ASGI 任务完成。
-- ProgressTests：验证预解析、评分提前交付与错误边界，不调用实际供应商。
-- ProgressTests.test_prepare_reuse_and_original_result：预解析不出题，相同文本开始时仅解析一次。
-- ProgressTests.test_changed_resume_and_separate_connection：文本变更及新连接均不能复用旧资料。
-- ProgressTests.test_prepare_duplicate_and_answer_before_start：预解析阶段拒绝重复请求和提前回答。
-- ProgressTests.test_score_arrives_before_blocked_report：通过报告屏障验证先行评分及终态一致。
-- ProgressTests.test_score_arrives_before_blocked_report.block_report：
-  仅阻塞有模型的文字生成，数值计算保持真实。
-- ProgressTests.test_cancel_during_prepare：预解析期间可取消，任务清理且没有 prepared 结果。
-- ProgressTests.test_cancel_during_prepare.block_parse：阻塞解析并以 finally 记录取消传递。
-- ProgressTests.test_parse_failure_is_explicit：解析失败不发完成事件、不缓存成功、不泄露正文。
-- ProgressTests.test_parse_failure_is_explicit.fail_parse：注入含敏感标记异常供脱敏检查。
-- ProgressTests.test_report_fallback_is_visible：既有摘要回退被明确标记，数值与预算不变。
-- ProgressTests.test_report_fallback_is_visible.fail_report：
-  只让报告模型抛错，其他 schema 使用原 fixture。
-关键变量：
-（无模块级变量。）
-约束：
-fixture 结果不能证明真实模型速度、准确性或供应商取消；测量的是协议事件的先后。
+Implementation: Exercise the real ASGI handler and Agent state machine with FixtureLLM, then use
+barriers to assert event ordering and cancellation. The fixtures do not measure a live provider.
+Related Modules: interviews.agent_socket, interviews.agent_session, app.parsing.resume,
+app.reporting.final_report, and .agent_fixtures.
+Constraints: Fixture results cannot establish provider speed, accuracy, or remote cancellation
+behavior; assertions cover local protocol events and state transitions only.
+
+Declaration Index:
+- connect: Establish native same-origin ASGI connection, precisely validate complete announcement
+  including MCP, return unclosed channel.
+- read: Read one JSON event; timeout or non-text response causes immediate failure.
+- send_command: Send unique command for explicit subscription event, return request ID.
+- collect_until: Collect events within request until specified terminal state, verify association
+  and reject unexpected errors.
+- disconnect: Disconnect and wait for ASGI task completion.
+- ProgressTests: Validate pre-parsing, early scoring delivery, and error boundaries, without
+  invoking actual supplier.
+- ProgressTests.test_prepare_reuse_and_original_result: Pre-parsing does not trigger question
+  generation; same text starts parsing only
+  once.
+- ProgressTests.test_changed_resume_and_separate_connection: Text change and new connection both
+  prevent reuse of old materials.
+- ProgressTests.test_prepare_duplicate_and_answer_before_start: Pre-parsing stage rejects duplicate
+  requests and premature answers.
+- ProgressTests.test_score_arrives_before_blocked_report: Verify early scoring and terminal
+  consistency via report barrier.
+- ProgressTests.test_score_arrives_before_blocked_report.block_report:
+  Only blocks text generation with model, numerical computation remains real.
+- ProgressTests.test_cancel_during_prepare: Cancellation possible during prepare phase, task cleaned
+  up with no prepared result.
+- ProgressTests.test_cancel_during_prepare.block_parse: Blocks parsing and records cancellation via
+  finally.
+- ProgressTests.test_parse_failure_is_explicit: Parsing failure does not emit completion event, no
+  success caching, no content leakage.
+- ProgressTests.test_parse_failure_is_explicit.fail_parse: Inject sensitive-marked exception for
+  desensitization check.
+- ProgressTests.test_report_fallback_is_visible: Existing summary fallback explicitly marked,
+  numerical values and budget unchanged.
+- ProgressTests.test_report_fallback_is_visible.fail_report:
+  Only let report model throw error, other schema uses original fixture.
+
+Variable Index:
+None
 """
 
 import asyncio
@@ -46,7 +64,11 @@ from .agent_fixtures import ANSWER, RESUME, FixtureLLM, SafetyTestMixin, complet
 
 
 async def connect():
-    """无需外部参数；建立本机同源 ASGI 连接，验证 hello，返回待显式关闭的 communicator。"""
+    """No external parameters required; establish same-origin ASGI connection, precisely validate
+    complete announcement including MCP, return unclosed channel.
+    This helper function still uses original business commands; MCP handshake/tool execution
+    independently verified by test_answer_completion.
+    """
     comm = ApplicationCommunicator(
         agent_socket,
         {
@@ -60,24 +82,38 @@ async def connect():
     await comm.send_input({"type": "websocket.connect"})
     assert (await comm.receive_output())["type"] == "websocket.accept"
     hello = await read(comm)
-    assert hello["capabilities"] == ["prepare", "progress", "assessment"]
+    assert hello["capabilities"] == [
+        "prepare",
+        "progress",
+        "assessment",
+        "answer_completion_mcp",
+        "early_finish",
+        "discard",
+        "skip",
+    ]
     return comm
 
 
 async def read(comm):
-    """输入测试通道，返回下一条 JSON；3 秒仅为测试断言边界，不改变生产超时。"""
+    """Input test channel, return next JSON; 3 seconds is only for testing assertion boundaries,
+    does not change production timeout.
+    """
     return json.loads((await comm.receive_output(timeout=3))["text"])
 
 
 async def send_command(comm, kind, **fields):
-    """输入通道、命令类型及字段；默认订阅事件，允许显式 request_id 用于重复请求测试。"""
+    """Input channel, command type, and fields; default subscribes to events, allows explicit
+    request_id for duplicate request testing.
+    """
     payload = {"type": kind, "request_id": str(uuid4()), "progress_events": True, **fields}
     await comm.send_input({"type": "websocket.receive", "text": json.dumps(payload)})
     return payload["request_id"]
 
 
 async def collect_until(comm, kind, request_id):
-    """读取同一 request_id 的事件直到指定类型并返回列表；错误、串请求或无限事件均失败。"""
+    """Read events with the same request_id until specified type and return list; errors,
+    interleaved requests, or infinite events all fail.
+    """
     events = []
     for _ in range(20):
         event = await read(comm)
@@ -90,16 +126,22 @@ async def collect_until(comm, kind, request_id):
 
 
 async def disconnect(comm):
-    """输入通道，发送断开并等待本地清理；不请求取消真实供应商，返回无。"""
+    """Input channel, send disconnect and wait for local cleanup; does not request cancellation from
+    real vendor, returns nothing.
+    """
     await comm.send_input({"type": "websocket.disconnect", "code": 1000})
     await comm.wait()
 
 
 class ProgressTests(SafetyTestMixin, TransactionTestCase):
-    """固定模型与真实状态机组成协议测试；使用隔离测试数据库，不等价于真实 API 验证。"""
+    """Fixed model combined with real state machine forms protocol test; uses isolated test
+    database, not equivalent to real API validation.
+    """
 
     async def test_prepare_reuse_and_original_result(self):
-        """prepare 仅解析一次；start 精确复用、只生成首题，验证阶段与原有预算。"""
+        """prepare only parses once; start precisely reuses, generates only first question,
+        validates during verification phase with original budget.
+        """
         llm = FixtureLLM()
         with patch("interviews.agent_session.BackendLLM", return_value=llm):
             comm = await connect()
@@ -129,7 +171,9 @@ class ProgressTests(SafetyTestMixin, TransactionTestCase):
             self.assertTrue(llm.closed)
 
     async def test_changed_resume_and_separate_connection(self):
-        """相同文本在当前连接复用，改变文本或打开新连接都必须重新解析，不能串缓存。"""
+        """Same text reused within current connection; changing text or opening new connection
+        requires re-parsing, no cross-caching allowed.
+        """
         llm = FixtureLLM()
         with patch("interviews.agent_session.BackendLLM", return_value=llm):
             comm = await connect()
@@ -151,7 +195,9 @@ class ProgressTests(SafetyTestMixin, TransactionTestCase):
                 await disconnect(comm)
 
     async def test_prepare_duplicate_and_answer_before_start(self):
-        """prepared 不是已开始面试；重复 UUID 和提前回答被拒绝，不增加模型调用。"""
+        """prepared does not mean interview has started; repeated UUIDs and early answers rejected,
+        no additional model calls made.
+        """
         llm = FixtureLLM()
         with patch("interviews.agent_session.BackendLLM", return_value=llm):
             comm = await connect()
@@ -167,11 +213,15 @@ class ProgressTests(SafetyTestMixin, TransactionTestCase):
                 await disconnect(comm)
 
     async def test_score_arrives_before_blocked_report(self):
-        """人为阻塞报告文字，要求先收到相同确定性评分；释放后完整报告及预算仍正确。"""
+        """Artificially block report text, requiring receipt of same deterministic score first;
+        after release, full report and budget remain correct.
+        """
         release = asyncio.Event()
 
         async def block_report(context, history, *, llm=None):
-            """输入原始报告参数；只在 llm 非空时等待屏障，再委派真实数值与文字报告流程。"""
+            """Input raw report parameters; only wait on barrier if llm is non-empty, then delegate
+            real value and text report process.
+            """
             if llm is not None:
                 await release.wait()
             return await build_final_report(context, history, llm=llm)
@@ -207,11 +257,15 @@ class ProgressTests(SafetyTestMixin, TransactionTestCase):
                 await disconnect(comm)
 
     async def test_cancel_during_prepare(self):
-        """解析屏障未完成时取消连接，验证取消传入解析协程且没有 prepared 成功响应。"""
+        """Cancel connection if parse barrier not completed, verify cancellation passed into parse
+        coroutine and no successful prepared response received.
+        """
         stopped = asyncio.Event()
 
         async def block_parse(*args, **kwargs):
-            """输入模拟解析参数；持续等待直到被取消，finally 设置清理标记，无返回资料。"""
+            """Input simulated parse parameters; continuously wait until cancelled, finally set
+            cleanup flag, no return data.
+            """
             try:
                 await asyncio.Event().wait()
             finally:
@@ -234,10 +288,14 @@ class ProgressTests(SafetyTestMixin, TransactionTestCase):
             self.assertTrue(llm.closed)
 
     async def test_parse_failure_is_explicit(self):
-        """解析异常保留失败语义，禁止发完成事件或泄露候选人正文，关闭失败连接。"""
+        """Parse exceptions preserve failure semantics, prohibit sending completion events or
+        leaking candidate content, close failed connections.
+        """
 
         async def fail_parse(*args, **kwargs):
-            """输入任意测试解析参数，抛出带敏感标记的异常；不产生可缓存候选人资料。"""
+            """Input any test parse parameters, raise exception with sensitive marker; no cacheable
+            candidate data produced.
+            """
             raise ValueError("private-resume-marker")
 
         with (
@@ -257,11 +315,15 @@ class ProgressTests(SafetyTestMixin, TransactionTestCase):
         self.assertNotIn("private-resume-marker", " ".join(captured.output))
 
     async def test_report_fallback_is_visible(self):
-        """报告模型错误由原有报告函数回退，后端明确标记而非伪称文字模型成功。"""
+        """Report model errors fall back to original report function; backend explicitly marks
+        failure rather than falsely claiming text model success.
+        """
         fixture = FixtureLLM()
 
         def fail_report(prompt, data, schema):
-            """仅 ReportNarrative 抛出测试异常；其他调用保持确定性数据与真实 Agent 决策。"""
+            """Only ReportNarrative raises test exceptions; other calls maintain deterministic data
+            and real Agent decisions.
+            """
             if schema is ReportNarrative:
                 raise RuntimeError("private-report-marker")
             return fixture(prompt, data, schema)

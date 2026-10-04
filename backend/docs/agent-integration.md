@@ -52,7 +52,8 @@ python -m uvicorn config.asgi:application --host 127.0.0.1 --port 8765 --ws webs
 面试页面只调用 start，以版本 UUID 绑定后端输入；语义解析、规划和出题按既有流程执行。
 逐题回答时显示真实处理阶段与实际等待秒数；最后一轮先展示数值评分，再补齐报告文字。
 后端仍支持独立客户端的互斥 resume_text/resume_version_id 输入及 prepare 协议，页面不重复维护个人资料。
-尚未提供语音识别或语音输出。
+语音识别、问题朗读和独立回答结束检测已接入网页；结束检测的配置、失败语义和同连接 MCP
+协议见[独立回答结束检测](answer-completion.md)。
 
 ## 会话与参数
 
@@ -69,7 +70,7 @@ python -m uvicorn config.asgi:application --host 127.0.0.1 --port 8765 --ws webs
 ## 实际协议
 
 连接后收到 `hello`，包含 `connection_id`、`max_message_bytes`、`seconds_per_question`
-和 `capabilities: ["prepare", "progress", "assessment"]`。
+和 `capabilities: ["prepare", "progress", "assessment", "answer_completion_mcp"]`。
 每条客户端命令必须携带唯一 UUID `request_id`。以下 `<UUID>` 是占位符，测试时须替换为实际 UUID。
 
 以下旧客户端示例省略 `progress_events`，仍只收到 started 和原有结果事件。

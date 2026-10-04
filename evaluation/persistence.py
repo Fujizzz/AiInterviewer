@@ -38,14 +38,23 @@ def scoring_history(interview_id, records):
     return latest.inputs.history, latest.snapshot.snapshot_id
 
 
-def failure_codes(processed_feedback_ids, records):
-    """Failures/gaps remain blocking until explicitly reassessed in a later phase."""
+def failure_codes(processed_feedback_ids, records, *, unobserved_feedback_ids=()):
+    """Block failures and rollout gaps, excluding committed intentional no-answer turns.
+
+    An actual failed receipt always wins over a no-answer marker. Missing ordinary
+    evaluations remain blocking; a pruned history alone never proves an intentional skip.
+    """
     indexed = {r.input.request_id: r for r in records}
+    unobserved = set(unobserved_feedback_ids)
     return tuple(
         sorted(
             f"unassessed_feedback:{request_id}"
             for request_id in processed_feedback_ids
-            if request_id not in indexed or indexed[request_id].scored.evaluation.status == "failed"
+            if (
+                request_id not in indexed and request_id not in unobserved
+            ) or (
+                request_id in indexed and indexed[request_id].scored.evaluation.status == "failed"
+            )
         )
     )
 
@@ -145,7 +154,11 @@ def validate_record(record, *, stored, prior, question, answer, feedback):
             or inputs.supersedes_snapshot_id != previous
             or inputs.reevaluation_reason != ("new_answer" if previous else None)
             or inputs.evaluation_failure_codes
-            != failure_codes(stored.processed_feedback_ids, prior)
+            != failure_codes(
+                stored.processed_feedback_ids,
+                prior,
+                unobserved_feedback_ids=stored.unobserved_feedback_ids,
+            )
         ):
             raise InvalidAgentState("Evaluation must extend the complete committed ledger")
         try:

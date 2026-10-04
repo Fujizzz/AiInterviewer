@@ -1,16 +1,21 @@
-"""从已验证资料构造固定11维v4输入。只使用实际提供的字段，不依赖研究目录或pandas。
+"""Responsibilities: Construct the fixed 11-dimensional v4 feature input from validated data.
+Implementation: Use only fields supplied by the request; convert missing numeric values to NaN and
+preserve the trained feature order.
+Related Modules: schemas validates raw values; runtime calls build_features before model inference.
 
-目录：
-- margin：双方数值已知时计算候选人减岗位要求。
-- build_features：按原实验顺序构造float32数组及可核对的缺失信息。
+Declaration Index:
+- margin: calculates candidate minus job requirement when both values are known.
+- build_features: constructs float32 arrays and verifiable missing information in original
+  experimental order.
 
-关键变量：
-- FEATURE_NAMES：v4-B固定输入列名和顺序。
-- LEVELS：与训练相同的学业阶段编码。
+Variable Index:
+- FEATURE_NAMES: fixed column names and order for v4-B input.
+- LEVELS: academic level encoding consistent with training.
 
-设计说明：
-schemas验证原始类型；本层将None转NaN，runtime处理推理。
-技能/专业/行业保持原样精确匹配，不添加大小写归一化或同义词扩展。
+Design Notes:
+schemas validate raw types; this layer converts None to NaN, with runtime handling inference.
+Skills, specialties, and industries remain exact matches without case normalization or synonym
+expansion.
 """
 
 import numpy as np
@@ -46,16 +51,22 @@ LEVELS = {
 
 
 def margin(candidate: float | None, requirement: float | None) -> float:
-    """功能：计算余量；输入双方数值，输出差或NaN；任一未知时不填零，无外部副作用。"""
+    """Function: computes margin; inputs two numeric values, outputs their difference or NaN; never
+    fills zero if either is unknown, with no side effects.
+    """
     return np.nan if candidate is None or requirement is None else candidate - requirement
 
 
 def build_features(candidate: CandidateInput, job: JobInput) -> np.ndarray:
-    """功能：生成一行11维输入；输入严格校验后的候选人与岗位，输出float32数组。
+    """Function: generates a single 11-dimensional input row; inputs strictly validated candidate
+    and job, outputs a float32 array.
 
-    逻辑：四项匹配、六项余量和暑期投入；任一必要来源未知时保持NaN。
-    约束：已知空技能/专业列表对应零匹配；未知不是零；无归一化、ID特征或面试信息。
-    极端有限输入溢出float32时抛ValueError，不返回无穷特征。
+    Logic: four matchings, six margins, and summer engagement; maintains NaN if any required source
+    is unknown.
+    Constraints: known empty skill/specialty lists correspond to zero matching; unknown is not zero;
+    no normalization, ID features, or interview information.
+    Raises ValueError on extreme input overflow beyond float32 range, never returns infinite
+    features.
     """
     values = [np.nan] * len(FEATURE_NAMES)
     if candidate.skills is not None and job.required_skills is not None:
@@ -74,7 +85,8 @@ def build_features(candidate: CandidateInput, job: JobInput) -> np.ndarray:
     values[8] = margin(candidate.length_of_commitment, job.min_length_of_commitment)
     values[9] = margin(candidate.num_publications, job.min_num_publications)
     values[10] = np.nan if candidate.commit_to_summer is None else float(candidate.commit_to_summer)
-    # HTTP允许有限数；这里还需检查float32表示范围，避免转换警告和无穷进入树模型。
+    # HTTP allows finite numbers; here, also check float32 representation range to avoid conversion
+    # warnings and infinite values entering tree models.
     try:
         values = [float(value) for value in values]
     except OverflowError as exc:

@@ -51,10 +51,18 @@ CLI 和 Django 的应用组合默认使用 `EVALUATION_MODE=shadow`，并行运�
 
 部署前执行 Django `python manage.py migrate`。新增迁移 `0010_evaluation_ledger` 只创建
 `AgentEvaluation` 表，不重写旧上下文或历史分数。CLI 的同一接口使用内存存储。
+与主分支的 `0010_agent_automatic_end` 通过 `0011_merge_evaluation_automatic_end` 合并；
+保留两个原有迁移编号，支持新数据库以及已经应用任一分支迁移的数据库升级。
 每条记录保存本轮输入、旧/安全反馈，以及新评分的完整 `ScoredEvaluation`：包含原始
 evidence ledger、关系决策、criterion assessments、snapshot 和完整 `AggregationRecord`。
 每轮重新 Judge 全部已提交证据，并通过 `supersedes_snapshot_id` 连接前一个成功快照。
 这会重复保存历史以保证每个记录自包含；仓库没有覆盖、更新或删除记录的接口。
+后端“结束且不保存”是明确的生命周期例外：验证面试归属后，在同一事务内先删除该面试的
+评分日志，再删除受保护的回答、请求和面试记录；失败全部回滚，不影响简历或其他面试。
+静默 `skip` 不调用评分模型、不创建评分日志、不产生能力证据；提交时保存
+`unobserved_feedback_ids`，重启或裁剪对话历史后也不会将其误判为缺失评分。
+真正的旧流程评分缺口和失败日志仍阻断新评分发布。提前结束携带当前回答时，评分日志与
+最终状态原子提交；不携带当前回答时，仅保留此前已提交的评分记录。
 
 `EvaluatedFeedback` 的私有 receipt 不参与 `model_dump()`；Question Agent、Planner、
 用户报告及历史 API 仍读取共享安全投影。调用方必须把端口返回对象直接交给

@@ -1,61 +1,68 @@
-"""职责：验证 Agent 持久化、数据库约束、失败原子性和本机历史接口。
+"""Responsibilities: Validate Agent persistence, database constraints, failure atomicity, and local
+history interface.
 
-实现：真实 Agent 配合显式 FixtureLLM 和隔离数据库，故障在事务末端注入以检查完整回滚。
-关联：覆盖 agent_records、agent_repository、agent_socket 与只读 agent_history。
+Implementation: Use real Agent with explicit FixtureLLM and isolated database; inject failures at
+transaction end to verify complete rollback.
+Related Modules: Covers agent_records, agent_repository, agent_socket, and read-only agent_history.
 
-目录：
-- PersistenceTests：
-  用 TransactionTestCase 验证提交和清理后的可观测数据库状态。
-- PersistenceTests.test_custom_project_and_topic_budgets_are_persisted：
-  验证时长、计划、计时起点与安全上限一起持久化。
-- PersistenceTests.test_start_rejects_conflicting_topic_options：
-  拒绝新旧话题上限同时出现。
-- PersistenceTests.start_session：
-  预留 start 请求并运行真实 Agent 初始化，返回会话与首题。
-- PersistenceTests.answer_command：
-  为当前题构造唯一回答命令，不执行 I/O。
-- PersistenceTests.test_saved_context_can_be_loaded_by_new_repository：
-  新适配器读取相同上下文，越界读取失败。
-- PersistenceTests.test_answer_evidence_and_report_are_persisted：
-  成功轮次保存评价、请求响应和最终报告。
-- PersistenceTests.test_failed_commit_rolls_back_state_question_log_and_evidence：
-  事务末端失败不能留下半轮状态。
-- PersistenceTests.test_version_conflict_does_not_publish_another_turn：
-  相同旧版本不能再次发布动作。
-- PersistenceTests.test_duplicate_request_across_connections_never_calls_model：
-  重连重发被数据库去重，未生成孤立面试。
-- PersistenceTests.test_pending_answer_survives_evaluation_failure：
-  评价失败保留待评分回答，不制造评分记录。
-- PersistenceTests.test_connection_interrupt_preserves_success_and_marks_pending：
-  退出仅终结未完成请求。
-- PersistenceTests.test_history_is_read_only_scoped_and_not_cached：
-  分页列表不含正文，跨面试请求查询失败。
-- PersistenceTests.test_storage_failure_prevents_model_execution：
-  请求预留失败时不发 started、不调用模型。
-- PersistenceTests.test_response_is_saved_before_transport_delivery：
-  发送失败不能撤销已保存的成功响应。
-- PersistenceTests.test_response_is_saved_before_transport_delivery.fail_delivery：
-  仅在已生成问题发送时模拟断线。
-- PersistenceTests.test_schema_rejects_partial_evidence_and_invalid_status：
-  数据库直接拒绝无版本评分和非法状态。
-- PersistenceTests.test_completed_report_survives_cleanup：
-  完成后清理不会将成功报告改成 interrupted。
-- PersistenceTests.test_one_pending_request_per_interview：
-  不同 UUID 也不能绕过数据库的一场一请求约束。
-- PersistenceTests.test_foreign_request_cannot_receive_an_answer：
-  已接受请求不能被另一场面试用于保存回答。
-- PersistenceTests.test_foreign_question_collision_rolls_back_commit：
-  另一场面试的问题 ID 不能被覆盖，版本占用同时回滚。
+Declaration Index:
+- PersistenceTests:
+  Validate observable database state after commit and cleanup using TransactionTestCase.
+- PersistenceTests.test_custom_project_and_topic_budgets_are_persisted:
+  Verify duration, plan, timing start point, and safety ceiling are persisted together with context.
+- PersistenceTests.test_start_rejects_conflicting_topic_options:
+  Reject simultaneous presence of old and new topic ceilings.
+- PersistenceTests.start_session:
+  Reserve start request and run real Agent initialization, return session and first question.
+- PersistenceTests.answer_command:
+  Construct unique answer command for current question without performing I/O.
+- PersistenceTests.test_saved_context_can_be_loaded_by_new_repository:
+  New adapter reads same context; out-of-bound read fails.
+- PersistenceTests.test_answer_evidence_and_report_are_persisted:
+  Successful round saves evidence, request-response, and final report.
+- PersistenceTests.test_failed_commit_rolls_back_state_question_log_and_evidence:
+  Transaction-end failure must not leave partial round state.
+- PersistenceTests.test_version_conflict_does_not_publish_another_turn:
+  Same old version cannot publish another action.
+- PersistenceTests.test_duplicate_request_across_connections_never_calls_model:
+  Duplicate requests across connections are deduplicated by database, no orphaned interviews
+  created.
+- PersistenceTests.test_pending_answer_survives_evaluation_failure:
+  Evaluation failure preserves pending answer; no score record created.
+- PersistenceTests.test_connection_interrupt_preserves_success_and_marks_pending:
+  Disconnection only terminates incomplete requests.
+- PersistenceTests.test_history_is_read_only_scoped_and_not_cached:
+  Paginated list excludes body content; cross-interview query fails.
+- PersistenceTests.test_storage_failure_prevents_model_execution:
+  Reservation failure prevents sending started signal and calling model.
+- PersistenceTests.test_response_is_saved_before_transport_delivery:
+  Failed delivery cannot undo successfully saved response.
+- PersistenceTests.test_response_is_saved_before_transport_delivery.fail_delivery:
+  Simulate disconnection only when question has been generated and sent.
+- PersistenceTests.test_schema_rejects_partial_evidence_and_invalid_status:
+  Database directly rejects unversioned evidence and invalid status.
+- PersistenceTests.test_completed_report_survives_cleanup:
+  Cleanup after completion does not change successful report to interrupted.
+- PersistenceTests.test_one_pending_request_per_interview:
+  Different UUIDs cannot bypass one-request-per-interview constraint in database.
+- PersistenceTests.test_foreign_request_cannot_receive_an_answer:
+  Accepted request cannot be used by another interview to save answer.
+- PersistenceTests.test_foreign_question_collision_rolls_back_commit:
+  Another interview’s question ID cannot be overwritten; version occupancy triggers rollback
+  simultaneously.
 
-- PersistenceTests.test_review_progress_snapshots：核对实时进度持久化与完整复盘字段。
-- PersistenceTests.test_review_legacy_and_tampered_snapshots：
-  旧记录缺字段不读取内部上下文，篡改输出不公开。
-- PersistenceTests.test_review_failed_answer：失败请求保留本人回答，未批准评价为空。
+- PersistenceTests.test_review_progress_snapshots: Verify real-time progress persistence and full
+  review fields.
+- PersistenceTests.test_review_legacy_and_tampered_snapshots:
+  Old records missing fields do not load internal context; tampered output remains hidden.
+- PersistenceTests.test_review_failed_answer:
+  Failed request retains own answer; unapproved evaluation remains empty.
 
-关键变量：
-（无模块级变量。）
-约束：
-测试不调用实际模型，不证明供应商取消、真实负载性能或多用户认证已经实现。
+Variable Index:
+None
+Constraints:
+Tests do not invoke actual models, do not prove supplier cancellation, real load performance, or
+multi-user authentication implementation.
 """
 
 import asyncio
@@ -93,10 +100,13 @@ from .test_agent_progress import connect, disconnect, read, send_command
 
 
 class PersistenceTests(SafetyTestMixin, TransactionTestCase):
-    """用 TransactionTestCase 验证提交和清理后的可观测数据库状态。"""
+    """Use TransactionTestCase to validate observable database state after commit and cleanup.
+    """
 
     async def test_custom_project_and_topic_budgets_are_persisted(self):
-        """验证时长、计划版本、实际计时起点和题数安全上限随上下文一起持久化。"""
+        """Verify duration, plan version, actual timing start point, and question count safety
+        ceiling are persisted alongside context.
+        """
         session = AgentSession(llm=FixtureLLM())
         command = Start(
             request_id=uuid4(),
@@ -123,7 +133,9 @@ class PersistenceTests(SafetyTestMixin, TransactionTestCase):
         self.assertNotIn("max_consecutive_probes", context.plan.model_dump())
 
     def test_start_rejects_conflicting_topic_options(self):
-        """新旧话题上限互斥，错误在模型调用之前拒绝。"""
+        """New and old topic ceilings are mutually exclusive; rejection occurs before model
+        invocation.
+        """
         with self.assertRaises(ValueError):
             Start(
                 request_id=uuid4(),
@@ -134,7 +146,9 @@ class PersistenceTests(SafetyTestMixin, TransactionTestCase):
             )
 
     async def start_session(self, count=2):
-        """预留 start 请求并运行真实 Agent 初始化，返回会话与首题；只使用离线模型。"""
+        """Reserve start request and run real Agent initialization, return session and first
+        question; use only offline model.
+        """
         session = AgentSession(llm=FixtureLLM())
         command = Start(request_id=uuid4(), type="start", resume_text=RESUME, max_questions=count)
         await reserve_request(session.interview_id, command)
@@ -143,7 +157,9 @@ class PersistenceTests(SafetyTestMixin, TransactionTestCase):
         return session, result
 
     def answer_command(self, first):
-        """为当前题构造唯一回答命令，不执行 I/O；输入为服务端 question 响应。"""
+        """Construct unique answer command for current question without performing I/O; input is
+        server-side question response.
+        """
         return Answer(
             request_id=uuid4(),
             type="answer",
@@ -152,7 +168,9 @@ class PersistenceTests(SafetyTestMixin, TransactionTestCase):
         )
 
     async def test_saved_context_can_be_loaded_by_new_repository(self):
-        """新适配器读取相同上下文，越界读取失败；无需原会话缓存。"""
+        """New adapter reads same context, fails on out-of-bound read; no original session cache
+        required.
+        """
         session, first = await self.start_session()
         fresh = DjangoInterviewRepository(session.interview_id)
         context = await fresh.get_interview_context(session.interview_id)
@@ -170,7 +188,9 @@ class PersistenceTests(SafetyTestMixin, TransactionTestCase):
             await other.app.repository.get_question(first["question"]["question_id"])
 
     async def test_answer_evidence_and_report_are_persisted(self):
-        """成功轮次保存评价、请求响应和最终报告，保持原 MVP 预算和数值评分。"""
+        """Successful round saves evaluation, request-response, and final report, maintaining
+        original MVP budget and numeric scoring.
+        """
         session, first = await self.start_session(count=1)
         command = self.answer_command(first)
         await reserve_request(session.interview_id, command)
@@ -196,7 +216,9 @@ class PersistenceTests(SafetyTestMixin, TransactionTestCase):
         self.assertEqual(entry.feedback.request_id, str(command.request_id))
 
     async def test_failed_commit_rolls_back_state_question_log_and_evidence(self):
-        """事务末端失败不能留下半轮状态；原回答保留，但评价和展示历史不能提前发布。"""
+        """Transaction-end failure must not leave partial round state; original answer preserved but
+        evaluation and display history not published prematurely.
+        """
         session, first = await self.start_session()
         repository = session.app.repository
         before = await repository.get_interview_context(session.interview_id)
@@ -219,7 +241,9 @@ class PersistenceTests(SafetyTestMixin, TransactionTestCase):
         self.assertEqual(session.history, [])
 
     async def test_version_conflict_does_not_publish_another_turn(self):
-        """相同旧版本不能再次发布动作；测试复用已存问题，不请求模型生成。"""
+        """Same old version cannot publish another action; reuse existing questions in test, no
+        model generation requested.
+        """
         session, _ = await self.start_session()
         repository = session.app.repository
         context = await repository.get_interview_context(session.interview_id)
@@ -245,7 +269,9 @@ class PersistenceTests(SafetyTestMixin, TransactionTestCase):
         self.assertEqual(saved.state.state_version, context.state.state_version + 1)
 
     async def test_duplicate_request_across_connections_never_calls_model(self):
-        """重连重发被数据库去重，未生成孤立面试；响应不泄露原场次的内容或 ID。"""
+        """Duplicate requests across connections are deduplicated by database, no orphaned
+        interviews created; response does not leak original session content or ID.
+        """
         fixture = FixtureLLM()
         with patch("interviews.agent_session.BackendLLM", return_value=fixture):
             first = await connect()
@@ -266,7 +292,9 @@ class PersistenceTests(SafetyTestMixin, TransactionTestCase):
             await disconnect(second)
 
     async def test_pending_answer_survives_evaluation_failure(self):
-        """评价失败保留待评分回答，不制造评分记录，错误存储不包含原始异常文本。"""
+        """Evaluation failure preserves pending answer, no score record created; error storage does
+        not include original exception text.
+        """
         session, first = await self.start_session()
         command = self.answer_command(first)
         await reserve_request(session.interview_id, command)
@@ -287,7 +315,9 @@ class PersistenceTests(SafetyTestMixin, TransactionTestCase):
         )
 
     async def test_connection_interrupt_preserves_success_and_marks_pending(self):
-        """退出仅终结未完成请求，成功首题和已有上下文保持可读，不允许继续提交状态。"""
+        """Disconnection only terminates incomplete requests; successful first question and existing
+        context remain readable, no further state submission allowed.
+        """
         session, first = await self.start_session()
         command = self.answer_command(first)
         await reserve_request(session.interview_id, command)
@@ -303,7 +333,9 @@ class PersistenceTests(SafetyTestMixin, TransactionTestCase):
         )
 
     async def test_history_is_read_only_scoped_and_not_cached(self):
-        """分页列表不含正文，跨面试请求查询失败；本机策略仍拒绝远程和跨源请求。"""
+        """Paginated list excludes body content; cross-interview query fails; local policy still
+        rejects remote and cross-origin requests.
+        """
         session, first = await self.start_session()
         other, _ = await self.start_session()
         request = await AgentRequest.objects.filter(interview_id=other.interview_id).afirst()
@@ -337,7 +369,9 @@ class PersistenceTests(SafetyTestMixin, TransactionTestCase):
         )
 
     async def test_storage_failure_prevents_model_execution(self):
-        """请求预留失败时不发 started、不调用模型，不用内存替代数据库。"""
+        """Reservation failure prevents sending started signal and calling model; do not use memory
+        as database substitute.
+        """
         fixture = FixtureLLM()
         with (
             patch("interviews.agent_session.BackendLLM", return_value=fixture),
@@ -356,11 +390,15 @@ class PersistenceTests(SafetyTestMixin, TransactionTestCase):
         self.assertEqual(fixture.calls, [])
 
     async def test_response_is_saved_before_transport_delivery(self):
-        """发送失败不能撤销已保存的成功响应，也不能导致重复模型执行。"""
+        """Failed delivery cannot undo successfully saved response, nor cause repeated model
+        execution.
+        """
         queue = []
 
         async def fail_delivery(message):
-            """仅在已生成问题发送时模拟断线，其他事件供测试验证，不模拟数据库行为。"""
+            """Simulate disconnection only when question has been generated and sent; other events
+            are validated by test, no database behavior simulated.
+            """
             if message["type"] == "websocket.send":
                 body = json.loads(message["text"])
                 if body["type"] == "question":
@@ -373,7 +411,8 @@ class PersistenceTests(SafetyTestMixin, TransactionTestCase):
             "client": ("127.0.0.1", 1),
             "headers": [(b"host", b"localhost")],
         }
-        # 直接驱动 ASGI receive/send 边界，发送异常发生在真实数据库响应提交之后。
+        # Directly drive ASGI receive/send boundary; send exceptions occur after real database
+        # response commit.
         incoming = asyncio.Queue()
         await incoming.put({"type": "websocket.connect"})
         command = Start(request_id=uuid4(), type="start", resume_text=RESUME)
@@ -389,7 +428,9 @@ class PersistenceTests(SafetyTestMixin, TransactionTestCase):
         )
 
     def test_schema_rejects_partial_evidence_and_invalid_status(self):
-        """数据库直接拒绝无版本评分和非法状态，测试绕过仓库以验证真实 CHECK 约束。"""
+        """Database directly rejects unversioned evidence and invalid status; test bypasses
+        repository to verify real CHECK constraints.
+        """
         session, first = async_to_sync(self.start_session)()
         command = self.answer_command(first)
         async_to_sync(reserve_request)(session.interview_id, command)
@@ -408,7 +449,9 @@ class PersistenceTests(SafetyTestMixin, TransactionTestCase):
             AgentRequest.objects.filter(id=command.request_id).update(status="succeeded")
 
     async def test_completed_report_survives_cleanup(self):
-        """完成后清理不会将成功报告改成 interrupted，历史详情可读取与发送结果相同的报告。"""
+        """Cleanup after completion does not change successful report to interrupted; historical
+        details are readable and match result-sent report.
+        """
         session, first = await self.start_session(count=1)
         command = self.answer_command(first)
         await reserve_request(session.interview_id, command)
@@ -420,7 +463,9 @@ class PersistenceTests(SafetyTestMixin, TransactionTestCase):
         self.assertEqual(response.json()["final_report"], result["result"]["final_report"])
 
     async def test_one_pending_request_per_interview(self):
-        """不同 UUID 也不能绕过数据库的一场一请求约束；第二次预留不创建额外记录。"""
+        """Different UUIDs cannot bypass one-request-per-interview constraint in database; second
+        reservation does not create additional record.
+        """
         session, first = await self.start_session()
         one = self.answer_command(first)
         two = self.answer_command(first)
@@ -431,7 +476,9 @@ class PersistenceTests(SafetyTestMixin, TransactionTestCase):
         self.assertEqual(await AgentRequest.objects.filter(status="running").acount(), 1)
 
     async def test_foreign_request_cannot_receive_an_answer(self):
-        """已接受请求不能被另一场面试用于保存回答；失败后无跨场回答记录。"""
+        """Accepted request cannot be used by another interview to save answer; no cross-interview
+        answer record after failure.
+        """
         session, first = await self.start_session()
         other, other_first = await self.start_session()
         command = self.answer_command(other_first)
@@ -447,7 +494,9 @@ class PersistenceTests(SafetyTestMixin, TransactionTestCase):
         self.assertEqual(await AgentAnswer.objects.acount(), 0)
 
     async def test_foreign_question_collision_rolls_back_commit(self):
-        """另一场面试的问题 ID 不能被覆盖，版本占用同时回滚；不调用模型生成额外问题。"""
+        """Another interview’s question ID cannot be overwritten; version occupancy triggers
+        rollback simultaneously; no model invoked to generate extra questions.
+        """
         session, _ = await self.start_session()
         other, other_first = await self.start_session()
         context = await session.app.repository.get_interview_context(session.interview_id)
@@ -476,7 +525,9 @@ class PersistenceTests(SafetyTestMixin, TransactionTestCase):
         self.assertEqual(await other.app.repository.get_question(foreign.question_id), foreign)
 
     async def test_review_progress_snapshots(self):
-        """离线模型与真实数据库：首题进度已存，完成复盘保留计划、难度、对话、评价和时间。"""
+        """Offline model and real database: First-question progress is stored, completed review
+        preserves plan, difficulty, conversation, evaluation, and time.
+        """
         session, first = await self.start_session(count=1)
         for key in ("interview_plan", "plan_history", "topic_progress", "decision_logs"):
             self.assertTrue(first[key])
@@ -505,7 +556,9 @@ class PersistenceTests(SafetyTestMixin, TransactionTestCase):
         self.assertEqual(detail["request_issues"], [])
 
     async def test_review_legacy_and_tampered_snapshots(self):
-        """显式重建旧格式批准凭据，缺失字段为空；随后篡改已存包，摘要失配使全部正文不可见。"""
+        """Explicitly reconstruct legacy approval credentials; missing fields are empty; then tamper
+        with stored package, mismatched summary renders all content invisible.
+        """
         from interviews.agent_safety import make_output_receipt
 
         session, first = await self.start_session()
@@ -535,7 +588,9 @@ class PersistenceTests(SafetyTestMixin, TransactionTestCase):
         self.assertEqual(detail["questions"], [])
 
     async def test_review_failed_answer(self):
-        """真实仓库接受本人回答后模拟评价请求失败；复盘保留回答但不使用内部未获准评分。"""
+        """Real repository accepts own answer then simulates evaluation request failure; review
+        retains answer but does not use internally unapproved score.
+        """
         session, first = await self.start_session()
         command = self.answer_command(first)
         await reserve_request(session.interview_id, command)

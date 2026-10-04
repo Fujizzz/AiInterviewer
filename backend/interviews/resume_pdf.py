@@ -1,20 +1,24 @@
-"""职责：本地 PDF 规则提取和有界页面渲染，不调用模型、不保存上传文件。
-实现：pypdf 保留布局抽取，保守字符清理；PDFium 在互斥锁内生成 PNG。
-关联：生产仅由 pdf_worker 在隔离进程内调用；本机单元测试可直接调用，Agent 接收单页证据。
-
-目录：
-- PdfInputError：可安全展示的输入校验错误。
-- normalize_text：修复明确的排版字符并保持行列空白。
-- extract_pdf：校验 PDF 并按页提取规则文本。
-- render_pages：生成限定像素的图像并关闭所有 PDFium 原生资源。
-
-关键变量：
-- MAX_BYTES：此新增上传入口接受的最大 PDF 字节数。
-- MAX_PAGES：此新增入口接受的最大页数，不截断超限文档。
-- MAX_TEXT：单页可接受的最大提取字符数，超限明确失败。
-- IMAGE_EDGE：最长边像素上限，限制图像内存及视觉输入规模。
-- PDFIUM_LOCK：保护非线程安全的 PDFium 全部对象生命周期。
-- CHAR_MAP：仅修复已知排版连字和不换行空格，不猜测 OCR 字符。
+"""Responsibilities: Local PDF rule extraction and bounded page rendering, no model invocation, no
+saving of uploaded files.
+Implementation: pypdf preserves layout extraction with conservative character cleaning; PDFium
+generates PNG within mutual exclusion lock.
+Related Modules: Production only calls pdf_worker in isolated process; local unit tests may call
+directly, Agent receives single-page evidence.
+Declaration Index:
+- PdfInputError: Input validation errors safe for display.
+- normalize_text: Fixes known typographic characters while preserving row and column whitespace.
+- extract_pdf: Validates PDF and extracts rule text per page.
+- render_pages: Generates images with limited pixel dimensions and closes all PDFium native
+  resources.
+Variable Index:
+- MAX_BYTES: Maximum PDF byte size accepted by this new upload endpoint.
+- MAX_PAGES: Maximum number of pages accepted by this new endpoint, no truncation of oversized
+  documents.
+- MAX_TEXT: Maximum acceptable extracted characters per page, exceeding triggers explicit failure.
+- IMAGE_EDGE: Maximum edge pixel length, limits image memory and visual input scale.
+- PDFIUM_LOCK: Protects full lifecycle of non-thread-safe PDFium objects.
+- CHAR_MAP: Only fixes known typographic ligatures and non-breaking spaces, does not guess OCR
+  characters.
 """
 
 from dataclasses import replace
@@ -46,72 +50,103 @@ CHAR_MAP = str.maketrans(
 
 
 class PdfInputError(ValueError):
-    """功能：标识预期输入失败；逻辑：异常文本为固定诊断语句；约束：不含简历数据。"""
+    """Function: Identify expected input failure; logic: exception text is fixed diagnostic
+    statement; constraint: contains no resume data.
+    """
 
 
 def normalize_text(text: str) -> str:
-    """输入布局文本，输出统一换行及明确连字修复的文本。
+    """Input layout text, output unified line breaks and clearly fixed ligatures.
 
-    保留行首缩进和内部多空格以免进一步破坏分栏；不合并断词、不猜测乱码，
-    不删除页眉或重复经历。原始文本由调用方独立保留，无 I/O 副作用。
+    Preserve leading indentation and internal multiple spaces to avoid further breaking columns; do
+    not merge hyphenated words, do not guess corrupted text,
+    Do not remove headers or duplicate experiences. Original text is retained independently by
+    caller, no I/O side effects.
     """
     text = text.replace("\r\n", "\n").replace("\r", "\n").translate(CHAR_MAP)
     return "\n".join(line.rstrip() for line in text.splitlines()).strip("\n")
 
 
 def extract_pdf(data: bytes) -> list[ResumePage]:
-    """输入完整 PDF 字节，返回原页序规则文本与风险提示；不做 OCR 或视觉调用。
+    """Input complete PDF bytes, return rule text in original page order and risk warnings; no OCR
+    or visual calls.
 
-    超限、加密、损坏或零页抛 PdfInputError，不截断、不尝试解密。
-    无文本页仍保留，可供视觉转写。pypdf 解析错误转成固定诊断，不暴露文件内容。
+    Exceeding limits, encrypted, damaged, or zero-page PDFs raise PdfInputError, no truncation, no
+    decryption attempt.
+    Pages with no text are preserved for potential visual transcription. pypdf parsing errors
+    converted to fixed diagnostics, no exposure of file content.
     """
     if not data or len(data) > MAX_BYTES:
-        raise PdfInputError("PDF 必须非空且不超过 10 MiB。")
+        raise PdfInputError("The PDF must be non-empty and no larger than 10 MiB.")
     if not data.startswith(b"%PDF-"):
-        raise PdfInputError("文件内容不是 PDF。")
+        raise PdfInputError("The file content is not a PDF.")
     try:
         reader = PdfReader(BytesIO(data), strict=True)
         if reader.is_encrypted:
-            raise PdfInputError("暂不接受加密 PDF，请先解密后上传。")
+            raise PdfInputError(
+                "Encrypted PDFs are not accepted. Decrypt the file before uploading it."
+            )
         if not 1 <= len(reader.pages) <= MAX_PAGES:
-            raise PdfInputError("PDF 必须包含 1 至 10 页。")
+            raise PdfInputError("The PDF must contain between 1 and 10 pages.")
         pages = []
         for number, page in enumerate(reader.pages, 1):
             raw = page.extract_text(extraction_mode="layout", layout_mode_strip_rotated=False)
             if len(raw) > MAX_TEXT:
-                raise PdfInputError("单页文本超过 30000 字符，请拆分文档。")
+                raise PdfInputError(
+                    "A page contains more than 30,000 characters. Split the document and try again."
+                )
             text = normalize_text(raw)
-            warnings = ["规则提取保留布局空格；分栏、图表和阅读顺序需要核对。"]
+            warnings = [
+                (
+                    "Rule-based extraction preserves layout spacing; "
+                    "verify columns, charts, and reading order."
+                )
+            ]
             if not text.strip():
-                warnings.append("未提取到文字，可能是扫描页或空白页；可使用视觉整理。")
+                warnings.append(
+                    "No text was extracted. The page may be scanned "
+                    "or blank; visual review is available."
+                )
             if "\ufffd" in text or "\x00" in text:
-                warnings.append("检测到异常字符，请对照原 PDF 核对或使用视觉整理。")
+                warnings.append(
+                    "Unusual characters were detected. Compare them "
+                    "with the original PDF or use visual review."
+                )
             pages.append(ResumePage(number, raw, text, warnings))
         return pages
     except PdfInputError:
         raise
     except (PyPdfError, ValueError, TypeError, KeyError, OverflowError) as exc:
-        raise PdfInputError("PDF 结构或文本编码无法解析，请检查或重新导出文件。") from exc
+        raise PdfInputError(
+            "The PDF structure or text encoding could not be "
+            "parsed. Check the file or export it again."
+        ) from exc
 
 
 def render_pages(data: bytes, pages: list[ResumePage]) -> list[ResumePage]:
-    """输入已校验 PDF 和页列表，输出带 PNG 的新列表；无磁盘写入。
+    """Input validated PDF and list of pages, output list with PNGs; no disk writes.
 
-    在同一互斥区创建、使用和关闭 PDFium 对象，防止并发线程破坏原生状态。
-    最长边最多 IMAGE_EDGE 像素；任一页失败则整体抛错，不跳过页面。
-    正常路径 finally 释放位图、页面和文档；生产取消由监督器终止整个隔离进程。
+    Create, use, and close PDFium objects within the same mutual exclusion zone to prevent
+    concurrent thread corruption of native state.
+    Longest edge at most IMAGE_EDGE pixels; any page failure causes overall error, no skipping
+    pages.
+    Normal path finally releases bitmap, page, and document; production cancellation terminates
+    entire isolated process via supervisor.
     """
     with PDFIUM_LOCK, pdfium.PdfDocument(data) as document:
         if len(document) != len(pages):
-            raise PdfInputError("文本解析与页面渲染的页数不一致。")
+            raise PdfInputError(
+                "The page counts from text parsing and page rendering do not match."
+            )
         rendered = []
         for source in pages:
             page = document[source.number - 1]
             try:
                 width, height = page.get_size()
                 if not all(isfinite(value) and value > 0 for value in (width, height)):
-                    raise PdfInputError("PDF 页面尺寸无效。")
-                # PDFium 向上取整像素；向零取相邻浮点数，避免恰好上限时多出一像素。
+                    raise PdfInputError("The PDF page dimensions are invalid.")
+                # PDFium rounds up pixels; rounds toward zero for adjacent floating-point values to
+                # avoid exceeding limit exactly.
                 scale = min(2.5, nextafter(IMAGE_EDGE / max(width, height), 0))
                 bitmap = page.render(scale=scale)
                 try:

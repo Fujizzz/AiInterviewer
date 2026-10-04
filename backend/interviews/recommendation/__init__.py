@@ -1,8 +1,12 @@
-"""缺失资料人岗排序模块。提供独立HTTP适配与固定v4-B本地推理，不读取面试状态。
+"""Responsibilities: Package missing-data candidate/job ranking.
+Implementation: Expose a separate HTTP adapter and fixed v4-B local inference without reading
+interview state.
+Related Modules: api validates requests, while runtime loads the fixed ranking artifact and executes
+inference.
 
-目录：
-（无本地声明。）
+Declaration Index:
+None
 
-关键变量：
-（无模块级变量。）
+Variable Index:
+None
 """

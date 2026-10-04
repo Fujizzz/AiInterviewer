@@ -1,20 +1,27 @@
-"""职责：在 Linux/WSL 中监督一次 bubblewrap 工作进程，控制超时、输出与父连接中断。
+"""Responsibilities: supervise a single bubblewrap worker process in Linux/WSL, controlling
+timeouts, output, and parent connection interruption.
 
-实现：stdin 使用长度前缀传 PDF，之后保持打开作取消通道；selectors 同时监听取消和输出。
-关联：pdf_sandbox 启动本文件；本文件不导入解析库，PDF 只进入隔离工作进程。
+Implementation: use length-prefixed stdin for PDF, then keep open as cancellation channel; selectors
+monitor both cancellation and output simultaneously.
+Related Modules: pdf_sandbox launches this file; this file does not import parsing libraries, PDF
+enters only isolated worker process.
 
-目录：
-- read_exact：从原始 stdin 读取指定字节，提前 EOF 明确失败。
-- sandbox_command：构建固定只读挂载与空网络命名空间，不挂载父项目或用户目录。
-- supervise：有界读取工作进程输出，超时或父管道关闭时杀死并等待进程组。
-- supervise.feed：将已经有界的 PDF 写入工作进程管道，不保存临时文件。
-- main：解析可信启动参数，读取输入帧，输出监督结果。
+Declaration Index:
+- read_exact: read specified bytes from raw stdin, fail immediately on premature EOF.
+- sandbox_command: build fixed read-only mounts and empty network namespace, do not mount parent
+  project or user directories.
+- supervise: bounded read of worker process output, kill and wait for process group on timeout or
+  parent pipe closure.
+- supervise.feed: write already bounded PDF into worker process pipeline, no temporary files saved.
+- main: parse trusted startup arguments, read input frame, output supervision result.
 
-关键变量：
-（无模块级变量。）
-约束：
-只在 Linux 执行；所有命令使用 argv，不调用 shell。stderr 不回传以避免解析库泄露文档正文。
-父连接关闭触发取消，正常结果返回前等待工作进程退出；不重试、不启用非隔离解析。
+Variable Index:
+None
+Constraints:
+Only runs on Linux; all commands use argv, no shell invocation. stderr not returned to prevent
+parsing library leakage of document content.
+Parent connection closure triggers cancellation; wait for worker process exit before returning
+normal result; no retry, no non-isolated parsing enabled.
 """
 
 import json
@@ -29,7 +36,9 @@ from pathlib import Path
 
 
 def read_exact(count):
-    """从原始 stdin 读取指定字节，提前 EOF 明确失败；仅接受上游已检查的有界长度。"""
+    """Read specified bytes from raw stdin, fail immediately on premature EOF; only accepts
+    previously checked bounded length from upstream.
+    """
     result = bytearray()
     while len(result) < count:
         block = os.read(0, count - len(result))
@@ -40,10 +49,13 @@ def read_exact(count):
 
 
 def sandbox_command(runtime, source, agent_source, memory, cpu, mode):
-    """构建固定只读挂载与空网络命名空间，不挂载父项目或用户目录。
+    """Build fixed read-only mounts and empty network namespace, do not mount parent project or user
+    directories.
 
-    输入路径和限额只由后端配置提供；返回 argv，路径空格不会被 shell 解释。
-    agents 以只含 resume_cleanup 的命名空间包挂载，避免加载 Agent 初始化器或 .env。
+    Input path and limits provided only by backend configuration; return argv, spaces in paths not
+    interpreted by shell.
+    agents mounted as namespace package containing only resume_cleanup, avoiding loading Agent
+    initializers or .env.
     """
     return [
         str(Path(runtime) / "tools/usr/bin/bwrap"),
@@ -92,10 +104,12 @@ def sandbox_command(runtime, source, agent_source, memory, cpu, mode):
 
 
 def supervise(command, data, wall_seconds, output_limit):
-    """有界读取工作进程输出，超时或父管道关闭时杀死并等待进程组。
+    """Bounded read of worker process output, kill and wait for process group on timeout or parent
+    pipe closure.
 
-    返回原始 JSON bytes；限额、崩溃和超时返回固定错误 JSON。单次最多 output_limit 字节，
-    不把工作进程无限输出载入内存。CPU/内存限制由工作进程在解析前设置。
+    Return raw JSON bytes; limit exceeded, crash, or timeout return fixed error JSON. Maximum
+    output_limit bytes per single read,
+    no infinite output loaded into memory. CPU/memory limits set by worker process before parsing.
     """
     child = subprocess.Popen(
         command,
@@ -107,7 +121,9 @@ def supervise(command, data, wall_seconds, output_limit):
     )
 
     def feed():
-        """将已经有界的 PDF 写入工作进程管道；进程提前退出的 BrokenPipe 由主循环判定。"""
+        """Write already bounded PDF into worker process pipeline; BrokenPipe from premature process
+        exit detected by main loop.
+        """
         try:
             child.stdin.write(data)
             child.stdin.flush()
@@ -117,7 +133,8 @@ def supervise(command, data, wall_seconds, output_limit):
             try:
                 child.stdin.close()
             except BrokenPipeError:
-                # close 可能再次刷新缓冲；主循环负责报告进程退出，不重复产生线程异常。
+                # close may flush buffer again; main loop responsible for reporting process exit, no
+                # repeated thread exceptions generated.
                 pass
 
     writer = threading.Thread(target=feed)
@@ -151,7 +168,9 @@ def supervise(command, data, wall_seconds, output_limit):
 
 
 def main():
-    """解析可信启动参数，读取输入帧，输出监督结果；错误不输出文档或系统环境。"""
+    """Parse trusted startup arguments, read input frame, output supervision result; no document or
+    system environment output on error.
+    """
     runtime, source, agent_source, memory, cpu, wall, output_limit, mode = sys.argv[1:]
     length = int.from_bytes(read_exact(8), "big")
     if not 0 <= length <= 10 * 1024 * 1024:

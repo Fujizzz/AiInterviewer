@@ -1,15 +1,16 @@
-"""启动离线模型替身的真实 ASGI 服务，检查文字面试及既有 HTTP/流式接口。
-
-目录：
-- check_agent：
-  通过实际 WebSocket 完成两题面试，验证历史、报告及跨连接重复请求拒绝。
-- check_progress：
-  实际网络验证预解析复用、真实阶段和评分先行，不调用供应商。
-- check_all：
-  在同一隔离服务分别运行旧协议和新协议场景，保持既有回归断言。
-
-关键变量：
-（无模块级变量。）
+"""Responsibilities: Exercise the real ASGI service with an explicitly injected offline model.
+Implementation: Verify text interviews, persistence, progress ordering, and existing HTTP/WebSocket
+contracts.
+Related Modules: run_e2e starts the isolated server; agent_fixture_app supplies the test-only model
+fixture.
+Declaration Index:
+- check_agent: Complete a two-question WebSocket interview and verify its persisted report and
+  duplicate-request rejection.
+- check_progress: Verify prepared-resume reuse, progress stages, and assessment ordering over a real
+  socket.
+- check_all: Run both Agent regression scenarios against the same isolated service.
+Variable Index:
+None
 """
 
 import json
@@ -21,11 +22,14 @@ from websockets.sync.client import connect
 
 
 def check_agent(base):
-    """通过实际 WebSocket 完成两题面试，验证历史、报告及跨连接重复请求拒绝。
-
-    前置条件：base 必须指向显式注入 FixtureLLM 的测试入口，不能用于真实模型评分验证。
-    方法：完成面试后通过实际 HTTP 核对持久化回答和报告，重连重发 UUID 必须拒绝。
-    返回 None；异常或断言失败直接退出，上层启动器负责停止服务和清理临时数据库。
+    """Functionality: Verify Agent interview persistence and durable request deduplication.
+    Inputs: Base URL for the ASGI app explicitly configured with FixtureLLM.
+    Outputs: None; assertions cover socket events, persisted answers/report, and duplicate
+    rejection.
+    Logic: Complete two questions over WebSocket, inspect records through HTTP, then reconnect with
+    a used request UUID.
+    Constraints: The injected model is synthetic and cannot validate real model scoring; the caller
+    owns server and database cleanup.
     """
     with connect(base.replace("http://", "ws://") + "/ws/agent/", origin=base, proxy=None) as ws:
         assert json.loads(ws.recv(timeout=5))["type"] == "hello"
@@ -94,10 +98,14 @@ def check_agent(base):
 
 
 def check_progress(base):
-    """输入显式离线 ASGI 服务 URL；预解析后开启单题面试，验证进度顺序与数值一致。
-
-    每个命令 UUID 唯一，事件必须关联当前请求；prepared 后 start 不应再次出现解析阶段。
-    超时仅作为测试失败边界，不改变生产配置；收到评分后仍等待最终报告，无模型调用。
+    """Functionality: Verify preparation reuse and progress ordering during a one-question
+    interview.
+    Inputs: Base URL for the explicitly configured offline ASGI service.
+    Outputs: None; assertions check request IDs, progress stages, score, and final narrative state.
+    Logic: Prepare a resume, start a session with the same text, answer once, and observe assessment
+    before report generation.
+    Constraints: Each command uses a unique UUID; socket timeouts are test failure bounds and do not
+    change production settings.
     """
     resume = "Alex built a Python log pipeline and tested malformed records."
     with connect(base.replace("http://", "ws://") + "/ws/agent/", origin=base, proxy=None) as ws:
@@ -177,7 +185,12 @@ def check_progress(base):
 
 
 def check_all(base):
-    """输入隔离服务 URL，依次执行旧协议和新事件协议；任意失败原样传播，不减少原断言。"""
+    """Functionality: Run the Agent persistence and progress scenarios against one isolated server.
+    Inputs: The server base URL supplied by run_e2e.
+    Outputs: None; propagates any assertion or request error.
+    Logic: Invoke both scenario checks sequentially.
+    Constraints: Existing regression assertions remain active.
+    """
     check_agent(base)
     check_progress(base)
 

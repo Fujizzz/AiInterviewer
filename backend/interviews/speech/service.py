@@ -1,73 +1,78 @@
-"""Bailian regional adapters and bounded, temporary in-memory WAV storage.
+"""Responsibilities: Adapt Bailian speech synthesis and recognition services and store bounded WAV
+data temporarily in memory.
+Implementation: Resolve speech geography independently of the LLM HTTP endpoint while reusing the
+configured key. Missing SPEECH_REGION preserves Singapore; invalid values fail before SDK
+construction. Model, voice, audio, and timeout defaults remain unchanged.
+Related Modules: speech.views serves synthesis audio; speech.socket bridges recognition to WebSocket
+clients.
 
 Resolve explicit speech geography independently of the LLM HTTP endpoint, reusing
 the existing key. Missing SPEECH_REGION preserves Singapore; invalid values fail
 before SDK construction. Model, voice, audio and timeout defaults remain unchanged.
 
-目录：
-- SpeechError：
+Declaration Index:
+- SpeechError:
   Carry a safe error code and public explanation, never provider credentials.
-- SpeechError.__init__：
+- SpeechError.__init__:
   Save the public error contract.
-- SpeechConfig：
+- SpeechConfig:
   Shared credentials and region-selected inference/realtime model configuration.
-- SpeechConfig.load：
+- SpeechConfig.load:
   Validate settings before any paid or network operation can start.
-- provider_error：
+- provider_error:
   Translate provider failures without reflecting raw exception messages.
-- configure_sdk：
+- configure_sdk:
   Set the speech endpoint independently of the existing OpenAI-compatible LLM URL.
-- synthesize：
+- synthesize:
   Collect Qwen realtime PCM into one bounded WAV compatible with the UE bridge.
-- synthesize.Callback：
+- synthesize.Callback:
   Bound streamed audio and distinguish completion, provider failure and disconnect.
-- synthesize.Callback.__init__：
+- synthesize.Callback.__init__:
   Create thread-safe collection state for one synthesis request.
-- synthesize.Callback.fail：
+- synthesize.Callback.fail:
   Preserve the first sanitised error and release the waiting request.
-- synthesize.Callback.on_event：
+- synthesize.Callback.on_event:
   Decode bounded PCM deltas and accept only the final session completion boundary.
-- synthesize.Callback.on_close：
+- synthesize.Callback.on_close:
   Reject connections closed before successful session completion.
-- AudioStore：
+- AudioStore:
   Thread-safe WAV cache with TTL, entry and byte limits; no disk writes.
-- AudioStore.__init__：
+- AudioStore.__init__:
   Construct an isolated bounded cache.
-- AudioStore._expire：
+- AudioStore._expire:
   Remove expired entries; called only under the cache lock.
-- AudioStore.put：
+- AudioStore.put:
   Return a random capability ID, evicting oldest audio when capacity is reached.
-- AudioStore.get：
+- AudioStore.get:
   Retrieve unexpired WAV bytes, otherwise report an absent capability.
-- RecognitionSession：
+- RecognitionSession:
   Wrap one SDK recognition task; callbacks hand data to the ASGI event loop.
-- RecognitionSession.__init__：
-  Validate credentials and construct an English PCM recognition task.
-- RecognitionSession.__init__.Callback：
+- RecognitionSession.__init__:
+  Validate credentials and construct PCM recognition with default or explicit language hints.
+- RecognitionSession.__init__.Callback:
   Forward provider events without sending audio or secrets to logs.
-- RecognitionSession.__init__.Callback.on_event：
+- RecognitionSession.__init__.Callback.on_event:
   Forward text and sentence-final markers.
-- RecognitionSession.__init__.Callback.on_error：
+- RecognitionSession.__init__.Callback.on_error:
   Report a sanitised service error.
-- RecognitionSession.__init__.Callback.on_complete：
+- RecognitionSession.__init__.Callback.on_complete:
   Mark the final provider output boundary.
-- RecognitionSession.start：
+- RecognitionSession.start:
   Start SDK recognition on a worker thread.
-- RecognitionSession.feed：
+- RecognitionSession.feed:
   Queue validated raw PCM bytes for the provider.
-- RecognitionSession.stop：
+- RecognitionSession.stop:
   Signal end-of-input once and wait for provider completion.
-
-关键变量：
-- logger：
+Variable Index:
+- logger:
   Record resolved geography and model names without credentials or question text.
-- SPEECH_REGION_ENDPOINTS：
+- SPEECH_REGION_ENDPOINTS:
   Supported regions mapped to public hosts and ASR workspace domain regions.
-- MAX_AUDIO_BYTES：
+- MAX_AUDIO_BYTES:
   Maximum PCM bytes for a 120-second TTS utterance.
-- TTS_TIMEOUT_SECONDS：
+- TTS_TIMEOUT_SECONDS:
   Total synthesis deadline including WebSocket connection and audio collection.
-- audio_store：
+- audio_store:
   Process-local bounded WAV cache shared by synthesis and download routes.
 """
 
@@ -94,10 +99,12 @@ TTS_TIMEOUT_SECONDS = 45
 
 
 class SpeechError(Exception):
-    """Carry a safe error code and public explanation, never provider credentials."""
+    """Carry a safe error code and public explanation, never provider credentials.
+    """
 
     def __init__(self, code, detail, status=503):
-        """Save the public error contract."""
+        """Save the public error contract.
+        """
         super().__init__(detail)
         self.code, self.detail, self.status = code, detail, status
 
@@ -172,7 +179,8 @@ class SpeechConfig:
 
 
 def provider_error(exc):
-    """Translate provider failures without reflecting raw exception messages."""
+    """Translate provider failures without reflecting raw exception messages.
+    """
     if "freetieronly" in str(exc).lower():
         return SpeechError(
             "quota_exhausted",
@@ -184,7 +192,8 @@ def provider_error(exc):
 
 
 def configure_sdk(config):
-    """Set the speech endpoint independently of the existing OpenAI-compatible LLM URL."""
+    """Set the speech endpoint independently of the existing OpenAI-compatible LLM URL.
+    """
     import dashscope
 
     # QwenTtsRealtime snapshots the process-wide SDK key in its constructor.
@@ -195,7 +204,8 @@ def configure_sdk(config):
 
 
 def synthesize(text):
-    """Collect Qwen realtime PCM into one bounded WAV compatible with the UE bridge."""
+    """Collect Qwen realtime PCM into one bounded WAV compatible with the UE bridge.
+    """
     config = SpeechConfig.load()
     from dashscope.audio.qwen_tts_realtime import (
         AudioFormat,
@@ -204,10 +214,12 @@ def synthesize(text):
     )
 
     class Callback(QwenTtsRealtimeCallback):
-        """Bound streamed audio and distinguish completion, provider failure and disconnect."""
+        """Bound streamed audio and distinguish completion, provider failure and disconnect.
+        """
 
         def __init__(self):
-            """Create thread-safe collection state for one synthesis request."""
+            """Create thread-safe collection state for one synthesis request.
+            """
             self.done = threading.Event()
             self.lock = threading.RLock()
             self.pcm = bytearray()
@@ -215,14 +227,16 @@ def synthesize(text):
             self.finished = False
 
         def fail(self, error):
-            """Preserve the first sanitised error and release the waiting request."""
+            """Preserve the first sanitised error and release the waiting request.
+            """
             with self.lock:
                 if not self.done.is_set():
                     self.error = error
                     self.done.set()
 
         def on_event(self, event):
-            """Decode bounded PCM deltas and accept only the final session completion boundary."""
+            """Decode bounded PCM deltas and accept only the final session completion boundary.
+            """
             with self.lock:
                 if self.done.is_set():
                     return
@@ -262,7 +276,8 @@ def synthesize(text):
                     self.done.set()
 
         def on_close(self, close_status_code, close_msg):
-            """Reject connections closed before successful session completion."""
+            """Reject connections closed before successful session completion.
+            """
             self.fail(SpeechError("speech_connection_closed", "Speech connection closed early."))
 
     configure_sdk(config)
@@ -318,23 +333,27 @@ def synthesize(text):
 
 
 class AudioStore:
-    """Thread-safe WAV cache with TTL, entry and byte limits; no disk writes."""
+    """Thread-safe WAV cache with TTL, entry and byte limits; no disk writes.
+    """
 
     def __init__(self, ttl=600, max_bytes=32 * 1024 * 1024, max_items=16, clock=time.monotonic):
-        """Construct an isolated bounded cache."""
+        """Construct an isolated bounded cache.
+        """
         self.ttl, self.max_bytes, self.max_items, self.clock = ttl, max_bytes, max_items, clock
         self.items = OrderedDict()
         self.lock = threading.Lock()
 
     def _expire(self):
-        """Remove expired entries; called only under the cache lock."""
+        """Remove expired entries; called only under the cache lock.
+        """
         now = self.clock()
         for key, (expires, _) in list(self.items.items()):
             if expires <= now:
                 del self.items[key]
 
     def put(self, wav):
-        """Return a random capability ID, evicting oldest audio when capacity is reached."""
+        """Return a random capability ID, evicting oldest audio when capacity is reached.
+        """
         if len(wav) > self.max_bytes:
             raise SpeechError("audio_too_large", "Audio exceeds temporary storage capacity.")
         with self.lock:
@@ -349,7 +368,8 @@ class AudioStore:
             return key
 
     def get(self, key):
-        """Retrieve unexpired WAV bytes, otherwise report an absent capability."""
+        """Retrieve unexpired WAV bytes, otherwise report an absent capability.
+        """
         with self.lock:
             self._expire()
             item = self.items.get(key)
@@ -360,20 +380,27 @@ audio_store = AudioStore()
 
 
 class RecognitionSession:
-    """Wrap one SDK recognition task; callbacks hand data to the ASGI event loop."""
+    """Wrap one SDK recognition task; callbacks hand data to the ASGI event loop.
+    """
 
-    def __init__(self, emit):
-        """Validate credentials and construct an English PCM recognition task."""
+    def __init__(self, emit, language_hints=None):
+        """Inputs: SDK event callback and optional explicit language hints; output isolated task.
+        Logic: validate credentials then construct PCM recognition; legacy callers keep English
+        hints. The completion branch explicitly supplies Chinese/English for spoken end phrases.
+        Constraints: model, sample rate and provider deadlines remain unchanged; no language retry.
+        """
         config = SpeechConfig.load()
         from dashscope.audio.asr import Recognition, RecognitionCallback
 
         configure_sdk(config)
 
         class Callback(RecognitionCallback):
-            """Forward provider events without sending audio or secrets to logs."""
+            """Forward provider events without sending audio or secrets to logs.
+            """
 
             def on_event(self, result):
-                """Forward text and sentence-final markers."""
+                """Forward text and sentence-final markers.
+                """
                 sentence = result.get_sentence()
                 if sentence and "text" in sentence:
                     emit(
@@ -388,12 +415,14 @@ class RecognitionSession:
                     )
 
             def on_error(self, result):
-                """Report a sanitised service error."""
+                """Report a sanitised service error.
+                """
                 error = provider_error(getattr(result, "message", ""))
                 emit({"type": "error", "code": error.code, "detail": error.detail})
 
             def on_complete(self):
-                """Mark the final provider output boundary."""
+                """Mark the final provider output boundary.
+                """
                 emit({"type": "complete"})
 
         from dashscope.audio.asr import RecognitionResult
@@ -403,22 +432,25 @@ class RecognitionSession:
             format="pcm",
             sample_rate=16000,
             api_key=config.api_key,
-            language_hints=["en"],
+            language_hints=["en"] if language_hints is None else language_hints,
             request_timeout=140,
             callback=Callback(),
         )
         self.stopped = False
 
     def start(self):
-        """Start SDK recognition on a worker thread."""
+        """Start SDK recognition on a worker thread.
+        """
         self.recognition.start()
 
     def feed(self, pcm):
-        """Queue validated raw PCM bytes for the provider."""
+        """Queue validated raw PCM bytes for the provider.
+        """
         self.recognition.send_audio_frame(pcm)
 
     def stop(self):
-        """Signal end-of-input once and wait for provider completion."""
+        """Signal end-of-input once and wait for provider completion.
+        """
         if not self.stopped:
             self.stopped = True
             self.recognition.stop()

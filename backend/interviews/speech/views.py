@@ -1,13 +1,18 @@
-"""Local-only speech HTTP endpoints, separate from interview and evaluation APIs.
+"""Responsibilities: Provide local-only speech HTTP endpoints, separate from interview and
+evaluation APIs.
+Implementation: Synthesize bounded English question text to a temporary WAV capability and serve
+only cached WAV data.
+Related Modules: speech.service owns provider configuration and the in-memory audio store;
+speech.socket owns recognition.
 
-目录：
-- tts：
+Declaration Index:
+- tts:
   Convert bounded English question text into a temporary WAV capability URL.
-- audio：
+- audio:
   Return cached WAV to the UE HTTP client; no external media URLs are fetched.
 
-关键变量：
-（无模块级变量。）
+Variable Index:
+None
 """
 
 import time
@@ -21,7 +26,8 @@ from .service import SpeechError, audio_store, synthesize
 
 @api_view(["POST"])
 def tts(request):
-    """Convert bounded English question text into a temporary WAV capability URL."""
+    """Convert bounded English question text into a temporary WAV capability URL.
+    """
     text = request.data.get("text") if isinstance(request.data, dict) else None
     if not isinstance(text, str) or not text.strip() or len(text) > 1200:
         return Response(
@@ -53,7 +59,8 @@ def tts(request):
 
 @api_view(["GET"])
 def audio(request, utterance_id):
-    """Return cached WAV to the UE HTTP client; no external media URLs are fetched."""
+    """Return cached WAV to the UE HTTP client; no external media URLs are fetched.
+    """
     wav = audio_store.get(str(utterance_id))
     if wav is None:
         return Response(

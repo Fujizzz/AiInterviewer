@@ -1,23 +1,27 @@
 /**
- * @module speech-worklet
- * Local speech presentation; no interview evaluation or automatic answer submission.
  *
- * 目录：
- * - SpeechCaptureProcessor：
+ * @module speech-worklet
+ * Responsibilities: Capture microphone blocks in an AudioWorklet, resample them, and transfer bounded PCM chunks to the main thread.
+ * Implementation: Keep output silent, buffer resampled samples until a chunk threshold or explicit flush, and acknowledge only after remaining samples are transferred.
+ * Related Modules: speech-capture.js creates and controls this worklet; pcm-resampler.js performs cross-block sample-rate conversion.
+ *
+ * Declaration Index:
+ * - SpeechCaptureProcessor:
  *   A silent output keeps capture alive without feeding the microphone into speakers.
- * - SpeechCaptureProcessor.constructor：
+ * - SpeechCaptureProcessor.constructor:
  *   Initialize a silent worklet and handle explicit end-of-input flushing.
- * - SpeechCaptureProcessor.constructor.this.port.onmessage：
+ * - SpeechCaptureProcessor.constructor.this.port.onmessage:
  *   Send all remaining PCM before the flushed acknowledgement.
- * - SpeechCaptureProcessor.flush：
+ * - SpeechCaptureProcessor.flush:
  *   Transfer the accumulated little-endian PCM buffer to the main thread.
- * - SpeechCaptureProcessor.flush.callback1：
+ * - SpeechCaptureProcessor.flush.callback1:
  *   Write one signed sample using the required little-endian byte order.
- * - SpeechCaptureProcessor.process：
+ * - SpeechCaptureProcessor.process:
  *   Silence outputs and resample microphone blocks into bounded PCM messages.
  *
- * 关键变量：
- * （无模块级变量。）
+ * Variable Index:
+ * None
+ *
  */
 import { PCM16Resampler } from "./pcm-resampler.js";
 

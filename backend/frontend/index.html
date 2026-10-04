@@ -1,19 +1,25 @@
 <!doctype html>
 <!--
-账号关联：Django 渲染用户导航和 CSRF token；用户名自动转义，退出经 POST，不在客户端存储凭据。
-文件职责：流式诊断页面的语义结构；由 app.js 挂载交互。
-目录：共享顶部导航和语言选择；连接状态；实时指标；测试操作；本地预览与回放；结果清理。
-关联：由 /stream-demo/ 路由交付，复用 style.css 与 workspace.css；i18n.js 管理界面语言，导航不保存当前测试状态。
-关键元素：status/endpoint 显示连接；chunks/bytes/latency 显示校验指标；source 为合成画布；
-preview/playback 分别展示本地流和回传媒体；clear 释放结果。此 HTML 不定义函数或脚本变量。
-数据边界：页面不包含密钥，不提交媒体文件；语言偏好仅由 i18n.js 保存在浏览器 localStorage，其他测试结果仅保留于内存。
+Responsibilities: Provide semantic markup for the streaming diagnostic workspace.
+Implementation: app.js mounts controls; Django supplies escaped account navigation and CSRF; capture and transport start only through explicit diagnostic actions.
+Related Modules: /stream-demo/, app.js, style.css, workspace.css, workspace-nav.html and i18n.js.
+Declaration Index:
+None
+Variable Index:
+None
+Element Index:
+status/endpoint shows connection state; chunks/bytes/latency shows verified metrics; source is the synthetic canvas; preview/playback shows local capture and returned media; clear releases results.
+Page Regions:
+Navigation/language selection, connection status, metrics, test controls, preview/playback, logs and cleanup.
+Constraints:
+Markup contains no secrets and submits no media files. Language preference is the only localStorage state; diagnostic results remain in memory. Logout is a CSRF-protected POST. Navigation does not preserve an active diagnostic run.
 -->
-<html lang="zh-CN" data-page-title="stream_title">
+<html lang="en" data-page-title="stream_title">
 <head>
   <meta charset="utf-8">
   <meta id="csrf-token" name="csrf-token" content="{{ csrf_token }}">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>面试练习 · 流式传输测试</title>
+  <title>Interview practice · Streaming transport test</title>
   <link rel="stylesheet" href="/stream-demo/style.css">
   <script type="module" src="/stream-demo/i18n.js"></script>
   <script type="module" src="/stream-demo/app.js"></script>
@@ -22,35 +28,35 @@ preview/playback 分别展示本地流和回传媒体；clear 释放结果。此
 </head>
 <body class="workspace-page">{% include "workspace-nav.html" %}
   <main>
-    <header><span class="eyebrow" data-i18n="stream_eyebrow">MOCK INTERVIEW / BACKEND LAB</span><h1 data-i18n="stream_heading">流式传输测试</h1>
-      <p data-i18n="stream_intro">发送一个分片，收到原样回传，验证每个字节。先运行无需设备的测试，再测试麦克风和摄像头。</p>
+    <header><span class="eyebrow" data-i18n="stream_eyebrow">MOCK INTERVIEW / BACKEND LAB</span><h1 data-i18n="stream_heading">Streaming transport test</h1>
+      <p data-i18n="stream_intro">Send a chunk, receive it unchanged, and verify every byte. Run device-free tests first, then test the microphone and camera.</p>
 </header>
-    <section aria-label="连接状态" data-i18n-attr="aria-label:connection_label" class="connection"><span id="status" role="status" data-i18n="status_ready">就绪</span><span id="endpoint"></span></section>
-    <section class="metrics" aria-label="实时统计" data-i18n-attr="aria-label:stats_label">
-      <div><span data-i18n="metric_latency">往返延迟</span><strong id="latency">—</strong><small>ms</small></div>
-      <div><span data-i18n="metric_chunks">已校验分片</span><strong id="chunks">0</strong><small data-i18n="metric_hash">SHA-256</small></div>
-      <div><span data-i18n="metric_bytes">已回传数据</span><strong id="bytes">0</strong><small>bytes</small></div>
+    <section aria-label="Connection status" data-i18n-attr="aria-label:connection_label" class="connection"><span id="status" role="status" data-i18n="status_ready">Ready</span><span id="endpoint"></span></section>
+    <section class="metrics" aria-label="Live metrics" data-i18n-attr="aria-label:stats_label">
+      <div><span data-i18n="metric_latency">Round-trip latency</span><strong id="latency">—</strong><small>ms</small></div>
+      <div><span data-i18n="metric_chunks">Verified chunks</span><strong id="chunks">0</strong><small data-i18n="metric_hash">SHA-256</small></div>
+      <div><span data-i18n="metric_bytes">Echoed data</span><strong id="bytes">0</strong><small>bytes</small></div>
     </section>
     <section class="panel">
-      <h2 data-i18n="stream_section">01 · 连通与媒体测试</h2>
+      <h2 data-i18n="stream_section">01 · Connection and media tests</h2>
       <div class="actions">
         <button id="ping" data-test>Ping / Pong</button>
-        <button id="binary" data-test data-i18n="test_binary">二进制分片测试</button>
-        <button id="synthetic" data-test data-i18n="test_synthetic">合成音视频测试 · 3 秒</button>
+        <button id="binary" data-test data-i18n="test_binary">Binary chunk test</button>
+        <button id="synthetic" data-test data-i18n="test_synthetic">Synthetic audio/video · 3 sec</button>
       </div>
-      <p class="hint" data-i18n="test_hint">合成测试用画布和音调生成真实 WebM 音视频，经 MediaRecorder 分片、WebSocket 回传后重组，不访问摄像头或麦克风。</p>
+      <p class="hint" data-i18n="test_hint">The synthetic test creates WebM audio/video with a canvas and tone, sends MediaRecorder chunks over WebSocket, and rebuilds the media without accessing the camera or microphone.</p>
       <div class="actions">
-        <button id="audio" data-test class="secondary" data-i18n="test_audio">测试麦克风</button>
-        <button id="video" data-test class="secondary" data-i18n="test_video">测试摄像头 + 麦克风</button>
-        <button id="stop" class="secondary" disabled data-i18n="test_stop">停止采集并完成校验</button>
+        <button id="audio" data-test class="secondary" data-i18n="test_audio">Test microphone</button>
+        <button id="video" data-test class="secondary" data-i18n="test_video">Test camera + microphone</button>
+        <button id="stop" class="secondary" disabled data-i18n="test_stop">Stop capture and verify</button>
       </div>
-      <p class="hint" data-i18n="device_hint">真实设备测试需浏览器授权，最长采集 30 秒。媒体和统计只在内存中处理，不写数据库或本地文件。回放缓存可手动清空，离开页面时释放。</p>
-      <div class="media-grid"><div><h3 data-i18n="preview_title">本地预览</h3><video id="preview" autoplay muted playsinline></video></div>
-        <div><h3 data-i18n="playback_title">回传结果 · 完成后播放</h3><video id="playback" controls playsinline></video></div></div>
+      <p class="hint" data-i18n="device_hint">Real-device tests require browser permission and capture for up to 30 seconds. Media and metrics stay in memory; playback is released when you leave.</p>
+      <div class="media-grid"><div><h3 data-i18n="preview_title">Local preview</h3><video id="preview" autoplay muted playsinline></video></div>
+        <div><h3 data-i18n="playback_title">Echoed result · Play when complete</h3><video id="playback" controls playsinline></video></div></div>
       <canvas id="source" width="640" height="360" hidden></canvas>
     </section>
-    <section class="panel"><h2 data-i18n="results_title">02 · 本次测试结果</h2><button id="clear" class="secondary" data-i18n="clear_results">清空结果与媒体缓存</button><p id="summary" data-i18n="not_started">尚未开始。每次测试使用独立连接。</p><pre id="log" aria-label="测试日志" data-i18n-attr="aria-label:log_label"></pre></section>
-    <footer data-i18n="stream_footer">传输诊断工具 · Django + WebSocket</footer>
+    <section class="panel"><h2 data-i18n="results_title">02 · This test result</h2><button id="clear" class="secondary" data-i18n="clear_results">Clear result and media cache</button><p id="summary" data-i18n="not_started">Not started. Each test uses a separate connection.</p><pre id="log" aria-label="Test log" data-i18n-attr="aria-label:log_label"></pre></section>
+    <footer data-i18n="stream_footer">Transport diagnostics · Django + WebSocket</footer>
   </main>
 </body>
 </html>

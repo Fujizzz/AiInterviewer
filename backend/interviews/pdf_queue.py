@@ -1,16 +1,22 @@
-"""职责：把已认证 PDF 请求交付 Celery，将 Redis 中的进度转回原 NDJSON 流。
+"""Responsibilities: deliver authenticated PDF requests to Celery, and convert Redis progress back
+into the original NDJSON stream.
 
-实现：正文只存短期 Redis 键，消息只含随机 ID 和选定模式；原子取走并删除防止重复执行。
-关联：resume_api 选择明确配置的执行方式；tasks 消费任务，前端保持原上传和取消协议。
-目录：
-- redis_client：建立无重试的异步 Redis 客户端。
-- queue_key：构造隔离的短期键名，不接受用户指定键。
-- queued_resume_events：提交一次任务、顺序转发进度，断线通知 worker 取消并清理正文。
-关键变量：
-- logger：只记录任务 ID 和异常类别，不记录上传内容或 Redis 凭据。
-- JOB_TTL：异常退出时数据保留的上限秒数，不作为模型调用超时。
-- CLIENT_TTL：消费者活跃标记有效秒数，进程消失后 worker 停止任务。
-- QUEUE_WAIT：worker 开始任务前的等待上限秒数。
+Implementation: store only short-term Redis keys in the body; messages contain only random ID and
+selected mode; atomically fetch and delete to prevent duplicate execution.
+Related Modules: resume_api selects explicitly configured execution method; tasks consume jobs,
+while frontend maintains original upload and cancellation protocol.
+Declaration Index:
+- redis_client: establish an asynchronous Redis client without retry logic.
+- queue_key: construct isolated short-term key names, not accepting user-specified keys.
+- queued_resume_events: submit one task, forward progress sequentially, notify worker of
+  disconnection to cancel and clean up the body.
+Variable Index:
+- logger: logs only task ID and exception type, not upload content or Redis credentials.
+- JOB_TTL: upper limit seconds for data retention on abnormal exit, not used as model invocation
+  timeout.
+- CLIENT_TTL: effective seconds for consumer active marker; worker stops task after process
+  disappears.
+- QUEUE_WAIT: maximum wait seconds before worker starts task.
 """
 
 import asyncio
@@ -30,7 +36,9 @@ QUEUE_WAIT = 30
 
 
 def redis_client():
-    """读取任务 Redis URL，返回客户端；连接失败直接传播，不回退或重试。"""
+    """Read task Redis URL, return client; propagate connection failure directly, no fallback or
+    retry.
+    """
     return Redis.from_url(
         settings.PDF_TASK_REDIS_URL,
         socket_connect_timeout=5,
@@ -40,15 +48,18 @@ def redis_client():
 
 
 def queue_key(job_id, part):
-    """输入服务端生成的任务 ID 和固定用途，返回 Redis 键；无 I/O。"""
+    """Input: server-generated task ID and fixed purpose, output: Redis key; no I/O involved."""
     return f"ai-interviewer:pdf:{job_id}:{part}"
 
 
 async def queued_resume_events(data, *, mode="traditional"):
-    """输入有界 PDF 和模式（默认 traditional），输出事件；mode 随任务传递，无业务持久化。
+    """Input: bounded PDF and mode (default: traditional), output: events; mode is passed with the
+    task, no business persistence.
 
-    发布失败明确返回 error。读取事件是进度订阅，不重试任务；终态或断线使客户端标记失效。
-    Worker 心跳丢失明确失败；取走的输入无法被重复任务再次消费，避免重复计费。
+    Publish failure returns error explicitly. Reading events is progress subscription, no task
+    retry; terminal state or disconnection invalidates client.
+    Worker heartbeat loss results in explicit failure; consumed input cannot be reused by another
+    task, preventing duplicate billing.
     """
     from config.celery import app
 
@@ -74,7 +85,11 @@ async def queued_resume_events(data, *, mode="traditional"):
             expires=QUEUE_WAIT,
         )
         logger.info("PDF queued job=%s bytes=%d", job_id, len(data))
-        yield event_line("progress", stage="queued", detail="任务已提交，等待后台处理")
+        yield event_line(
+            "progress",
+            stage="queued",
+            detail=("Task submitted; waiting for background processing."),
+        )
         while True:
             await redis.expire(queue_key(job_id, "client"), CLIENT_TTL)
             events = await redis.xread({queue_key(job_id, "events"): cursor}, block=1000)
@@ -96,7 +111,11 @@ async def queued_resume_events(data, *, mode="traditional"):
         raise
     except Exception as exc:
         logger.error("PDF queue failed job=%s exception=%s", job_id, type(exc).__name__)
-        yield event_line("error", stage="queue", detail="后台处理不可用，请稍后手动重新提交。")
+        yield event_line(
+            "error",
+            stage="queue",
+            detail=("Background processing is unavailable. Submit the task again later."),
+        )
     finally:
         try:
             await redis.delete(queue_key(job_id, "client"), queue_key(job_id, "input"))

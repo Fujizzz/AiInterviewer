@@ -95,7 +95,11 @@ class RubricEvaluationAdapter:
             policy=self.policy,
             profile=profile,
             history=history,
-            evaluation_failure_codes=failure_codes(context.processed_feedback_ids, records),
+            evaluation_failure_codes=failure_codes(
+                context.processed_feedback_ids,
+                records,
+                unobserved_feedback_ids=context.unobserved_feedback_ids,
+            ),
             supersedes_snapshot_id=previous,
             reevaluation_reason="new_answer" if previous else None,
         )

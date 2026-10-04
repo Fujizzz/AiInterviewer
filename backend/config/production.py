@@ -1,30 +1,26 @@
-"""职责：显式启用 PostgreSQL 与 HTTPS 反向代理部署，保留开发配置和业务参数。
-
-实现：继承 settings 的应用装配；必填部署变量缺失时启动失败，不回退到 SQLite。
-关联：deploy/systemd 与 Nginx 提供 HTTPS；Django session 负责 HTTP/WebSocket 身份。
-
-目录：
-（无本地函数或类定义。）
-
-关键变量：
-- PDF_TASK_EXECUTION：生产 PDF 显式交付 Celery，服务故障不在 ASGI 内运行。
-- CELERY_BROKER_URL：必填的私有 Redis 队列连接。
-- PDF_TASK_REDIS_URL：必填的任务正文与进度连接。
-- ALLOWED_HOSTS：部署时显式指定的逗号分隔主机白名单，不接受通配符或 URL。
-- DATABASES：PostgreSQL 连接；ASGI 请求不保持跨请求的持久连接。
-- SECURE_PROXY_SSL_HEADER：仅信任同机 Nginx 覆写的协议头。
-- SECURE_SSL_REDIRECT：HTTP 统一跳转到 HTTPS；本机检查也须声明代理协议。
-- SESSION_COOKIE_SECURE：账号会话 Cookie 只通过 HTTPS 发送。
-- CSRF_COOKIE_SECURE：CSRF Cookie 只通过 HTTPS 发送。
-- SECURE_HSTS_SECONDS：HTTPS 响应声明一天 HSTS，不包含子域或预加载。
-- SECURE_CONTENT_TYPE_NOSNIFF：禁止浏览器猜测响应类型。
-- MIDDLEWARE：在继承的会话、登录门禁和 CSRF 检查后补充点击劫持保护。
-- X_FRAME_OPTIONS：禁止页面被外站嵌入。
-- INTERVIEW_REQUIRE_LOGIN：生产强制登录，API/面试和诊断 WebSocket 不允许匿名。
-
-约束：
-代理必须清除外部 X-Forwarded-For 并覆写 X-Forwarded-Proto；应用端口仅绑定回环。
-账号使用 Django 数据库 session；写请求同时使用同源与 CSRF token 保护。
+"""Responsibilities: Enable PostgreSQL and HTTPS reverse-proxy deployment settings.
+Implementation: Inherit development application setup and fail startup when required deployment
+values are absent.
+Related Modules: deploy/systemd and Nginx provide HTTPS; Django sessions authenticate HTTP and
+WebSocket requests.
+Declaration Index:
+None
+Variable Index:
+- ALLOWED_HOSTS: Explicit comma-separated hostname or IP allowlist; wildcards and URLs are rejected.
+- DATABASES: PostgreSQL connection; persistent connections are disabled across ASGI requests.
+- SECURE_PROXY_SSL_HEADER: Trust only the protocol header rewritten by the same-host Nginx proxy.
+- SECURE_SSL_REDIRECT: Redirect HTTP to HTTPS.
+- SESSION_COOKIE_SECURE: Send account session cookies over HTTPS only.
+- CSRF_COOKIE_SECURE: Send CSRF cookies over HTTPS only.
+- SECURE_HSTS_SECONDS: Advertise one day of HSTS without subdomains or preload.
+- SECURE_CONTENT_TYPE_NOSNIFF: Prevent browser response-type sniffing.
+- MIDDLEWARE: Extend inherited session, login, and CSRF checks with clickjacking protection.
+- X_FRAME_OPTIONS: Prevent pages from being embedded by external sites.
+- INTERVIEW_REQUIRE_LOGIN: Require authentication for production APIs, interviews, and diagnostic
+  WebSockets.
+- PDF_TASK_EXECUTION: Select Celery for production PDF work.
+- CELERY_BROKER_URL: Required private Redis queue connection.
+- PDF_TASK_REDIS_URL: Required Redis connection for task content and progress.
 """
 
 import os

@@ -1,16 +1,17 @@
-# 体验岗位来源
+# Research job catalog
 
-`experience-jobs.json` 是本地排序模型同源的 100 个实验岗位，并非实时招聘职位。
-用户于 2026-10-01 明确选择接入现有实验数据；运行时仍须显式配置文件路径，不会自动回退到它。
+`experience-jobs.json` contains 100 research jobs from the same source as the local ranking model. These are not current vacancies.
+The user explicitly selected the existing research data on 2026-10-01. Runtime use still requires an explicit catalog path; it is never selected as an implicit fallback.
 
-源文件为 [Final_items.csv](https://raw.githubusercontent.com/brycekan123/DualOptimization_jobrec/c742feea3730e8d34ec2e8ae7e58c8c0ee8a53fd/dataset/Final_items.csv)，
-固定提交 `c742feea3730e8d34ec2e8ae7e58c8c0ee8a53fd`，SHA256：
-`2207fff0d954f223496143f8a646d6314297e6b7c6be18fda4782bc292e1f352`。
-导入前与既有 `research/kaggle_jobrec_v4/results/jobrec_v4/data_manifest.json` 核对哈希和 100 行数量。
+The source is [Final_items.csv](https://raw.githubusercontent.com/brycekan123/DualOptimization_jobrec/c742feea3730e8d34ec2e8ae7e58c8c0ee8a53fd/dataset/Final_items.csv),
+pinned to commit `c742feea3730e8d34ec2e8ae7e58c8c0ee8a53fd`, with SHA-256
+`2207fff0d954f223496143f8a646d6314297e6b7c6be18fda4782bc292e1f352`.
+The hash and 100-row count were checked against `research/kaggle_jobrec_v4/results/jobrec_v4/data_manifest.json` before import.
 
-仅作 CSV 到严格 JSON 契约的表示转换：两个列表使用 `ast.literal_eval`，数值按原列解析，
-工作方式、技能、行业、学业阶段与 ID 保持原样。没有同义词转换、GPA 缩放、要求推断或再训练。
-`job_llm_output` 原样作为介绍；源数据无岗位标题、公司或位置，标题仅标识“行业 · ID”（如 NLP · J0037）；2026-10-03 按用户要求移除标题中的“体验岗位”，
-公司和位置为空，不编造真实发布方。完整模型要求位于 `requirements`。
+Import only converted CSV representations into the strict JSON contract: two lists were parsed with `ast.literal_eval` and numeric values used their original columns.
+Work arrangements, skills, industries, academic levels and IDs were preserved. No synonym mapping, GPA scaling, requirement inference or retraining was performed.
+`job_llm_output` is the unmodified description. The source has no job title, company or location, so titles identify only the industry and ID, such as `NLP · J0037`. The research-job prefix was removed on 2026-10-03 at the user's request.
+Company and location remain empty; no real employer is invented. The original model requirements are stored in `requirements`.
+The English source label is `DualOptimization research job catalog`; its language does not change the catalog's research status or ranking inputs.
 
-这份实验目录不代表真实招聘效果已验证；模型与数据的研究限制见 `docs/recommendation.md`。
+This catalog does not establish effectiveness on real recruitment data. Model and dataset limitations are documented in `docs/recommendation.md`.

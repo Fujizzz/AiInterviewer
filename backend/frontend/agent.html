@@ -1,24 +1,29 @@
 <!doctype html>
 <!--
-职责：面试专用工作台；仅选择个人中心已就绪简历，不上传、提取或编辑个人资料。
-实现：开始入口打开原生准备弹窗，确认后 agent.js 才以 resume_version_id 开始面试；camera 模块只做本地预览，InterviewVoice 协调数字人和语音控件。
-关联：/resumes/ 集中维护资料；/api/resume-versions/ 提供版本；/ws/agent/ 处理面试。
-目录：共享顶部导航；主栏题目/面试画面/语音回答；侧栏预算/话题/异常与设备设置；准备弹窗中的版本/岗位/预算设置；评分与报告。
-函数和类：None。变量索引：user/csrf_token 为 Django 上下文；resume-select 选择版本 UUID；
-job/duration/limit/probes 为岗位、时长和安全上限，question/answer-subtitle/report 为当前会话展示；
-open-preparation/interview-settings 打开 preparation-dialog，close/cancel-preparation 关闭并保留设置，
-start-form 使用原生校验；preparation-error 显示确认错误，preparation-title 标识弹窗，interview-language 切换弹窗文案。
-约束：版本输入须登录；用户名转义，不在浏览器持久化资料；离开页面中断当前面试。
-avatar-view/connect-avatar 为数字人入口；start-recording 开始录音，stop-recording 确认结束并提交最终转写；
-answer-subtitles/answer-subtitle 仅以纯文本展示实时和最终字幕，不提供编辑输入。
-interview-progress/interview-topics 展示预算与计划，interview-alert-panel 展示已有失败标志；不触发收尾。
+Responsibilities: Render the interview workspace using a ready resume version owned by the current user.
+Implementation: A native preparation dialog collects version/job/budget settings; agent.js starts with resume_version_id, interview-camera.js owns local preview, and InterviewVoice coordinates avatar and speech.
+Related Modules: /resumes/ manages profiles; /api/resume-versions/ supplies versions; /ws/agent/ executes interviews; workspace-nav.html and i18n.js provide navigation and text.
+Declaration Index:
+None
+Variable Index:
+None
+Template Context:
+user and csrf_token come from Django; identity is escaped and version access is authenticated.
+Element Index:
+resume-select stores the version UUID; job/duration/limit/probes are preparation inputs; open-preparation/interview-settings opens settings; close/cancel-preparation retains settings while closing; start-form uses native validation; preparation-error/title identifies dialog feedback.
+question, answer-subtitle and report display current session output; avatar-view/connect-avatar controls avatar connection; answer-countdown shows preparation/inactivity; cancel-agent opens end-interview-dialog with end-and-save/end-without-save/continue-interview choices; answer-subtitles contains plain-text captions.
+interview-language selects UI copy; interview-progress/interview-topics displays budget/plan; interview-alert-panel shows existing anomalies.
+Page Regions:
+Shared navigation, question/avatar/answer main column, budget/topic/device sidebar, preparation/end-choice dialogs, assessment and report.
+Constraints:
+The page does not upload, extract or edit profile data and does not persist profiles in the browser. Leaving interrupts the current local interview flow; backend persistence and provider cancellation follow their existing contracts.
 -->
-<html lang="zh-CN" data-page-title="agent_title">
+<html lang="en" data-page-title="agent_title">
 <head>
   <meta charset="utf-8">
   <meta id="csrf-token" name="csrf-token" content="{{ csrf_token }}">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>AI Interviewer · 面试空间</title>
+  <title>AI Interviewer · Interview space</title>
   <script type="module" src="/stream-demo/i18n.js"></script>
   <link rel="stylesheet" href="/stream-demo/style.css">
   <link rel="stylesheet" href="/stream-demo/agent.css">
@@ -27,84 +32,91 @@ interview-progress/interview-topics 展示预算与计划，interview-alert-pane
   <link rel="stylesheet" href="/stream-demo/account.css">
 <link rel="stylesheet" href="/stream-demo/workspace.css">
 </head>
-<body class="interview-page workspace-page"><a class="skip-link" href="#main-content" data-i18n="home_skip">跳转到主要内容</a>
+<body class="interview-page workspace-page"><a class="skip-link" href="#main-content" data-i18n="home_skip">Skip to main content</a>
   {% include "workspace-nav.html" %}<main id="main-content">
-  <div class="studio-heading"><div><span class="eyebrow" data-i18n="agent_eyebrow">YOUR INTERVIEW SPACE</span><h1 data-i18n="agent_heading">模拟面试</h1></div><div class="studio-session-actions"><button id="interview-settings" class="secondary" type="button" aria-haspopup="dialog" aria-controls="preparation-dialog" data-i18n="agent_settings_link">面试设置</button><span class="session-type" data-i18n="agent_type">面试练习 · 语音作答</span><button id="open-preparation" type="button" aria-haspopup="dialog" aria-controls="preparation-dialog" data-i18n="start_interview">开始面试</button></div></div>
-  <section class="connection" aria-label="处理进度" data-i18n-attr="aria-label:agent_connection_label">
-    <span id="agent-status" role="status" tabindex="-1" data-i18n="agent_ready">就绪</span><span id="wait-time"></span>
-    <p id="stage-log" class="hint" aria-label="已完成阶段耗时" data-i18n-attr="aria-label:agent_stage_log_label"></p>
+  <div class="studio-heading"><div><span class="eyebrow" data-i18n="agent_eyebrow">YOUR INTERVIEW SPACE</span><h1 data-i18n="agent_heading">Mock interview</h1></div><div class="studio-session-actions"><button id="interview-settings" class="secondary" type="button" aria-haspopup="dialog" aria-controls="preparation-dialog" data-i18n="agent_settings_link">Interview settings</button><span class="session-type" data-i18n="agent_type">Practice interview · Voice answers</span><button id="open-preparation" type="button" aria-haspopup="dialog" aria-controls="preparation-dialog" data-i18n="start_interview">Start interview</button></div></div>
+  <section class="connection" aria-label="Processing progress" data-i18n-attr="aria-label:agent_connection_label">
+    <span id="agent-status" role="status" tabindex="-1" data-i18n="agent_ready">Ready</span><span id="wait-time"></span>
+    <p id="stage-log" class="hint" aria-label="Completed stage durations" data-i18n-attr="aria-label:agent_stage_log_label"></p>
   </section>
   <div class="studio-layout"><div class="studio-main">
   <section class="question-card" aria-labelledby="question-heading">
-    <div class="question-label"><h2 id="question-heading" data-i18n="agent_current_question">当前题目</h2><span id="question-meta" class="hint"></span></div>
-    <p id="question" aria-live="polite" data-i18n="agent_question_placeholder">开始面试后，问题会显示在这里。</p>
+    <div class="question-label"><h2 id="question-heading" data-i18n="agent_current_question">Current question</h2><span id="question-meta" class="hint"></span></div>
+    <p id="question" aria-live="polite" data-i18n="agent_question_placeholder">Your question will appear here once the interview starts.</p>
+    <p id="answer-countdown" class="answer-countdown" role="timer" hidden></p>
   </section>
-  <section id="interviewer-stage" class="interviewer-stage" aria-label="面试视频区域" data-i18n-attr="aria-label:interviewer_video_label">
-    <div class="stage-caption"><span class="stage-dot" aria-hidden="true"></span> <span data-i18n="agent_stage">面试官席位</span></div>
-    <div id="avatar-view" class="avatar-view" aria-label="数字人面试官画面" data-i18n-attr="aria-label:avatar_label"></div>
-    <aside class="self-preview" aria-label="自己的视频" data-i18n-attr="aria-label:self_video_label">
-      <video id="self-video" autoplay muted playsinline hidden aria-label="本地摄像头预览" data-i18n-attr="aria-label:camera_local"></video>
-      <div id="camera-placeholder" class="camera-placeholder"><span aria-hidden="true">◎</span><p data-i18n="camera_off">摄像头未开启</p></div>
-      <span class="self-label"><span data-i18n="camera_label">你</span> <span data-i18n="camera_local">仅本地预览</span></span>
+  <section id="interviewer-stage" class="interviewer-stage" aria-label="Interview video area" data-i18n-attr="aria-label:interviewer_video_label">
+    <div class="stage-caption"><span class="stage-dot" aria-hidden="true"></span> <span data-i18n="agent_stage">Interviewer seat</span></div>
+    <div id="avatar-view" class="avatar-view" aria-label="Digital-human interviewer video" data-i18n-attr="aria-label:avatar_label"></div>
+    <aside class="self-preview" aria-label="Your video" data-i18n-attr="aria-label:self_video_label">
+      <video id="self-video" autoplay muted playsinline hidden aria-label="Local preview only" data-i18n-attr="aria-label:camera_local"></video>
+      <div id="camera-placeholder" class="camera-placeholder"><span aria-hidden="true">◎</span><p data-i18n="camera_off">Camera off</p></div>
+      <span class="self-label"><span data-i18n="camera_label">You</span> <span data-i18n="camera_local">Local preview only</span></span>
     </aside>
-    <div id="answer-subtitles" class="answer-subtitles" hidden><span class="subtitle-label" data-i18n="answer_label">你的回答</span><p id="answer-subtitle" aria-live="polite" aria-atomic="true"></p></div>
-    <div class="stage-bottom"><span data-i18n="agent_think">留一点时间思考，再开始回答。</span><span class="preview-badge" data-i18n="agent_preview">形象预览</span></div>
+    <div id="answer-subtitles" class="answer-subtitles" hidden><span class="subtitle-label" data-i18n="answer_label">Your answer</span><p id="answer-subtitle" aria-live="polite" aria-atomic="true"></p></div>
+    <div class="stage-bottom"><span data-i18n="agent_think">Take a moment to think before you answer.</span><span class="preview-badge" data-i18n="agent_preview">Visual preview</span></div>
   </section>
-  <div class="camera-toolbar"><button id="camera-toggle" type="button" class="secondary" aria-pressed="false" aria-controls="self-video" data-i18n="camera_enable">开启摄像头</button><span id="camera-status" role="status" data-i18n="camera_note">摄像头仅供自我预览，不录制、不上传。</span></div>
-  <section class="panel voice-panel" aria-label="语音面试控制" data-i18n-attr="aria-label:voice_controls_label">
-    <div class="actions answer-actions">
-      <button id="start-recording" type="button" disabled data-i18n="voice_start">开始回答</button>
-      <button id="stop-recording" type="button" disabled data-i18n="voice_stop">结束回答</button>
-    </div>
-    <p id="voice-status" class="hint" role="status" data-i18n="voice_ready">问题就绪后点击“开始回答”，说完点击“结束回答”提交。</p>
-    <div class="actions session-actions"><button id="cancel-agent" type="button" class="secondary" disabled data-i18n="cancel_interview">取消面试</button><button id="clear-agent" type="button" class="secondary" data-i18n="clear_content">清空内容</button></div>
+  <div class="camera-toolbar"><button id="camera-toggle" type="button" class="secondary" aria-pressed="false" aria-controls="self-video" data-i18n="camera_enable">Enable camera</button><span id="camera-status" role="status" data-i18n="camera_note">Camera is for self-preview only; nothing is recorded or uploaded.</span></div>
+  <section class="panel voice-panel" aria-label="Voice interview controls" data-i18n-attr="aria-label:voice_controls_label">
+    <p id="voice-status" class="hint" role="status" data-i18n="voice_ready">Prepare for 15 seconds; recording and answer submission then run automatically.</p>
+    <div class="actions session-actions"><button id="cancel-agent" type="button" class="secondary" disabled aria-haspopup="dialog" aria-controls="end-interview-dialog" data-i18n="end_interview">End interview</button><button id="clear-agent" type="button" class="secondary" data-i18n="clear_content">Clear interview content</button></div>
   </section>
   </div><aside class="studio-sidebar">
-  <section id="interview-progress" class="interview-progress" hidden aria-label="面试进度" data-i18n-attr="aria-label:review_progress">
-    <div class="interview-stats"><div><span data-i18n="review_remaining">剩余时间</span><strong id="interview-remaining" role="timer"></strong></div><div><span data-i18n="review_stage">当前阶段</span><strong id="interview-stage"></strong></div><div><span data-i18n="review_questions">题目进度</span><strong id="interview-question-progress"></strong><small id="interview-plan-meta"></small></div></div>
-    <details><summary data-i18n="review_topics">话题进度</summary><ul id="interview-topics" class="interview-topic-list"></ul></details><p id="interview-clock-note" class="hint"></p>
+  <section id="interview-progress" class="interview-progress" hidden aria-label="Interview progress" data-i18n-attr="aria-label:review_progress">
+    <div class="interview-stats"><div><span data-i18n="review_remaining">Time remaining</span><strong id="interview-remaining" role="timer"></strong></div><div><span data-i18n="review_stage">Current stage</span><strong id="interview-stage"></strong></div><div><span data-i18n="review_questions">Question progress</span><strong id="interview-question-progress"></strong><small id="interview-plan-meta"></small></div></div>
+    <details><summary data-i18n="review_topics">Topic progress</summary><ul id="interview-topics" class="interview-topic-list"></ul></details><p id="interview-clock-note" class="hint"></p>
   </section>
-  <aside id="interview-alert-panel" class="interview-alert-panel" hidden aria-live="polite"><strong data-i18n="review_notices">面试提醒</strong><ul id="interview-alerts"></ul><a href="/interview-review/" data-i18n="review_history_link">查看已保存的面试复盘 ↗</a></aside>
-  <details id="evaluation-panel" hidden><summary data-i18n="previous_evaluation">上一题评价</summary><pre id="evaluation"></pre></details>
-<details class="studio-device-settings"><summary data-i18n="ws_devices">设备与播放设置</summary><div class="actions">      <button id="connect-avatar" type="button" class="secondary" data-i18n="avatar_connect">连接／播放数字人</button>
-      <button id="replay-question" type="button" class="secondary" disabled data-i18n="voice_replay">重新朗读</button>
-      <button id="interrupt-speech" type="button" class="secondary" disabled data-i18n="voice_interrupt">打断朗读</button>
-</div>    <label><input id="voice-enabled" type="checkbox" checked> <span data-i18n="voice_auto">自动朗读英文问题</span></label>
+  <aside id="interview-alert-panel" class="interview-alert-panel" hidden aria-live="polite"><strong data-i18n="review_notices">Interview notices</strong><ul id="interview-alerts"></ul><a href="/interview-review/" data-i18n="review_history_link">View saved interview reviews ↗</a></aside>
+  <details id="evaluation-panel" hidden><summary data-i18n="previous_evaluation">Previous evaluation</summary><pre id="evaluation"></pre></details>
+<details class="studio-device-settings"><summary data-i18n="ws_devices">Devices & playback</summary><div class="actions">      <button id="connect-avatar" type="button" class="secondary" data-i18n="avatar_connect">Connect / play interviewer</button>
+      <button id="replay-question" type="button" class="secondary" disabled data-i18n="voice_replay">Replay question</button>
+      <button id="interrupt-speech" type="button" class="secondary" disabled data-i18n="voice_interrupt">Interrupt speech</button>
+</div>    <label><input id="voice-enabled" type="checkbox" checked> <span data-i18n="voice_auto">Read English questions aloud</span></label>
     <p id="speech-metrics" class="hint"></p><p id="avatar-metrics" class="hint"></p>
-    <details class="avatar-connection"><summary data-i18n="avatar_settings">数字人连接设置</summary>
-      <label for="signalling-url" data-i18n="avatar_signalling">本机数字人信令地址</label>
+    <details class="avatar-connection"><summary data-i18n="avatar_settings">Interviewer connection settings</summary>
+      <label for="signalling-url" data-i18n="avatar_signalling">Local interviewer signalling URL</label>
       <input id="signalling-url" value="ws://127.0.0.1:8889">
     </details>
 </details></aside></div>
   <dialog id="preparation-dialog" class="preparation-dialog" aria-labelledby="preparation-title" aria-describedby="preparation-hint">
-    <div class="preparation-heading"><div><h2 id="preparation-title" tabindex="-1" data-i18n="preparation">面试准备</h2><p id="preparation-hint" class="hint" data-i18n="preparation_hint">选择简历，确认岗位和时长后开始。</p></div><button id="close-preparation" type="button" class="secondary preparation-close" aria-label="关闭面试准备" data-i18n-attr="aria-label:preparation_close">×</button></div>
-  <!-- 参数表单的初始值与 MVP 默认值一致；运行期间由脚本禁用，避免同连接重复初始化。 -->
+    <div class="preparation-heading"><div><h2 id="preparation-title" tabindex="-1" data-i18n="preparation">Interview preparation</h2><p id="preparation-hint" class="hint" data-i18n="preparation_hint">Choose a resume, then confirm your role and duration.</p></div><button id="close-preparation" type="button" class="secondary preparation-close" aria-label="Close interview preparation" data-i18n-attr="aria-label:preparation_close">×</button></div>
+  <!--
+Parameter form initial values match MVP defaults; disabled during runtime by script to prevent duplicate initialization over same connection.
+-->
   <form id="start-form">
   <div class="preparation-body">
-    <label for="resume-select" data-i18n="agent_resume_choice">选择已保存简历</label>
-    <select id="resume-select" required disabled><option value="" data-i18n="agent_resume_select">请选择已就绪的简历版本</option></select>
-    <div class="actions"><button id="refresh-resumes" type="button" class="secondary" data-i18n="rm_refresh">刷新</button><a href="/resumes/" data-i18n="agent_manage_profile">前往个人中心维护资料与简历 ↗</a></div>
+    <label for="resume-select" data-i18n="agent_resume_choice">Select a saved resume</label>
+    <select id="resume-select" required disabled><option value="" data-i18n="agent_resume_select">Select a ready resume version</option></select>
+    <div class="actions"><button id="refresh-resumes" type="button" class="secondary" data-i18n="rm_refresh">Refresh</button><a href="/resumes/" data-i18n="agent_manage_profile">Manage profile and resumes in your personal center ↗</a></div>
     <p id="resume-selection-status" class="hint" role="status"></p>
-    <label for="job" data-i18n="job_label">目标岗位</label>
+    <label for="job" data-i18n="job_label">Target role</label>
     <input id="job" value="General AI / Software Engineer" required>
     <div class="settings-grid">
-      <div><label for="duration" data-i18n="duration_label">面试时长（分钟）</label><input id="duration" type="number" min="1" step="1" value="30" required></div>
-      <div><label for="limit" data-i18n="limit_label">总题数安全上限</label><input id="limit" type="number" min="1" step="1" value="40" required></div>
-      <div><label for="probes" data-i18n="probes_label">每话题追问安全上限</label><input id="probes" type="number" min="0" step="1" value="7" required></div>
+      <div><label for="duration" data-i18n="duration_label">Interview duration (minutes)</label><input id="duration" type="number" min="1" step="1" value="30" required></div>
+      <div><label for="limit" data-i18n="limit_label">Question safety limit</label><input id="limit" type="number" min="1" step="1" value="40" required></div>
+      <div><label for="probes" data-i18n="probes_label">Follow-up safety limit per topic</label><input id="probes" type="number" min="0" step="1" value="7" required></div>
     </div>
-    <p class="hint" data-i18n="budget_hint">从首题就绪开始计时，包含语音回答和模型等待；提交后检查是否收尾。单次录音最多 120 秒，到达时限后仍需点击“结束回答”提交。</p>
+    <p class="hint" data-i18n="budget_hint">Timing starts when the first question is ready and includes voice answers and model calls. Each question allows 15 seconds of preparation. Answers finish automatically after 5 seconds of silence, detected completion, or the 120-second recording limit.</p>
     <p id="preparation-error" class="preparation-error" role="alert"></p>
-    <p class="privacy-note" data-i18n="privacy_note">简历和回答会发送给配置的模型服务；解析后的资料、题目、回答和报告保存在服务端数据库。清空页面不会删除历史，离开页面会中断面试，暂不支持续接。</p>
+    <p class="privacy-note" data-i18n="privacy_note">Your resume and answers are sent to the configured model service; parsed materials, questions, answers, and reports are stored in the server database. Clearing the page does not delete history, and interrupted sessions cannot yet be resumed.</p>
   </div>
-  <div class="preparation-footer"><button id="cancel-preparation" type="button" class="secondary" data-i18n="preparation_cancel">稍后开始</button><button id="start-agent" type="submit" data-i18n="preparation_confirm">确认并开始面试</button></div>
+  <div class="preparation-footer"><button id="cancel-preparation" type="button" class="secondary" data-i18n="preparation_cancel">Not now</button><button id="start-agent" type="submit" data-i18n="preparation_confirm">Confirm and start interview</button></div>
   </form>
   </dialog>
-  <!-- 仅在收到完整 finished 响应后展示；评分直接呈现后端结果，不在模板中重新计算。 -->
+<dialog id="end-interview-dialog" class="preparation-dialog" aria-labelledby="end-interview-title">
+  <h2 id="end-interview-title" data-i18n="end_interview">End interview</h2>
+  <p data-i18n="end_interview_choice">Evaluate completed answers and save this interview, or end without evaluation and remove this interview from history.</p>
+  <p id="end-interview-error" role="alert"></p>
+  <div class="actions"><button id="end-and-save" type="button" data-i18n="end_and_save">Evaluate and save</button><button id="end-without-save" type="button" class="secondary" data-i18n="end_without_save">End without saving</button><button id="continue-interview" type="button" class="secondary" data-i18n="continue_interview">Continue interview</button></div>
+</dialog>
+  <!--
+Displayed only after receiving complete finished response; scores shown directly from backend result, not recalculated in template.
+-->
   <section id="report-panel" class="panel" hidden>
-    <h2 data-i18n="report_title">面试报告</h2>
-    <a href="/interview-review/" data-i18n="review_history_link">查看已保存的面试复盘 ↗</a><p id="score"></p><p id="report-summary"></p>
-    <details id="assessment-panel" hidden><summary data-i18n="assessment_title">查看能力评分与覆盖程度</summary><pre id="assessment"></pre></details>
-    <details><summary data-i18n="full_result">完整结果与决策记录</summary><pre id="report"></pre></details>
+    <h2 data-i18n="report_title">Interview report</h2>
+    <a href="/interview-review/" data-i18n="review_history_link">View saved interview reviews ↗</a><p id="score"></p><p id="report-summary"></p>
+    <details id="assessment-panel" hidden><summary data-i18n="assessment_title">View skill scores and coverage</summary><pre id="assessment"></pre></details>
+    <details><summary data-i18n="full_result">Full result and decision log</summary><pre id="report"></pre></details>
   </section>
 
 </main></body>

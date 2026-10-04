@@ -1,0 +1,2779 @@
+{
+  "config": {
+    "experiment_id": "semantic-completion-v2-20261003",
+    "base_model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    "base_revision": "e8f8c211226b894fcb81acc59f3b34ba3efd5f42",
+    "format": "minilm-mean-l2-logistic-v2",
+    "seed": 42,
+    "groups_per_language": 80,
+    "train_groups_per_language": 60,
+    "validation_groups_per_language": 10,
+    "test_groups_per_language": 10,
+    "generation_model": "qwen-plus",
+    "generation_timeout_seconds": 60,
+    "generation_concurrency": 4,
+    "generation_temperature": 0.8,
+    "epochs": 5,
+    "batch_size": 16,
+    "encoder_learning_rate": 2e-05,
+    "head_learning_rate": 0.01,
+    "weight_decay": 0.01,
+    "gradient_clip_norm": 1.0,
+    "mixed_precision": "float16",
+    "amp_overflow_policy": "grad_scaler_skip_update_and_reduce_scale",
+    "checkpoint_selection": "minimum_validation_weighted_bce",
+    "quantization_weight_type": "QUInt8",
+    "quantization_ops": [
+      "MatMul",
+      "Gather"
+    ],
+    "quantization_per_channel": false,
+    "quantization_reduce_range": false,
+    "evaluation_inference_batch_size": 1,
+    "validation_recall_target_per_language": 0.99,
+    "test_recall_min_per_language": 0.95,
+    "test_negative_rejection_min": 0.5,
+    "challenge_recall_min_per_language": 0.95,
+    "onnxruntime_version": "1.23.2",
+    "tokenizers_version": "0.22.2",
+    "transformers_version": "4.57.1",
+    "onnx_version": "1.19.1",
+    "reuse_v1_training_only": true,
+    "v1_challenge_role": "regression_only_not_independent"
+  },
+  "versions": {
+    "numpy": "2.1.3",
+    "torch": "2.11.0+cu128",
+    "transformers": "4.57.1",
+    "tokenizers": "0.22.2",
+    "onnx": "1.19.1",
+    "onnxruntime": "1.23.2"
+  },
+  "platform": "Linux-6.18.48+-x86_64-with-glibc2.39",
+  "cuda": "12.8",
+  "gpu": "Tesla T4",
+  "epoch_history": [
+    {
+      "epoch": 1,
+      "train_weighted_bce": 0.5766478890925646,
+      "validation_weighted_bce": 0.3916984570026398,
+      "selected": true,
+      "amp_skipped_updates": 0,
+      "amp_loss_scale": 65536.0,
+      "seconds": 17.13079362399992
+    },
+    {
+      "epoch": 2,
+      "train_weighted_bce": 0.25604757947847245,
+      "validation_weighted_bce": 0.3167704439163208,
+      "selected": true,
+      "amp_skipped_updates": 0,
+      "amp_loss_scale": 65536.0,
+      "seconds": 14.91079133200003
+    },
+    {
+      "epoch": 3,
+      "train_weighted_bce": 0.1944279637777557,
+      "validation_weighted_bce": 0.34965752363204955,
+      "selected": false,
+      "amp_skipped_updates": 0,
+      "amp_loss_scale": 65536.0,
+      "seconds": 14.111513572000035
+    },
+    {
+      "epoch": 4,
+      "train_weighted_bce": 0.1421297352279847,
+      "validation_weighted_bce": 0.4813798838108778,
+      "selected": false,
+      "amp_skipped_updates": 0,
+      "amp_loss_scale": 65536.0,
+      "seconds": 14.123838281999952
+    },
+    {
+      "epoch": 5,
+      "train_weighted_bce": 0.1191002272007366,
+      "validation_weighted_bce": 0.6673410254716873,
+      "selected": false,
+      "amp_skipped_updates": 1,
+      "amp_loss_scale": 32768.0,
+      "seconds": 14.153313491999938
+    }
+  ],
+  "evaluation": {
+    "validation": {
+      "overall": {
+        "n": 200,
+        "tp": 73,
+        "fn": 0,
+        "fp": 28,
+        "tn": 99,
+        "recall": 1.0,
+        "negative_rejection": 0.7795275590551181,
+        "precision": 0.7227722772277227,
+        "qwen_pass_fraction": 0.505
+      },
+      "zh": {
+        "n": 100,
+        "tp": 42,
+        "fn": 0,
+        "fp": 12,
+        "tn": 46,
+        "recall": 1.0,
+        "negative_rejection": 0.7931034482758621,
+        "precision": 0.7777777777777778,
+        "qwen_pass_fraction": 0.54
+      },
+      "en": {
+        "n": 100,
+        "tp": 31,
+        "fn": 0,
+        "fp": 16,
+        "tn": 53,
+        "recall": 1.0,
+        "negative_rejection": 0.7681159420289855,
+        "precision": 0.6595744680851063,
+        "qwen_pass_fraction": 0.47
+      }
+    },
+    "test": {
+      "overall": {
+        "n": 200,
+        "tp": 76,
+        "fn": 0,
+        "fp": 34,
+        "tn": 90,
+        "recall": 1.0,
+        "negative_rejection": 0.7258064516129032,
+        "precision": 0.6909090909090909,
+        "qwen_pass_fraction": 0.55
+      },
+      "zh": {
+        "n": 100,
+        "tp": 39,
+        "fn": 0,
+        "fp": 16,
+        "tn": 45,
+        "recall": 1.0,
+        "negative_rejection": 0.7377049180327869,
+        "precision": 0.7090909090909091,
+        "qwen_pass_fraction": 0.55
+      },
+      "en": {
+        "n": 100,
+        "tp": 37,
+        "fn": 0,
+        "fp": 18,
+        "tn": 45,
+        "recall": 1.0,
+        "negative_rejection": 0.7142857142857143,
+        "precision": 0.6727272727272727,
+        "qwen_pass_fraction": 0.55
+      }
+    },
+    "challenge": {
+      "overall": {
+        "n": 80,
+        "tp": 39,
+        "fn": 1,
+        "fp": 36,
+        "tn": 4,
+        "recall": 0.975,
+        "negative_rejection": 0.1,
+        "precision": 0.52,
+        "qwen_pass_fraction": 0.9375
+      },
+      "zh": {
+        "n": 40,
+        "tp": 19,
+        "fn": 1,
+        "fp": 17,
+        "tn": 3,
+        "recall": 0.95,
+        "negative_rejection": 0.15,
+        "precision": 0.5277777777777778,
+        "qwen_pass_fraction": 0.9
+      },
+      "en": {
+        "n": 40,
+        "tp": 20,
+        "fn": 0,
+        "fp": 19,
+        "tn": 1,
+        "recall": 1.0,
+        "negative_rejection": 0.05,
+        "precision": 0.5128205128205128,
+        "qwen_pass_fraction": 0.975
+      }
+    },
+    "known_v1_regression": {
+      "overall": {
+        "n": 80,
+        "tp": 40,
+        "fn": 0,
+        "fp": 34,
+        "tn": 6,
+        "recall": 1.0,
+        "negative_rejection": 0.15,
+        "precision": 0.5405405405405406,
+        "qwen_pass_fraction": 0.925
+      },
+      "zh": {
+        "n": 40,
+        "tp": 20,
+        "fn": 0,
+        "fp": 16,
+        "tn": 4,
+        "recall": 1.0,
+        "negative_rejection": 0.2,
+        "precision": 0.5555555555555556,
+        "qwen_pass_fraction": 0.9
+      },
+      "en": {
+        "n": 40,
+        "tp": 20,
+        "fn": 0,
+        "fp": 18,
+        "tn": 2,
+        "recall": 1.0,
+        "negative_rejection": 0.1,
+        "precision": 0.5263157894736842,
+        "qwen_pass_fraction": 0.95
+      }
+    }
+  },
+  "release_approved": true,
+  "threshold": 0.02858497041739284,
+  "threshold_source": "exported_INT8_single_tail_validation_only",
+  "labels": "synthetic blind teacher labels; no independent human gold or real ASR",
+  "batch_consistency": {
+    "exactly_equal": true,
+    "n": 80
+  },
+  "cpu_encoding_latency_ms": {
+    "p50": 7.67246349994366,
+    "p95": 9.539583949958796,
+    "n": 80
+  },
+  "held_out_predictions": [
+    {
+      "id": "v2/zh-054/exhausted_ideas",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9822502823182765,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-054/hand_back_turn",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9722372128193646,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-054/limited_knowledge_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.07776340300839236,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-054/answer_closed_project_ongoing",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9836385520172943,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-054/explicit_answer_end",
+      "language": "zh",
+      "label": 1,
+      "score": 0.982217236200118,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-054/quote_same_end_words",
+      "language": "zh",
+      "label": 0,
+      "score": 0.012212726842107738,
+      "passed": false
+    },
+    {
+      "id": "v2/zh-054/negate_same_end_words",
+      "language": "zh",
+      "label": 0,
+      "score": 0.02354228635278284,
+      "passed": false
+    },
+    {
+      "id": "v2/zh-054/task_complete_not_answer",
+      "language": "zh",
+      "label": 0,
+      "score": 0.021702947762406513,
+      "passed": false
+    },
+    {
+      "id": "v2/zh-054/retract_end_and_continue",
+      "language": "zh",
+      "label": 0,
+      "score": 0.011565005958544457,
+      "passed": false
+    },
+    {
+      "id": "v2/zh-054/ordinary_or_uncertain",
+      "language": "zh",
+      "label": 0,
+      "score": 0.014603618181237288,
+      "passed": false
+    },
+    {
+      "id": "v2/zh-011/exhausted_ideas",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9829512283716498,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-011/hand_back_turn",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9756197420034279,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-011/limited_knowledge_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.7644466841667347,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-011/answer_closed_project_ongoing",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9842536759002242,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-011/explicit_answer_end",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9846835153538402,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-011/quote_same_end_words",
+      "language": "zh",
+      "label": 0,
+      "score": 0.012188028957240573,
+      "passed": false
+    },
+    {
+      "id": "v2/zh-011/negate_same_end_words",
+      "language": "zh",
+      "label": 0,
+      "score": 0.018477969167089717,
+      "passed": false
+    },
+    {
+      "id": "v2/zh-011/task_complete_not_answer",
+      "language": "zh",
+      "label": 0,
+      "score": 0.897459919484289,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-011/retract_end_and_continue",
+      "language": "zh",
+      "label": 0,
+      "score": 0.012565648784804942,
+      "passed": false
+    },
+    {
+      "id": "v2/zh-011/ordinary_or_uncertain",
+      "language": "zh",
+      "label": 0,
+      "score": 0.05788389587167584,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-069/exhausted_ideas",
+      "language": "zh",
+      "label": 0,
+      "score": 0.9817239858950496,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-069/hand_back_turn",
+      "language": "zh",
+      "label": 1,
+      "score": 0.8535311326332403,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-069/limited_knowledge_end",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9802773320396715,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-069/answer_closed_project_ongoing",
+      "language": "zh",
+      "label": 0,
+      "score": 0.9860192389460902,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-069/explicit_answer_end",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9851256579134874,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-069/quote_same_end_words",
+      "language": "zh",
+      "label": 0,
+      "score": 0.012283126925863391,
+      "passed": false
+    },
+    {
+      "id": "v2/zh-069/negate_same_end_words",
+      "language": "zh",
+      "label": 0,
+      "score": 0.012123884687516778,
+      "passed": false
+    },
+    {
+      "id": "v2/zh-069/task_complete_not_answer",
+      "language": "zh",
+      "label": 0,
+      "score": 0.018412488585376842,
+      "passed": false
+    },
+    {
+      "id": "v2/zh-069/retract_end_and_continue",
+      "language": "zh",
+      "label": 0,
+      "score": 0.01094083567830462,
+      "passed": false
+    },
+    {
+      "id": "v2/zh-069/ordinary_or_uncertain",
+      "language": "zh",
+      "label": 0,
+      "score": 0.014495189025563984,
+      "passed": false
+    },
+    {
+      "id": "v2/zh-013/exhausted_ideas",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9768258702584541,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-013/hand_back_turn",
+      "language": "zh",
+      "label": 1,
+      "score": 0.944004047578566,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-013/limited_knowledge_end",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9792326240224403,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-013/answer_closed_project_ongoing",
+      "language": "zh",
+      "label": 0,
+      "score": 0.017320872383029668,
+      "passed": false
+    },
+    {
+      "id": "v2/zh-013/explicit_answer_end",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9859523359527588,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-013/quote_same_end_words",
+      "language": "zh",
+      "label": 0,
+      "score": 0.011262718022370641,
+      "passed": false
+    },
+    {
+      "id": "v2/zh-013/negate_same_end_words",
+      "language": "zh",
+      "label": 0,
+      "score": 0.01207357492044553,
+      "passed": false
+    },
+    {
+      "id": "v2/zh-013/task_complete_not_answer",
+      "language": "zh",
+      "label": 0,
+      "score": 0.015709757289848855,
+      "passed": false
+    },
+    {
+      "id": "v2/zh-013/retract_end_and_continue",
+      "language": "zh",
+      "label": 0,
+      "score": 0.012129165719842508,
+      "passed": false
+    },
+    {
+      "id": "v2/zh-013/ordinary_or_uncertain",
+      "language": "zh",
+      "label": 0,
+      "score": 0.013353649645858123,
+      "passed": false
+    },
+    {
+      "id": "v2/zh-017/exhausted_ideas",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9845922145806008,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-017/hand_back_turn",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9724978976453512,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-017/limited_knowledge_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.04537795420754385,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-017/answer_closed_project_ongoing",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9758198277909035,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-017/explicit_answer_end",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9859464225743642,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-017/quote_same_end_words",
+      "language": "zh",
+      "label": 0,
+      "score": 0.011942712584696138,
+      "passed": false
+    },
+    {
+      "id": "v2/zh-017/negate_same_end_words",
+      "language": "zh",
+      "label": 0,
+      "score": 0.012570058341700016,
+      "passed": false
+    },
+    {
+      "id": "v2/zh-017/task_complete_not_answer",
+      "language": "zh",
+      "label": 0,
+      "score": 0.013665452843894296,
+      "passed": false
+    },
+    {
+      "id": "v2/zh-017/retract_end_and_continue",
+      "language": "zh",
+      "label": 0,
+      "score": 0.01312893492491076,
+      "passed": false
+    },
+    {
+      "id": "v2/zh-017/ordinary_or_uncertain",
+      "language": "zh",
+      "label": 0,
+      "score": 0.016341923295949946,
+      "passed": false
+    },
+    {
+      "id": "v2/zh-028/exhausted_ideas",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9627028902053018,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-028/hand_back_turn",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9682344488666444,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-028/limited_knowledge_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.2027021343822807,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-028/answer_closed_project_ongoing",
+      "language": "zh",
+      "label": 1,
+      "score": 0.7393848082182575,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-028/explicit_answer_end",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9847951590067503,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-028/quote_same_end_words",
+      "language": "zh",
+      "label": 0,
+      "score": 0.011526490133655535,
+      "passed": false
+    },
+    {
+      "id": "v2/zh-028/negate_same_end_words",
+      "language": "zh",
+      "label": 0,
+      "score": 0.018389692885134725,
+      "passed": false
+    },
+    {
+      "id": "v2/zh-028/task_complete_not_answer",
+      "language": "zh",
+      "label": 0,
+      "score": 0.06830043565592464,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-028/retract_end_and_continue",
+      "language": "zh",
+      "label": 0,
+      "score": 0.012017352909225867,
+      "passed": false
+    },
+    {
+      "id": "v2/zh-028/ordinary_or_uncertain",
+      "language": "zh",
+      "label": 0,
+      "score": 0.016251091033331,
+      "passed": false
+    },
+    {
+      "id": "v2/zh-031/exhausted_ideas",
+      "language": "zh",
+      "label": 1,
+      "score": 0.982143058261888,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-031/hand_back_turn",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9671860676009885,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-031/limited_knowledge_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.7853280189888361,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-031/answer_closed_project_ongoing",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9805873002516448,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-031/explicit_answer_end",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9825015599671665,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-031/quote_same_end_words",
+      "language": "zh",
+      "label": 0,
+      "score": 0.012544335963042434,
+      "passed": false
+    },
+    {
+      "id": "v2/zh-031/negate_same_end_words",
+      "language": "zh",
+      "label": 0,
+      "score": 0.012619980970379183,
+      "passed": false
+    },
+    {
+      "id": "v2/zh-031/task_complete_not_answer",
+      "language": "zh",
+      "label": 0,
+      "score": 0.9187114830205023,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-031/retract_end_and_continue",
+      "language": "zh",
+      "label": 0,
+      "score": 0.01264611930959323,
+      "passed": false
+    },
+    {
+      "id": "v2/zh-031/ordinary_or_uncertain",
+      "language": "zh",
+      "label": 0,
+      "score": 0.06133617737104672,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-035/exhausted_ideas",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9799210924287337,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-035/hand_back_turn",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9677146378291736,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-035/limited_knowledge_end",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9821903522824473,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-035/answer_closed_project_ongoing",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9560427051773354,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-035/explicit_answer_end",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9843402473063728,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-035/quote_same_end_words",
+      "language": "zh",
+      "label": 0,
+      "score": 0.010907431115288949,
+      "passed": false
+    },
+    {
+      "id": "v2/zh-035/negate_same_end_words",
+      "language": "zh",
+      "label": 0,
+      "score": 0.01202605042736235,
+      "passed": false
+    },
+    {
+      "id": "v2/zh-035/task_complete_not_answer",
+      "language": "zh",
+      "label": 0,
+      "score": 0.020015819179352634,
+      "passed": false
+    },
+    {
+      "id": "v2/zh-035/retract_end_and_continue",
+      "language": "zh",
+      "label": 0,
+      "score": 0.012411292932293861,
+      "passed": false
+    },
+    {
+      "id": "v2/zh-035/ordinary_or_uncertain",
+      "language": "zh",
+      "label": 0,
+      "score": 0.013437719643383812,
+      "passed": false
+    },
+    {
+      "id": "v2/zh-003/exhausted_ideas",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9839640127625328,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-003/hand_back_turn",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9701490668004015,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-003/limited_knowledge_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.09421530086099957,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-003/answer_closed_project_ongoing",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9845880042969913,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-003/explicit_answer_end",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9859776073456017,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-003/quote_same_end_words",
+      "language": "zh",
+      "label": 0,
+      "score": 0.01363093681848973,
+      "passed": false
+    },
+    {
+      "id": "v2/zh-003/negate_same_end_words",
+      "language": "zh",
+      "label": 0,
+      "score": 0.012606291404950508,
+      "passed": false
+    },
+    {
+      "id": "v2/zh-003/task_complete_not_answer",
+      "language": "zh",
+      "label": 0,
+      "score": 0.017451260463733756,
+      "passed": false
+    },
+    {
+      "id": "v2/zh-003/retract_end_and_continue",
+      "language": "zh",
+      "label": 0,
+      "score": 0.1008066216096726,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-003/ordinary_or_uncertain",
+      "language": "zh",
+      "label": 0,
+      "score": 0.019774641744994173,
+      "passed": false
+    },
+    {
+      "id": "v2/zh-014/exhausted_ideas",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9741841960940578,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-014/hand_back_turn",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9748221670734699,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-014/limited_knowledge_end",
+      "language": "zh",
+      "label": 0,
+      "score": 0.03378527963917585,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-014/answer_closed_project_ongoing",
+      "language": "zh",
+      "label": 0,
+      "score": 0.013130402111046383,
+      "passed": false
+    },
+    {
+      "id": "v2/zh-014/explicit_answer_end",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9856050515069902,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-014/quote_same_end_words",
+      "language": "zh",
+      "label": 0,
+      "score": 0.01211165094859883,
+      "passed": false
+    },
+    {
+      "id": "v2/zh-014/negate_same_end_words",
+      "language": "zh",
+      "label": 0,
+      "score": 0.01575111714610493,
+      "passed": false
+    },
+    {
+      "id": "v2/zh-014/task_complete_not_answer",
+      "language": "zh",
+      "label": 0,
+      "score": 0.1049694064013466,
+      "passed": true
+    },
+    {
+      "id": "v2/zh-014/retract_end_and_continue",
+      "language": "zh",
+      "label": 0,
+      "score": 0.012995222114708172,
+      "passed": false
+    },
+    {
+      "id": "v2/zh-014/ordinary_or_uncertain",
+      "language": "zh",
+      "label": 0,
+      "score": 0.014111571054391038,
+      "passed": false
+    },
+    {
+      "id": "v2/en-007/exhausted_ideas",
+      "language": "en",
+      "label": 0,
+      "score": 0.5590153793639835,
+      "passed": true
+    },
+    {
+      "id": "v2/en-007/hand_back_turn",
+      "language": "en",
+      "label": 1,
+      "score": 0.9782929469266762,
+      "passed": true
+    },
+    {
+      "id": "v2/en-007/limited_knowledge_end",
+      "language": "en",
+      "label": 0,
+      "score": 0.7570237619938218,
+      "passed": true
+    },
+    {
+      "id": "v2/en-007/answer_closed_project_ongoing",
+      "language": "en",
+      "label": 0,
+      "score": 0.016399220906839446,
+      "passed": false
+    },
+    {
+      "id": "v2/en-007/explicit_answer_end",
+      "language": "en",
+      "label": 1,
+      "score": 0.9845485490604828,
+      "passed": true
+    },
+    {
+      "id": "v2/en-007/quote_same_end_words",
+      "language": "en",
+      "label": 0,
+      "score": 0.012975181994388678,
+      "passed": false
+    },
+    {
+      "id": "v2/en-007/negate_same_end_words",
+      "language": "en",
+      "label": 0,
+      "score": 0.012819730380410692,
+      "passed": false
+    },
+    {
+      "id": "v2/en-007/task_complete_not_answer",
+      "language": "en",
+      "label": 0,
+      "score": 0.014059163575192183,
+      "passed": false
+    },
+    {
+      "id": "v2/en-007/retract_end_and_continue",
+      "language": "en",
+      "label": 0,
+      "score": 0.01205427413619813,
+      "passed": false
+    },
+    {
+      "id": "v2/en-007/ordinary_or_uncertain",
+      "language": "en",
+      "label": 0,
+      "score": 0.018509847404140665,
+      "passed": false
+    },
+    {
+      "id": "v2/en-041/exhausted_ideas",
+      "language": "en",
+      "label": 0,
+      "score": 0.7934732863550008,
+      "passed": true
+    },
+    {
+      "id": "v2/en-041/hand_back_turn",
+      "language": "en",
+      "label": 1,
+      "score": 0.9824583750763919,
+      "passed": true
+    },
+    {
+      "id": "v2/en-041/limited_knowledge_end",
+      "language": "en",
+      "label": 1,
+      "score": 0.9567414020136586,
+      "passed": true
+    },
+    {
+      "id": "v2/en-041/answer_closed_project_ongoing",
+      "language": "en",
+      "label": 0,
+      "score": 0.831025191192539,
+      "passed": true
+    },
+    {
+      "id": "v2/en-041/explicit_answer_end",
+      "language": "en",
+      "label": 1,
+      "score": 0.9821580149188214,
+      "passed": true
+    },
+    {
+      "id": "v2/en-041/quote_same_end_words",
+      "language": "en",
+      "label": 0,
+      "score": 0.013425136492663258,
+      "passed": false
+    },
+    {
+      "id": "v2/en-041/negate_same_end_words",
+      "language": "en",
+      "label": 0,
+      "score": 0.020209595549031754,
+      "passed": false
+    },
+    {
+      "id": "v2/en-041/task_complete_not_answer",
+      "language": "en",
+      "label": 0,
+      "score": 0.018084962184091787,
+      "passed": false
+    },
+    {
+      "id": "v2/en-041/retract_end_and_continue",
+      "language": "en",
+      "label": 0,
+      "score": 0.10779618868362291,
+      "passed": true
+    },
+    {
+      "id": "v2/en-041/ordinary_or_uncertain",
+      "language": "en",
+      "label": 0,
+      "score": 0.02070923552845755,
+      "passed": false
+    },
+    {
+      "id": "v2/en-028/exhausted_ideas",
+      "language": "en",
+      "label": 1,
+      "score": 0.9665370324333333,
+      "passed": true
+    },
+    {
+      "id": "v2/en-028/hand_back_turn",
+      "language": "en",
+      "label": 1,
+      "score": 0.9772471830385523,
+      "passed": true
+    },
+    {
+      "id": "v2/en-028/limited_knowledge_end",
+      "language": "en",
+      "label": 1,
+      "score": 0.9681560023190497,
+      "passed": true
+    },
+    {
+      "id": "v2/en-028/answer_closed_project_ongoing",
+      "language": "en",
+      "label": 0,
+      "score": 0.18564896424364188,
+      "passed": true
+    },
+    {
+      "id": "v2/en-028/explicit_answer_end",
+      "language": "en",
+      "label": 1,
+      "score": 0.9820928381720241,
+      "passed": true
+    },
+    {
+      "id": "v2/en-028/quote_same_end_words",
+      "language": "en",
+      "label": 0,
+      "score": 0.014267105818690368,
+      "passed": false
+    },
+    {
+      "id": "v2/en-028/negate_same_end_words",
+      "language": "en",
+      "label": 0,
+      "score": 0.013152124399598114,
+      "passed": false
+    },
+    {
+      "id": "v2/en-028/task_complete_not_answer",
+      "language": "en",
+      "label": 0,
+      "score": 0.021566438972094266,
+      "passed": false
+    },
+    {
+      "id": "v2/en-028/retract_end_and_continue",
+      "language": "en",
+      "label": 0,
+      "score": 0.017947360528722006,
+      "passed": false
+    },
+    {
+      "id": "v2/en-028/ordinary_or_uncertain",
+      "language": "en",
+      "label": 0,
+      "score": 0.02077631003431753,
+      "passed": false
+    },
+    {
+      "id": "v2/en-071/exhausted_ideas",
+      "language": "en",
+      "label": 1,
+      "score": 0.8293167207925046,
+      "passed": true
+    },
+    {
+      "id": "v2/en-071/hand_back_turn",
+      "language": "en",
+      "label": 1,
+      "score": 0.9830078023805205,
+      "passed": true
+    },
+    {
+      "id": "v2/en-071/limited_knowledge_end",
+      "language": "en",
+      "label": 1,
+      "score": 0.9658143154280062,
+      "passed": true
+    },
+    {
+      "id": "v2/en-071/answer_closed_project_ongoing",
+      "language": "en",
+      "label": 1,
+      "score": 0.9750216734290265,
+      "passed": true
+    },
+    {
+      "id": "v2/en-071/explicit_answer_end",
+      "language": "en",
+      "label": 1,
+      "score": 0.9787440101958913,
+      "passed": true
+    },
+    {
+      "id": "v2/en-071/quote_same_end_words",
+      "language": "en",
+      "label": 0,
+      "score": 0.019232868546969657,
+      "passed": false
+    },
+    {
+      "id": "v2/en-071/negate_same_end_words",
+      "language": "en",
+      "label": 0,
+      "score": 0.013471473111877484,
+      "passed": false
+    },
+    {
+      "id": "v2/en-071/task_complete_not_answer",
+      "language": "en",
+      "label": 0,
+      "score": 0.014077601367719505,
+      "passed": false
+    },
+    {
+      "id": "v2/en-071/retract_end_and_continue",
+      "language": "en",
+      "label": 0,
+      "score": 0.014070618966060206,
+      "passed": false
+    },
+    {
+      "id": "v2/en-071/ordinary_or_uncertain",
+      "language": "en",
+      "label": 0,
+      "score": 0.03847031432996086,
+      "passed": true
+    },
+    {
+      "id": "v2/en-034/exhausted_ideas",
+      "language": "en",
+      "label": 0,
+      "score": 0.641282363489424,
+      "passed": true
+    },
+    {
+      "id": "v2/en-034/hand_back_turn",
+      "language": "en",
+      "label": 1,
+      "score": 0.9834042746306748,
+      "passed": true
+    },
+    {
+      "id": "v2/en-034/limited_knowledge_end",
+      "language": "en",
+      "label": 0,
+      "score": 0.9819053946552452,
+      "passed": true
+    },
+    {
+      "id": "v2/en-034/answer_closed_project_ongoing",
+      "language": "en",
+      "label": 0,
+      "score": 0.368157628029173,
+      "passed": true
+    },
+    {
+      "id": "v2/en-034/explicit_answer_end",
+      "language": "en",
+      "label": 1,
+      "score": 0.9850536031106352,
+      "passed": true
+    },
+    {
+      "id": "v2/en-034/quote_same_end_words",
+      "language": "en",
+      "label": 0,
+      "score": 0.01189179469642841,
+      "passed": false
+    },
+    {
+      "id": "v2/en-034/negate_same_end_words",
+      "language": "en",
+      "label": 0,
+      "score": 0.012474937063252317,
+      "passed": false
+    },
+    {
+      "id": "v2/en-034/task_complete_not_answer",
+      "language": "en",
+      "label": 0,
+      "score": 0.017003399573686583,
+      "passed": false
+    },
+    {
+      "id": "v2/en-034/retract_end_and_continue",
+      "language": "en",
+      "label": 0,
+      "score": 0.015277453429178299,
+      "passed": false
+    },
+    {
+      "id": "v2/en-034/ordinary_or_uncertain",
+      "language": "en",
+      "label": 0,
+      "score": 0.013464514319928516,
+      "passed": false
+    },
+    {
+      "id": "v2/en-048/exhausted_ideas",
+      "language": "en",
+      "label": 0,
+      "score": 0.3580544159160105,
+      "passed": true
+    },
+    {
+      "id": "v2/en-048/hand_back_turn",
+      "language": "en",
+      "label": 1,
+      "score": 0.9844702039004863,
+      "passed": true
+    },
+    {
+      "id": "v2/en-048/limited_knowledge_end",
+      "language": "en",
+      "label": 0,
+      "score": 0.9752926505378452,
+      "passed": true
+    },
+    {
+      "id": "v2/en-048/answer_closed_project_ongoing",
+      "language": "en",
+      "label": 0,
+      "score": 0.8769092946488092,
+      "passed": true
+    },
+    {
+      "id": "v2/en-048/explicit_answer_end",
+      "language": "en",
+      "label": 1,
+      "score": 0.9791759076766806,
+      "passed": true
+    },
+    {
+      "id": "v2/en-048/quote_same_end_words",
+      "language": "en",
+      "label": 0,
+      "score": 0.015343079335736575,
+      "passed": false
+    },
+    {
+      "id": "v2/en-048/negate_same_end_words",
+      "language": "en",
+      "label": 0,
+      "score": 0.013306281744111798,
+      "passed": false
+    },
+    {
+      "id": "v2/en-048/task_complete_not_answer",
+      "language": "en",
+      "label": 0,
+      "score": 0.03141953509704311,
+      "passed": true
+    },
+    {
+      "id": "v2/en-048/retract_end_and_continue",
+      "language": "en",
+      "label": 0,
+      "score": 0.012101959286025721,
+      "passed": false
+    },
+    {
+      "id": "v2/en-048/ordinary_or_uncertain",
+      "language": "en",
+      "label": 0,
+      "score": 0.01801026051108515,
+      "passed": false
+    },
+    {
+      "id": "v2/en-059/exhausted_ideas",
+      "language": "en",
+      "label": 1,
+      "score": 0.8663737043644884,
+      "passed": true
+    },
+    {
+      "id": "v2/en-059/hand_back_turn",
+      "language": "en",
+      "label": 1,
+      "score": 0.9798129285231469,
+      "passed": true
+    },
+    {
+      "id": "v2/en-059/limited_knowledge_end",
+      "language": "en",
+      "label": 0,
+      "score": 0.9144083837559733,
+      "passed": true
+    },
+    {
+      "id": "v2/en-059/answer_closed_project_ongoing",
+      "language": "en",
+      "label": 1,
+      "score": 0.7506689950293665,
+      "passed": true
+    },
+    {
+      "id": "v2/en-059/explicit_answer_end",
+      "language": "en",
+      "label": 1,
+      "score": 0.9819728378142148,
+      "passed": true
+    },
+    {
+      "id": "v2/en-059/quote_same_end_words",
+      "language": "en",
+      "label": 0,
+      "score": 0.01679962276068033,
+      "passed": false
+    },
+    {
+      "id": "v2/en-059/negate_same_end_words",
+      "language": "en",
+      "label": 0,
+      "score": 0.014927535983686515,
+      "passed": false
+    },
+    {
+      "id": "v2/en-059/task_complete_not_answer",
+      "language": "en",
+      "label": 0,
+      "score": 0.012785429842501205,
+      "passed": false
+    },
+    {
+      "id": "v2/en-059/retract_end_and_continue",
+      "language": "en",
+      "label": 0,
+      "score": 0.020181719263622333,
+      "passed": false
+    },
+    {
+      "id": "v2/en-059/ordinary_or_uncertain",
+      "language": "en",
+      "label": 0,
+      "score": 0.020985776911781034,
+      "passed": false
+    },
+    {
+      "id": "v2/en-020/exhausted_ideas",
+      "language": "en",
+      "label": 1,
+      "score": 0.957528061564034,
+      "passed": true
+    },
+    {
+      "id": "v2/en-020/hand_back_turn",
+      "language": "en",
+      "label": 1,
+      "score": 0.9812596504178609,
+      "passed": true
+    },
+    {
+      "id": "v2/en-020/limited_knowledge_end",
+      "language": "en",
+      "label": 1,
+      "score": 0.9685783982252587,
+      "passed": true
+    },
+    {
+      "id": "v2/en-020/answer_closed_project_ongoing",
+      "language": "en",
+      "label": 1,
+      "score": 0.7480164750611342,
+      "passed": true
+    },
+    {
+      "id": "v2/en-020/explicit_answer_end",
+      "language": "en",
+      "label": 1,
+      "score": 0.9837101599809944,
+      "passed": true
+    },
+    {
+      "id": "v2/en-020/quote_same_end_words",
+      "language": "en",
+      "label": 0,
+      "score": 0.012574435434983778,
+      "passed": false
+    },
+    {
+      "id": "v2/en-020/negate_same_end_words",
+      "language": "en",
+      "label": 0,
+      "score": 0.014109240068019387,
+      "passed": false
+    },
+    {
+      "id": "v2/en-020/task_complete_not_answer",
+      "language": "en",
+      "label": 0,
+      "score": 0.01271870373090939,
+      "passed": false
+    },
+    {
+      "id": "v2/en-020/retract_end_and_continue",
+      "language": "en",
+      "label": 0,
+      "score": 0.013188279981195134,
+      "passed": false
+    },
+    {
+      "id": "v2/en-020/ordinary_or_uncertain",
+      "language": "en",
+      "label": 0,
+      "score": 0.016816233076592507,
+      "passed": false
+    },
+    {
+      "id": "v2/en-031/exhausted_ideas",
+      "language": "en",
+      "label": 1,
+      "score": 0.9476608108102709,
+      "passed": true
+    },
+    {
+      "id": "v2/en-031/hand_back_turn",
+      "language": "en",
+      "label": 1,
+      "score": 0.9825282554160938,
+      "passed": true
+    },
+    {
+      "id": "v2/en-031/limited_knowledge_end",
+      "language": "en",
+      "label": 1,
+      "score": 0.9755329921363082,
+      "passed": true
+    },
+    {
+      "id": "v2/en-031/answer_closed_project_ongoing",
+      "language": "en",
+      "label": 1,
+      "score": 0.43042361750866714,
+      "passed": true
+    },
+    {
+      "id": "v2/en-031/explicit_answer_end",
+      "language": "en",
+      "label": 1,
+      "score": 0.979387477336306,
+      "passed": true
+    },
+    {
+      "id": "v2/en-031/quote_same_end_words",
+      "language": "en",
+      "label": 0,
+      "score": 0.01854461186009395,
+      "passed": false
+    },
+    {
+      "id": "v2/en-031/negate_same_end_words",
+      "language": "en",
+      "label": 0,
+      "score": 0.02158828930966009,
+      "passed": false
+    },
+    {
+      "id": "v2/en-031/task_complete_not_answer",
+      "language": "en",
+      "label": 0,
+      "score": 0.02947357959593888,
+      "passed": true
+    },
+    {
+      "id": "v2/en-031/retract_end_and_continue",
+      "language": "en",
+      "label": 0,
+      "score": 0.03303327530895997,
+      "passed": true
+    },
+    {
+      "id": "v2/en-031/ordinary_or_uncertain",
+      "language": "en",
+      "label": 0,
+      "score": 0.04006801570831202,
+      "passed": true
+    },
+    {
+      "id": "v2/en-068/exhausted_ideas",
+      "language": "en",
+      "label": 1,
+      "score": 0.898675952791837,
+      "passed": true
+    },
+    {
+      "id": "v2/en-068/hand_back_turn",
+      "language": "en",
+      "label": 1,
+      "score": 0.9797730808721687,
+      "passed": true
+    },
+    {
+      "id": "v2/en-068/limited_knowledge_end",
+      "language": "en",
+      "label": 1,
+      "score": 0.9413277212785752,
+      "passed": true
+    },
+    {
+      "id": "v2/en-068/answer_closed_project_ongoing",
+      "language": "en",
+      "label": 1,
+      "score": 0.048667356779569515,
+      "passed": true
+    },
+    {
+      "id": "v2/en-068/explicit_answer_end",
+      "language": "en",
+      "label": 1,
+      "score": 0.9823232683953237,
+      "passed": true
+    },
+    {
+      "id": "v2/en-068/quote_same_end_words",
+      "language": "en",
+      "label": 0,
+      "score": 0.014547176312977871,
+      "passed": false
+    },
+    {
+      "id": "v2/en-068/negate_same_end_words",
+      "language": "en",
+      "label": 0,
+      "score": 0.015624672994345721,
+      "passed": false
+    },
+    {
+      "id": "v2/en-068/task_complete_not_answer",
+      "language": "en",
+      "label": 0,
+      "score": 0.015538233546711838,
+      "passed": false
+    },
+    {
+      "id": "v2/en-068/retract_end_and_continue",
+      "language": "en",
+      "label": 0,
+      "score": 0.012334270655877487,
+      "passed": false
+    },
+    {
+      "id": "v2/en-068/ordinary_or_uncertain",
+      "language": "en",
+      "label": 0,
+      "score": 0.02222741258886174,
+      "passed": false
+    },
+    {
+      "id": "v2-challenge/zh/00/1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.7588095962764322,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/zh/00/0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.9419144828374699,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/zh/01/1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.8707738883690865,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/zh/01/0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.030006843917846793,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/zh/02/1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9748192733104029,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/zh/02/0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.95760074179556,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/zh/03/1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.916174523729944,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/zh/03/0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.013159001349912878,
+      "passed": false
+    },
+    {
+      "id": "v2-challenge/zh/04/1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9637196655214897,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/zh/04/0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.03340476830563851,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/zh/05/1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9811955022929838,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/zh/05/0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.1540414993870879,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/zh/06/1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.96741637705034,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/zh/06/0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.7215438945285604,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/zh/07/1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9805783624788387,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/zh/07/0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.22805691696597027,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/zh/08/1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.8023874737104342,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/zh/08/0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.02000322446738668,
+      "passed": false
+    },
+    {
+      "id": "v2-challenge/zh/09/1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.017403279629527604,
+      "passed": false
+    },
+    {
+      "id": "v2-challenge/zh/09/0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.018795793401213855,
+      "passed": false
+    },
+    {
+      "id": "v2-challenge/zh/10/1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9552286827678325,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/zh/10/0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.9631057658520141,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/zh/11/1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9811370203932541,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/zh/11/0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.23164160795106958,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/zh/12/1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.983641988599455,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/zh/12/0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.926584516270046,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/zh/13/1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.26599474211801644,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/zh/13/0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.8028947791200417,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/zh/14/1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9674244231690418,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/zh/14/0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.22663908813150882,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/zh/15/1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9480386858750506,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/zh/15/0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.12548355473488257,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/zh/16/1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9835519893841004,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/zh/16/0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.9706581219963003,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/zh/17/1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9727603507055852,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/zh/17/0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.9791864309525637,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/zh/18/1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9759392219870058,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/zh/18/0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.9579421554899352,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/zh/19/1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9811103963248532,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/zh/19/0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.03404000120309737,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/en/00/1",
+      "language": "en",
+      "label": 1,
+      "score": 0.9721830888706036,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/en/00/0",
+      "language": "en",
+      "label": 0,
+      "score": 0.030163787953553286,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/en/01/1",
+      "language": "en",
+      "label": 1,
+      "score": 0.9782401538703089,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/en/01/0",
+      "language": "en",
+      "label": 0,
+      "score": 0.8092306306106853,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/en/02/1",
+      "language": "en",
+      "label": 1,
+      "score": 0.9498082448212211,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/en/02/0",
+      "language": "en",
+      "label": 0,
+      "score": 0.8471526681658199,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/en/03/1",
+      "language": "en",
+      "label": 1,
+      "score": 0.7625601328683453,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/en/03/0",
+      "language": "en",
+      "label": 0,
+      "score": 0.8954633834590207,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/en/04/1",
+      "language": "en",
+      "label": 1,
+      "score": 0.963394102900644,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/en/04/0",
+      "language": "en",
+      "label": 0,
+      "score": 0.9311528289795579,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/en/05/1",
+      "language": "en",
+      "label": 1,
+      "score": 0.9758366365053497,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/en/05/0",
+      "language": "en",
+      "label": 0,
+      "score": 0.5506307514228762,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/en/06/1",
+      "language": "en",
+      "label": 1,
+      "score": 0.9288770813009112,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/en/06/0",
+      "language": "en",
+      "label": 0,
+      "score": 0.7402136212835775,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/en/07/1",
+      "language": "en",
+      "label": 1,
+      "score": 0.9803241682143204,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/en/07/0",
+      "language": "en",
+      "label": 0,
+      "score": 0.02319066814598121,
+      "passed": false
+    },
+    {
+      "id": "v2-challenge/en/08/1",
+      "language": "en",
+      "label": 1,
+      "score": 0.9514394526867236,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/en/08/0",
+      "language": "en",
+      "label": 0,
+      "score": 0.8534514905627794,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/en/09/1",
+      "language": "en",
+      "label": 1,
+      "score": 0.9614840563587048,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/en/09/0",
+      "language": "en",
+      "label": 0,
+      "score": 0.7757794547227034,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/en/10/1",
+      "language": "en",
+      "label": 1,
+      "score": 0.9657295944708679,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/en/10/0",
+      "language": "en",
+      "label": 0,
+      "score": 0.9711887185558638,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/en/11/1",
+      "language": "en",
+      "label": 1,
+      "score": 0.9833189731913977,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/en/11/0",
+      "language": "en",
+      "label": 0,
+      "score": 0.2970714179594619,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/en/12/1",
+      "language": "en",
+      "label": 1,
+      "score": 0.9834077336226756,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/en/12/0",
+      "language": "en",
+      "label": 0,
+      "score": 0.7661292606707539,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/en/13/1",
+      "language": "en",
+      "label": 1,
+      "score": 0.929648104471013,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/en/13/0",
+      "language": "en",
+      "label": 0,
+      "score": 0.606418188094673,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/en/14/1",
+      "language": "en",
+      "label": 1,
+      "score": 0.9701192722890012,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/en/14/0",
+      "language": "en",
+      "label": 0,
+      "score": 0.07107530376122326,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/en/15/1",
+      "language": "en",
+      "label": 1,
+      "score": 0.7969022052698601,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/en/15/0",
+      "language": "en",
+      "label": 0,
+      "score": 0.07883963600908069,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/en/16/1",
+      "language": "en",
+      "label": 1,
+      "score": 0.9826715996920284,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/en/16/0",
+      "language": "en",
+      "label": 0,
+      "score": 0.9276181891196962,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/en/17/1",
+      "language": "en",
+      "label": 1,
+      "score": 0.9596176593095361,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/en/17/0",
+      "language": "en",
+      "label": 0,
+      "score": 0.4172130862324782,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/en/18/1",
+      "language": "en",
+      "label": 1,
+      "score": 0.9546434139828059,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/en/18/0",
+      "language": "en",
+      "label": 0,
+      "score": 0.6642758798755779,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/en/19/1",
+      "language": "en",
+      "label": 1,
+      "score": 0.9709332511575378,
+      "passed": true
+    },
+    {
+      "id": "v2-challenge/en/19/0",
+      "language": "en",
+      "label": 0,
+      "score": 0.7879669950802122,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-00-1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.1711979674321188,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-00-0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.03491609530637198,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-01-1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9789376148749145,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-01-0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.0132442037821144,
+      "passed": false
+    },
+    {
+      "id": "challenge-zh-02-1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9837006672663394,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-02-0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.9783356064537283,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-03-1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.8944484316065837,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-03-0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.06109119577345407,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-04-1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9796628068997834,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-04-0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.2904869261377496,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-05-1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9841709051425136,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-05-0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.16119833925590832,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-06-1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.7967253883015051,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-06-0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.556445364165811,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-07-1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9839153724676942,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-07-0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.17390322773783648,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-08-1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9793397069584608,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-08-0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.27547157870203987,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-09-1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.14408953974129882,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-09-0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.03382252065404492,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-10-1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9855779419934032,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-10-0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.021142765038287877,
+      "passed": false
+    },
+    {
+      "id": "challenge-zh-11-1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9504683375707398,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-11-0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.020647896294916156,
+      "passed": false
+    },
+    {
+      "id": "challenge-zh-12-1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9776960075486112,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-12-0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.19409249683540997,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-13-1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9269109433987417,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-13-0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.05158765252477217,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-14-1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9855497450550622,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-14-0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.03657311157733182,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-15-1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9817591719917745,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-15-0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.02028470366590004,
+      "passed": false
+    },
+    {
+      "id": "challenge-zh-16-1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.9839332019500429,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-16-0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.9246445372906319,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-17-1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.5485314203304462,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-17-0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.10651353280180142,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-18-1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.980877534755722,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-18-0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.24887603230097213,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-19-1",
+      "language": "zh",
+      "label": 1,
+      "score": 0.3463071475689219,
+      "passed": true
+    },
+    {
+      "id": "challenge-zh-19-0",
+      "language": "zh",
+      "label": 0,
+      "score": 0.8720427152295825,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-00-1",
+      "language": "en",
+      "label": 1,
+      "score": 0.9210957812963311,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-00-0",
+      "language": "en",
+      "label": 0,
+      "score": 0.019569781726406422,
+      "passed": false
+    },
+    {
+      "id": "challenge-en-01-1",
+      "language": "en",
+      "label": 1,
+      "score": 0.5508464034251551,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-01-0",
+      "language": "en",
+      "label": 0,
+      "score": 0.015102084113201868,
+      "passed": false
+    },
+    {
+      "id": "challenge-en-02-1",
+      "language": "en",
+      "label": 1,
+      "score": 0.9821644980453157,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-02-0",
+      "language": "en",
+      "label": 0,
+      "score": 0.9523827334679914,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-03-1",
+      "language": "en",
+      "label": 1,
+      "score": 0.4052470271677501,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-03-0",
+      "language": "en",
+      "label": 0,
+      "score": 0.036278363586767275,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-04-1",
+      "language": "en",
+      "label": 1,
+      "score": 0.9762327397226223,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-04-0",
+      "language": "en",
+      "label": 0,
+      "score": 0.8714143999336394,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-05-1",
+      "language": "en",
+      "label": 1,
+      "score": 0.9674793472472842,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-05-0",
+      "language": "en",
+      "label": 0,
+      "score": 0.15215089084866426,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-06-1",
+      "language": "en",
+      "label": 1,
+      "score": 0.7873718610823381,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-06-0",
+      "language": "en",
+      "label": 0,
+      "score": 0.6998637129445575,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-07-1",
+      "language": "en",
+      "label": 1,
+      "score": 0.9799086313172773,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-07-0",
+      "language": "en",
+      "label": 0,
+      "score": 0.06198120210602564,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-08-1",
+      "language": "en",
+      "label": 1,
+      "score": 0.958079252224724,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-08-0",
+      "language": "en",
+      "label": 0,
+      "score": 0.6351145034092496,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-09-1",
+      "language": "en",
+      "label": 1,
+      "score": 0.18553198501124182,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-09-0",
+      "language": "en",
+      "label": 0,
+      "score": 0.16104287867088868,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-10-1",
+      "language": "en",
+      "label": 1,
+      "score": 0.9335175999713236,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-10-0",
+      "language": "en",
+      "label": 0,
+      "score": 0.0975688648104658,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-11-1",
+      "language": "en",
+      "label": 1,
+      "score": 0.9787488388175264,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-11-0",
+      "language": "en",
+      "label": 0,
+      "score": 0.94920602197289,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-12-1",
+      "language": "en",
+      "label": 1,
+      "score": 0.8080469088989676,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-12-0",
+      "language": "en",
+      "label": 0,
+      "score": 0.09772660404630526,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-13-1",
+      "language": "en",
+      "label": 1,
+      "score": 0.9720645302832536,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-13-0",
+      "language": "en",
+      "label": 0,
+      "score": 0.9321376818982426,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-14-1",
+      "language": "en",
+      "label": 1,
+      "score": 0.9021670224662558,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-14-0",
+      "language": "en",
+      "label": 0,
+      "score": 0.26896498254063,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-15-1",
+      "language": "en",
+      "label": 1,
+      "score": 0.9720486725326938,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-15-0",
+      "language": "en",
+      "label": 0,
+      "score": 0.08362975421855026,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-16-1",
+      "language": "en",
+      "label": 1,
+      "score": 0.977970115344181,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-16-0",
+      "language": "en",
+      "label": 0,
+      "score": 0.8402099638796032,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-17-1",
+      "language": "en",
+      "label": 1,
+      "score": 0.9766914363659057,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-17-0",
+      "language": "en",
+      "label": 0,
+      "score": 0.1871685737835503,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-18-1",
+      "language": "en",
+      "label": 1,
+      "score": 0.9759793734402445,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-18-0",
+      "language": "en",
+      "label": 0,
+      "score": 0.9001237623711046,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-19-1",
+      "language": "en",
+      "label": 1,
+      "score": 0.4870567649894939,
+      "passed": true
+    },
+    {
+      "id": "challenge-en-19-0",
+      "language": "en",
+      "label": 0,
+      "score": 0.13828915589344595,
+      "passed": true
+    }
+  ]
+}

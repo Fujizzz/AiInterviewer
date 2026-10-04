@@ -1,16 +1,11 @@
-"""职责：新增 Agent 面试、请求、题目、回答和单轮审计表，不迁移或更改旧练习数据。
-
-实现：由 Django schema editor 创建表、外键、状态约束和历史索引；反向迁移会删除新增表。
-关联：对应 agent_models，依赖已存在的 0003_delete_streamprobe。
-
-目录：
-- Migration：声明新增表及约束操作，只有显式运行 migrate 才写数据库。
-
-关键变量：
-（无模块级变量。）
-
-配置说明：
-Migration.dependencies 固定迁移前序；operations 与当前模型结构一致，无数据填充或参数改写。
+"""Responsibilities: Add persistent Agent interview, request, question, answer, and turn records.
+Implementation: Define tables, foreign keys, status constraints, and history indexes; reversal
+removes the added schema.
+Related Modules: interviews.agent_models and the preceding StreamProbe deletion migration.
+Declaration Index:
+- Migration: Declare the Agent persistence tables and their schema constraints.
+Variable Index:
+None
 """
 
 import uuid
@@ -20,7 +15,13 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    """声明新增表及约束操作，只有显式运行 migrate 才写数据库。"""
+    """Functionality: Create persistent Agent interview and audit tables.
+    Inputs: Existing schema state.
+    Outputs: Adds Agent interview, question, request, answer, and turn tables with declared
+    constraints.
+    Logic: Apply the migration operations in order.
+    Constraints: No data is backfilled; reversing removes the added tables.
+    """
 
     dependencies = [
         ("interviews", "0003_delete_streamprobe"),

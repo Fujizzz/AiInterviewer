@@ -1,9 +1,17 @@
-"""Internal append-only Evaluation ledger, excluded from candidate-facing APIs.
+"""Responsibilities: Store internal scoring receipts, excluded from candidate-facing APIs.
+Implementation: Bind each receipt to one accepted answer, request and committed state version.
+Related Modules: agent_repository validates/appends; agent_records deletes on explicit discard.
+Declaration Index:
+- AgentEvaluation: Persist one internal scoring receipt with protected source references.
+- AgentEvaluation.Meta: Order receipts and constrain atomic state transitions.
+Variable Index:
+None
 
+Retention Notes:
 One row is an atomic evaluation receipt. Its versioned payload contains exact
 sources, relation decisions, all criterion assessments and the full aggregation
-record/snapshot, including failed attempts. Old rows are never updated by the
-repository; a new snapshot is a new row linked through supersedes_snapshot_id.
+record/snapshot, including failed attempts. The repository never updates old rows;
+explicit interview discard removes them atomically with the rest of that interview.
 """
 
 from django.db import models
@@ -11,6 +19,11 @@ from django.db.models import F, Q
 
 
 class AgentEvaluation(models.Model):
+    """Persist a versioned scoring payload; source rows cannot be deleted while it exists.
+
+    The repository validates payload identity and replay before insertion. Foreign keys and
+    version constraints enforce relational identity; this model performs no scoring itself.
+    """
     interview = models.ForeignKey(
         "AgentInterview", related_name="evaluations", on_delete=models.CASCADE
     )
@@ -27,6 +40,7 @@ class AgentEvaluation(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
+        """Read in commit order, with one receipt per interview version and CAS increment of one."""
         ordering = ["committed_state_version"]
         constraints = [
             models.UniqueConstraint(

@@ -1,14 +1,17 @@
-"""REST 错误响应规范。将预期异常映射为稳定 JSON，将系统异常记录到控制台。
+"""Responsibilities: Normalize expected REST failures into stable JSON and log unexpected server
+errors.
+Implementation: Map database outages to 503, framework API exceptions to their existing status, and
+unknown failures to 500.
+Related Modules: Django REST Framework calls api_exception_handler through its configured
+exception-handler setting.
 
-目录：
-- Conflict：
-  语义为状态冲突的 API 异常，固定 HTTP 409 与 conflict 错误码。
-- api_exception_handler：
-  功能：统一 DRF 异常的 JSON 外层结构。
+Declaration Index:
+- Conflict: Represent a state conflict with HTTP 409 and the stable conflict error code.
+- api_exception_handler: Normalize DRF exception response shape and log server failures with request
+  context.
 
-关键变量：
-- logger：
-  当前模块的控制台日志入口；上下文标识及异常处理方式见相应函数。
+Variable Index:
+- logger: Module-level console logger used by the exception handler.
 """
 
 import logging
@@ -22,7 +25,8 @@ logger = logging.getLogger(__name__)
 
 
 class Conflict(APIException):
-    """语义为状态冲突的 API 异常，固定 HTTP 409 与 conflict 错误码。"""
+    """Represent a state conflict with HTTP 409 and the fixed conflict error code.
+    """
 
     status_code = 409
     default_code = "conflict"
@@ -30,12 +34,17 @@ class Conflict(APIException):
 
 
 def api_exception_handler(exc, context):
-    """功能：统一 DRF 异常的 JSON 外层结构。
-    方法：数据库操作错误返回 503；框架可识别异常保留其状态；其余错误返回 500。
-    输入：异常与 DRF 上下文；返回：Response。
-    副作用：预期错误记录路径和类型；系统错误通过 logger.exception 附带异常文本与堆栈。
-    本层不主动序列化请求正文，但不对上游异常文本执行脱敏；调用者不应在异常中嵌入秘密。
-    不执行重试；HTTP 500/503 响应只返回固定说明，不附带服务端异常文本。"""
+    """Wrap DRF errors in the stable API envelope and return a Response.
+
+    Inputs are the caught exception and DRF context. Database OperationalError maps to 503,
+    recognized framework errors
+    retain their status, and other unhandled errors map to 500. Expected rejections log
+    path/status/type; unexpected errors
+    use logger.exception with traceback. The handler does not serialize request bodies or redact
+    exception text in logs,
+    so callers must not put secrets in exception messages. It does not retry, and 500/503 bodies use
+    fixed details.
+    """
     request = context.get("request")
     path = request.path if request else "unknown"
     if isinstance(exc, OperationalError):

@@ -1,40 +1,26 @@
-"""基于 Tree-sitter 语法树建立 JavaScript 声明、声明处 JSDoc 与文件目录的关联。
-
-目录：
-- parse_javascript：
-  加载固定开发依赖并解析源码；语法错误和缺失依赖均显式失败。
-- node_name：
-  提取静态标识符或成员路径；动态计算名称无法建立稳定索引时返回空。
-- binding_target：
-  将函数或对象表达式关联到变量、属性或赋值目标，并返回注释锚点。
-- binding_names：
-  从变量解构模式提取绑定名称，不把属性键和默认值误计为变量。
-- adjacent_jsdoc：
-  检查紧邻声明的独立、非空 JSDoc；模块头不能代替声明注释。
-- javascript_symbols：
-  递归扫描全部语法分支，返回全部函数/类声明、模块变量和匿名函数计数。
-- JavascriptInspector：
-  保存单文件扫描状态；显式对象避免递归闭包持有语法树的引用环。
-- JavascriptInspector.__init__：
-  解析源码并初始化独立的符号、变量与匿名作用域计数。
-- JavascriptInspector.visit：
-  维护函数、类和对象上下文，确保同名方法使用不同限定名。
-
-关键变量：
-- FUNCTION_TYPES：
-  JavaScript 具名函数、生成器、箭头函数及方法的语法节点类型。
-- CLASS_TYPES：
-  类声明与类表达式的语法节点类型。
-
-关键状态说明：
-JavascriptInspector.root 拥有语法树根；source 保存 UTF-8 字节以匹配解析器位置。
-definitions 与 variables 分别累计声明和模块绑定；synthetic 按作用域编号，anonymous 为匿名函数数。
-
-设计说明：
-仅静态读取源码，不执行 JavaScript。匿名函数使用 callbackN 作为目录名称，
-无绑定对象使用 objectN 作用域，编号按同层源码顺序；移动回调时必须复核关联说明。
-动态计算方法名拒绝检查成功，必须人工选用可索引的静态名称。
-本模块验证结构关联，不证明 JSDoc 语义、运行时语法约束或 Git 提交原子性。
+"""Responsibilities: Associate JavaScript declarations with adjacent JSDoc and file-level indexes.
+Implementation: Parse JavaScript using the pinned Tree-sitter grammar and collect qualified
+declarations, module bindings, and anonymous-function counts.
+Related Modules: tools/check_docs.py invokes these helpers; tools/test_check_docs.py and
+tools/test_docs_contract.py verify their contracts.
+Declaration Index:
+- parse_javascript: Load the required parser and reject recovered syntax-error trees.
+- node_name: Extract stable names from identifiers, static properties, and member paths.
+- binding_target: Associate function or object expressions with their binding and documentation
+  anchor.
+- binding_names: Extract bound names from variable patterns without counting property keys or
+  default values.
+- adjacent_jsdoc: Determine whether a declaration has an adjacent, meaningful JSDoc block.
+- javascript_symbols: Return declaration names, module variables, and anonymous-function counts for
+  a source file.
+- JavascriptInspector: Store parser output and accumulated symbol-scan state for one source file.
+- JavascriptInspector.__init__: Parse source and initialize declaration, variable, and
+  anonymous-scope state.
+- JavascriptInspector.visit: Traverse syntax nodes while maintaining declaration scopes and module
+  bindings.
+Variable Index:
+- FUNCTION_TYPES: Tree-sitter node types representing functions, generators, arrows, and methods.
+- CLASS_TYPES: Tree-sitter node types representing class declarations and expressions.
 """
 
 import re
@@ -52,10 +38,13 @@ CLASS_TYPES = {"class_declaration", "class"}
 
 
 def parse_javascript(source):
-    """加载固定开发依赖并解析源码；语法错误和缺失依赖均显式失败。
-
-    Tree-sitter 会恢复错误并继续生成树，因此必须检查 has_error 后再提取符号。
-    不使用正则回退；错误包含行列和安装命令，不输出可能包含敏感数据的源码。
+    """Functionality: Parse JavaScript source with the required pinned Tree-sitter grammar.
+    Inputs: UTF-8 JavaScript source text.
+    Outputs: The parsed syntax-tree root node.
+    Logic: Load the parser dependency, parse bytes, then inspect recovered trees and report the
+    first syntax-error position.
+    Constraints: Missing dependencies and syntax errors raise explicit exceptions; no regex fallback
+    or source dump is used.
     """
     try:
         import tree_sitter_javascript
@@ -80,7 +69,13 @@ def parse_javascript(source):
 
 
 def node_name(node):
-    """提取静态标识符或成员路径；动态计算名称无法建立稳定索引时返回空。"""
+    """Functionality: Extract a stable textual name from a JavaScript syntax node.
+    Inputs: A Tree-sitter node or None.
+    Outputs: An identifier/member path, or None when no static name can be established.
+    Logic: Handle identifiers, string properties, static computed properties, and member expressions
+    recursively.
+    Constraints: Dynamic computed names are not indexable.
+    """
     if node is None:
         return None
     if node.type in {"identifier", "property_identifier", "private_property_identifier", "this"}:
@@ -99,10 +94,15 @@ def node_name(node):
 
 
 def binding_target(node):
-    """将函数或对象表达式关联到变量、属性或赋值目标，并返回注释锚点。
-
-    跳过括号包装；变量前与属性前的 JSDoc 属于对应初始化表达式。
-    多变量声明须在各 declarator 前单独注释，避免一个注释被多个函数共用。
+    """Functionality: Resolve a function or object expression to its external binding and
+    documentation anchor.
+    Inputs: A Tree-sitter expression node.
+    Outputs: A pair containing the optional bound name and the node against which JSDoc adjacency is
+    tested.
+    Logic: Skip parentheses and inspect supported variable, pair, assignment, field, and
+    single-callback registration parents.
+    Constraints: Multi-declarator statements require separate documentation; a shared registration
+    comment only documents a sole callback.
     """
     anchor = node
     while anchor.parent and anchor.parent.type == "parenthesized_expression":
@@ -139,7 +139,12 @@ def binding_target(node):
 
 
 def binding_names(node):
-    """从变量解构模式提取绑定名称，不把属性键和默认值误计为变量。"""
+    """Functionality: Collect variable bindings from a JavaScript pattern.
+    Inputs: A Tree-sitter binding-pattern node or None.
+    Outputs: The set of declared identifier names.
+    Logic: Recurse through object/array/rest patterns and use value sides of pairs and assignments.
+    Constraints: Property keys and default-expression identifiers are excluded.
+    """
     if node is None:
         return set()
     if node.type in {"identifier", "shorthand_property_identifier_pattern"}:
@@ -154,10 +159,12 @@ def binding_names(node):
 
 
 def adjacent_jsdoc(anchor, source):
-    """检查紧邻声明的独立、非空 JSDoc；模块头不能代替声明注释。
-
-    注释与声明间只允许空白。仅含标签或星号的 JSDoc 不构成职责说明。
-    export 外层是声明锚点，支持 export default、异步和生成器声明。
+    """Functionality: Determine whether a declaration has an adjacent meaningful JSDoc block.
+    Inputs: A declaration anchor node and the original UTF-8 source bytes.
+    Outputs: True only when a separate nonempty JSDoc block immediately precedes the declaration.
+    Logic: Normalize export anchors, reject intervening text and module/file tags, then inspect
+    comment content.
+    Constraints: Empty comments and comments containing only tags do not document a declaration.
     """
     if anchor.parent and anchor.parent.type == "export_statement":
         anchor = anchor.parent
@@ -174,10 +181,23 @@ def adjacent_jsdoc(anchor, source):
 
 
 class JavascriptInspector:
-    """保存单文件扫描状态；显式对象避免递归闭包持有语法树的引用环。"""
+    """Functionality: Hold the state required to inspect one JavaScript syntax tree.
+    Inputs: Source is supplied to the constructor.
+    Outputs: Stores the parser root, encoded source, definitions, variable names, synthetic
+    counters, and anonymous count.
+    Logic: Explicit instance state keeps recursive traversal ownership visible and avoids closure
+    reference cycles.
+    Constraints: One inspector represents one source file.
+    """
 
     def __init__(self, source):
-        """解析源码并初始化独立的符号、变量与匿名作用域计数。"""
+        """Functionality: Initialize scanner state from JavaScript source.
+        Inputs: UTF-8 source text.
+        Outputs: A parsed root and empty scan-result collections.
+        Logic: Parse the source and initialize symbol lists, variable set, and per-scope
+        synthetic-name counters.
+        Constraints: Parser dependency and syntax failures propagate.
+        """
         self.root = parse_javascript(source)
         self.source = source.encode("utf-8")
         self.definitions = []
@@ -186,7 +206,16 @@ class JavascriptInspector:
         self.anonymous = 0
 
     def visit(self, node, scope="", local=False):
-        """维护函数、类和对象上下文，确保同名方法使用不同限定名。"""
+        """Functionality: Traverse syntax nodes and record declarations, bindings, and anonymous
+        functions.
+        Inputs: A Tree-sitter node, qualified scope prefix, and flag indicating function-local
+        scope.
+        Outputs: Mutates the inspector result collections and recursively visits named children.
+        Logic: Resolve each binding, derive static or synthetic names, test adjacent JSDoc, and
+        track module bindings.
+        Constraints: Dynamic method names and ambiguous declarations are rejected by the public
+        extraction function.
+        """
         child_scope = scope
         child_local = local
         if node.type == "variable_declarator" and not local:
@@ -222,11 +251,13 @@ class JavascriptInspector:
 
 
 def javascript_symbols(source):
-    """递归扫描全部语法分支，返回全部函数/类声明、模块变量和匿名函数计数。
-
-    每项声明为 (限定名, 一基行号, 独立 JSDoc 是否有效)。别名绑定使用外部可访问名；
-    getter/setter 使用 .get/.set 后缀。相同限定名重复定义时拒绝产生歧义关联。
-    模块变量包括 program 直属声明、顶层块中的 var，排除函数和类内绑定。
+    """Functionality: Extract JavaScript declarations and module variables from one source file.
+    Inputs: JavaScript source text.
+    Outputs: Declaration tuples (qualified name, one-based line, JSDoc-valid flag), variable-name
+    set, and anonymous-function count.
+    Logic: Traverse the parsed tree and reject duplicate qualified names.
+    Constraints: Getter/setter names receive explicit suffixes; local bindings are excluded from
+    module variables.
     """
     inspector = JavascriptInspector(source)
     inspector.visit(inspector.root)

@@ -1,20 +1,25 @@
-"""职责：验证简历与独立复盘页的登录门禁、身份转义、CSRF 和导航，所有用户写入只在测试数据库。
+"""Responsibilities: Verify login gateways, identity escaping, CSRF, and navigation for resume and
+standalone review pages; all user writes occur only in test database.
+Implementation: Use real Django templates, sessions, and HTTP client; do not substitute permission
+middleware; disable global gateway but still protect personal pages locally.
+Related Modules: demo_asset, config.urls, resumes.html, interview-review.html; do not invoke model
+or PDF parser.
 
-实现：真实 Django 模板、会话和 HTTP Client，不替代权限中间件；关闭全局门禁验证本地仍保护个人页。
-关联：demo_asset、config.urls、resumes.html、interview-review.html；不调用模型或 PDF 解析器。
+Declaration Index:
+- ResumePageTests: Real HTTP/template boundary tests for independent pages.
+- ResumePageTests.setUp: Create users existing only in isolated database.
+- ResumePageTests.test_requires_login_even_in_local_mode: Page and static HTML alias both reject
+  anonymous identity.
+- ResumePageTests.test_authenticated_page_and_assets:
+  Authenticated user sees escaped identity, CSRF, traditional defaults; review delivered
+  independently without loading resume management.
+- ResumePageTests.test_navigation_from_existing_pages:
+  Homepage, interview, resume, review, and diagnosis all share top task navigation.
+- ResumePageTests.test_interview_has_no_inline_maintenance: Interview only selects saved versions;
+  old maintenance resources removed.
 
-目录：
-- ResumePageTests：独立页面的真实 HTTP/模板边界测试。
-- ResumePageTests.setUp：创建仅存在于隔离数据库的用户。
-- ResumePageTests.test_requires_login_even_in_local_mode：页面与静态 HTML 别名都拒绝匿名身份。
-- ResumePageTests.test_authenticated_page_and_assets：
-  登录用户看到转义身份、CSRF、传统默认值；复盘独立交付且不加载简历管理。
-- ResumePageTests.test_navigation_from_existing_pages：
-  主页、面试、简历、复盘与诊断均有共享顶部任务导航。
-- ResumePageTests.test_interview_has_no_inline_maintenance：面试仅选择已保存版本，旧维护资源删除。
-
-关键变量：
-（无模块级变量。）
+Variable Index:
+None
 """
 
 from django.contrib.auth import get_user_model
@@ -23,14 +28,20 @@ from django.test import TestCase, override_settings
 
 @override_settings(INTERVIEW_REQUIRE_LOGIN=False)
 class ResumePageTests(TestCase):
-    """功能：验证本地模式下真实页面；逻辑：隔离认证状态；约束：不证明浏览器布局或模型可用。"""
+    """Function: Verify real page in local mode; logic: isolate authentication state; constraint: do
+    not prove browser layout or model availability.
+    """
 
     def setUp(self):
-        """无外部输入；创建带 HTML 字符的用户名，验证身份始终按文本渲染。"""
+        """No external input; create username with HTML characters, verify identity always rendered
+        as text.
+        """
         self.user = get_user_model().objects.create_user(username="<resume-user>", password="a")
 
     def test_requires_login_even_in_local_mode(self):
-        """输入匿名请求；规范路由和静态别名均跳转登录，并保留安全的 next 参数。"""
+        """Input anonymous request; standard routing and static aliases redirect to login,
+        preserving secure next parameter.
+        """
         for path in (
             "/resumes/",
             "/stream-demo/resumes.html",
@@ -44,7 +55,9 @@ class ResumePageTests(TestCase):
             self.assertTrue(response.url.startswith("/login/?next="))
 
     def test_authenticated_page_and_assets(self):
-        """输入真实 session；核对简历与独立复盘模板、传统默认值、转义及资源类型，不修改生产用户。"""
+        """Input real session; verify resume and standalone review templates, traditional defaults,
+        escaping, and resource types, without modifying production users.
+        """
         self.client.force_login(self.user)
         response = self.client.get("/resumes/")
         self.assertContains(response, "&lt;resume-user&gt;")
@@ -86,7 +99,9 @@ class ResumePageTests(TestCase):
             self.assertTrue(asset["Content-Type"].startswith(content_type))
 
     def test_navigation_from_existing_pages(self):
-        """主页/面试/简历/复盘/诊断顶部含统一任务入口，简历页不嵌复盘；不创建面试或改变参数。"""
+        """Top navigation shared across homepage, interview, resume, review, and diagnosis; resume
+        page does not embed review; no interview created or parameters changed.
+        """
         self.client.force_login(self.user)
         for path in ("/", "/agent/", "/resumes/", "/interview-review/", "/stream-demo/"):
             response = self.client.get(path)
@@ -97,7 +112,9 @@ class ResumePageTests(TestCase):
             self.assertNotContains(response, 'href="/resumes/#interview-history"')
 
     def test_interview_has_no_inline_maintenance(self):
-        """本人面试页只保留版本选取，已删除脚本不可通过白名单继续访问；不修改协议文本入口。"""
+        """Personal interview page retains only version selection; deleted scripts cannot be
+        accessed via whitelist; protocol text entry unchanged.
+        """
         self.client.force_login(self.user)
         response = self.client.get("/agent/")
         self.assertContains(response, 'id="resume-select"')
