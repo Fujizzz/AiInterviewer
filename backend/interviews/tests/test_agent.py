@@ -3,8 +3,8 @@ an isolated test database.
 
 Implementation: Drive the real ASGI handlers and Agent state machine while replacing vendor calls
 with deterministic doubles; no external model is contacted.
-Related Modules: interviews.agent_socket, interviews.agent_session, interviews.agent_records, and
-.agent_fixtures.
+Related Modules: interviews.agent_socket, interviews.agent_session, interviews.agent_records,
+interviews.agent_repository, and .agent_fixtures.
 
 Declaration Index:
 - AgentTests:
@@ -22,8 +22,8 @@ Declaration Index:
   Send disconnect and wait for local coroutine to finish, avoiding test leftovers with hanging
   tasks.
 - AgentTests.test_full_interview_matches_terminal_mvp:
-  Same input yields consistent question count, evaluation, state budget, and report between network
-  and original terminal.
+  Compare public questions/report and private persisted scores/budget against the terminal;
+  verify finished responses omit internal plans, logs and competency state.
 - AgentTests.test_invalid_commands_do_not_create_model:
   Corrupted JSON, unknown fields, empty text, wrong type, and premature answers do not trigger paid
   requests.
@@ -61,7 +61,7 @@ Declaration Index:
   Wait at controlled barrier, request closure while call still executing.
 
 - AgentTests.test_early_finish_with_and_without_current_answer: Verify saved early reports with
-  optional speech, no next question.
+  optional speech, no next question and an internal-only finish reason.
 - AgentTests.test_silent_answer_is_unanswered_without_capability_evidence: Verify empty speech
   records no competency evidence.
 - AgentTests.test_discard_cancels_busy_work_and_deletes_history: Verify cancellation and
@@ -92,6 +92,7 @@ from app.application import MVPInterviewApplication
 from app.providers.llm import LLMError, OpenAILLM
 from interviews.agent_models import AgentAnswer, AgentInterview, AgentRequest
 from interviews.agent_provider import BackendLLM
+from interviews.agent_repository import DjangoInterviewRepository
 from interviews.agent_session import AgentSession
 from interviews.agent_socket import MAX_MESSAGE_BYTES, agent_socket
 from interviews.capacity import CapacityExceeded, take_slot
@@ -148,8 +149,10 @@ class AgentTests(SafetyTestMixin, TransactionTestCase):
         await comm.wait()
 
     async def test_full_interview_matches_terminal_mvp(self):
-        """Same input yields consistent question count, evaluation, state budget, and report between
-        network and original terminal.
+        """Compare public questions/report and private scores/budget with the offline terminal.
+
+        Drive the socket with fixture models, then read validated persisted context to retain
+        internal scoring and planning invariants without requiring those fields in public output.
         """
         for count in (1, 3):
             with self.subTest(count=count):
@@ -184,9 +187,14 @@ class AgentTests(SafetyTestMixin, TransactionTestCase):
                 self.assertEqual(len(result["question_history"]), count)
                 self.assertEqual(result["final_report"], expected["final_report"])
                 self.assertLess(result["interview_state"]["elapsed_seconds"], 120)
-                self.assertEqual(result["interview_plan"]["duration_seconds"], 1800)
+                for key in ("interview_plan", "plan_history", "topic_progress", "decision_logs"):
+                    self.assertNotIn(key, result)
+                self.assertNotIn("competencies", result["interview_state"])
+                repository = DjangoInterviewRepository(result["interview_id"])
+                context = await repository.get_interview_context(result["interview_id"])
+                self.assertEqual(context.plan.duration_seconds, 1800)
                 self.assertEqual(
-                    result["interview_state"]["competencies"],
+                    context.state.model_dump(mode="json")["competencies"],
                     expected["interview_state"]["competencies"],
                 )
                 self.assertEqual(
@@ -198,9 +206,9 @@ class AgentTests(SafetyTestMixin, TransactionTestCase):
     async def test_early_finish_with_and_without_current_answer(self):
         """Functionality: Verify explicit finish bypasses next-question generation and saves report.
         Inputs: Isolated database, fixture LLM/security review and optional actual current answer.
-        Outputs: Assertions on question count, evaluated history and approved completed record.
+        Outputs: Public report without internal traces, saved finish reason and completed record.
         Logic: Drive real socket/repository, compare with/without answer, inspect model call
-        history.
+        history and persisted decision logs.
         Constraints: Offline fixtures cannot verify real provider quality or microphone behavior.
         """
         for include_answer in (False, True):
@@ -223,7 +231,14 @@ class AgentTests(SafetyTestMixin, TransactionTestCase):
                     self.assertTrue(result["interview_finished"])
                     self.assertEqual(len(result["question_history"]), int(include_answer))
                     self.assertEqual(result["interview_state"]["question_index"], 1)
-                    self.assertEqual(result["decision_logs"][-1]["reason_code"], "USER_FINISHED")
+                    for key in (
+                        "interview_plan",
+                        "plan_history",
+                        "topic_progress",
+                        "decision_logs",
+                    ):
+                        self.assertNotIn(key, result)
+                    self.assertNotIn("competencies", result["interview_state"])
                     self.assertEqual(
                         sum(c.__name__ == "QuestionAgentDecision" for c in llm.calls), generated
                     )
@@ -233,6 +248,9 @@ class AgentTests(SafetyTestMixin, TransactionTestCase):
                         id=question["interview_id"]
                     )
                     self.assertEqual(record.status, "completed")
+                    repository = DjangoInterviewRepository(record.id)
+                    logs = await repository.decision_logs_for(record.id)
+                    self.assertEqual(logs[-1].reason_code, "USER_FINISHED")
                     self.assertEqual(
                         await sync_to_async(
                             AgentAnswer.objects.filter(question__interview_id=record.id).count
@@ -243,8 +261,9 @@ class AgentTests(SafetyTestMixin, TransactionTestCase):
     async def test_silent_answer_is_unanswered_without_capability_evidence(self):
         """Functionality: Verify silent closure preserves an empty answer and no ability scores.
         Inputs: Real socket/database with fixture model; a Skip bound to the sole question.
-        Outputs: Empty text, non_answer status, null capability scores and zero evaluator calls.
-        Logic: Complete at safety question limit so all committed evidence is inspectable in report.
+        Outputs: Empty text, non_answer status, null internal/report scores and no evaluator calls.
+        Logic: Complete at safety question limit, inspect public feedback and private stored state;
+        assert competency state is excluded from the candidate-visible response.
         Constraints: No real silence detection or provider calls are exercised here.
         """
         llm = FixtureLLM()
@@ -258,15 +277,23 @@ class AgentTests(SafetyTestMixin, TransactionTestCase):
             self.assertEqual(
                 result["question_history"][0]["evaluation"]["analysis"]["status"], "non_answer"
             )
-            self.assertTrue(
-                all(
-                    value["score"] is None
-                    for value in result["interview_state"]["competencies"].values()
-                )
-            )
+            for key in ("interview_plan", "plan_history", "topic_progress", "decision_logs"):
+                self.assertNotIn(key, result)
+            self.assertNotIn("competencies", result["interview_state"])
             self.assertFalse(any(c.__name__ == "AnswerEvidence" for c in llm.calls))
             self.assertEqual((await comm.receive_output())["code"], 1000)
             await comm.wait()
+            repository = DjangoInterviewRepository(question["interview_id"])
+            context = await repository.get_interview_context(question["interview_id"])
+            self.assertTrue(
+                all(value.score is None for value in context.state.competencies.values())
+            )
+            self.assertTrue(
+                all(
+                    value["score"] is None
+                    for value in result["final_report"]["competencies"].values()
+                )
+            )
 
     async def test_discard_cancels_busy_work_and_deletes_history(self):
         """Functionality: Verify no-save end cancels a running request and cascades history
