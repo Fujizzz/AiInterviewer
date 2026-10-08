@@ -148,7 +148,8 @@ async def retest_http(source, output, url, *, mode="traditional"):
     Logic: Fetch the agent page for CSRF state, submit the PDF, consume NDJSON, and write the result
     event.
     Constraints: The agent page must allow anonymous access; no session is created or bypassed,
-    retries are disabled, and only bounded event metadata is printed.
+    HTTP retries are disabled, server-side JSON retries follow service configuration, and only
+    bounded event metadata is printed.
     """
     import httpx
 
@@ -200,8 +201,8 @@ def main():
     Outputs: Process status 0 for success and 1 for a reported pipeline failure.
     Logic: Add the backend import path, initialize Django, select the requested operation, and
     execute it once.
-    Constraints: The default mode is traditional; no retries or parameter adjustments are
-    introduced.
+    Constraints: The default mode is traditional; advanced mode reuses configured JSON retries.
+    The CLI does not rerun the document or adjust model parameters.
     """
     backend = Path(__file__).resolve().parents[1]
     sys.path.insert(0, str(backend))
@@ -209,7 +210,9 @@ def main():
     import django
 
     django.setup()
-    parser = argparse.ArgumentParser(description="Explicit live PDF pipeline retest; no retries.")
+    parser = argparse.ArgumentParser(
+        description="Explicit live PDF pipeline retest using configured JSON validation retries."
+    )
     parser.add_argument("source", type=Path)
     parser.add_argument("output", type=Path)
     parser.add_argument("--http-url", help="Explicit local backend URL for real HTTP retest.")

@@ -21,7 +21,7 @@ Declaration Index:
 Variable Index:
 - logger: logs request ID, stage, page count, and duration, without upload file name or text.
 - VISION_CONCURRENCY: maximum concurrent visual review requests per PDF, set to 3.
-- VISION_FAILURE_DETAILS: fixed Chinese prompts for known visual failure codes; unknown exceptions
+- VISION_FAILURE_DETAILS: fixed English prompts for known visual failure codes; unknown exceptions
   use existing generic prompt.
 
 Constraint Notes:
@@ -80,7 +80,10 @@ VISION_FAILURE_DETAILS = {
         "The vision service returned an incomplete result or refused the request; it was rejected."
     ),
     "timeout": "The vision service request timed out; no incomplete review result was applied.",
-    "invalid_json": "The vision service response failed JSON schema validation; it was rejected.",
+    "invalid_json": (
+        "The vision service could not produce valid JSON within the configured attempt limit. "
+        "No incomplete result was saved. Check the backend validation logs."
+    ),
 }
 
 

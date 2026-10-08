@@ -13,7 +13,7 @@
 | --- | --- | --- |
 | 后端规则 | `interviews/resume_pdf.py` | pypdf 布局提取，保留原文，修复明确排版连字、换行和行尾空白；PDFium 渲染 |
 | Agent | 根目录 `agents/resume_cleanup.py` | 独立 `VisionPort.review`、单页校对补丁契约，验证来源定位、非重叠性及非空页遗漏 |
-| 模型适配 | `interviews/resume_vision.py` | 异步 Chat Completions 图文调用和 JSON 校验，复用所选供应商凭据 |
+| 模型适配 | `interviews/resume_vision.py` | 异步图文调用、严格 JSON 校验及带错误反馈的有界重试，复用所选供应商凭据 |
 | 隔离运行 | `interviews/pdf_sandbox.py`、`pdf_supervisor.py`、`pdf_worker.py` | Linux/WSL 沙箱内规则提取和渲染，限制资源并监督取消 |
 | HTTP | `interviews/resume_api.py` | 有界上传读取、调用沙箱、异步视觉调用及阶段流 |
 | 界面 | `frontend/resumes.js` | 统一个人中心内的上传保存、显式解析、最终文本/疑点预览和取消 |
@@ -33,16 +33,28 @@ CLI 的既有 `read_resume` 文本 PDF 路径未替换；此新增流程由后�
 RESUME_VISION_PROVIDER=dashscope
 RESUME_VISION_MODEL=qwen3-vl-flash
 RESUME_VISION_TIMEOUT_SECONDS=90
+RESUME_VISION_JSON_RETRIES=2
 RESUME_VISION_ENABLE_THINKING=false
 ```
 
 上述配置复用 `DASHSCOPE_API_KEY` 和 `DASHSCOPE_BASE_URL`，不复制密钥。
 也支持 `RESUME_VISION_PROVIDER=openai`，复用 `OPENAI_API_KEY/OPENAI_BASE_URL`；
 此时需要自行选择支持图片和 JSON 模式的模型，并清空 DashScope 专用 thinking 配置。
-修改 `.env` 后重启服务。缺配置、模型不支持、超时、拒绝、截断和 JSON 校验失败均明确报错。
-`max_retries=0`，每页一次请求，每份 PDF 最多 3 页同时调用（`VISION_CONCURRENCY=3`）。
+修改 `.env` 后重启服务。缺配置、模型不支持、超时、拒绝、截断均直接报错。
+`RESUME_VISION_JSON_RETRIES` 是 JSON 语法或 `PageReview` schema 校验失败后的额外请求次数，
+默认 2、范围 0–5；设为 0 恢复单次请求。重试耗尽仍明确失败，不采用不完整结果。
+SDK `max_retries=0` 保持不变，不重试网络/HTTP 错误；每份 PDF 最多 3 页同时调用（`VISION_CONCURRENCY=3`）。
 按实际完成数量更新进度，最终结果按原页序合并。该上限是每份上传的窗口；ASGI 另限制同机最多 2 份 PDF 同时处理。
-单页 PDF 不产生页间并发。超时为每页请求的 SDK 超时，非整份文档截止时间。
+单页 PDF 不产生页间并发。超时为每次请求的 SDK 超时，非单页或整份文档截止时间。
+默认情况下每页最多请求 3 次，失败页会增加耗时与 token 费用；成功页不重复请求。
+
+每次尝试使用同一模型、原始 PNG、原始编号文本和严格 schema；不调整温度、thinking、
+文本预处理或校验规则。首轮提示明确必填字段、整数/数组/字符串类型、JSON 转义规则和
+当前页码的格式示例。规则文本为空或仅有空白时，使用完整转写提示及补录示例，
+明确区分“规则未提取到文字”和“图片确实空白”，避免机械返回空修改数组。
+校验失败后仅追加最新的安全字段路径和错误类型，要求重新生成完整结果；
+不回填模型原始错误响应、不累积历史错误、不通过补字段、强制类型转换或空结果绕过校验。
+取消可打断正在执行的重试。日志记录每次尝试、次数上限、校验路径和 token 用量。
 
 ## 上传与事件协议
 
@@ -69,8 +81,9 @@ HTTP 200 不代表模型成功；客户端必须等到 `result`。断流和取�
 非空替换保留该范围末端的原有 CRLF/LF/CR，空 text 表示明确删除范围；非空页整页删除仍拒绝。
 范围有效、理由非空且替换后与该范围原文相同的建议视为无需修改，不参与区间替换或对外 corrections。
 空提取页有一个虚拟第 1 行，允许在该范围补录可见文字；空白页无需修改。
-越界/逆序行号、真实重叠、缺少依据、错误页码及整页删除均失败；不重试或采用其他转写结果。
-提示仅要求返回真实差异和简洁依据；模型、thinking、timeout、温度、渲染和页数参数不变。
+通过 schema 后的越界/逆序行号、真实重叠、空白依据、错误页码及整页删除均失败；
+这些 Agent 语义校验错误不属于 JSON 重试范围。缺失必填字段等结构错误在模型适配层触发有界重试。
+提示要求返回真实差异和简洁依据，新增明确 JSON 输出契约；模型、thinking、timeout、温度、渲染和页数参数不变。
 该内部协议变更经用户确认，用来减少重复输出并消除模型抄错 before 造成的定位失败。
 结构校验仍不能证明图像依据或所选范围的语义正确，最终文本和疑点应由用户核对。
 
@@ -94,18 +107,35 @@ HTTP 200 不代表模型成功；客户端必须等到 `result`。断流和取�
 
 ## 实现依据与验证入口
 
-错误事件现在附带稳定 `code`：`timeout` 表示视觉请求超时，`invalid_json` 表示响应结构无效，
+错误事件现在附带稳定 `code`：`timeout` 表示视觉请求超时，`invalid_json` 表示配置的尝试次数内仍未得到合法 JSON/schema，
 `resume_correction_range_invalid` 表示修改行号越界或逆序；其他已知补丁错误也有固定码。
 未知异常继续返回通用提示，供应商原始异常不公开。所有错误仍不产生成功终态或允许采用部分文本。
 
 可显式运行 `python tools/retest_resume_pdf.py <PDF路径> <私有输出目录>`，使用当前行号协议和已配置模型参数重测，
-不重试、不放宽校验；成功时保存页面 PNG 和 result.json。`--http-url` 仅适用于 `/agent/` 可以匿名访问的诊断环境；当前本地页面也要求登录，
+复用当前 JSON 重试配置，不重跑整份文档、不放宽校验；成功时保存页面 PNG 和 result.json。`--http-url` 仅适用于 `/agent/` 可以匿名访问的诊断环境；当前本地页面也要求登录，
 该 CLI 不创建登录会话，因此会明确报告 HTTP 设置失败，不绕过认证。默认 traditional，显式 `--mode advanced` 才调用模型。输出含个人简历信息，应保存在仓库外私有目录。
 
 - [pypdfium2 生命周期与线程限制](https://pypdfium2.readthedocs.io/en/stable/python_api.html)
 - [DashScope 视觉输入](https://help.aliyun.com/zh/model-studio/vision)
 - [DashScope JSON 输出支持](https://help.aliyun.com/zh/model-studio/qwen-structured-output)
 
-本地测试命令：`python manage.py test interviews.tests.test_resume_pdf`、
+本地测试命令：`python manage.py test interviews.tests.test_resume_pdf interviews.tests.test_resume_vision`、
 `node --test tests/resumes-client.test.mjs`。使用合成 PDF 和模拟视觉 SDK；
+重试测试覆盖格式/类型/必填字段错误后恢复、次数耗尽、禁用和无效配置、字段脱敏、取消、
+并发页反馈隔离、保留语义校验、成功/失败流终态。模拟测试不能证明真实 OCR 准确率或供应商可用性。
 测试范围及真实模型联调记录见 [测试说明](testing.md)。
+
+### 2026-10-08 JSON 重试验证
+
+- `python manage.py test interviews.tests.test_resume_pdf interviews.tests.test_resume_vision interviews.tests.test_resume_versions --noinput`：39 项通过。
+- `python tools/check_docs.py`：0 项问题；本次改动的 Python 文件通过 Ruff 检查和格式检查，`git diff --check` 通过。
+  已人工核对修改过的注释、声明索引、配置边界与实际行为；此处为首次本地验证记录，当时尚未提交。
+- 真实接口使用现有 `qwen3-vl-flash`、`enable_thinking=false`、90 秒超时，
+  在同一合成双栏 PNG 上对比正常规则文本和空规则文本；基线使用 Git HEAD 中的原适配器。
+  正常文本曾通过完整流程；空规则文本出现合法空结果，补录提示调整后也观察到内容遗漏及行号越界。
+  后续诊断还遇到连接超时/连接失败，均直接失败而没有网络重试。
+  这些结果不支持宣称 OCR 准确率或真实请求成功率已经达到某个数值；此轮尚未复测用户原始 PDF。
+- 本地对照与失败记录保留在忽略目录 `backend/test-results/resume_json_live_probe*.json`
+  和 `resume-json-live*.log`，包含输入哈希、模型配置、请求次数和阶段结果；未挑选成功样本替代失败记录。
+  此轮诊断只上传合成页面，不发送用户简历。JSON 重试恢复由可重复的 SDK 替身测试验证。
+  后续用户授权的真实简历复测及分区/推荐字段验证见 [简历编辑记录](resume-versions.md)。

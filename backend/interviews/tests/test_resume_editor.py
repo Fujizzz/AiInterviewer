@@ -1,15 +1,15 @@
 """Responsibilities: Verify resume edition persistence, ownership, source handling, and
 recommendation-slot API contracts.
-Implementation: Use isolated database users and real DRF validation/download responses; external
-extraction and paid models are not called.
+Implementation: Use isolated database users, real DRF validation/download responses and the real
+recommendation feature builder; external extraction and paid models are not called.
 Related Modules: interviews.resume_editor, resume_models, resume_versions, and recommendation
-CandidateInput.
+CandidateInput and feature construction.
 Declaration Index:
 - ResumeEditorTests: Verify edition persistence, access boundaries, section parsing, and slot
   confirmation.
 - ResumeEditorTests.setUp: Create isolated users and a synthetic ready source resume.
 - ResumeEditorTests.test_independent_editions_and_export: Ensure editions remain traceable and
-  protect referenced versions.
+  protect referenced versions; omitted slots persist as a complete null mapping.
 - ResumeEditorTests.test_slots_reusable_without_inference: Validate reusable confirmed slots without
   inferred values.
 - ResumeEditorTests.test_invalid_editions_do_not_write: Reject invalid edit payloads without
@@ -25,6 +25,11 @@ Declaration Index:
 - ResumeEditorTests.test_extracted_fields_are_not_confirmed_until_saved: Keep suggestions
   unconfirmed until an
   explicit edition save.
+- ResumeEditorTests.test_english_resume_sections_and_contact: Group common headings and preamble.
+- ResumeEditorTests.test_repeated_passage_review_preserves_source: Warn without deleting text.
+- ResumeEditorTests.test_review_warning_boundaries: Ignore short phrases and cap repeat notices.
+- ResumeEditorTests.test_partial_extraction_reaches_recommendation_features: Preserve unknowns
+  through extraction, save, profile retrieval and real feature construction.
 Variable Index:
 None
 
@@ -33,11 +38,14 @@ Database and API behavior execute against the test database; these tests do not 
 extraction, model quality, or browser layout.
 """
 
+from math import isnan
+
 from django.contrib.auth import get_user_model
 from rest_framework.test import APITestCase
 
-from interviews.recommendation.schemas import JobsRequest
-from interviews.resume_editor import UNIT_LABELS, render_units, split_units
+from interviews.recommendation.features import FEATURE_NAMES, build_features
+from interviews.recommendation.schemas import CandidateInput, JobInput, JobsRequest
+from interviews.resume_editor import UNIT_LABELS, render_units, section_warnings, split_units
 from interviews.resume_models import ResumeVersion
 
 
@@ -74,8 +82,8 @@ class ResumeEditorTests(APITestCase):
         """Functionality: Verify edition lineage, source preservation, exports, and protected
         deletion.
         Inputs: The synthetic ready source resume and two edition payloads.
-        Outputs: Assertions over saved lineage, source bytes/text, export headers/content, and
-        delete statuses.
+        Outputs: Assertions over saved lineage, complete null slots, source bytes/text, export
+        headers/content, and delete statuses.
         Logic: Create two successive editions, inspect the source and snapshots, then exercise
         download/export/delete routes.
         Constraints: No external extraction or model call occurs; referenced source editions cannot
@@ -96,6 +104,10 @@ class ResumeEditorTests(APITestCase):
         self.assertIsNone(edition.original_pdf)
         self.assertEqual(edition.text, "Projects\n缓存项目\n优化延迟 <script>")
         self.assertFalse(edition.is_current)
+        self.assertEqual(
+            edition.recommendation_slots,
+            {field: None for field in CandidateInput.model_fields if field != "candidate_id"},
+        )
         edition_url = f"/api/resume-versions/{edition.pk}/"
         second = self.client.post(
             edition_url + "editions/",
@@ -126,7 +138,7 @@ class ResumeEditorTests(APITestCase):
         """Functionality: Verify confirmed recommendation slots remain typed and reusable.
         Inputs: An initial profile request and an edition with explicit list, zero, false, and null
         values.
-        Outputs: A validated JobsRequest built from the saved candidate profile.
+        Outputs: Complete saved slots and a validated JobsRequest built from the candidate profile.
         Logic: Save explicit slots, retrieve the profile, and validate it with the existing
         recommendation schema.
         Constraints: Unknown fields remain null; natural language is not used to infer slot values.
@@ -151,6 +163,12 @@ class ResumeEditorTests(APITestCase):
             format="json",
         )
         self.assertEqual(response.status_code, 201)
+        saved_slots = ResumeVersion.objects.get(pk=response.data["id"]).recommendation_slots
+        self.assertEqual(set(saved_slots), set(CandidateInput.model_fields) - {"candidate_id"})
+        self.assertIsNone(saved_slots["academic_level"])
+        self.assertEqual(saved_slots["interests"], [])
+        self.assertEqual(saved_slots["months_experience"], 0)
+        self.assertIs(saved_slots["commit_to_summer"], False)
         profile = self.client.get(
             f"/api/resume-versions/{response.data['id']}/recommendation-profile/"
         ).data
@@ -296,3 +314,125 @@ class ResumeEditorTests(APITestCase):
         self.assertEqual(
             self.client.get(url + "recommendation-profile/").data["candidate"]["skills"], ["SQL"]
         )
+
+    def test_english_resume_sections_and_contact(self):
+        """Functionality: Reproduce education absorbing all later English sections.
+        Inputs: Synthetic resume with a contact preamble, English aliases and deliberate spacing.
+        Outputs: Correct API section bodies and unchanged original/persisted source text.
+        Logic: Request the real editor endpoint; verify exact bodies rather than heading presence.
+        Constraints: No personal fixture or external extraction; body whitespace must be preserved.
+        """
+        source = (
+            "Example Candidate\nEmail: candidate@example.test\n"
+            "EDUCATION\nExample University | Master of Science in Computing\n"
+            "INTERNSHIP   EXPERIENCE\nEmployer | Intern\n  Built a service.\n"
+            "PROJECT EXPERIENCE\nProject detail\n"
+            "CORE SKILLS\nPython, SQL\n"
+            "OPEN–SOURCE CONTRIBUTIONS & PUBLICATION\nResearch paper\n"
+            "HONORS ＆ AWARDS\nCompetition result\n"
+        )
+        self.original.text = source
+        self.original.save(update_fields=["text"])
+        data = self.client.get(self.url + "editor/").data
+        self.assertEqual(
+            data["units"]["basic"], "Example Candidate\nEmail: candidate@example.test\n"
+        )
+        self.assertEqual(
+            data["units"]["education"], "Example University | Master of Science in Computing\n"
+        )
+        self.assertEqual(data["units"]["experience"], "Employer | Intern\n  Built a service.\n")
+        self.assertEqual(data["units"]["projects"], "Project detail\n")
+        self.assertEqual(data["units"]["skills"], "Python, SQL\n")
+        self.assertEqual(data["units"]["publications"], "Research paper\n")
+        self.assertEqual(data["units"]["awards"], "Competition result\n")
+        self.assertEqual(data["units"]["other"], "")
+        self.assertEqual(data["original_text"], source)
+        self.assertEqual(data["slot_suggestions"]["values"]["majors"], ["Computing"])
+        self.assertEqual(data["review_warnings"], [])
+        self.original.refresh_from_db()
+        self.assertEqual(self.original.text, source)
+        self.assertEqual(self.original.units, {})
+
+    def test_repeated_passage_review_preserves_source(self):
+        """Functionality: Expose a copied long passage for review without silent deduplication.
+        Inputs: Synthetic model-like text containing a merged sentence and its wrapped duplicate.
+        Outputs: One warning in the correct section and byte-identical original/section bodies.
+        Logic: Compare whitespace-normalized windows through the real private editor API.
+        Constraints: A warning is a review suggestion; it cannot prove that repetition is erroneous.
+        """
+        passage = (
+            "Built a searchable knowledge base from debugging records and environment profiles "
+            "to support future diagnosis and reproducible analysis "
+            "across multiple isolated systems."
+        )
+        body = "Another statement. " + passage + "\n  " + passage.replace(" ", "   ") + "\n"
+        self.original.text = "INTERNSHIP EXPERIENCE\n" + body
+        self.original.save(update_fields=["text"])
+        data = self.client.get(self.url + "editor/").data
+        self.assertEqual(len(data["review_warnings"]), 1)
+        self.assertEqual(data["review_warnings"][0]["unit"], "experience")
+        self.assertEqual(data["review_warnings"][0]["line"], 2)
+        self.assertEqual(data["units"]["experience"], body)
+        self.assertEqual(data["original_text"], self.original.text)
+
+    def test_review_warning_boundaries(self):
+        """Functionality: Bound review warnings and avoid flagging common short repeated labels.
+        Inputs: Short repeats, the same text in different sections, and six distinct long repeats.
+        Outputs: No warning for short/cross-section repetition and at most five for long passages.
+        Logic: Exercise exact token matching without deleting or normalizing the source mapping.
+        Constraints: No claims about semantic repetition or external model quality.
+        """
+        self.assertEqual(section_warnings({"skills": "Python SQL\nPython SQL"}), [])
+        long_text = " ".join(f"word{index}" for index in range(20))
+        self.assertEqual(section_warnings({"projects": long_text, "experience": long_text}), [])
+        units = {
+            "projects": "\n".join(
+                (" ".join(f"item{group}_{index}" for index in range(20)) + "\n") * 2
+                for group in range(6)
+            )
+        }
+        self.assertEqual(len(section_warnings(units)), 5)
+
+    def test_partial_extraction_reaches_recommendation_features(self):
+        """Functionality: Verify incomplete extraction remains usable by recommendation inputs.
+        Inputs: A synthetic resume with only explicit skills and GPA, plus a synthetic job.
+        Outputs: Complete saved/API candidate fields; known features have values, unknowns are NaN.
+        Logic: Call real editor/edition/profile endpoints, validate CandidateInput and construct
+        the actual fixed feature row. Confirm original pending fields were not written by GET.
+        Constraints: Real isolated database and feature code; no trained model or external API is
+        called, and null is never replaced by a zero, false or empty-list feature.
+        """
+        self.original.text = "CORE SKILLS\nPython, SQL\nEDUCATION\nGPA: 3.8 / 4.0\n"
+        self.original.save(update_fields=["text"])
+        editor = self.client.get(self.url + "editor/").data
+        values = editor["slot_suggestions"]["values"]
+        fields = set(CandidateInput.model_fields) - {"candidate_id"}
+        self.assertEqual(set(values), fields)
+        self.assertEqual(set(editor["slot_units"]), fields)
+        self.assertEqual(
+            {field for field, value in values.items() if value is not None}, {"skills", "gpa"}
+        )
+        saved = self.client.post(
+            self.url + "editions/", {"units": editor["units"], "slots": values}, format="json"
+        )
+        self.assertEqual(saved.status_code, 201, saved.data)
+        persisted = ResumeVersion.objects.get(pk=saved.data["id"])
+        self.assertEqual(persisted.recommendation_slots, values)
+        profile = self.client.get(
+            f"/api/resume-versions/{persisted.pk}/recommendation-profile/"
+        ).data["candidate"]
+        self.assertEqual(set(profile), set(CandidateInput.model_fields))
+        candidate = CandidateInput.model_validate(profile)
+        job = JobInput(job_id="fixture", required_skills=["Python"], min_gpa=3.0)
+        features = dict(zip(FEATURE_NAMES, build_features(candidate, job), strict=True))
+        self.assertEqual(features["skill_coverage"], 1.0)
+        self.assertAlmostEqual(features["gpa_margin"], 0.8)
+        self.assertTrue(
+            all(
+                isnan(value)
+                for name, value in features.items()
+                if name not in {"skill_coverage", "gpa_margin"}
+            )
+        )
+        self.original.refresh_from_db()
+        self.assertEqual(self.original.recommendation_slots, {})

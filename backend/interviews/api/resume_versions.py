@@ -2,8 +2,8 @@
 slots, private download and explicit parsing.
 Implementation: all resources filtered by owner; parsing reuses existing rules + visual pipeline and
 explicit queue configuration.
-Related Modules: resume_editor validates units and confirms slots, resume_slots extracts original
-pending fields;
+Related Modules: resume_editor validates units, flags repeated passages and confirms slots;
+resume_slots extracts original pending fields;
 resume_models stores private files; recommendation.catalog/runtime/rerank provides job sources,
 coarse ranking and API fine-ranking;
 resume_api/pdf_queue handles original parsing, does not modify experimental parameters.
@@ -31,7 +31,7 @@ Declaration Index:
 - ResumeVersionViewSet.destroy: Reject deletion of referenced or parsing versions.
 - ResumeVersionViewSet.parse: Explicitly start one parsing run and return stage stream.
 - ResumeVersionViewSet.editor: Read units, confirmed slots, and full-field extraction
-  suggestions/evidence from original pending fields.
+  suggestions/evidence from original pending fields; return non-destructive text review warnings.
 - ResumeVersionViewSet.editions: Save independent edit snapshots and protect originals and
   baselines.
 - ResumeVersionViewSet.recommendation_profile: Output candidate fields directly usable by existing
@@ -76,6 +76,7 @@ from ..resume_editor import (
     ResumeEditionInput,
     candidate_payload,
     render_units,
+    section_warnings,
     split_units,
 )
 from ..resume_models import ResumeVersion
@@ -269,7 +270,8 @@ class ResumeVersionViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     @action(detail=True, methods=["get"])
     def editor(self, request, pk=None):
         """Input personal ready version ID, return units, confirmed slots, and full-field extraction
-        suggestions from original pending values, no database write or model call.
+        suggestions from original pending values and repeated-passage warnings; no database writes
+        or model calls. Warnings identify possible repetition without deleting or repairing text.
         Original only based on explicit text extraction for pending values; edited drafts do not
         re-extract, preserve user-cleared fields and historical snapshots.
         """
@@ -283,8 +285,12 @@ class ResumeVersionViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         )
         units = version.units or split_units(version.text)
         suggestions = collect_slots(units) if not version.source_version_id else None
+        warnings = section_warnings(units)
         logger.info(
-            "Resume editor loaded version=%s suggestions=%s", version.pk, suggestions is not None
+            "Resume editor loaded version=%s suggestions=%s review_warnings=%d",
+            version.pk,
+            suggestions is not None,
+            len(warnings),
         )
         return Response(
             {
@@ -296,6 +302,7 @@ class ResumeVersionViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
                 "slots": candidate_payload(version),
                 "slot_units": SLOT_UNITS,
                 "slot_suggestions": suggestions,
+                "review_warnings": warnings,
                 "original_text": original.text,
                 "original_name": original.original_name,
             }

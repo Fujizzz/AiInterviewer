@@ -1,25 +1,28 @@
 """Responsibilities: Extract pending recommendation fields from resume sections across all
 CandidateInput business fields.
-Implementation: Recognize explicit labels and skill lists, parse strict types, and retain evidence;
-conflicts or unsupported formats remain unknown.
+Implementation: Recognize schema keys, English/Chinese labels, degree-major phrases and skill
+lists; return every CandidateInput business field with null for absent or unsupported evidence.
 Related Modules: resume_editor supplies section text, resume_versions exposes suggestions, and
 candidate_payload consumes saved values.
 
 Declaration Index:
 - parse_value: Parse a labelled source value into its recommendation type without GPA conversion or
   date inference.
+- degree_majors: Extract explicitly named disciplines from degree-in phrases in education text.
 - collect_slots: Aggregate suggestions, source evidence, issues, and missing fields without database
   writes or model calls.
 
 Variable Index:
-- SLOT_LABELS: Explicit field labels in English and Chinese mapped to recommendation fields.
+- SLOT_LABELS: Schema keys and explicit English/Chinese labels mapped to recommendation fields.
 - LABEL_PATTERN: Locates explicit labels and value boundaries, including multiple fields on one
   line.
 - TAG_FIELDS: Fields represented as lists; skill spelling, slash separators, and case are preserved.
 - NUMBER_UNITS: Accepted source units for numeric fields; no unit conversion is performed.
-- LEVELS: Maps explicitly stated Chinese academic year labels to existing level codes.
-- MODES: Maps explicit Chinese work-mode labels to existing categories.
-- BOOLEANS: Maps explicit Chinese summer-availability labels to Boolean values.
+- LEVELS: Maps explicit Chinese/English academic year labels to existing level codes.
+- MODES: Maps explicit Chinese/English work-mode labels to existing categories.
+- BOOLEANS: Maps explicit Chinese/English summer-availability labels to Boolean values.
+- DEGREE_MAJOR_PATTERN: Recognizes full degree or degree abbreviation followed by an explicit major.
+- EDUCATION_DATE_PATTERN: Bounds majors before a separated date span without interpreting dates.
 - logger: Records extraction counts and invalid field names, never evidence or personal contact
   data.
 
@@ -38,28 +41,79 @@ from pydantic import ValidationError as SchemaError
 from .recommendation.schemas import CandidateInput
 
 SLOT_LABELS = {
-    "skills": ("skills", "技能关键词", "专业技能", "关键技能", "技能"),
-    "interests": ("interests", "目标方向", "求职意向", "求职目标", "兴趣方向"),
-    "majors": ("majors", "major", "专业", "主修专业"),
+    "skills": ("skills", "skill keywords", "技能关键词", "专业技能", "关键技能", "技能"),
+    "interests": (
+        "interests",
+        "interest keywords",
+        "target roles",
+        "target role",
+        "career objective",
+        "career interests",
+        "目标方向",
+        "求职意向",
+        "求职目标",
+        "兴趣方向",
+    ),
+    "majors": ("majors", "major", "major keywords", "专业", "主修专业"),
     "gpa": ("gpa", "平均绩点"),
     "months_experience": (
         "months_experience",
+        "experience (months)",
+        "experience months",
+        "months of experience",
         "累计经验（月）",
         "累计经验",
         "工作经验月数",
         "经验月数",
     ),
-    "academic_level": ("academic_level", "学业阶段", "当前学业阶段", "在读年级"),
-    "hours_per_week": ("hours_per_week", "每周可投入小时", "每周可投入时间", "每周工作时间"),
+    "academic_level": (
+        "academic_level",
+        "academic level",
+        "current study stage",
+        "学业阶段",
+        "当前学业阶段",
+        "在读年级",
+    ),
+    "hours_per_week": (
+        "hours_per_week",
+        "hours per week",
+        "weekly availability",
+        "每周可投入小时",
+        "每周可投入时间",
+        "每周工作时间",
+    ),
     "length_of_commitment": (
         "length_of_commitment",
+        "commitment (months)",
+        "commitment months",
+        "length of commitment",
         "可连续投入月数",
         "可连续投入时间",
         "可实习时长",
     ),
-    "num_publications": ("num_publications", "发表数量", "论文数量", "发表论文数量"),
-    "in_person_commitment": ("in_person_commitment", "工作方式", "办公方式"),
-    "commit_to_summer": ("commit_to_summer", "可参与暑期工作", "暑期意愿", "暑期实习意愿"),
+    "num_publications": (
+        "num_publications",
+        "publication count",
+        "number of publications",
+        "发表数量",
+        "论文数量",
+        "发表论文数量",
+    ),
+    "in_person_commitment": (
+        "in_person_commitment",
+        "working arrangement",
+        "work mode",
+        "工作方式",
+        "办公方式",
+    ),
+    "commit_to_summer": (
+        "commit_to_summer",
+        "available in summer",
+        "summer availability",
+        "可参与暑期工作",
+        "暑期意愿",
+        "暑期实习意愿",
+    ),
 }
 LABEL_PATTERN = re.compile(
     r"(?<!\w)(?P<label>"
@@ -90,6 +144,17 @@ LEVELS = {
     "博士三年级": "PhD3",
     "博士四年级": "PhD4",
     "博士五年级": "PhD5",
+    "undergraduate year 1": "UG1",
+    "undergraduate year 2": "UG2",
+    "undergraduate year 3": "UG3",
+    "undergraduate year 4": "UG4",
+    "master year 1": "MS1",
+    "master year 2": "MS2",
+    "doctoral year 1": "PhD1",
+    "doctoral year 2": "PhD2",
+    "doctoral year 3": "PhD3",
+    "doctoral year 4": "PhD4",
+    "doctoral year 5": "PhD5",
 }
 MODES = {
     "线下": "In Person",
@@ -98,9 +163,52 @@ MODES = {
     "远程": "Online",
     "混合": "Hybrid",
     "不限": "No Preference",
+    "in person": "In Person",
+    "online": "Online",
+    "remote": "Online",
+    "hybrid": "Hybrid",
+    "no preference": "No Preference",
 }
-BOOLEANS = {"是": True, "可以": True, "否": False, "不可以": False, "true": True, "false": False}
+BOOLEANS = {
+    "是": True,
+    "可以": True,
+    "否": False,
+    "不可以": False,
+    "true": True,
+    "false": False,
+    "yes": True,
+    "no": False,
+}
+DEGREE_MAJOR_PATTERN = re.compile(
+    r"(?:^|[|｜])\s*(?:"
+    r"(?:bachelor|master)(?:['’]s)?\s+(?:of\s+(?:science|arts|engineering|technology)\s+)?in"
+    r"|doctor\s+(?:of\s+philosophy\s+)?in"
+    r"|(?:b\.?\s*(?:eng|sc|s|a)|m\.?\s*(?:eng|sc|s|a)|ph\.?\s*d)\.?\s+in"
+    r")\s+(?P<major>[^|｜;；\n]+)",
+    re.IGNORECASE,
+)
+EDUCATION_DATE_PATTERN = re.compile(
+    r"\s+(?:(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+)?"
+    r"(?:19|20)\d{2}\b.*$",
+    re.IGNORECASE,
+)
 logger = logging.getLogger(__name__)
+
+
+def degree_majors(line):
+    """Functionality: Read explicit degree disciplines for pending major suggestions.
+    Inputs: One original line in the education section.
+    Outputs: Zero or more major strings, preserving spelling and meaningful internal punctuation.
+    Logic: Match bounded degree-in phrases after a pipe or at the start, remove separated date
+    suffixes, and collapse PDF layout spacing in the captured name only.
+    Constraints: No institution-to-major, degree-to-year or date inference. Full original evidence
+    is retained by collect_slots; unsupported prose remains unknown.
+    """
+    return [
+        major
+        for match in DEGREE_MAJOR_PATTERN.finditer(line)
+        if (major := " ".join(EDUCATION_DATE_PATTERN.sub("", match["major"]).split()))
+    ]
 
 
 def parse_value(field, raw):
@@ -110,6 +218,7 @@ def parse_value(field, raw):
     Unknown fields raise KeyError. Lists split only on explicit separators; numbers must match the
     complete value and unit.
     Preserve the GPA numerator and source evidence without normalization or grading-scale inference.
+    Casefold only categorical label lookup; skill, major and interest names retain their spelling.
     This function has no side effects;
     CandidateInput applies final schema limits and enumerations.
     """
@@ -129,13 +238,11 @@ def parse_value(field, raw):
             return None
         return names or None
     if field == "academic_level":
-        if value in LEVELS:
-            return LEVELS[value]
+        if value.casefold() in LEVELS:
+            return LEVELS[value.casefold()]
         return value if value in LEVELS.values() else None
     if field == "in_person_commitment":
-        if value in MODES:
-            return MODES[value]
-        return value if value in MODES.values() else None
+        return MODES.get(value.casefold())
     if field == "commit_to_summer":
         return BOOLEANS.get(value.casefold())
     if field == "gpa":
@@ -156,8 +263,8 @@ def collect_slots(units):
     """Return suggestions, evidence, issues, and missing fields for all 11 business fields without
     saving confirmed values.
 
-    Scan explicit labels in each section; the skills section also accepts comma lists after a
-    category prefix or standalone lists.
+    Scan explicit labels in each section; education also accepts explicit degree-major phrases,
+    and skills accepts comma lists after a category prefix or standalone lists.
     Preserve list names verbatim and mark ambiguous scalar values or unsupported formats unknown,
     then validate against the actual contract.
     Do not log source text or infer absent fields; evidence contains section, one-based line number,
@@ -181,6 +288,8 @@ def collect_slots(units):
                 end = matches[index + 1].start() if index + 1 < len(matches) else len(line)
                 raw = re.split(r"[|｜]", line[match.end() : end], maxsplit=1)[0].strip()
                 entries.append((field, raw))
+            if unit == "education" and not any(field == "majors" for field, _ in entries):
+                entries.extend(("majors", major) for major in degree_majors(line))
             if unit == "skills" and not matches and line.strip():
                 raw = re.split(r"[:：]", line.strip(), maxsplit=1)[-1].strip()
                 raw = re.sub(r"^[•·*\-]+\s*", "", raw)

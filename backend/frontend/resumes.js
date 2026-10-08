@@ -3,7 +3,7 @@
  * @module resumes
  * Responsibilities: Maintain basic information, original documents, unit edit drafts, and recommendation slots; explicitly request job recommendations after saving independent versions, protecting unsaved modifications.
  * Implementation: Upload PDF once after selection, parsing still triggered explicitly; recommendation area directly selects all saved versions and prompts for parsing/verification/saving;
- * Single-operation lock and CSRF protection for writes; read persistent details only after full NDJSON; hash-based partition switching changes only visibility, does not clear edit drafts.
+ * Single-operation lock and CSRF protection for writes; show section review warnings without changing extracted text; hash-based panel switching retains drafts.
  * Related Modules: resumes.html, i18n.js, /api/resume-versions/ and its recommendations actions; Django session authentication.
  * Declaration Index:
  * - rmWorkspacePanel: Maps page partitions based on existing anchors.
@@ -34,6 +34,7 @@
  * - rmPreview: Queries version and edit contract, displays original text and online units, returns persisted record.
  * - rmClearEditor: Clears edit state and disables operations, does not delete saved versions.
  * - rmFillEditor: Fills back unit/confirmation values and pending suggestion, marks evidence, protects unsaved suggestions, original text read-only.
+ * - rmRenderReviewWarnings: Display bounded duplicate-passage notices as plain text without edits.
  * - rmDirty: Records unit/slot input, clears save status.
  * - rmConfirmDiscard: Explicitly confirms leaving unsaved edits, cancels keep current content.
  * - rmReadSlots: Reads strictly recommended values, does not infer missing fields.
@@ -84,6 +85,7 @@
  * - rmInitialSlots: Confirmation values and pending suggestions from form; retains explicit empty array if not edited, written to new version only upon save.
  * - rmSlotTouched: Set of slot names manually modified.
  * - rmSuggestedCount: Number of pending suggestions loaded this time; reset to zero after first manual modification or reset.
+ * - rmReviewWarnings: Review notices for the loaded snapshot; retained on edits until next load/clear.
  * - rmRecommendations: Sorted response from selected saved versions; cleared after edit or switch.
  * - rmRecommendationError: Current fault message key in recommendation area; cleared on success or switch.
  * - RM_RECOMMENDATION_ERRORS: Allowed list mapping stable service error codes to Chinese and English messages.
@@ -175,6 +177,7 @@ let rmEditorDirty = false;
 let rmInitialSlots = {};
 let rmSlotTouched = new Set();
 let rmSuggestedCount = 0;
+let rmReviewWarnings = [];
 let rmRecommendations = null;
 let rmRecommendationError = null;
 const RM_RECOMMENDATION_ERRORS = {
@@ -421,6 +424,7 @@ async function rmPreview(id, discardConfirmed = false) {
 function rmClearEditor() {
   rmRecommendations = null; rmRecommendationError = null;
   rmEditorBase = null; rmEditorDirty = false; rmInitialSlots = {}; rmSlotTouched.clear(); rmSuggestedCount = 0;
+  rmReviewWarnings = []; rmRenderReviewWarnings();
   for (const key of RM_UNITS) rmEl("unit-" + key).value = "";
   for (const key of Object.keys(RM_SLOTS)) rmEl("slot-" + key).value = "";
   rmEl("edition-label").value = "";
@@ -431,6 +435,7 @@ function rmClearEditor() {
 /**
  *  Input the authorized edit response; prioritize confirmed values, insert suggestions with valid basis into the draft to be saved and display evidence, do not re-extract the edited draft.
  * Disable setting current when automatic suggestion is unsaved and protect against leaving; keep blank for unknown, do not overwrite confirmed 0/false/[] values.
+ * Size section textareas to 4–20 estimated rows and display snapshot review warnings; preserve all body text.
  */
 function rmFillEditor(editor) {
   rmEditorBase = editor.id;
@@ -441,9 +446,15 @@ function rmFillEditor(editor) {
   rmInitialSlots = { ...(editor.slots || {}) };
   rmSuggestedCount = 0;
   rmSlotTouched.clear();
+  rmReviewWarnings = editor.review_warnings || [];
+  rmRenderReviewWarnings();
   for (const key of RM_UNITS) {
     const value = editor.units[key] || "";
     rmEl("unit-" + key).value = value;
+    // Estimate wrapped lines for the initial reading window; CSS bounds height on small screens.
+    let rows = 1;
+    for (const line of value.split("\n")) rows += Math.max(1, Math.ceil(line.length / 95));
+    rmEl("unit-" + key).rows = Math.min(20, Math.max(4, rows));
     rmEl("section-" + key).open = Boolean(value.trim()) || ["education", "experience", "projects", "skills"].includes(key);
   }
   for (const key of Object.keys(RM_SLOTS)) {
@@ -478,6 +489,27 @@ function rmFillEditor(editor) {
   rmControls();
 }
 /**
+ * Functionality: Render snapshot review notices using safe plain-text paragraphs.
+ * Inputs: rmReviewWarnings from the private editor API and current UI language.
+ * Outputs: Replaces the warning panel, hiding it when there are no notices.
+ * Logic: Localize section names and show bounded source excerpts; unknown notice codes are ignored.
+ * Constraints: Does not remove text or change dirty/save state; notices refer to the loaded snapshot.
+ */
+function rmRenderReviewWarnings() {
+  const panel = rmEl("extraction-warnings");
+  panel.replaceChildren();
+  let count = 0;
+  for (const warning of rmReviewWarnings) {
+    if (warning.code !== "repeated_passage" || !RM_UNITS.includes(warning.unit)) continue;
+    const item = document.createElement("p");
+    const section = rmText(warning.unit === "preferences" ? "re_preferences" : "re_unit_" + warning.unit);
+    item.textContent = rmText("re_repeated_passage", { section, text: warning.text });
+    panel.append(item);
+    count += 1;
+  }
+  panel.hidden = count === 0;
+}
+/**
  *  Input real input/change event; mark manual changes, recommend clearing fields this time to indicate unknown, do not perform automatic extraction.
  */
 function rmDirty(event) {
@@ -498,7 +530,7 @@ function rmConfirmDiscard() {
   return true;
 }
 /**
- *  Output optional fields of CandidateInput; comma-separated tags preserve case, numbers strictly validated, blanks and unknowns do not pad with zeros.
+ *  Output optional fields of CandidateInput; comma/semicolon/newline-separated tags preserve case, numbers strictly validated, blanks and unknowns do not pad with zeros.
  */
 function rmReadSlots() {
   const slots = {};
@@ -922,6 +954,7 @@ function rmCancel() { if (rmController) { rmController.abort(); rmEl("cancel-par
  *  After language change, synchronize partition titles, cards, pagination, and edit/attachment status text; do not re-read or rewrite resume content.
  */
 function rmLanguage() {
+  rmRenderReviewWarnings();
   rmWorkspaceHash();
   rmRenderRecommendations();
   rmRender();

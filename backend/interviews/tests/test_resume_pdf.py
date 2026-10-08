@@ -48,8 +48,8 @@ Declaration Index:
   model missing.
 - ResumeProviderTests.test_multimodal_payload: Images and numbered rule lines actually enter
   request, SDK retry prohibited.
-- ResumeProviderTests.test_invalid_output_is_not_retried: Truncated or invalid JSON cannot be marked
-  successful.
+- ResumeProviderTests.test_invalid_output_obeys_retry_policy: Truncation fails immediately; invalid
+  JSON exhausts bounded retries without a successful result.
 
 - ControlledAgent: Control page completion or failure via events, not relying on time-based
   concurrency estimates.
@@ -602,9 +602,12 @@ class ResumeProviderTests(SimpleTestCase):
         self.assertEqual(payload["extra_body"], {"enable_thinking": False})
         sdk.close.assert_awaited_once()
 
-    async def test_invalid_output_is_not_retried(self):
-        """Model truncation and invalid JSON both result in explicit failure; SDK call count remains
-        exactly one.
+    async def test_invalid_output_obeys_retry_policy(self):
+        """Functionality: Verify failed SDK outputs obey the distinct retry boundaries.
+        Inputs: Mocked truncation or malformed JSON with default JSON retry settings.
+        Outputs: None; asserts explicit failure and exact request count.
+        Logic: Truncation fails once; completed invalid JSON is regenerated twice before failing.
+        Constraints: No external model calls and no partial output may become successful.
         """
         for finish_reason, content in (("length", "{}"), ("stop", "not json")):
             sdk = SimpleNamespace(
@@ -642,7 +645,9 @@ class ResumeProviderTests(SimpleTestCase):
                         ResumePage(1, "raw", "  rule\r\nnext", image_png=b"png"), "system"
                     )
                 await provider.close()
-            sdk.chat.completions.create.assert_awaited_once()
+            self.assertEqual(
+                sdk.chat.completions.create.await_count, 1 if finish_reason == "length" else 3
+            )
 
 
 class ControlledAgent:

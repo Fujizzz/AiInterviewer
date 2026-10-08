@@ -184,6 +184,20 @@ Redis 专用配置为 `/etc/redis/ai-interviewer.conf`。两个应用服务均�
 
 ## 自动部署
 
+### 简历修复的定向发布（2026-10-09）
+
+发布前核对发现运行中的 `0024583ec6bb922cf1f9ab8799c076aadb37e421` 目录还有数字人连接专项修改，
+涉及 ASGI、settings、URLs、数字人诊断页/播放器、面试页面/语音和共享 i18n，尚未进入当前 main 基线。
+因此本次简历修复使用独立 `fix/resume-extraction-20261008` 分支，避免触发 main 整包部署覆盖这些文件。
+后续整版本发布前必须先将线上数字人实现及新增文件纳入发布基线。
+
+定向发布仅应用该提交的文件差异；共享 i18n 在生产版本上应用简历相关补丁，保留数字人词条。
+先备份 PostgreSQL 和目标文件、校验补丁和当前文件摘要，再停止 ASGI/Celery、安装预先验证的文件并重启。
+不修改私有环境、依赖、数据库 schema、模型或数字人源文件；保留既有整版本标识，另记录补丁提交及每个部署文件摘要。
+回执位于服务器 `/var/backups/ai-interviewer/resume-<提交SHA>/receipt.json`；原文件备份与部署日志放在同目录。
+完成条件包括源文件摘要核对、原有数字人代码保持一致、系统服务、公开 HTTPS、既有 smoke 和简历专用验证。
+该过程没有自动回滚或自动重放业务请求；失败须保留诊断现场并明确处理。
+
 仓库 `.github/workflows/deploy.yml` 在 **push 到 main** 时自动运行，也可在 Actions 手动触发。
 本地修改或仅 commit 尚未 push 不会发布。流程先运行核心、后端、前端测试，全部成功后部署。
 Actions 使用独立 `DEPLOY_SSH_KEY` 和固定 `DEPLOY_KNOWN_HOSTS`；密钥只允许执行发布入口，

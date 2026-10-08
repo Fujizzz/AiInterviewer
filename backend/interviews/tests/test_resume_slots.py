@@ -16,6 +16,10 @@ Declaration Index:
   inline job intent.
 - ResumeSlotTests.test_limits_and_unsupported_descriptions: Retain evidence while rejecting
   over-limit or unsupported descriptions.
+- ResumeSlotTests.test_english_degree_and_target_roles: Read explicit majors and target roles.
+- ResumeSlotTests.test_degree_without_discipline_is_unknown: Avoid guessing majors or academic year.
+- ResumeSlotTests.test_all_fields_with_english_labels: Extract every field from human-readable
+  English labels while preserving the recommendation contract and zero/false values.
 Variable Index:
 None
 
@@ -102,7 +106,52 @@ class ResumeSlotTests(SimpleTestCase):
             }
         )
         self.assertTrue(all(value is None for value in result["values"].values()))
+        self.assertEqual(set(result["values"]), set(CandidateInput.model_fields) - {"candidate_id"})
         self.assertEqual(set(result["missing"]), set(SLOT_UNITS))
+
+    def test_all_fields_with_english_labels(self):
+        """Functionality: Verify English resumes can explicitly supply all recommendation fields.
+        Inputs: Synthetic human-readable labels including lower-case categories and zero/false.
+        Outputs: A complete strictly typed field mapping with no missing or unsupported fields.
+        Logic: Extract the text through the real rules and validate against CandidateInput.
+        Constraints: No vendor call, unit conversion, inferred dates or persisted user data.
+        """
+        result = collect_slots(
+            {
+                "other": "\n".join(
+                    [
+                        "Skill keywords: Python, SQL",
+                        "Interest keywords: AI Infrastructure",
+                        "Major keywords: Computer Science",
+                        "GPA: 3.8 / 4.0",
+                        "Experience (months): 0 months",
+                        "Current study stage: Master year 1",
+                        "Hours per week: 20 hours/week",
+                        "Commitment (months): 6 months",
+                        "Publication count: 0 papers",
+                        "Working arrangement: hybrid",
+                        "Available in summer: No",
+                    ]
+                )
+            }
+        )
+        expected = {
+            "skills": ["Python", "SQL"],
+            "interests": ["AI Infrastructure"],
+            "majors": ["Computer Science"],
+            "gpa": 3.8,
+            "months_experience": 0.0,
+            "academic_level": "MS1",
+            "hours_per_week": 20.0,
+            "length_of_commitment": 6.0,
+            "num_publications": 0,
+            "in_person_commitment": "Hybrid",
+            "commit_to_summer": False,
+        }
+        self.assertEqual(result["values"], expected)
+        self.assertEqual(result["missing"], [])
+        self.assertEqual(result["issues"], {})
+        CandidateInput.model_validate({"candidate_id": "english-fixture", **result["values"]})
 
     def test_conflicts_require_confirmation(self):
         """Invalid GPA or erroneous unit input must be unknown and accompanied by an error code;
@@ -149,3 +198,61 @@ class ResumeSlotTests(SimpleTestCase):
         self.assertIsNone(result["values"]["majors"])
         self.assertEqual(result["issues"]["majors"], "invalid_value")
         self.assertTrue(result["evidence"]["majors"])
+
+    def test_english_degree_and_target_roles(self):
+        """Functionality: Fill pending fields from explicit English resume phrases.
+        Inputs: Anonymous school/degree lines with pipe-separated or layout-spaced dates and goals.
+        Outputs: Named majors, target roles, skills and retained evidence, with no inferred year.
+        Logic: Run the actual section parser and slot extractor on a complete minimal resume.
+        Constraints: No institution lookup, GPA conversion or date-derived recommendation features.
+        """
+        units = split_units(
+            "Email: test@example.test | Target Roles: Agent Engineering / AI Infrastructure\n"
+            "EDUCATION\n"
+            "Example University | Master of Technology in Artificial Intelligence Systems"
+            "    Aug 2026 - Oct 2027\n"
+            "Another University | B.Eng. in Computer Science and Technology | Sep 2022 - Jun 2026\n"
+            "GPA: 3.8 / 4.0 (Top 5%)\nCORE SKILLS\n"
+            "Agent: Python, Tool / Function Calling, RAG\nAI Infrastructure: ONNX Runtime, vLLM\n"
+        )
+        result = collect_slots(units)
+        self.assertEqual(
+            result["values"]["majors"],
+            [
+                "Artificial Intelligence Systems",
+                "Computer Science and Technology",
+            ],
+        )
+        self.assertEqual(result["values"]["interests"], ["Agent Engineering", "AI Infrastructure"])
+        self.assertEqual(
+            result["values"]["skills"],
+            [
+                "Python",
+                "Tool / Function Calling",
+                "RAG",
+                "ONNX Runtime",
+                "vLLM",
+            ],
+        )
+        self.assertEqual(result["values"]["gpa"], 3.8)
+        self.assertIsNone(result["values"]["academic_level"])
+        self.assertIsNone(result["values"]["months_experience"])
+        self.assertIn("Aug 2026", result["evidence"]["majors"][0]["text"])
+
+    def test_degree_without_discipline_is_unknown(self):
+        """Functionality: Leave absent disciplines unknown even when a degree is explicit.
+        Inputs: Generic degrees and project prose that mentions a degree-like phrase.
+        Outputs: Unknown major and academic level with no fabricated evidence.
+        Logic: Require an explicit degree-in phrase in the education section.
+        Constraints: Deliberately does not infer majors from institution names or degree categories.
+        """
+        result = collect_slots(
+            {
+                "education": "Example University | Master of Science | 2026\n"
+                "Doctor of Philosophy\n",
+                "projects": "Master of Science in Computing",
+            }
+        )
+        self.assertIsNone(result["values"]["majors"])
+        self.assertIsNone(result["values"]["academic_level"])
+        self.assertEqual(result["evidence"]["majors"], [])

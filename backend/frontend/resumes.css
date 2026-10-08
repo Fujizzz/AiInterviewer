@@ -1,6 +1,6 @@
 /*
  * Responsibilities: Style resume attachments, unit editing, source comparison, recommendation cards and version history.
- * Implementation: Work with workspace.css and hash-based panels; use one upload entry, inline parsing, a comparison layout and sticky save controls; mobile content stacks.
+ * Implementation: Use bounded section reading windows, full-width multiline keyword fields, visible text review notices, comparison and sticky save controls; mobile content stacks.
  * Related Modules: resumes.html and resumes.js; selected/current indicators reflect existing version state.
  * Declaration Index:
  * None
@@ -39,6 +39,9 @@
 .resumes-page label { display: block; margin: 12px 0 7px; font-size: 13px; font-weight: 600; color: #465f66; }
 .resumes-page input, .resumes-page textarea, .resumes-page select:not([data-language-selector]) { width: 100%; border: 1px solid #cfdadd; background: #fff; border-radius: 6px; padding: 10px; font: inherit; font-size: 13px; color: #243b42; }
 .resumes-page textarea { resize: vertical; line-height: 1.8; }
+.resumes-page textarea[data-unit] { min-height: 130px; max-height: min(560px, 65vh); }
+.resumes-page .extraction-warnings { padding: 12px 16px; margin-bottom: 18px; border: 1px solid #e5c78f; border-radius: 8px; background: #fff9ec; color: #745423; font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
+.resumes-page .extraction-warnings p { margin: 6px 0; }
 .resumes-page input:focus-visible, .resumes-page textarea:focus-visible, .resumes-page select:focus-visible { outline: 2px solid #34786c; outline-offset: 2px; }
 .resumes-page .import-heading { display: flex; gap: 18px; align-items: start; justify-content: space-between; }
 .resumes-page #upload-kind { width: 150px; }
@@ -71,6 +74,7 @@
 .resumes-page .unit-body { padding: 0 15px 16px; }
 .resumes-page .unit-body .hint { margin: 12px 0; }
 .resumes-page .slot-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; margin-top: 6px; }
+.resumes-page .slot-field:has(textarea) { grid-column: 1 / -1; }
 .resumes-page .slot-field small { display: block; font-size: 11px; line-height: 1.7; color: #7a898e; margin-top: 6px; }
 .resumes-page .recommendation-fields { margin-top: 12px; border-top: 1px solid #edf0f2; }
 .resumes-page .recommendation-fields summary { display: list-item; padding: 12px 0 0; font-size: 12px; font-weight: 400; color: #64747c; }

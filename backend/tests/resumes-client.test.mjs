@@ -53,6 +53,7 @@
  * - fileUploadFailure.rejectUpload: Simulates POST failure only on original, other reads still go through REST stub.
  * - preventDefault: Replaces default behavior cancellation for file selection test events, does not manipulate browser.
  * - suggestedSlots: Suggests backfilling unsaved draft, confirmed values do not overwrite, manual clear does not re-extract.
+ * - groupedResumeReview: Preserve separate editor sections, size reading windows and show safe notices.
  * - failedSave: Save failure retains unit input and leave protection, explicit empty array does not become unknown.
  * - failedSave.rejectEdition: Simulates save HTTP 400, does not retry other write operations.
  * - invalidSlots: Invalid values do not trigger save requests.
@@ -391,7 +392,7 @@ test("current selection and protected deletion preserve version state", currentA
 test("profile information is maintained through the unified personal center", profileSave);
 
 /**
- *  Save real client input; REST acts as proxy, validate unit, strict slot, source, original, and download path, do not validate service database write.
+ *  Save real client input; REST acts as proxy, validate unit, multiline keyword lists, strict slot, source, original, and download path, do not validate service database write.
  */
 async function editionSave() {
   const original = record("original");
@@ -399,7 +400,7 @@ async function editionSave() {
   const page = await makePage([original]);
   await page.run("rmPreview('original')");
   page.elements.get("unit-projects").value = "缓存项目\n改进 API <script>";
-  page.elements.get("slot-skills").value = "Python, Django";
+  page.elements.get("slot-skills").value = "Python,\nDjango";
   page.elements.get("slot-months_experience").value = "0";
   page.elements.get("slot-num_publications").value = "0";
   page.elements.get("slot-commit_to_summer").value = "false";
@@ -594,6 +595,34 @@ async function suggestedSlots() {
   assert.equal(original.slot_suggestions.values.skills[0], "Python");
 }
 test("extracted recommendation suggestions require saving and preserve manual confirmation", suggestedSlots);
+
+/**
+ * Functionality: Verify section placement and review warnings survive the API-to-editor boundary.
+ * Inputs: Synthetic grouped sections, a repeated-passage notice and a scripted REST response.
+ * Outputs: Assertions on exact field values, reading-window bounds, safe warning text and clearing.
+ * Logic: Load the actual client, inspect controls, then clear the editor without saving.
+ * Constraints: DOM stubs verify data flow, not browser geometry; source text must remain untouched.
+ */
+async function groupedResumeReview() {
+  const original = record("grouped");
+  original.units = {basic:"Example\ncontact@example.test",education:"Example University",experience:"Long role detail\n".repeat(30),projects:"Research prototype",skills:"Python, SQL",publications:"Research paper",awards:"Competition prize"};
+  original.review_warnings = [{code:"repeated_passage",unit:"experience",line:4,text:"<img src=x> repeated source"}];
+  const page = await makePage([original]);
+  await page.run("rmPreview('grouped')");
+  for (const [unit, value] of Object.entries(original.units)) assert.equal(page.elements.get("unit-" + unit).value, value);
+  assert.equal(page.elements.get("unit-experience").rows, 20);
+  assert.equal(page.elements.get("unit-skills").rows, 4);
+  assert.equal(page.elements.get("preview-text").value, original.text);
+  const warnings = page.elements.get("extraction-warnings");
+  assert.equal(warnings.hidden, false);
+  assert.equal(warnings.children.length, 1);
+  assert.match(warnings.children[0].textContent, /<img src=x>/);
+  assert.equal(page.run("rmEditorDirty"), false);
+  await page.run("rmClearEditor()");
+  assert.equal(warnings.hidden, true);
+  assert.equal(warnings.children.length, 0);
+}
+test("grouped sections and review warnings remain editable without implicit source changes", groupedResumeReview);
 
 /**
  *  Synthetic REST provides job; real client only requests save ID upon click; raw text not executed, editing clears result and disables recommendation.

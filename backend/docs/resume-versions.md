@@ -18,7 +18,7 @@
 
 PDF 初始状态为 uploaded；显式解析进入 parsing，收到 result 并成功保存文本后为 ready，收到 error 为 failed，已开始的流取消为 interrupted。文本版本直接 ready。HTTP 200 不表示解析成功，前端必须消费终态事件并可查询详情确认状态。ready 表示文本可供面试输入，不表示已完成 Agent 结构化候选人资料提取；后者仍由 prepare/start 完成。
 
-解析沿用 `PDF_TASK_EXECUTION` 和资源限额，默认传统提取；advanced 显式启用视觉校对，不增加回退或隐式重试。版本元数据 extraction_mode 记录选定模式；未解析或旧记录留空。失败版本不能再次 parse，可显式重新上传形成新版本。进程崩溃或流尚未开始就断开可能留下 parsing；该状态不能被当成成功或自动重放。
+解析沿用 `PDF_TASK_EXECUTION` 和资源限额，默认传统提取；advanced 显式启用视觉校对，不自动回退。视觉响应的 JSON/schema 错误按 `RESUME_VISION_JSON_RETRIES` 有界重试并记录诊断，详见 [PDF 解析](resume-pdf.md)。版本元数据 extraction_mode 记录选定模式；未解析或旧记录留空。失败版本不能再次 parse，可显式重新上传形成新版本。进程崩溃或流尚未开始就断开可能留下 parsing；该状态不能被当成成功或自动重放。
 
 原 PDF 存在数据库 BinaryField，正文与文件通过本人授权接口读取，无公开媒体地址；删除未绑定版本时字节随记录一并删除。数据库备份应包含这些私有文件。已被编辑稿引用、绑定面试或正在解析的版本删除返回 409 `resume_in_use`。
 
@@ -61,7 +61,7 @@ PDF 通过一个“上传简历”入口选择文件，选中后一次保存原�
 仅待解析附件显示相邻“解析简历”和 traditional/advanced 选项，解析仍明确点击触发，默认 traditional。
 历史中的“查看 / 编辑”可选回待解析附件；解析集中在附件区，取消按钮仅在解析期间显示。
 粘贴文本仍需显式“保存文本”；版本名称、内容目录、原文对照、可选推荐字段及历史次要操作默认折叠。
-用户正文只写入 DOM 的 textContent/value，不保存在浏览器 localStorage；高级模式失败不自动采用中间文本或重试。
+用户正文只写入 DOM 的 textContent/value，不保存在浏览器 localStorage；高级模式最终失败后，前端不自动采用中间文本或重新提交解析。
 解析流完整成功并查询到 ready 持久化状态后显示完成；取消或断流明确提示刷新，未把 HTTP 200 当作成功。
 解析过程中禁用并发写操作，正在解析或已绑定面试的版本遵循后端删除限制。
 
@@ -93,21 +93,56 @@ URL 指定版本不可用、无 current 或无 ready 时要求用户明确选择
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| GET | `/api/resume-versions/{id}/editor/` | ready 版本的 units、原件只读文本、slots 和字段所属单元 |
+| GET | `/api/resume-versions/{id}/editor/` | ready 版本的 units、原件只读文本、slots、字段所属单元及 review_warnings |
 | POST | `/api/resume-versions/{id}/editions/` | `{label, units, slots}` 创建独立 ready 编辑快照 |
 | GET | `/api/resume-versions/{id}/export/` | 下载此版本的 UTF-8 文本，PDF 原件仍用 download |
 | GET | `/api/resume-versions/{id}/recommendation-profile/` | 返回可用于现有推荐接口的 candidate 与 slot_units |
 
 固定单元为 basic（简介/联系）、education（教育）、experience（实习/工作）、projects（项目）、
 skills（技能）、awards（荣誉/证书）、publications（论文/研究）、preferences（意向）、other（其他）。
-原件初次打开仅按独立中英文标题分组，标题由单元标签表示；非标题行字符保留，未识别文本放在 other。
-这不是语义抽取，用户应核对并移动文本。保存时补齐缺失单元为空字符串、按固定顺序组合非空单元；
+原件初次打开仅按独立中英文标题分组，标题由单元标签表示；匹配时统一大小写、空白、连字符和 `&`/`and`。
+支持 `INTERNSHIP EXPERIENCE`、`PROJECT EXPERIENCE`、`CORE SKILLS`、`OPEN-SOURCE CONTRIBUTIONS & PUBLICATION`、`HONORS & AWARDS` 等常见标题。
+非标题行字符保留并归入当前单元；首个标题前有明确邮箱或联系电话标签时归入 basic，否则归入 other。
+这不是语义抽取，用户应核对并移动文本。编辑稿沿用已保存的单元，不重新分组覆盖用户修改。
+保存时补齐缺失单元为空字符串、按固定顺序组合非空单元；
 正文含标题总计不超过 200000 字符，单元内用户文本不改写，空正文拒绝。
+
+`review_warnings` 对同一单元内至少 16 个连续词、80 个字符的重复片段提供最多五条核对提示，
+包含 `code=repeated_passage`、`unit`、从 1 开始的 `line` 和原文片段 `text`。仅忽略匹配时的空白差异，
+不删除内容、不断言重复必然错误，也不改变保存状态。提示对应载入快照，手工编辑时不会实时重算。
+正文输入框按内容估算初始高度并限制在 4–20 行，CSS 进一步限制视窗高度；仍可滚动、调整高度及编辑完整文本。
+技能、专业和兴趣关键词使用全宽多行输入，支持逗号、分号或换行分隔，便于核对较长列表。
 
 推荐槽位与原实验 CandidateInput 一致：技能/兴趣/专业关键词，GPA、在读学业阶段、累计经验月数、
 论文数量、工作方式、每周小时、可投入月数及暑期意愿。未填为 null，不填补 0/false；已保存的明确 [] 保留。
+提取和新编辑稿持久化均固定包含以下全部业务字段，缺失键在保存验证时由 CandidateInput 的默认值补为 null；
+读取旧版稀疏记录时也返回完整字段，不回写历史记录。手工提交类型错误仍返回验证失败，不把错误输入伪装成缺失。
+
+| 字段 | 含义 / 已知值类型 |
+|---|---|
+| skills | 技能关键词列表 |
+| interests | 兴趣 / 目标方向关键词列表 |
+| majors | 专业关键词列表 |
+| in_person_commitment | 工作方式，沿用模型枚举 |
+| gpa | 原成绩制 GPA 数值 |
+| months_experience | 累计经验月数 |
+| academic_level | 当前在读阶段，UG1–UG4 / MS1–MS2 / PhD1–PhD5 |
+| hours_per_week | 每周可投入小时数 |
+| length_of_commitment | 可连续投入月数 |
+| num_publications | 已发表论文数量，非负整数 |
+| commit_to_summer | 是否可参与暑期工作，布尔值 |
+
+以上各项均允许 null，`candidate_id` 由版本 UUID 提供，不从简历猜测或允许用户覆盖。
+英文自然标签也覆盖全部字段，例如 `Experience (months)`、`Current study stage`、`Hours per week`、
+`Commitment (months)`、`Publication count`、`Working arrangement` 和 `Available in summer`；
+明确英文年级、工作方式和 Yes/No 映射到原有枚举/布尔值，不改写关键词大小写或推算经历日期。
+未知项可留空保存；部分字段有值时可走原推荐流程，全部字段均未知时仍提示资料不足。
+模型特征构造继续把未知项表示为 NaN，不伪造成零分特征；评分模型、预处理、单位及阈值均不变。
+
 原件 `editor` 响应提供 `slot_suggestions`，包含全部 11 字段的 `values`、原文 `evidence`、
 问题码 `issues` 和未知字段名 `missing`。依据明确标签及技能单元列表规则提取，无收费模型请求；
+目标岗位标签（如 `Target Roles`）可形成兴趣关键词建议；教育单元中的明确 `degree in discipline`
+写法可形成专业建议并保留原行证据，仅有 `Master of Science` 等学位名时不猜专业。
 数值沿用原 GPA/月/小时单位，不按日期推算年级或经验，不从学校/项目猜测偏好。
 不支持的格式、矛盾标量或契约超限值保持未知并保留证据，供用户补充；不静默选值或改换提取实现。
 前端填入有依据的建议并展开对应字段，提示核对保存，未保存时不能设为当前且保护离开。
@@ -122,6 +157,12 @@ GPA 沿用原成绩制，学业阶段不是岗位资历，不能从项目文本�
 `POST /api/recommendations/jobs/`。此接口不自动加载岗位池、不执行排序或调用模型。
 仅本人可访问这四个动作，非 ready 返回 400，来源/基线仍被编辑稿引用时删除返回 409。
 测试见 `interviews.tests.test_resume_editor`；数据库/API 真实执行，推荐复用验证为严格 schema，非模型效果评估。
+
+2026-10-08 使用用户授权的单页 PDF 和其粘贴的提取结果在隔离本地数据库验证：两种文本均分成七个有内容的单元，
+识别技能、专业、目标岗位、GPA 四类待确认建议；粘贴样本的两处长重复显示核对提示，正文保留。
+同一 PDF 的真实视觉调用首次缺少两个 `corrections.*.end_line`，第二次通过 schema；该个例不证明首次成功率或全部内容正确。
+原文件和实际输出仅保留在被 Git 忽略的本地调试目录，回归用例使用合成数据。后端 editor/slots/page/versions 共 27 项、
+前端客户端 23 项回归通过，并进行了真实浏览器展示检查；未验证生产部署。
 
 ## 面试进度与复盘（2026-10-03）
 
