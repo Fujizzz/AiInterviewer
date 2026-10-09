@@ -16,13 +16,13 @@
  * - endWait: Stop the timer and retain the measured duration.
  * - clearResults: Clear previous questions, answers, report, and timing display.
  * - send: Enforce the message size limit and send one business command or MCP tools/call with a unique UUID.
- * - stop: Close the connection and timers while retaining the displayed score and selected resume.
+ * - stop: Close interview/avatar connections and timers while retaining the displayed score and selected resume.
  * - displayAssessment: Render backend scores and competency states.
  * - onMessage: Complete MCP initialization and route business events and tool results by connection and UUID.
  * - onError: Stop the connection after an error.
  * - onClose: Stop timing after an unexpected disconnect; do not reconnect.
  * - dispatch: Create or reuse the connection, await hello and optional MCP handshake, then send one command.
- * - onStart: Start an interview with the loaded ready-resume UUID and existing parameters.
+ * - onStart: Connect the avatar and start an interview with the loaded ready-resume UUID and existing parameters.
  * - onOpenPreparation: Open the preparation dialog while idle, retain inputs, and focus resume selection without connecting.
  * - onClosePreparation: Close the dialog explicitly without clearing inputs or starting an interview.
  * - onPreparationClosed: Return focus to the entry control or the status region preparing the first question.
@@ -297,6 +297,7 @@ function stop(message) {
   progress.freeze();
   voice.reset();
   voice.setState("idle");
+  voice.disconnectAvatar();
   terminal = true;
   mcpInitId = null; mcpReady = false; voice.completionEnabled = false;
   const old = socket;
@@ -402,6 +403,7 @@ function onMessage(event) {
         pendingId = null;
         endWait();
         voice.reset(); voice.suspended = true;
+        voice.disconnectAvatar();
         controls();
         return;
       }
@@ -464,6 +466,7 @@ function onStart(event) {
     return;
   }
   clearResults(); interviewActive = true;
+  void voice.connectAvatar();
   el("preparation-dialog").close();
   dispatch({ type: "start", resume_version_id: id, job_title: job,
     keep_end_choice_open: true,

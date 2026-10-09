@@ -16,7 +16,7 @@
 import { validateAvatarConfiguration } from "./avatar-url-policy.js";
 
 /**
- * Fetch settings once using the supplied fetch implementation, page URL and timeout in milliseconds.
+ * Fetch settings once using the supplied fetch implementation, page URL, deadline and optional cancellation signal.
  * Include same-origin credentials, validate JSON through the URL policy and clear the deadline.
  * Propagate HTTP, parsing, policy and abort errors; do not retry or connect a player automatically.
  */
@@ -24,8 +24,12 @@ export async function loadAvatarConfiguration({
   fetchImpl = globalThis.fetch,
   pageUrl = globalThis.location.href,
   timeoutMs = 5000,
+  signal,
 } = {}) {
   const controller = new AbortController();
+  const abort = () => controller.abort();
+  signal?.addEventListener("abort", abort, { once: true });
+  if (signal?.aborted) abort();
   const timer = setTimeout(/** Abort this request only when its configuration deadline expires. */ () => controller.abort(), timeoutMs);
   try {
     const response = await fetchImpl("/api/avatar/config/", {
@@ -33,5 +37,8 @@ export async function loadAvatarConfiguration({
     });
     if (!response.ok) throw new Error(`Interviewer connection configuration failed (${response.status}).`);
     return validateAvatarConfiguration(await response.json(), pageUrl);
-  } finally { clearTimeout(timer); }
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", abort);
+  }
 }

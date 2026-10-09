@@ -4,6 +4,7 @@
  * Implementation: Validate signalling URLs against the page origin, suppress device/game input, probe controller readiness, and release the single active connection.
  * Related Modules: interview-voice.js owns speech capture and playback coordination; avatar-url-policy.js validates endpoints; avatar-configuration.js loads approved settings; i18n.js provides localized status messages.
  * Declaration Index:
+ * - InterviewStream.release: Stop signalling, WebRTC and both media elements through the pinned SDK.
  * - AvatarPlayer: Manage one avatar stream connection and its control messages.
  * - AvatarPlayer.constructor: Store the container, event callbacks, and initial connection state.
  * - AvatarPlayer.text: Return localized status copy with an English fallback.
@@ -29,6 +30,17 @@ import { Config, PixelStreaming } from "@epicgames-ps/lib-pixelstreamingfrontend
 import { validateAvatarSignallingUrl } from "./avatar-url-policy.js";
 export { PresentationController } from "./presentation-controller.js";
 export { loadAvatarConfiguration } from "./avatar-configuration.js";
+
+/** Extend the pinned Epic player to release its detached audio element as well as video. */
+class InterviewStream extends PixelStreaming {
+  /** Close signalling/WebRTC, then stop and destroy both media elements owned by this stream. */
+  release() {
+    this.disconnect();
+    this._webRtcController.videoPlayer.getVideoElement().pause();
+    this._webRtcController.streamController.audioElement.pause();
+    this._webRtcController.destroyVideoPlayer();
+  }
+}
 
 /** Minimal official UE 5.8 player. The separate STT capture owns the microphone. */
 export class AvatarPlayer {
@@ -56,10 +68,11 @@ export class AvatarPlayer {
       UseMic: false, UseCamera: false, KeyboardInput: false, MouseInput: false,
       TouchInput: false, GamepadInput: false, WaitForStreamer: true,
     }});
-    const player = new PixelStreaming(config, { videoElementParent: this.container });
+    const player = new InterviewStream(config, { videoElementParent: this.container });
     this.player = player;
     /** Parse UE responses and record whether the interviewer controller is ready. */
     player.addResponseEventListener("interviewer", (payload) => {
+      if (this.player !== player) return;
       try {
         const event = JSON.parse(payload);
         if (event.type === "avatar_ready") {
@@ -72,8 +85,11 @@ export class AvatarPlayer {
     });
     /** Start a bounded controller-readiness probe after WebRTC connects. */
     player.addEventListener("webRtcConnected", () => {
+      if (this.player !== player) return;
+      clearInterval(this.pingTimer);
       let attempts = 0;
       this.pingTimer = setInterval(/** Send a ping and report when the bounded probe cannot confirm readiness. */ () => {
+        if (this.player !== player) return;
         player.emitUIInteraction({ type: "ping" });
         if (++attempts >= 10) {
           clearInterval(this.pingTimer);
@@ -83,13 +99,20 @@ export class AvatarPlayer {
       this.onStatus(this.text("avatar_checking_controller"));
     });
     /** Release player state on disconnect and notify the voice interface. */
-    player.addEventListener("webRtcDisconnected", () => this.failed(this.text("avatar_disconnected")));
+    player.addEventListener("webRtcDisconnected", () => {
+      if (this.player === player) this.failed(this.text("avatar_disconnected"));
+    });
     /** Release player state on connection failure and notify the voice interface. */
-    player.addEventListener("webRtcFailed", () => this.failed(this.text("avatar_connection_failed")));
+    player.addEventListener("webRtcFailed", () => {
+      if (this.player === player) this.failed(this.text("avatar_connection_failed"));
+    });
     /** Prompt the user to enable playback after autoplay is rejected. */
-    player.addEventListener("playStreamRejected", () => this.onStatus(this.text("avatar_enable_audio")));
+    player.addEventListener("playStreamRejected", () => {
+      if (this.player === player) this.onStatus(this.text("avatar_enable_audio"));
+    });
     /** Forward valid video frame-rate measurements to page metrics. */
     player.addEventListener("statsReceived", ({ data }) => {
+      if (this.player !== player) return;
       const fps = data.aggregatedStats.inboundVideoStats.framesPerSecond;
       if (typeof fps === "number" && Number.isFinite(fps)) this.onEvent({ type: "avatar_stats", fps });
     });
@@ -112,13 +135,9 @@ export class AvatarPlayer {
 
   /** Functionality: Handle terminal player failure. Inputs: localized failure message. Outputs: None; releases resources and emits avatar_disconnected. Constraints: Does not retry or reconnect. */
   failed(message) {
-    this.ready = false;
-    clearInterval(this.pingTimer);
+    this.close();
     this.onStatus(message);
     this.onEvent({ type: "avatar_disconnected" });
-    const player = this.player;
-    this.player = null;
-    player?.disconnect();
   }
 
   /** Functionality: Send an interaction to UE. Inputs: JSON-compatible interaction object. Outputs: Transport result or false while unavailable. Constraints: Only sends after controller readiness. */
@@ -130,8 +149,9 @@ export class AvatarPlayer {
   close() {
     this.ready = false;
     clearInterval(this.pingTimer);
+    this.pingTimer = null;
     const player = this.player;
     this.player = null;
-    player?.disconnect();
+    player?.release();
   }
 }

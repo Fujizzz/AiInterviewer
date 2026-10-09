@@ -36,6 +36,7 @@
  * - makePage.fetch.object1.json: Return corresponding synthesized page; one record per page ensures test coverage of current on subsequent pages.
  * - makePage.createElement: Input: Tag name; output option node; no real window side effects.
  * - makePage.ignoreError: Receive diagnostic logs without printing synthesized version or voice content.
+ * - makePage.loadAvatarModule: Supply disabled offline avatar configuration at the dynamic module boundary; no renderer or network is created.
  * - hello: Input connection and optional test message limit, simulate hello, return command ID sent by client or undefined.
  * - startPrepared: Input loaded page, explicitly open preparation and confirm; do not override business handlers or create additional connections.
  * - preparationInteraction: Real script paired with native dialog stub; preserve settings toggle, no network, confirm once then close and disable all preparation entry points.
@@ -68,6 +69,11 @@
  * - discardDuringWait: Verify no-save end may preempt pending work, ignores its obsolete result, and keeps connection until acknowledgement.
  * - continueAfterChoice: Verify dismissal resumes existing preparation without sending a backend end request or duplicate capture.
  * - completedDuringChoice: Verify a final result arriving while choosing end remains discardable or savable without another model command.
+ * - observeAvatarLifecycle: Replace only the renderer connection boundary with offline resources; retain the real disconnect and interview event handlers.
+ * - avatarStartBoundary: Open or dismiss preparation without connecting, then connect once after a valid confirmed start.
+ * - avatarTerminalCleanup: Release renderer resources after terminal backend events and transport failure, without changing report or answer behavior.
+ * - avatarEndChoice: Keep a live renderer while the end choice is resumable, and release it when a completed result arrives during the dialog.
+ * - avatarSessionRestart: Start a second interview after renderer cleanup without permanently closing the voice coordinator.
  * - installSyntheticAudio: Functionality: Attach synthetic device/ASR boundaries to a page running all real capture code. Inputs: VM page, final provider text and optional semantic receipt. Outputs: PCM/track/worklet observations. Logic: Execute the real worklet/resampler; fake only browser hardware and provider messages. Constraints: No SpeechCapture.start/end override, microphone, network, or assertion of ASR accuracy.
  * - installSyntheticAudio.SyntheticContext: Functionality: Provide a connected browser audio graph for the actual capture implementation. Logic: State/stream connections are simulated; the real worklet processes every supplied frame. Constraints: This class never opens hardware, plays audio or changes production sample rates.
  * - installSyntheticAudio.SyntheticContext.constructor: Initialize a suspended 48kHz audio graph and validated module loader without hardware.
@@ -287,16 +293,22 @@ async function makePage(options = {}) {
  *  Receive diagnostic logs without printing synthesized version or voice content.
  */
   function ignoreError() {}
+  /** Return an explicitly unavailable renderer without importing the browser-only vendor player. */
+  async function loadAvatarModule() {
+    return { async loadAvatarConfiguration() { return { enabled: false }; } };
+  }
   const clientScript = PROGRESS_SCRIPT.replaceAll("export function", "function").replace("export class InterviewProgress", "class InterviewProgress")
     + CAPTURE_SCRIPT.replace("export class SpeechCapture", "class SpeechCapture")
     + VOICE_SCRIPT.replace('import { SpeechCapture } from "./speech-capture.js";', "").replace("export class InterviewVoice", "class InterviewVoice")
+      .replace('import("/stream-demo/pixel-player.js")', "loadAvatarModule()")
     + SCRIPT.replace('import { InterviewVoice } from "./interview-voice.js";', "").replace('import { InterviewProgress } from "./interview-progress.js";', "");
   const context = vm.createContext({
     document: { getElementById: getElement, createElement },
     window: { addEventListener: addPageListener, dispatchEvent: dispatchPageEvent },
     performance: { now }, crypto: { randomUUID: uuid },
     location: { protocol: "http:", host: "localhost", search: options.search || "" },
-    WebSocket: Socket, TextEncoder, URLSearchParams, fetch, console: {error:ignoreError, info:ignoreError},
+    WebSocket: Socket, TextEncoder, URLSearchParams, fetch, loadAvatarModule, AbortController,
+    console: {error:ignoreError, info:ignoreError},
     setInterval: setTimer, clearInterval: clearTimer, setTimeout, clearTimeout, CustomEvent: PageEvent,
   });
   await vm.runInContext(clientScript, context);
@@ -872,6 +884,141 @@ async function completedDuringChoice() {
   assert.equal(ws.readyState, 3);
 }
 test("final report race preserves the user's end choice", completedDuringChoice);
+
+/** Replace only the renderer transport with observable offline resources; keep real voice cleanup.
+ * No module import, device, TTS or expression request is needed for interview lifecycle assertions.
+ */
+function observeAvatarLifecycle(page) {
+  const observations = { connections: 0, resources: [] };
+  page.voice.connectAvatar = async function () {
+    observations.connections += 1;
+    const resource = { playerCloses: 0, presentationCloses: 0, sent: [] };
+    observations.resources.push(resource);
+    this.player = {
+      ready: true,
+      send(message) { resource.sent.push(message); return true; },
+      close() { this.ready = false; resource.playerCloses += 1; },
+    };
+    this.presentation = {
+      setActive() {}, setState() {}, setQuestion() {}, clear() {}, endListeningCapture() {},
+      close() { resource.presentationCloses += 1; },
+    };
+  };
+  return observations;
+}
+
+/** Verify that preparation and rejected inputs do not reserve a renderer or start an interview. */
+async function avatarStartBoundary() {
+  const page = await makePage();
+  const observation = observeAvatarLifecycle(page);
+  const initialSockets = Socket.instances.length;
+  page.el("start-form").fire("submit");
+  page.el("open-preparation").fire("click");
+  page.el("cancel-preparation").fire("click");
+  page.el("interview-settings").fire("click");
+  page.el("job").value = "   ";
+  page.el("start-form").fire("submit");
+  assert.equal(observation.connections, 0);
+  assert.equal(Socket.instances.length, initialSockets);
+  assert.equal(page.el("preparation-dialog").open, true);
+  page.el("job").value = "Software Engineer";
+  page.el("start-form").fire("submit");
+  assert.equal(observation.connections, 1);
+  const ws = Socket.instances.at(-1);
+  const request = hello(ws);
+  startPrepared(page);
+  ws.emit({ type: "question", request_id: request, question_index: 1,
+    question: { question_id: "avatar-q", text: "Describe your contribution.", difficulty: 1 } });
+  assert.equal(observation.connections, 1);
+  assert.equal(ws.sent.length, 1);
+  assert.ok(page.requests.every((url) => url.startsWith("/api/resume-versions/")));
+  discardPage(page, ws);
+}
+test("avatar connects once only after confirmed valid interview start", avatarStartBoundary);
+
+/** Check the actual terminal cleanup for completion, discard, cancellation and agent transport errors. */
+async function avatarTerminalCleanup(t) {
+  for (const cause of ["finished", "discarded", "cancelled", "error", "close"]) {
+    await t.test(cause, async () => {
+      const page = await makePage();
+      const observation = observeAvatarLifecycle(page);
+      startPrepared(page);
+      const ws = Socket.instances.at(-1);
+      const request = hello(ws);
+      const epoch = page.voice.avatarConnectionEpoch;
+      if (cause === "finished") {
+        ws.emit({ type: cause, request_id: request,
+          result: { final_report: { overall_score: 3, competencies: {}, summary: "Complete." } } });
+        assert.equal(page.el("report-summary").textContent, "Complete.");
+      } else if (cause === "discarded") discardPage(page, ws);
+      else if (cause === "error") ws.emit({ type: cause, request_id: request, code: "offline_failure", detail: "Fixture failure." });
+      else if (cause === "close") ws.emit({}, "close");
+      else ws.emit({ type: cause, request_id: request });
+      assert.equal(observation.connections, 1);
+      assert.equal(observation.resources[0].playerCloses, 1);
+      assert.equal(observation.resources[0].presentationCloses, 1);
+      assert.equal(page.voice.player, null);
+      assert.equal(page.voice.presentation, null);
+      assert.equal(page.voice.avatarConnecting, false);
+      assert.ok(page.voice.avatarConnectionEpoch > epoch);
+      assert.equal(page.voice.closed, false);
+      assert.equal(page.timers.size, 0);
+      assert.ok(page.requests.every((url) => url.startsWith("/api/resume-versions/")));
+    });
+  }
+}
+test("terminal interview paths release the avatar without model calls", avatarTerminalCleanup);
+
+/** A resumable end choice keeps the renderer; a final result releases it even before choosing save. */
+async function avatarEndChoice() {
+  const page = await makePage();
+  const observation = observeAvatarLifecycle(page);
+  startPrepared(page);
+  const ws = Socket.instances.at(-1);
+  const request = hello(ws);
+  page.el("cancel-agent").fire("click");
+  assert.equal(observation.resources[0].playerCloses, 0);
+  page.el("continue-interview").fire("click");
+  assert.equal(observation.resources[0].playerCloses, 0);
+  assert.equal(observation.connections, 1);
+  page.el("cancel-agent").fire("click");
+  ws.emit({ type: "finished", request_id: request,
+    result: { final_report: { overall_score: null, competencies: {}, summary: "Complete during choice." } } });
+  assert.equal(page.el("end-interview-dialog").open, true);
+  assert.equal(ws.readyState, Socket.OPEN);
+  assert.equal(observation.resources[0].playerCloses, 1);
+  assert.equal(observation.resources[0].presentationCloses, 1);
+  assert.equal(page.voice.player, null);
+  await page.el("end-and-save").fire("click");
+  assert.equal(page.el("report-summary").textContent, "Complete during choice.");
+  assert.equal(observation.resources[0].playerCloses, 1);
+  assert.equal(ws.sent.length, 1);
+}
+test("end choice keeps the avatar until the interview actually completes", avatarEndChoice);
+
+/** A terminal session cleanup permits a new confirmed interview and a fresh renderer connection. */
+async function avatarSessionRestart() {
+  const page = await makePage();
+  const observation = observeAvatarLifecycle(page);
+  startPrepared(page);
+  const first = Socket.instances.at(-1);
+  const request = hello(first);
+  first.emit({ type: "finished", request_id: request,
+    result: { final_report: { overall_score: null, competencies: {}, summary: "First complete." } } });
+  assert.equal(page.voice.closed, false);
+  assert.equal(observation.resources[0].playerCloses, 1);
+  startPrepared(page);
+  const second = Socket.instances.at(-1);
+  hello(second);
+  assert.notEqual(second, first);
+  assert.equal(observation.connections, 2);
+  assert.equal(observation.resources[1].playerCloses, 0);
+  assert.equal(page.voice.closed, false);
+  assert.equal(second.sent[0].type, "start");
+  discardPage(page, second);
+  assert.equal(observation.resources[1].playerCloses, 1);
+}
+test("a new interview reconnects the avatar after the previous one ends", avatarSessionRestart);
 
 /** Functionality: Attach synthetic device/ASR boundaries to a page running all real capture code.
  * Inputs: VM page, final provider text and optional semantic receipt. Outputs: PCM/track/worklet observations.

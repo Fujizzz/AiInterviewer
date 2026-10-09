@@ -33,6 +33,7 @@
  * - InterviewVoice.connectAvatar.object1.send: Deliver presentation messages through the current avatar player; an unready channel returns false.
  * - InterviewVoice.connectAvatar.callback1: Route UE playback events through utterance identity checks.
  * - InterviewVoice.connectAvatar.callback2: Display connection status supplied by the avatar player.
+ * - InterviewVoice.disconnectAvatar: Cancel pending connection work and release the stream without closing the page coordinator.
  * - InterviewVoice.avatarEvent: Accept current playback events and select voice fallback after a disconnect.
  * - InterviewVoice.avatarEvent.callback1: Release controls if a current UE playback exceeds its deadline.
  * - InterviewVoice.setQuestion: Reset stale resources and await question playback before granting a full 10-second preparation period.
@@ -82,8 +83,10 @@ export class InterviewVoice {
     this.capture = null;
     this.player = null;
     // Serialize connection requests; retain the last automatic URL without replacing a local override.
-    // closed fences asynchronous configuration replies after page cleanup.
+    // The connection epoch fences late replies after interview end or replacement.
     this.avatarConnecting = false;
+    this.avatarConnectionEpoch = 0;
+    this.avatarAbort = null;
     this.avatarDefaultUrl = null;
     this.closed = false;
     this.presentation = null;
@@ -280,11 +283,15 @@ export class InterviewVoice {
 
   /** Load approved connection settings before connecting the official player; never trigger speech or model calls. */ async connectAvatar() {
     if (this.closed || this.avatarConnecting) return;
+    const connectionEpoch = this.avatarConnectionEpoch;
+    const abort = new AbortController();
+    this.avatarAbort = abort;
     this.avatarConnecting = true;
     try {
       const { AvatarPlayer, PresentationController, loadAvatarConfiguration } = await import("/stream-demo/pixel-player.js");
-      const configuration = await loadAvatarConfiguration();
-      if (this.closed) return;
+      if (this.closed || connectionEpoch !== this.avatarConnectionEpoch) return;
+      const configuration = await loadAvatarConfiguration({ signal: abort.signal });
+      if (this.closed || connectionEpoch !== this.avatarConnectionEpoch) return;
       if (!configuration.enabled) throw new Error(window.AppI18n?.t("avatar_not_configured") ?? "The interviewer renderer is not configured.");
       const endpoint = document.getElementById("signalling-url");
       if (!endpoint.value.trim() || endpoint.value.trim() === this.avatarDefaultUrl || location.protocol === "https:") {
@@ -298,13 +305,39 @@ export class InterviewVoice {
         });
         this.presentation.setActive(this.presentationActive);
         this.player = new AvatarPlayer(document.getElementById("avatar-view"),
-          /** Route UE playback events through utterance identity checks. */ (event) => this.avatarEvent(event), /** Display connection status supplied by the avatar player. */ (text) => this.message(text));
+          /** Ignore events from a stream released by a previous interview. */ (event) => {
+            if (!this.closed && connectionEpoch === this.avatarConnectionEpoch) this.avatarEvent(event);
+          }, /** Display status only for the current interview's connection. */ (text) => {
+            if (!this.closed && connectionEpoch === this.avatarConnectionEpoch) this.message(text);
+          });
         if (this.question) void this.presentation.setQuestion(this.question);
         this.presentation.setState(this.state);
       }
       this.player.connect(endpoint.value.trim());
-    } catch (error) { this.message(window.AppI18n?.t("voice_avatar_unavailable", { message: error.message }) ?? `The avatar is unavailable: ${error.message}. You can continue the voice interview.`); }
-    finally { this.avatarConnecting = false; }
+    } catch (error) {
+      if (!this.closed && connectionEpoch === this.avatarConnectionEpoch) {
+        this.message(window.AppI18n?.t("voice_avatar_unavailable", { message: error.message }) ?? `The avatar is unavailable: ${error.message}. You can continue the voice interview.`);
+      }
+    } finally {
+      if (connectionEpoch === this.avatarConnectionEpoch) {
+        this.avatarConnecting = false;
+        this.avatarAbort = null;
+      }
+    }
+  }
+
+  /** Release an interview's stream and pending configuration; allow a later interview to connect again. */ disconnectAvatar() {
+    ++this.avatarConnectionEpoch;
+    this.avatarAbort?.abort();
+    this.avatarAbort = null;
+    this.avatarConnecting = false;
+    const presentation = this.presentation;
+    const player = this.player;
+    this.presentation = null;
+    this.player = null;
+    presentation?.close();
+    player?.close();
+    document.getElementById("avatar-metrics").textContent = "";
   }
 
   /** Accept current playback events and select voice fallback after a disconnect. */ avatarEvent(event) {
@@ -578,5 +611,5 @@ export class InterviewVoice {
     this.updateControls();
   }
 
-  /** Release capture, playback and streaming resources when leaving the page; fence late connection configuration. */ close() { this.closed = true; this.reset(); this.setState("idle"); this.presentation?.close(); this.player?.close(); }
+  /** Release capture, playback and streaming resources when leaving the page; fence late connection configuration. */ close() { this.closed = true; this.reset(); this.setState("idle"); this.disconnectAvatar(); }
 }
