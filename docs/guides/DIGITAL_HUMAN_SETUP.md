@@ -193,12 +193,15 @@ Qwen TTS 使用新的专用 SDK 适配；把 CosyVoice 的 model 字符串换成
 # 终端 1：保持 SSH 隧道运行，服务端的 UE 信令端口仍只监听回环地址。
 .\DigitalHuman\Tools\start-render-tunnel.ps1 -Server 47.239.50.129
 # 终端 2：本机渲染，默认 1080p / 30 FPS。
-.\DigitalHuman\Tools\start-digital-human.ps1
+.\DigitalHuman\Tools\start-digital-human.ps1 -SpeechOrigin https://47.239.50.129
 ```
 
 登录已部署网页后点击数字人连接按钮。网页从 `/api/avatar/config/` 获取同源
 `/ws/avatar/` 连接地址；HTTPS 页面不回退到用户电脑的本机信令地址。
 SSH 使用正常账户认证，脚本不保存密码。渲染期间保持电脑、EXE 和 SSH 隧道在线。
+`SpeechOrigin` 只授权该 HTTPS 来源的语音下载。登录用户生成的 TTS URL 带有
+绑定该段音频、10 分钟有效的签名，EXE 使用它下载同一段 WAV 来播放声音并驱动口型，
+不接收浏览器登录 Cookie。未指定来源时，EXE 继续只接受原有本机语音地址。
 
 ### 重新打包
 
@@ -257,7 +260,9 @@ UE 控制消息：
 其余消息为 `{"type":"stop"}`、`{"type":"state","state":"listening"}`。
 UE 返回 `playback_started` / `playback_finished` / `interrupted` / `playback_failed`，携带同一个 `utterance_id`。
 网页以问题生命周期和语音 ID 隔离旧响应，旧音频完成事件不能释放新问题的控件。
-UE 下载地址固定为本机 `8765` 的语音路由；更换后端端口需要同步调整 C++ 校验并重新编译。
+本机模式使用固定 `8765` 的语音路由。远端模式需使用更新后的 EXE，并通过
+`-SpeechOrigin` 指定唯一可信的 HTTPS 来源；网页原样传递 TTS 返回的带签名 URL。
+其他来源、错误 UUID、额外参数和重定向均被拒绝，TTS 与 STT 仍需登录。
 
 ## 验证与剩余验收
 

@@ -144,6 +144,9 @@ Windows GPU 机器运行数字人 EXE，默认 **1920×1080、30 FPS**；本机
 `/ws/avatar/` 连接信令，视频/声音通过 WebRTC 直连或 TURN 中继传输。
 后端私有配置设置 `AVATAR_REMOTE_ENABLED=true`；上游保持
 `AVATAR_SIGNALLING_UPSTREAM=ws://127.0.0.1:8889`，不向公网开放 8888/8889/8765。
+渲染端使用更新后的 EXE，运行 `start-digital-human.ps1 -SpeechOrigin https://47.239.50.129`。
+后端 TTS 返回绑定音频 UUID、10 分钟有效的签名下载 URL；EXE 无需浏览器会话即可
+下载该段 WAV，并用同一份音频驱动声音和口型。合成、识别及其他接口继续要求登录。
 
 信令独立安装到 `/opt/ai-interviewer-pixel`，使用 Git 和 Node.js 22.14 以上的
 22 LTS 或 24 LTS 版本；现有服务保留专用 Node 24.19。在该目录放入

@@ -9,7 +9,7 @@ class UAudioComponent;
 class USoundWaveProcedural;
 class FInterviewerSpeechSolverState;
 class IHttpRequest;
-namespace UE::Interviewer { struct FSpeechTimeline; struct FSpeechPreparationFence; }
+namespace UE::Interviewer { struct FSpeechTimeline; struct FSpeechPreparationFence; class FSpeechDownloadJob; }
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FInterviewerPlaybackEvent, FString, Event, FString, UtteranceId);
 
@@ -78,6 +78,8 @@ private:
     TSharedPtr<FInterviewerSpeechSolverState, ESPMode::ThreadSafe> SolverState;
     TSharedPtr<UE::Interviewer::FSpeechPreparationFence, ESPMode::ThreadSafe> PreparationJob;
     TSharedPtr<UE::Interviewer::FSpeechTimeline, ESPMode::ThreadSafe> SpeechTimeline;
+    /** Remote native request has no browser cookies; cancellation immediately fences its results. */
+    TSharedPtr<UE::Interviewer::FSpeechDownloadJob, ESPMode::ThreadSafe> RemoteDownloadJob;
     TSharedPtr<IHttpRequest, ESPMode::ThreadSafe> Request;
     TArray<int16> Samples;
     FString CurrentId;

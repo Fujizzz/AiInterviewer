@@ -1,6 +1,7 @@
 #include "InterviewerSpeechComponent.h"
 
 #include "InterviewerSpeechTimeline.h"
+#include "InterviewerSpeechDownload.h"
 #include "Components/AudioComponent.h"
 #include "Sound/SoundWaveProcedural.h"
 #include "HttpModule.h"
@@ -14,6 +15,8 @@
 #include "NNERuntimeCPU.h"
 #include "Async/Async.h"
 #include "Misc/ScopeLock.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
 #include "Modules/ModuleManager.h"
 #include "UObject/StrongObjectPtr.h"
 
@@ -142,19 +145,43 @@ void UInterviewerSpeechComponent::Speak(const FString& AudioUrl, const FString& 
     LastSpeechSampleFrame = LastSpeechAudioSeconds = LastSpeechCurveSeconds = LastSpeechMaxFrameGapSeconds = 0.0f;
     LastPlaybackEvent = TEXT("preparing");
     PreparationStarted = FPlatformTime::Seconds();
-    const bool bLocal = AudioUrl.StartsWith("http://127.0.0.1:8765/api/speech/audio/")
-        || AudioUrl.StartsWith("http://localhost:8765/api/speech/audio/");
-    FGuid Capability;
-    if (!bLocal || !FGuid::Parse(CurrentId, Capability) || !AudioUrl.EndsWith("/" + CurrentId + "/"))
-    { Fail(TEXT("Invalid local speech URL or utterance ID")); return; }
+    FString TrustedOrigin;
+    FParse::Value(FCommandLine::Get(), TEXT("InterviewSpeechOrigin="), TrustedOrigin);
+    UE::Interviewer::FSpeechDownloadAddress Address;
+    if (!UE::Interviewer::ValidateSpeechDownloadUrl(AudioUrl, CurrentId, TrustedOrigin, Address))
+    { Fail(TEXT("Invalid authorized speech URL or utterance ID")); return; }
     if (!SolverState || !SolverModel)
     { Fail(TEXT("Native CPU speech model is unavailable; check StreamingADA cooked CPU model data")); return; }
     const uint32 ExpectedGeneration = Generation;
+    TWeakObjectPtr<UInterviewerSpeechComponent> WeakThis(this);
+    if (Address.bRemote)
+    {
+#if PLATFORM_WINDOWS
+        RemoteDownloadJob = MakeShared<UE::Interviewer::FSpeechDownloadJob, ESPMode::ThreadSafe>();
+        const auto Job = RemoteDownloadJob;
+        Async(EAsyncExecution::ThreadPool, [WeakThis, ExpectedGeneration, Address = MoveTemp(Address), Job]()
+        {
+            auto Result = UE::Interviewer::DownloadRemoteSpeech(Address, *Job);
+            if (Job->IsCancelled()) return;
+            AsyncTask(ENamedThreads::GameThread, [WeakThis, ExpectedGeneration, Job, Result = MoveTemp(Result)]()
+            {
+                if (!WeakThis.IsValid() || WeakThis->Generation != ExpectedGeneration || Job->IsCancelled()) return;
+                auto* Self = WeakThis.Get();
+                Self->RemoteDownloadJob.Reset();
+                if (!Result.bSucceeded || !Self->DecodeWave(Result.Wave))
+                { Self->Fail(TEXT("Unable to download authorized remote speech WAV")); return; }
+                Self->PrepareSpeech();
+            });
+        });
+#else
+        Fail(TEXT("Remote speech download is supported only on Windows"));
+#endif
+        return;
+    }
     Request = FHttpModule::Get().CreateRequest();
     Request->SetURL(AudioUrl);
     Request->SetVerb(TEXT("GET"));
     Request->SetTimeout(15.0f);
-    TWeakObjectPtr<UInterviewerSpeechComponent> WeakThis(this);
     Request->OnProcessRequestComplete().BindLambda(
         [WeakThis, ExpectedGeneration](FHttpRequestPtr, FHttpResponsePtr Response, bool bOK)
         {
@@ -258,6 +285,10 @@ void UInterviewerSpeechComponent::TickComponent(float Delta, ELevelTick TickType
 {
     Super::TickComponent(Delta, TickType, Tick);
     const double Now = FPlatformTime::Seconds();
+    // Fence expired results on the game thread immediately. The worker observes cancellation
+    // after its bounded native call returns and releases its own WinHTTP handles.
+    if (RemoteDownloadJob && Now - PreparationStarted > UE::Interviewer::RemoteSpeechDownloadSeconds)
+    { Fail(TEXT("Remote speech download timed out")); return; }
     if (bPreparing && Now - PreparationStarted > 120.0)
     { Fail(TEXT("Native speech preparation timed out")); return; }
     if (!bPlaying || !SpeechTimeline) return;
@@ -285,6 +316,7 @@ void UInterviewerSpeechComponent::StopSpeaking()
     ++Generation;
     const FString StoppedId = CurrentId;
     if (Request) { Request->CancelRequest(); Request.Reset(); }
+    if (RemoteDownloadJob) { RemoteDownloadJob->Cancel(); RemoteDownloadJob.Reset(); }
     if (PreparationJob) { PreparationJob->Cancel(); PreparationJob.Reset(); }
     if (Audio) Audio->Stop();
     bPreparing = bPlaying = false;

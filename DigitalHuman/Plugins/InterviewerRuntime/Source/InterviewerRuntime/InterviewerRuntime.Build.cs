@@ -11,5 +11,9 @@ public class InterviewerRuntime : ModuleRules
             "MetaHumanLocalLiveLinkSource", "MetaHumanLiveLinkSource", "MetaHumanPipelineCore",
             "SpeechAnimationSolver", "AudioPlatformConfiguration", "NNE", "NNERuntimeORT", "Projects", "MetaHumanCoreTech"
         });
+        if (Target.Platform == UnrealTargetPlatform.Win64)
+        {
+            PublicSystemLibraries.Add("winhttp.lib");
+        }
     }
 }

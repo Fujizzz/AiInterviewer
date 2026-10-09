@@ -13,8 +13,8 @@ Declaration Index:
   does not delete account or interview records.
 - AccountRequiredMiddleware: protects pages and APIs based on deployment settings.
 - AccountRequiredMiddleware.__init__: saves downstream handler.
-- AccountRequiredMiddleware.__call__: allows public endpoints, returns 401 for anonymous API,
-  redirects anonymous pages to login.
+- AccountRequiredMiddleware.__call__: allows public endpoints and signed single-audio GETs,
+  returns 401 for other anonymous APIs, redirects anonymous pages to login.
 
 Variable Index:
 - logger: logs operation type and user ID, does not record username, password, or session token.
@@ -41,6 +41,8 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import csrf_protect
 from django.views.decorators.http import require_http_methods, require_POST
+
+from .speech.audio_access import has_audio_capability
 
 logger = logging.getLogger(__name__)
 PUBLIC_PATHS = {"/", "/login/", "/register/", "/logout/"}
@@ -138,13 +140,10 @@ def sign_out(request):
 
 
 class AccountRequiredMiddleware:
-    """Function: Produce HTTP login gate; allow anonymous access only for public paths, independent
-    of UUID obscurity.
-    """
+    """Produce the login gate with public paths and narrowly signed, expiring WAV downloads."""
 
     def __init__(self, get_response):
-        """Store downstream processor; instance has no database or network side effects.
-        """
+        """Store downstream processor; instance has no database or network side effects."""
         self.get_response = get_response
 
     def __call__(self, request):
@@ -161,6 +160,7 @@ class AccountRequiredMiddleware:
             or request.user.is_authenticated
             or request.path in PUBLIC_PATHS
             or request.path in PUBLIC_ASSETS
+            or has_audio_capability(request)
         ):
             return self.get_response(request)
         if request.path.startswith("/api/"):

@@ -3,7 +3,8 @@ param(
     [switch]$EditorGame,
     [switch]$Diagnostics,
     [switch]$SoftwareEncoding,
-    [string]$SignallingUrl = "ws://127.0.0.1:8888"
+    [string]$SignallingUrl = "ws://127.0.0.1:8888",
+    [string]$SpeechOrigin = ""
 )
 $ErrorActionPreference = "Stop"
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
@@ -19,6 +20,17 @@ $arguments = @("-PixelStreamingConnectionURL=$SignallingUrl", "-AudioMixer", "-R
     "-PixelStreamingEncoderCodec=$encoderCodec",
     '-ExecCmds="t.IdleWhenNotForeground 0,t.MaxFPS 30,sg.ViewDistanceQuality 2,sg.ShadowQuality 2"')
 if ($Diagnostics) { $arguments += "-InterviewDiagnostics" }
+if ($SpeechOrigin) {
+    $speechEndpoint = $null
+    if (-not [Uri]::TryCreate($SpeechOrigin, [UriKind]::Absolute, [ref]$speechEndpoint) -or
+        $speechEndpoint.Scheme -ne "https" -or $speechEndpoint.UserInfo -or
+        $speechEndpoint.Query -or $speechEndpoint.Fragment -or
+        $speechEndpoint.AbsolutePath -ne "/" -or
+        $SpeechOrigin -notmatch '^https://[a-zA-Z0-9.\[\]:-]+/?$') {
+        throw "SpeechOrigin must be one explicit HTTPS origin without a path, credentials, query or fragment."
+    }
+    $arguments += "-InterviewSpeechOrigin=$($speechEndpoint.GetLeftPart([UriPartial]::Authority))"
+}
 if ($EditorGame) {
     $executable = Join-Path $EngineRoot "Engine\Binaries\Win64\UnrealEditor.exe"
     $arguments = @("`"$projectRoot\DigitalHuman.uproject`"", "/Game/Maps/L_Interview", "-game") + $arguments

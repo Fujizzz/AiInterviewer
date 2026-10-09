@@ -43,6 +43,26 @@ Declaration Index:
   Ensure the integrated speech route retains account authentication and CSRF protection.
 - SpeechAccountTests.test_login_and_csrf_precede_tts:
   Reject anonymous and tokenless writes before offline synthesis; verify automatic-answer UI.
+- SpeechCapabilityTests:
+  Exercise signed renderer downloads through production account middleware and the audio view.
+- SpeechCapabilityTests.setUpTestData:
+  Create an isolated browser account without sharing its session with the renderer.
+- SpeechCapabilityTests.setUp:
+  Provide a bounded private audio store and real WAV fixture for every download test.
+- SpeechCapabilityTests.signed_url:
+  Build a fixture capability URL without provider calls or printing its token.
+- SpeechCapabilityTests.test_authenticated_tts_returns_signed_renderer_url:
+  Verify an anonymous renderer receives exactly the generated WAV over the signed URL.
+- SpeechCapabilityTests.test_invalid_tokens_paths_queries_and_methods_are_denied:
+  Reject altered, mismatched and excessive tokens, extra queries, paths and non-GET methods.
+- SpeechCapabilityTests.test_token_expires_after_ten_minutes_and_namespace_isolated:
+  Check the signing lifetime boundary and isolation from other signed application values.
+- SpeechCapabilityTests.test_valid_capability_does_not_extend_store_retention:
+  Missing/evicted audio remains 404 even with a valid capability.
+- SpeechCapabilityTests.test_audio_view_rechecks_capability_without_middleware:
+  Reject unauthenticated direct view calls independently of the outer account gate.
+- SpeechCapabilityTests.test_audio_token_cannot_authorize_tts_or_other_apis:
+  The download token neither signs a user in nor changes write authentication or CSRF.
 - FixtureRecognition:
   Explicit offline provider used only by protocol tests.
 - FixtureRecognition.__init__:
@@ -79,11 +99,21 @@ import json
 import os
 import wave
 from unittest.mock import Mock, patch
+from urllib.parse import parse_qs, urlencode, urlsplit
+from uuid import UUID, uuid4
 
 from asgiref.testing import ApplicationCommunicator
 from django.contrib.auth import get_user_model
-from django.test import Client, SimpleTestCase, TestCase, override_settings
+from django.contrib.auth.models import AnonymousUser
+from django.core import signing
+from django.test import Client, RequestFactory, SimpleTestCase, TestCase, override_settings
 
+from interviews.speech.audio_access import (
+    AUDIO_TOKEN_MAX_AGE,
+    AUDIO_TOKEN_SALT,
+    MAX_AUDIO_TOKEN_LENGTH,
+    create_audio_token,
+)
 from interviews.speech.service import (
     AudioStore,
     RecognitionSession,
@@ -93,6 +123,7 @@ from interviews.speech.service import (
     synthesize,
 )
 from interviews.speech.socket import stt_socket
+from interviews.speech.views import audio
 
 
 class SpeechServiceTests(SimpleTestCase):
@@ -411,6 +442,7 @@ class SpeechServiceTests(SimpleTestCase):
             sdk.return_value.stop.assert_called_once()
 
 
+@override_settings(INTERVIEW_REQUIRE_LOGIN=False)
 class SpeechHTTPTests(SimpleTestCase):
     """Exercise actual Django routes and loopback access with generated fixture bytes."""
 
@@ -434,6 +466,7 @@ class SpeechHTTPTests(SimpleTestCase):
         data = response.json()
         self.assertEqual(data["duration_ms"], 500)
         self.assertTrue(data["audio_url"].startswith("http://127.0.0.1:8765/api/speech/audio/"))
+        self.assertEqual(urlsplit(data["audio_url"]).query, "")
         audio = self.client.get(
             f"/api/speech/audio/{data['utterance_id']}/", HTTP_HOST="127.0.0.1:8765"
         )
@@ -508,6 +541,177 @@ class SpeechAccountTests(TestCase):
             )
             self.assertEqual(response.status_code, 200)
             provider.assert_called_once_with("Describe one contribution.")
+
+
+@override_settings(INTERVIEW_REQUIRE_LOGIN=True)
+class SpeechCapabilityTests(TestCase):
+    """Verify narrowly signed downloads with real routes, private fixtures and no vendor calls."""
+
+    @classmethod
+    def setUpTestData(cls):
+        """Create an isolated browser account; no renderer gets a session or API key."""
+        cls.user = get_user_model().objects.create_user("audio-capability-fixture")
+
+    def setUp(self):
+        """Each test owns its audio store, WAV bytes, authenticated browser and anonymous client."""
+        output = io.BytesIO()
+        with wave.open(output, "wb") as fixture:
+            fixture.setnchannels(1)
+            fixture.setsampwidth(2)
+            fixture.setframerate(24000)
+            fixture.writeframes(b"\x00\x00" * 240)
+        self.wav = output.getvalue()
+        self.store = AudioStore()
+        self.utterance_id = self.store.put(self.wav)
+        store_patch = patch("interviews.speech.views.audio_store", self.store)
+        store_patch.start()
+        self.addCleanup(store_patch.stop)
+        self.viewer = Client()
+        self.viewer.force_login(self.user)
+        self.renderer = Client(enforce_csrf_checks=True)
+
+    def signed_url(self, utterance_id=None):
+        """Produce a scoped fixture URL with no synthesis or external requests."""
+        audio_id = utterance_id or self.utterance_id
+        return f"/api/speech/audio/{audio_id}/?" + urlencode(
+            {"token": create_audio_token(audio_id)}
+        )
+
+    def test_authenticated_tts_returns_signed_renderer_url(self):
+        """A production TTS response alone suffices for a sessionless renderer WAV download."""
+        with patch("interviews.speech.views.synthesize", return_value=self.wav) as provider:
+            response = self.viewer.post(
+                "/api/speech/tts/",
+                {"text": "Describe one contribution."},
+                content_type="application/json",
+                secure=True,
+                HTTP_HOST="localhost",
+            )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        url = urlsplit(data["audio_url"])
+        self.assertEqual((url.scheme, url.netloc), ("https", "localhost"))
+        self.assertEqual(url.path, f"/api/speech/audio/{data['utterance_id']}/")
+        self.assertEqual(set(parse_qs(url.query)), {"token"})
+        self.assertEqual(response["Cache-Control"], "no-store")
+        downloaded = self.renderer.get(
+            url.path + "?" + url.query, secure=True, HTTP_HOST="localhost"
+        )
+        self.assertEqual(downloaded.status_code, 200)
+        self.assertEqual(downloaded.content, self.wav)
+        self.assertEqual(downloaded["Content-Type"], "audio/wav")
+        self.assertEqual(downloaded["Cache-Control"], "no-store")
+        self.assertEqual(downloaded["X-Content-Type-Options"], "nosniff")
+        self.assertNotIn("sessionid", self.renderer.cookies)
+        self.assertEqual(self.viewer.get(url.path).content, self.wav)
+        self.assertEqual(self.renderer.get(url.path).status_code, 401)
+        provider.assert_called_once_with("Describe one contribution.")
+
+    def test_invalid_tokens_paths_queries_and_methods_are_denied(self):
+        """A valid bearer capability cannot be widened into another route, ID, method or query."""
+        token = create_audio_token(self.utterance_id)
+        path = f"/api/speech/audio/{self.utterance_id}/"
+        other_path = f"/api/speech/audio/{uuid4()}/"
+        changed = token[:-1] + ("A" if token[-1] != "A" else "B")
+        cases = (
+            ("missing", path),
+            ("empty", path + "?token="),
+            ("tampered", path + "?" + urlencode({"token": changed})),
+            ("different_id", other_path + "?" + urlencode({"token": token})),
+            ("too_long", path + "?token=" + "a" * (MAX_AUDIO_TOKEN_LENGTH + 1)),
+            ("huge_query", path + "?token=" + "a" * 2048),
+            ("duplicate", path + "?" + urlencode([("token", token), ("token", token)])),
+            ("extra_query", path + "?" + urlencode({"token": token, "extra": "1"})),
+            ("not_uuid", "/api/speech/audio/not-a-uuid/?" + urlencode({"token": token})),
+            (
+                "not_canonical",
+                path.replace(self.utterance_id, self.utterance_id.upper())
+                + "?"
+                + urlencode({"token": token}),
+            ),
+            ("extra_path", path + "extra/?" + urlencode({"token": token})),
+            ("no_trailing_slash", path[:-1] + "?" + urlencode({"token": token})),
+        )
+        with patch.object(self.store, "get", wraps=self.store.get) as lookup:
+            for label, url in cases:
+                with self.subTest(case=label):
+                    self.assertEqual(self.renderer.get(url).status_code, 401)
+            for method in ("head", "post", "put", "delete", "options"):
+                with self.subTest(method=method):
+                    self.assertEqual(
+                        getattr(self.renderer, method)(self.signed_url()).status_code, 401
+                    )
+            lookup.assert_not_called()
+
+    def test_token_expires_after_ten_minutes_and_namespace_isolated(self):
+        """Signatures older than 600 seconds and values from another namespace grant no access."""
+        issued_at = 1000000
+        with patch("django.core.signing.time.time", return_value=issued_at):
+            url = self.signed_url()
+        with patch("django.core.signing.time.time", return_value=issued_at + AUDIO_TOKEN_MAX_AGE):
+            self.assertEqual(self.renderer.get(url).status_code, 200)
+        with patch(
+            "django.core.signing.time.time", return_value=issued_at + AUDIO_TOKEN_MAX_AGE + 1
+        ):
+            self.assertEqual(self.renderer.get(url).status_code, 401)
+        for token in (
+            signing.dumps(self.utterance_id, salt="other.application.namespace"),
+            signing.dumps({"utterance_id": self.utterance_id}, salt=AUDIO_TOKEN_SALT),
+        ):
+            url = f"/api/speech/audio/{self.utterance_id}/?" + urlencode({"token": token})
+            self.assertEqual(self.renderer.get(url).status_code, 401)
+
+    def test_valid_capability_does_not_extend_store_retention(self):
+        """Valid authorization cannot revive audio which is unknown, expired or evicted."""
+        self.assertEqual(self.renderer.get(self.signed_url(str(uuid4()))).status_code, 404)
+        clock = Mock(return_value=10)
+        store = AudioStore(clock=clock)
+        utterance_id = store.put(self.wav)
+        url = self.signed_url(utterance_id)
+        clock.return_value = 611
+        with patch("interviews.speech.views.audio_store", store):
+            response = self.renderer.get(url)
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["error"]["code"], "audio_expired")
+
+    def test_audio_view_rechecks_capability_without_middleware(self):
+        """Calling the audio view directly still requires a capability for an anonymous renderer."""
+        factory = RequestFactory()
+        for url, expected in (
+            (f"/api/speech/audio/{self.utterance_id}/", 401),
+            (self.signed_url(), 200),
+            (self.signed_url() + "&extra=1", 401),
+        ):
+            request = factory.get(url)
+            request.user = AnonymousUser()
+            response = audio(request, UUID(self.utterance_id))
+            self.assertEqual(response.status_code, expected)
+            if expected == 200:
+                self.assertEqual(response.content, self.wav)
+        request = factory.get(self.signed_url())
+        request.user = AnonymousUser()
+        self.assertEqual(audio(request, uuid4()).status_code, 401)
+
+    def test_audio_token_cannot_authorize_tts_or_other_apis(self):
+        """Download authorization leaves the existing session and CSRF gates untouched."""
+        query = "?" + urlencode({"token": create_audio_token(self.utterance_id)})
+        with patch("interviews.speech.views.synthesize") as provider:
+            response = self.renderer.post(
+                "/api/speech/tts/" + query,
+                {"text": "Question?"},
+                content_type="application/json",
+            )
+            self.assertEqual(response.status_code, 401)
+            self.assertEqual(self.renderer.get("/api/avatar/config/" + query).status_code, 401)
+            client = Client(enforce_csrf_checks=True)
+            client.force_login(self.user)
+            response = client.post(
+                "/api/speech/tts/" + query,
+                {"text": "Question?"},
+                content_type="application/json",
+            )
+            self.assertEqual(response.status_code, 403)
+            provider.assert_not_called()
 
 
 class FixtureRecognition:
