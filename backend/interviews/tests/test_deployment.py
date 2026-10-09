@@ -4,7 +4,8 @@ an isolated local service.
 Implementation: Construct proxy ASGI scopes and verify proxy protocol; use a local LiveServer and
 frozen models to exercise Session/CSRF handling and probe cleanup. Stub only the precision-ranking
 API; no production database or external service is accessed.
-Related Modules: deploy.smoke, interviews.access, interviews.middleware,
+Related Modules: deploy.smoke validates the released avatar bundle/archive; interviews.access,
+interviews.middleware,
 interviews.recommendation.rerank, and interviews.resume_models.
 
 Declaration Index:
@@ -17,6 +18,20 @@ Declaration Index:
   restrictions.
 - DeploymentAccessTests.test_local_defaults: Default development configuration continues to reject
   public Host.
+- DeploymentFrontendTests: Verify bundle contract and release safety offline.
+- DeploymentFrontendTests.setUp: Create a synthetic ESM fixture in an isolated temporary directory.
+- DeploymentFrontendTests.archive: Write only explicitly provided synthetic tar members.
+- DeploymentFrontendTests.test_missing_invalid_and_required_exports: Reject invalid ESM contracts.
+- DeploymentFrontendTests.test_verified_archive: Accept one exact artifact with safe source files.
+- DeploymentFrontendTests.test_missing_duplicate_and_stale_artifact: Reject incomplete or mismatched
+  archive additions.
+- DeploymentFrontendTests.test_unsafe_archive_members: Reject forbidden assets, secrets, and links.
+- DeploymentAvatarTests: Require production login for actual local HTTP player checks.
+- DeploymentAvatarTests.setUp: Create separate expected/player route assets in a temporary base dir.
+- DeploymentAvatarTests.test_authenticated_asset_and_cleanup: Anonymous redirect, authenticated
+  exact module and probe cleanup with login required.
+- DeploymentAvatarTests.test_missing_or_stale_asset_cleans_up: Missing/stale route still revokes
+  temporary account and Session.
 - DeploymentRecommendationTests: Validate the probe's published-job path using an isolated database
   and local HTTP service.
 - DeploymentRecommendationTests.test_live_catalog_and_cleanup: Exercise local 100-job coarse ranking
@@ -29,7 +44,10 @@ Variable Index:
 None
 """
 
+import io
+import tarfile
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 from urllib.error import HTTPError
 
@@ -38,7 +56,12 @@ from django.contrib.sessions.models import Session
 from django.http import HttpResponse
 from django.test import LiveServerTestCase, RequestFactory, SimpleTestCase, override_settings
 
-from deploy.smoke import verify_recommendations
+from deploy.smoke import (
+    verify_avatar_player,
+    verify_frontend_bundle,
+    verify_recommendations,
+    verify_release_bundle,
+)
 from interviews.access import websocket_allowed
 from interviews.middleware import LocalOnlyMiddleware
 from interviews.recommendation.rerank import RerankOutput
@@ -133,6 +156,143 @@ class DeploymentAccessTests(SimpleTestCase):
         self.assertTrue(
             websocket_allowed(self.scope(host="localhost", origin="http://localhost", scheme="ws"))
         )
+
+
+class DeploymentFrontendTests(SimpleTestCase):
+    """Verify synthetic release artifacts without services, models, or secrets."""
+
+    def setUp(self):
+        """Create one valid module fixture; the test runner cleans only its temporary directory."""
+        temporary = TemporaryDirectory(prefix="avatar-release-probe-")
+        self.addCleanup(temporary.cleanup)
+        self.directory = Path(temporary.name)
+        self.bundle = self.directory / "pixel-player.js"
+        self.content = (
+            b"const AvatarPlayer = class {}; const PresentationController = class {}; "
+            b"const loadAvatarConfiguration = async () => {}; "
+            b"export { AvatarPlayer, PresentationController, loadAvatarConfiguration };\n"
+        )
+        self.bundle.write_bytes(self.content)
+        self.bundle_path = "backend/frontend/digital-human/dist/pixel-player.js"
+
+    def archive(self, entries):
+        """Write name/content pairs; a None payload creates a forbidden symlink."""
+        archive = self.directory / "source.tar"
+        with tarfile.open(archive, "w") as output:
+            for name, data in entries:
+                member = tarfile.TarInfo(name)
+                if data is None:
+                    member.type = tarfile.SYMTYPE
+                    member.linkname = "outside"
+                    output.addfile(member)
+                else:
+                    member.size = len(data)
+                    output.addfile(member, io.BytesIO(data))
+        return archive
+
+    def test_missing_invalid_and_required_exports(self):
+        """Reject missing, empty, invalid UTF-8, or incomplete exports; accept the contract."""
+        self.assertEqual(verify_frontend_bundle(self.bundle), self.content)
+        self.bundle.unlink()
+        with self.assertRaisesRegex(RuntimeError, "missing, empty"):
+            verify_frontend_bundle(self.bundle)
+        for content in (b"", b"\xff", b"export { AvatarPlayer };"):
+            with self.subTest(content=content):
+                self.bundle.write_bytes(content)
+                with self.assertRaises(RuntimeError):
+                    verify_frontend_bundle(self.bundle)
+
+    def test_verified_archive(self):
+        """Accept one exact artifact with a safe source file and public environment template."""
+        archive = self.archive([
+            ("deploy/smoke.py", b"# synthetic release"),
+            (".env.example", b"PUBLIC_EXAMPLE="),
+            (self.bundle_path, self.content),
+        ])
+        verify_release_bundle(archive, self.bundle)
+
+    def test_missing_duplicate_and_stale_artifact(self):
+        """Do not deploy an absent, duplicate, or altered asset from another build."""
+        for entries in (
+            [("backend/frontend/digital-human/src/pixel-player.js", self.content)],
+            [(self.bundle_path, self.content), (self.bundle_path, self.content)],
+            [(self.bundle_path, self.content.replace(b"class", b"wrong"))],
+        ):
+            with self.subTest(entries=[name for name, _ in entries]):
+                with self.assertRaises(RuntimeError):
+                    verify_release_bundle(self.archive(entries), self.bundle)
+
+    def test_unsafe_archive_members(self):
+        """Exclude UE, real env, management files, caches, traversal, and links."""
+        for name, content in (
+            ("DigitalHuman/Content/Face.uasset", b"synthetic"),
+            ("backend/.env", b"synthetic"),
+            ("server_info.txt", b"synthetic"),
+            ("node_modules/lib.js", b"synthetic"),
+            ("deploy/pixel-streaming/.infrastructure/lib.js", b"synthetic"),
+            ("../escape", b"synthetic"),
+            ("/absolute", b"synthetic"),
+            ("linked", None),
+        ):
+            with self.subTest(name=name):
+                archive = self.archive([(self.bundle_path, self.content), (name, content)])
+                with self.assertRaisesRegex(RuntimeError, "Unsafe"):
+                    verify_release_bundle(archive, self.bundle)
+
+
+@override_settings(
+    INTERVIEW_REQUIRE_LOGIN=True,
+    ALLOWED_HOSTS=["47.239.50.129", "localhost"],
+    SECURE_PROXY_SSL_HEADER=("HTTP_X_FORWARDED_PROTO", "https"),
+    STATIC_URL="/static/",
+    MEDIA_URL="/media/",
+)
+class DeploymentAvatarTests(LiveServerTestCase):
+    """Check actual Django HTTP authentication and cleanup; no UE, microphone, or model calls."""
+
+    def setUp(self):
+        """Create expected bundle separately so a route failure still reaches HTTP/probe cleanup."""
+        temporary = TemporaryDirectory(prefix="avatar-http-probe-")
+        self.addCleanup(temporary.cleanup)
+        self.directory = Path(temporary.name)
+        self.bundle = self.directory / "expected-player.js"
+        self.content = (
+            b"const AvatarPlayer = class {}; const PresentationController = class {}; "
+            b"const loadAvatarConfiguration = async () => {}; "
+            b"export { AvatarPlayer, PresentationController, loadAvatarConfiguration };\n"
+        )
+        self.bundle.write_bytes(self.content)
+        self.asset = self.directory / "frontend/digital-human/dist/pixel-player.js"
+        self.asset.parent.mkdir(parents=True)
+        self.asset.write_bytes(self.content)
+
+    def test_authenticated_asset_and_cleanup(self):
+        """Redirect anonymous requests; a temporary real session receives the exact module."""
+        with override_settings(BASE_DIR=self.directory):
+            response = self.client.get(
+                "/stream-demo/pixel-player.js",
+                HTTP_HOST="47.239.50.129",
+                HTTP_X_FORWARDED_PROTO="https",
+            )
+            self.assertEqual(response.status_code, 302)
+            verify_avatar_player(self.live_server_url, self.bundle)
+        self.assertEqual(get_user_model().objects.count(), 0)
+        self.assertEqual(Session.objects.count(), 0)
+
+    def test_missing_or_stale_asset_cleans_up(self):
+        """A failed HTTP fetch or mismatching build never leaves a probe account/session."""
+        with override_settings(BASE_DIR=self.directory):
+            self.asset.unlink()
+            with self.assertRaises(HTTPError) as error:
+                verify_avatar_player(self.live_server_url, self.bundle)
+            self.assertEqual(error.exception.code, 404)
+            self.assertEqual(get_user_model().objects.count(), 0)
+            self.assertEqual(Session.objects.count(), 0)
+            self.asset.write_bytes(b"<html>wrong build</html>")
+            with self.assertRaisesRegex(RuntimeError, "does not match"):
+                verify_avatar_player(self.live_server_url, self.bundle)
+        self.assertEqual(get_user_model().objects.count(), 0)
+        self.assertEqual(Session.objects.count(), 0)
 
 
 @override_settings(

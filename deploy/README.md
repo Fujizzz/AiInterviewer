@@ -25,7 +25,8 @@
 | 数据备份 | `backup-postgresql.sh` 手动创建 `/var/backups/ai-interviewer/*.dump` |
 
 服务器使用新建数据库，只由既有迁移初始化两道练习题；未导入本地 SQLite 历史。
-部署使用 Git 提交的源码归档；未上传 `.git`、本地数据库、日志、缓存或虚拟环境。
+部署使用 Git 提交的源码归档，并加入同次 CI 验证的数字人播放器；
+未上传 `.git`、本地数据库、日志、缓存或虚拟环境。
 `.gitattributes` 的 `export-ignore` 将 `DigitalHuman/` 排除在后端发布归档之外；
 UE 工程与 MetaHuman 资源仍保存在 Git/Git LFS，通过克隆仓库获取，在 GPU 机器上单独打包运行。
 后端归档保留网页、语音服务及面试模块，并遵守压缩包 128 MiB、解压后 256 MiB 的发布上限。
@@ -223,7 +224,13 @@ Redis 专用配置为 `/etc/redis/ai-interviewer.conf`。两个应用服务均�
 ## 自动部署
 
 仓库 `.github/workflows/deploy.yml` 在 **push 到 main** 时自动运行，也可在 Actions 手动触发。
-本地修改或仅 commit 尚未 push 不会发布。流程先运行核心、后端、前端测试，全部成功后部署。
+本地修改或仅 commit 尚未 push 不会发布。流程固定 pnpm 11.25.0，以 frozen lockfile
+构建 `backend/frontend/digital-human/dist/pixel-player.js`，检查语法及网页需要的三个导出；
+核心、后端、前端测试全部成功后保存单文件 artifact。deploy job 下载同 run 的 artifact，
+在 `git archive --format=tar` 后用 GNU tar 仅追加上述精确路径，预检非空、摘要一致且只出现一次，
+再 gzip 上传至原固定发布入口。归档仍排除 UE、依赖缓存及真实 env；dist 继续忽略、不提交 Git。
+发布后的 smoke 使用临时真实登录会话，要求播放器路由返回 JavaScript 且字节与该发布文件一致，
+随后清理探针账号/session；不放宽匿名访问规则，也不新增模型请求。
 Actions 使用独立 `DEPLOY_SSH_KEY` 和固定 `DEPLOY_KNOWN_HOSTS`；密钥只允许执行发布入口，
 禁用交互 shell、端口转发和代理转发，不使用 root 密码。服务器入口由 root 安装为
 `/usr/local/sbin/ai-interviewer-deploy`，更新该入口须显式审查并安装新版脚本。
