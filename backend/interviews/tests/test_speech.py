@@ -9,6 +9,8 @@ utilities.
 Declaration Index:
 - SpeechServiceTests:
   Validate region selection, raw audio format, quota errors and cache retention.
+- SpeechServiceTests.setUp:
+  Isolate the original realtime model/voice and reject unexpected inference SDK construction.
 - SpeechServiceTests.test_disabled_and_missing_credentials_never_construct_provider:
   Opt-in and complete credentials must precede any SDK construction.
 - SpeechServiceTests.test_singapore_wav_and_sanitised_quota_failure:
@@ -132,6 +134,23 @@ from interviews.speech.views import audio
 
 class SpeechServiceTests(SimpleTestCase):
     """Validate region selection, raw audio format, quota errors and cache retention."""
+
+    def setUp(self):
+        original_protocol = patch.dict(
+            os.environ,
+            {
+                "SPEECH_TTS_MODEL": "qwen3-tts-flash-realtime",
+                "SPEECH_TTS_VOICE": "Cherry",
+            },
+        )
+        original_protocol.start()
+        self.addCleanup(original_protocol.stop)
+        unexpected_inference = patch(
+            "dashscope.audio.tts_v2.SpeechSynthesizer",
+            side_effect=AssertionError("Legacy realtime test must not construct inference TTS."),
+        )
+        unexpected_inference.start()
+        self.addCleanup(unexpected_inference.stop)
 
     def test_disabled_and_missing_credentials_never_construct_provider(self):
         """Opt-in and complete credentials must precede any SDK construction."""
