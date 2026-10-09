@@ -22,7 +22,7 @@ Declaration Index:
   Send disconnect and wait for local coroutine to finish, avoiding test leftovers with hanging
   tasks.
 - AgentTests.test_full_interview_matches_terminal_mvp:
-  Compare public questions/report and private persisted scores/budget against the terminal;
+  Compare public questions/report, completed score views and committed budgets against the terminal;
   verify finished responses omit internal plans, logs and competency state.
 - AgentTests.test_invalid_commands_do_not_create_model:
   Corrupted JSON, unknown fields, empty text, wrong type, and premature answers do not trigger paid
@@ -90,6 +90,7 @@ from django.test import SimpleTestCase, TransactionTestCase
 from agents.model_calls import ModelCall, current_model_call
 from app.application import MVPInterviewApplication
 from app.providers.llm import LLMError, OpenAILLM
+from evaluation.assessment import assessed_report_context
 from interviews.agent_models import AgentAnswer, AgentInterview, AgentRequest
 from interviews.agent_provider import BackendLLM
 from interviews.agent_repository import DjangoInterviewRepository
@@ -151,8 +152,8 @@ class AgentTests(SafetyTestMixin, TransactionTestCase):
     async def test_full_interview_matches_terminal_mvp(self):
         """Compare public questions/report and private scores/budget with the offline terminal.
 
-        Drive the socket with fixture models, then read validated persisted context to retain
-        internal scoring and planning invariants without requiring those fields in public output.
+        Drive the socket with fixture models, then project completed assessment records onto the
+        validated committed context, preserving scoring and planning invariants in private state.
         """
         for count in (1, 3):
             with self.subTest(count=count):
@@ -176,7 +177,8 @@ class AgentTests(SafetyTestMixin, TransactionTestCase):
                     self.assertEqual(message["type"], "finished")
                     self.assertEqual((await comm.receive_output())["code"], 1000)
                     await comm.wait()
-                expected = await MVPInterviewApplication(FixtureLLM()).run(
+                terminal = MVPInterviewApplication(FixtureLLM())
+                expected = await terminal.run(
                     RESUME,
                     max_questions=count,
                     read_answer=lambda _: ANSWER,
@@ -185,13 +187,35 @@ class AgentTests(SafetyTestMixin, TransactionTestCase):
                 result = message["result"]
                 self.assertTrue(result["interview_finished"])
                 self.assertEqual(len(result["question_history"]), count)
-                self.assertEqual(result["final_report"], expected["final_report"])
+                repository = DjangoInterviewRepository(result["interview_id"])
+                context = await repository.get_interview_context(result["interview_id"])
+                # Workers append scores without mutating live CAS state. Compare
+                # the completed report projection, including the last answer's grade.
+                committed_version = context.state.state_version
+                context = await assessed_report_context(repository, context)
+                self.assertEqual(context.state.state_version, committed_version)
+                terminal_context = await terminal.repository.get_interview_context(
+                    expected["interview_id"]
+                )
+                # Reports now cite answer identities. Normalize only the known source
+                # IDs from these independent runs; compare every report field exactly.
+                actual_report = json.dumps(result["final_report"], sort_keys=True)
+                expected_report = json.dumps(expected["final_report"], sort_keys=True)
+                for index, (actual, reference) in enumerate(
+                    zip(context.question_history, terminal_context.question_history, strict=True), 1
+                ):
+                    self.assertEqual(actual.answer.text, reference.answer.text)
+                    actual_report = actual_report.replace(
+                        actual.answer.answer_id, f"answer-{index}"
+                    )
+                    expected_report = expected_report.replace(
+                        reference.answer.answer_id, f"answer-{index}"
+                    )
+                self.assertEqual(json.loads(actual_report), json.loads(expected_report))
                 self.assertLess(result["interview_state"]["elapsed_seconds"], 120)
                 for key in ("interview_plan", "plan_history", "topic_progress", "decision_logs"):
                     self.assertNotIn(key, result)
                 self.assertNotIn("competencies", result["interview_state"])
-                repository = DjangoInterviewRepository(result["interview_id"])
-                context = await repository.get_interview_context(result["interview_id"])
                 self.assertEqual(context.plan.duration_seconds, 1800)
                 self.assertEqual(
                     context.state.model_dump(mode="json")["competencies"],
