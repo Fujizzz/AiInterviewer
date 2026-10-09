@@ -31,6 +31,8 @@
  * - VoicePlaybackHarness.completeTts.object3.json: Return a fixed offline TTS body.
  * - VoicePlaybackHarness.flush: Settle asynchronous playback startup without wall-clock waits.
  * - VoicePlaybackHarness.close: Restore all global and microphone boundaries after a regression test.
+ * - pendingAvatar: Simulate an initial stream awaiting controller readiness and observe accepted UE messages and browser audio creation.
+ * - pendingAvatar.ready: Mark the offline controller available before delivering its actual readiness event.
  * - callback1: Verify chunked capture results match full segment resampling results.
  * - callback1.callback1: Generate fixed-sampling-rate sinusoidal test input.
  * - callback2: Verify worklet sends little-endian PCM tail first, then confirms flush, and does not replay input.
@@ -208,6 +210,29 @@ class VoicePlaybackHarness {
     SpeechCapture.prototype.start = this.original.captureStart;
     for (const [name, value] of Object.entries(this.original)) if (name !== "captureStart") globalThis[name] = value;
   }
+}
+
+/** Keep initial UE availability separate from TTS completion without opening a browser or renderer. */
+function pendingAvatar(harness) {
+  harness.ueAvailable = false;
+  harness.voice.player.player = {};
+  harness.voice.player.ready = false;
+  const observation = { accepted: [], audio: [] };
+  const send = harness.voice.player.send;
+  harness.voice.player.send = (message) => {
+    const delivered = send(message);
+    if (delivered) observation.accepted.push(message);
+    return delivered;
+  };
+  globalThis.Audio = class extends OfflineQuestionAudio {
+    constructor(url) { super(url); observation.audio.push(this); }
+  };
+  observation.ready = () => {
+    harness.ueAvailable = true;
+    if (harness.voice.player) harness.voice.player.ready = true;
+    harness.voice.avatarEvent({ type: "avatar_ready" });
+  };
+  return observation;
 }
 
 /**
@@ -575,6 +600,124 @@ test("initial preparation starts after audible completion despite slow TTS and U
     assert.equal(voice.capture, capture); assert.equal(voice.deadline, answerDeadline);
     assert.equal(harness.requests.length, 1); assert.equal(harness.answers, 0);
   } finally { harness.close(); }
+});
+
+/** A fast first TTS result waits for the initial stream, then plays its existing WAV exactly once in UE. */
+test("first question waits for avatar readiness without browser audio or another TTS request", async () => {
+  const harness = new VoicePlaybackHarness(); const voice = harness.voice;
+  const observation = pendingAvatar(harness);
+  try {
+    voice.setQuestion({ question_id: "q1", text: "Explain one contribution." });
+    harness.completeTts(); await harness.flush();
+    assert.equal(voice.audio, null); assert.equal(observation.audio.length, 0);
+    assert.equal(voice.deadline, null); assert.equal(harness.starts, 0);
+    harness.advance(3000); await harness.flush();
+    assert.equal(observation.audio.length, 0);
+    observation.ready(); await harness.flush();
+    const spoken = observation.accepted.filter((message) => message.type === "speak");
+    assert.deepEqual(spoken, [{ type: "speak", utterance_id: "audio-0", audio_url: "/offline-0.wav" }]);
+    assert.equal(observation.audio.length, 0); assert.equal(voice.phase, "avatar_preparing");
+    assert.equal(harness.requests.length, 1); assert.equal(voice.deadline, null);
+    voice.avatarEvent({ type: "playback_started", utterance_id: "audio-0" });
+    voice.avatarEvent({ type: "playback_finished", utterance_id: "audio-0" });
+    assert.equal(voice.deadline, harness.now + 10000);
+    assert.equal(harness.starts, 0); assert.equal(harness.answers, 0);
+  } finally { harness.close(); }
+});
+
+/** Config/module loading may outlast the first TTS request; a later presentation receives its existing utterance identity. */
+test("first question survives pending avatar configuration and binds the newly created presentation", async () => {
+  const harness = new VoicePlaybackHarness(); const voice = harness.voice;
+  const observation = pendingAvatar(harness);
+  const pendingPlayer = voice.player;
+  voice.player = null;
+  voice.avatarConnecting = true;
+  const boundUtterances = [];
+  try {
+    voice.setQuestion({ question_id: "q1", text: "Explain one contribution." });
+    harness.completeTts(); await harness.flush();
+    assert.equal(observation.audio.length, 0); assert.equal(voice.deadline, null);
+    voice.player = pendingPlayer;
+    voice.avatarConnecting = false;
+    voice.presentation = {
+      bindUtterance(value) { boundUtterances.push(value); },
+      onAvatarEvent() {}, setState() {}, endListeningCapture() {}, clear() {}, close() {},
+    };
+    observation.ready(); await harness.flush();
+    assert.deepEqual(boundUtterances, ["audio-0"]);
+    assert.deepEqual(observation.accepted.filter((message) => message.type === "speak"),
+      [{ type: "speak", utterance_id: "audio-0", audio_url: "/offline-0.wav" }]);
+    assert.equal(observation.audio.length, 0); assert.equal(harness.requests.length, 1);
+    assert.equal(voice.phase, "avatar_preparing"); assert.equal(harness.starts, 0); assert.equal(harness.answers, 0);
+  } finally { harness.close(); }
+});
+
+/** A missing initial controller reaches one bounded fallback; late readiness never duplicates the existing audio. */
+test("initial avatar readiness timeout plays one fallback from the same TTS result", async () => {
+  const harness = new VoicePlaybackHarness(); const voice = harness.voice;
+  const observation = pendingAvatar(harness);
+  try {
+    voice.setQuestion({ question_id: "q1", text: "Explain one contribution." });
+    harness.completeTts(); await harness.flush();
+    harness.advance(7999); await harness.flush();
+    assert.equal(observation.audio.length, 0); assert.equal(voice.deadline, null);
+    harness.advance(1); await harness.flush();
+    assert.equal(observation.audio.length, 1);
+    assert.equal(observation.audio[0].url, "/offline-0.wav");
+    assert.equal(voice.audio, observation.audio[0]); assert.equal(voice.phase, "reading");
+    voice.avatarEvent({ type: "avatar_disconnected" }); await harness.flush();
+    assert.equal(observation.audio.length, 1, "A late connection failure must not restart browser fallback audio.");
+    observation.ready(); await harness.flush();
+    assert.equal(observation.audio.length, 1);
+    assert.equal(observation.accepted.filter((message) => message.type === "speak").length, 0);
+    assert.equal(harness.requests.length, 1); assert.equal(harness.starts, 0); assert.equal(harness.answers, 0);
+    voice.audio.onended();
+    assert.equal(voice.deadline, harness.now + 10000);
+  } finally { harness.close(); }
+});
+
+/** Disconnecting during initial readiness must wake speech once, without the event and waiter both creating audio. */
+test("avatar disconnect while first question waits creates only one fallback", async () => {
+  const harness = new VoicePlaybackHarness(); const voice = harness.voice;
+  const observation = pendingAvatar(harness);
+  try {
+    voice.setQuestion({ question_id: "q1", text: "Explain one contribution." });
+    harness.completeTts(); await harness.flush();
+    voice.avatarEvent({ type: "avatar_disconnected" }); await harness.flush();
+    assert.equal(observation.audio.length, 1); assert.equal(voice.audio, observation.audio[0]);
+    assert.equal(observation.audio[0].url, "/offline-0.wav");
+    harness.advance(8000); await harness.flush();
+    observation.ready(); await harness.flush();
+    assert.equal(observation.audio.length, 1);
+    assert.equal(observation.accepted.filter((message) => message.type === "speak").length, 0);
+    assert.equal(harness.requests.length, 1); assert.equal(harness.starts, 0); assert.equal(harness.answers, 0);
+  } finally { harness.close(); }
+});
+
+/** Reset/end invalidates the pending first-question playback before any late readiness or deadline can revive it. */
+test("reset and interview end cancel initial avatar waits without playback or answers", async (t) => {
+  for (const ending of ["reset", "end", "page-close"]) {
+    await t.test(ending, async () => {
+      const harness = new VoicePlaybackHarness(); const voice = harness.voice;
+      const observation = pendingAvatar(harness);
+      try {
+        voice.setQuestion({ question_id: "q1", text: "Explain one contribution." });
+        harness.completeTts(); await harness.flush();
+        if (ending === "page-close") voice.close();
+        else {
+          voice.reset();
+          if (ending === "end") voice.disconnectAvatar();
+        }
+        await harness.flush();
+        observation.ready(); await harness.flush();
+        harness.advance(20000); await harness.flush();
+        assert.equal(observation.audio.length, 0); assert.equal(voice.audio, null);
+        assert.equal(observation.accepted.filter((message) => message.type === "speak").length, 0);
+        assert.equal(voice.question, null); assert.equal(voice.capture, null); assert.equal(voice.deadline, null);
+        assert.equal(harness.requests.length, 1); assert.equal(harness.starts, 0); assert.equal(harness.answers, 0);
+      } finally { harness.close(); }
+    });
+  }
 });
 
 /** Verify explicit replay preserves preparation already spent and stale events cannot grant another ten seconds. */

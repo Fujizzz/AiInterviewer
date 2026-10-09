@@ -34,6 +34,8 @@
  * - InterviewVoice.connectAvatar.callback1: Route UE playback events through utterance identity checks.
  * - InterviewVoice.connectAvatar.callback2: Display connection status supplied by the avatar player.
  * - InterviewVoice.disconnectAvatar: Cancel pending connection work and release the stream without closing the page coordinator.
+ * - InterviewVoice.waitForAvatar: Bound initial-stream readiness before selecting the existing voice fallback.
+ * - InterviewVoice.resolveAvatarReady: Release pending playback waits on readiness, failure or interview cleanup.
  * - InterviewVoice.avatarEvent: Accept current playback events and select voice fallback after a disconnect.
  * - InterviewVoice.avatarEvent.callback1: Release controls if a current UE playback exceeds its deadline.
  * - InterviewVoice.setQuestion: Reset stale resources and await question playback before granting a full 10-second preparation period.
@@ -87,6 +89,7 @@ export class InterviewVoice {
     this.avatarConnecting = false;
     this.avatarConnectionEpoch = 0;
     this.avatarAbort = null;
+    this.avatarReadyWaiters = new Set();
     this.avatarDefaultUrl = null;
     this.closed = false;
     this.presentation = null;
@@ -316,6 +319,7 @@ export class InterviewVoice {
       this.player.connect(endpoint.value.trim());
     } catch (error) {
       if (!this.closed && connectionEpoch === this.avatarConnectionEpoch) {
+        this.resolveAvatarReady(false);
         this.message(window.AppI18n?.t("voice_avatar_unavailable", { message: error.message }) ?? `The avatar is unavailable: ${error.message}. You can continue the voice interview.`);
       }
     } finally {
@@ -331,6 +335,7 @@ export class InterviewVoice {
     this.avatarAbort?.abort();
     this.avatarAbort = null;
     this.avatarConnecting = false;
+    this.resolveAvatarReady(false);
     const presentation = this.presentation;
     const player = this.player;
     this.presentation = null;
@@ -340,9 +345,31 @@ export class InterviewVoice {
     document.getElementById("avatar-metrics").textContent = "";
   }
 
+  /** Wait only for a stream already being connected; timeout preserves the same WAV's voice fallback. */ waitForAvatar(timeoutMs = 8000) {
+    if (this.player?.ready) return Promise.resolve(true);
+    if (this.closed || (!this.avatarConnecting && !this.player?.player)) return Promise.resolve(false);
+    return new Promise((resolve) => {
+      const waiter = { resolve, timer: null };
+      waiter.timer = setTimeout(() => {
+        this.avatarReadyWaiters.delete(waiter);
+        resolve(false);
+      }, timeoutMs);
+      this.avatarReadyWaiters.add(waiter);
+    });
+  }
+
+  /** Finish each readiness wait once, cancelling its deadline on playback reset or stream termination. */ resolveAvatarReady(ready) {
+    for (const waiter of this.avatarReadyWaiters) {
+      clearTimeout(waiter.timer);
+      waiter.resolve(ready);
+    }
+    this.avatarReadyWaiters.clear();
+  }
+
   /** Accept current playback events and select voice fallback after a disconnect. */ avatarEvent(event) {
     this.presentation?.onAvatarEvent(event);
     if (event.type === "avatar_ready") {
+      this.resolveAvatarReady(this.player?.ready === true && !event.detail);
       if (this.capture?.recording) this.presentation?.beginListeningCapture();
       this.setState(this.state); return;
     }
@@ -351,9 +378,13 @@ export class InterviewVoice {
       return;
     }
     if (event.type === "avatar_disconnected") {
+      const waitingForAvatar = this.avatarReadyWaiters.size > 0;
+      this.resolveAvatarReady(false);
+      // The pending speak continuation owns fallback while waiting; do not start it twice.
+      if (waitingForAvatar) return;
       if (this.busy) {
         if (this.playbackStarted) { this.stopPlayback(); this.message(window.AppI18n?.t("voice_avatar_disconnected") ?? "The avatar disconnected. The question is visible; replay it or answer directly."); }
-        else if (this.audioUrl) { this.fallbackAudio(this.audioUrl, this.epoch); }
+        else if (this.audioUrl && !this.audio) { this.fallbackAudio(this.audioUrl, this.epoch); }
       }
       return;
     }
@@ -432,7 +463,16 @@ export class InterviewVoice {
       this.audioUrl = result.audio_url;
       document.getElementById("speech-metrics").textContent = `${this.backendWaitMs === null ? "" : `${window.AppI18n?.t("voice_question_wait", { ms: Math.round(this.backendWaitMs) }) ?? `Question wait ${Math.round(this.backendWaitMs)} ms`} · `}${window.AppI18n?.t("voice_tts_metrics", { generation: result.generation_ms, request: Math.round(performance.now() - started) }) ?? `TTS ${result.generation_ms} ms · speech request ${Math.round(performance.now() - started)} ms`}`;
       this.avatarRequestedAt = performance.now();
-      if (!this.player?.send({ type: "speak", utterance_id: result.utterance_id, audio_url: result.audio_url })) {
+      const speech = { type: "speak", utterance_id: result.utterance_id, audio_url: result.audio_url };
+      let sent = this.player?.send(speech);
+      if (!sent && await this.waitForAvatar()) {
+        if (epoch !== this.epoch) return;
+        this.presentation?.bindUtterance(result.utterance_id);
+        this.avatarRequestedAt = performance.now();
+        sent = this.player?.send(speech);
+      }
+      if (epoch !== this.epoch) return;
+      if (!sent) {
         this.fallbackAudio(result.audio_url, epoch);
       } else {
         this.phase = "avatar_preparing";
@@ -474,6 +514,7 @@ export class InterviewVoice {
 
   /** Invalidate pending playback; terminal/user stops arm preparation, while internal cleanup leaves its lifecycle unchanged. */ stopPlayback(prepare = true) {
     ++this.epoch;
+    this.resolveAvatarReady(false);
     this.abort?.abort();
     this.abort = null;
     clearTimeout(this.playbackTimer);
