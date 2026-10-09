@@ -1,13 +1,13 @@
 /**
  * @module pixel-player
  * Responsibilities: Wrap the official UE 5.8 pixel-streaming player; voice recognition manages the microphone separately.
- * Implementation: Validate local signalling URLs, suppress device/game input, probe controller readiness, and release the single active connection.
- * Related Modules: interview-voice.js owns speech capture and playback coordination; i18n.js provides localized status messages.
+ * Implementation: Validate signalling URLs against the page origin, suppress device/game input, probe controller readiness, and release the single active connection.
+ * Related Modules: interview-voice.js owns speech capture and playback coordination; avatar-url-policy.js validates endpoints; avatar-configuration.js loads approved settings; i18n.js provides localized status messages.
  * Declaration Index:
  * - AvatarPlayer: Manage one avatar stream connection and its control messages.
  * - AvatarPlayer.constructor: Store the container, event callbacks, and initial connection state.
  * - AvatarPlayer.text: Return localized status copy with an English fallback.
- * - AvatarPlayer.connect: Validate the local URL, configure the player, and register connection events.
+ * - AvatarPlayer.connect: Validate the endpoint against the page origin, configure the player, and register connection events.
  * - AvatarPlayer.connect.callback1: Parse UE responses and record controller readiness.
  * - AvatarPlayer.connect.callback2: Start a bounded readiness probe after WebRTC connects.
  * - AvatarPlayer.connect.callback2.callback1: Send a ping and report when controller probing reaches its limit.
@@ -26,7 +26,9 @@
  * ready is set only by avatar_ready; pingTimer belongs to the active connection. UseMic and MouseInput remain disabled.
  */
 import { Config, PixelStreaming } from "@epicgames-ps/lib-pixelstreamingfrontend-ue5.8";
+import { validateAvatarSignallingUrl } from "./avatar-url-policy.js";
 export { PresentationController } from "./presentation-controller.js";
+export { loadAvatarConfiguration } from "./avatar-configuration.js";
 
 /** Minimal official UE 5.8 player. The separate STT capture owns the microphone. */
 export class AvatarPlayer {
@@ -40,12 +42,9 @@ export class AvatarPlayer {
     this.pingTimer = null;
   }
 
-  /** Functionality: Connect to the local signalling server. Inputs: WebSocket URL. Outputs: None; configures the player and event handlers. Logic: Reject non-local or non-ws URLs and disable microphone, camera, and game input. Constraints: Only local signalling hosts are accepted. */
+  /** Connect to an approved local or same-origin signalling endpoint; device and game input remain disabled. */
   connect(url) {
-    const endpoint = new URL(url);
-    if (endpoint.protocol !== "ws:" || !["127.0.0.1", "localhost"].includes(endpoint.hostname)) {
-      throw new Error("Use a local ws:// signalling server.");
-    }
+    const endpoint = validateAvatarSignallingUrl(url, window.location.href);
     if (this.player) {
       this.player.play();
       const video = this.container.querySelector("video");
@@ -53,7 +52,7 @@ export class AvatarPlayer {
       return;
     }
     const config = new Config({ initialSettings: {
-      ss: url, AutoConnect: false, AutoPlayVideo: true, StartVideoMuted: false,
+      ss: endpoint, AutoConnect: false, AutoPlayVideo: true, StartVideoMuted: false,
       UseMic: false, UseCamera: false, KeyboardInput: false, MouseInput: false,
       TouchInput: false, GamepadInput: false, WaitForStreamer: true,
     }});

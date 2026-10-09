@@ -137,6 +137,8 @@ uv run python main.py resume.pdf \
 
 使用 UE 5.8 与 MetaHuman 构建面试官角色和固定面试场景，通过 Pixel Streaming 将画面和声音传输到网页。
 数字人负责面试呈现和语音交互；问题、追问、回答评价和报告继续由既有 Agent 流程处理。
+默认输出为 **1920×1080、30 FPS**，采用 H264 编码。支持本机 GPU 配合部署后端提供
+数字人网页串流，通过 SSH 连接私有信令，并提供登录认证的同源 WSS 入口及 TURN 中继。
 
 网页支持自动朗读英文问题、重新朗读、打断朗读、麦克风回答和实时转录。
 题目朗读结束后，主界面倒计时准备 10 秒，到点自动开启麦克风；关闭朗读时从题目显示开始计时。连续 5 秒没有语音活动或收到独立结束检测事件时，自动完成转写并提交；开始／结束回答按钮已移除。准备和录音时间沿用原服务端面试计时，不修改题数上限、评分规则或模型实验条件。
@@ -157,8 +159,10 @@ uv run python main.py resume.pdf \
 | `DigitalHuman/` | MetaHuman 角色、`L_Interview` 场景、原生音频播放与音频驱动接口 |
 | `DigitalHuman/Tools/` | 本机信令、串流依赖安装、UE 启动和 Windows 打包 |
 | `backend/interviews/speech/` | 百炼 TTS/STT、临时 WAV 与语音 WebSocket |
+| `backend/interviews/avatar/` | 网页串流配置与经过认证的私有信令代理 |
 | `backend/frontend/` | 面试页面、语音交互、PCM 采集与语音字幕 |
 | `backend/frontend/digital-human/` | UE 5.8 官方 Pixel Streaming SDK 包装、构建配置与前端测试 |
+| `deploy/pixel-streaming/` | 独立信令服务、固定版本依赖安装与服务器运行配置 |
 
 语音配置与模型密钥统一放在根目录 `.env`：
 

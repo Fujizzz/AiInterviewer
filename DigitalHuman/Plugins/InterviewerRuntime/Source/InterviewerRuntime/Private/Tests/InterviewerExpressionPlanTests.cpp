@@ -15,6 +15,10 @@
 
 using namespace UE::Interviewer;
 
+// Keep fixtures and their test classes separate when Unreal combines test
+// translation units into a unity build.
+namespace InterviewerExpressionPlanTests
+{
 namespace
 {
 const FString PresentationId(TEXT("10000000-0000-0000-0000-000000000001"));
@@ -432,5 +436,7 @@ bool FInterviewerExpressionController::RunTest(const FString& Parameters)
     AddError(TEXT("Run ExpressionPlan.Controller in the assembled L_Interview game scene"));
     return false;
 }
+
+} // namespace InterviewerExpressionPlanTests
 
 #endif

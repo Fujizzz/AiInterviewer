@@ -1,0 +1,23 @@
+[Unit]
+Description=Private UE 5.8 interviewer signalling
+After=network-online.target coturn.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=aiinterviewer
+Group=aiinterviewer
+WorkingDirectory=/opt/ai-interviewer-pixel
+EnvironmentFile=/etc/ai-interviewer/avatar.env
+ExecStart=/opt/ai-interviewer-pixel/node/bin/node /opt/ai-interviewer-pixel/server.cjs
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+StateDirectory=ai-interviewer-pixel
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

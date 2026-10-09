@@ -135,6 +135,44 @@ TCP 80/443，随后申请证书：
 运行 `nginx -t`、`systemctl daemon-reload`，启用应用与续签 timer 后重载 Nginx。
 禁止直接将 8765 或 PostgreSQL 端口开放到公网。80 需要持续保留 ACME 路径供续签。
 
+## 本机 GPU 与远端像素流
+
+Windows GPU 机器运行数字人 EXE，默认 **1920×1080、30 FPS**；本机
+`DigitalHuman/Tools/start-render-tunnel.ps1` 通过 SSH 将本地 8888 转发到服务器的
+`127.0.0.1:8888`。服务器仅运行信令与 coturn，浏览器通过已登录的 Django
+`/ws/avatar/` 连接信令，视频/声音通过 WebRTC 直连或 TURN 中继传输。
+后端私有配置设置 `AVATAR_REMOTE_ENABLED=true`；上游保持
+`AVATAR_SIGNALLING_UPSTREAM=ws://127.0.0.1:8889`，不向公网开放 8888/8889/8765。
+
+信令独立安装到 `/opt/ai-interviewer-pixel`，使用 Git 和 Node.js 22.14 以上的
+22 LTS 或 24 LTS 版本；现有服务保留专用 Node 24.19。在该目录放入
+`deploy/pixel-streaming/` 的文件后执行：
+
+```bash
+npm run bootstrap
+npm test
+```
+
+bootstrap 固定 Epic 基础设施提交 `6b8cfb460bda09703e85178f1f77aa6faec9e890`，
+按该提交的 npm 锁文件仅安装并编译 Common/Signalling；生成内容在忽略的
+`.infrastructure/` 中。该版本原生包含每连接 `peerOptionsProvider`，无需补丁或未提交的
+`libs/*.tgz`。首次构建需要访问 GitHub 与 npm；重新发布信令时再次构建并重启其服务。
+信令目录由 root 安装，运行用户仅需读取；日志写入 systemd 的 `StateDirectory`。
+
+信令 systemd 模板为 `deploy/pixel-streaming/ai-interviewer-pixel.service`，其独立私有配置
+`/etc/ai-interviewer/avatar.env` 保持 root 所有、0600，设置 `AVATAR_PUBLIC_ORIGIN`
+为当前 HTTPS 网站 origin、`AVATAR_TURN_HOST` 为 TURN 公网地址，并配置至少 32 字符的
+随机 `AVATAR_TURN_SECRET`；同一共享密钥用于 coturn `static-auth-secret`。不要提交密钥。
+`AVATAR_FORCE_RELAY=true` 可验证中继，正常可设置 `false`。严格检查浏览器 Origin，
+每连接生成一小时 TURN 凭证；超过一小时的演示先重启 EXE，以获得新的 streamer 凭证。
+保持 warning 日志级别，避免 Epic 调试日志记录 ICE 凭证。
+
+云安全组与主机防火墙均允许 TURN **UDP/TCP 3478** 和中继 **UDP 49160–49200**，
+coturn 显式设置公网/内网映射。沿用 `user-quota=4,total-quota=16,max-bps=1250000,
+bps-capacity=5000000` 与私网/回环 Peer deny；总带宽为预留容量，旧连接未释放可能
+导致新 Allocate 返回 486，应先清理旧测试连接再复测。UDP/TCP 强制中继均已验证。
+这套独立渲染服务不修改现有 main 自动部署入口或容量限制。
+
 ## 已验证与边界
 
 - 队列版本在本地 SQLite 和服务器临时 PostgreSQL 均通过 109 项后端测试，核心 211 项测试和前端 26 项测试通过。

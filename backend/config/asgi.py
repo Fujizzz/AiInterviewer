@@ -1,8 +1,8 @@
 """Responsibilities: Start the Django ASGI application and dispatch HTTP and WebSocket protocols.
 Implementation: Authenticate WebSocket sessions, apply resource admission, then route diagnostics,
-interviews, and speech recognition.
+interviews, speech recognition, and presentation signalling.
 Related Modules: config.settings initializes Django; interviews.session_socket, resource_gate,
-streaming, agent_socket, and speech.socket handle protocol stages.
+streaming, agent_socket, speech.socket, and avatar.socket handle protocol stages.
 Declaration Index:
 - handle_lifespan: Acknowledge ASGI startup and shutdown events; no persistent resources are held.
 - application: Apply WebSocket session authentication before service admission.
@@ -85,6 +85,10 @@ async def route_application(scope, receive, send):
             from interviews.speech.socket import stt_socket
 
             await stt_socket(scope, receive, send)
+        elif scope["path"] == "/ws/avatar/":
+            from interviews.avatar.socket import avatar_socket
+
+            await avatar_socket(scope, receive, send)
         else:
             await send({"type": "websocket.close", "code": 1008})
     elif scope["type"] == "lifespan":

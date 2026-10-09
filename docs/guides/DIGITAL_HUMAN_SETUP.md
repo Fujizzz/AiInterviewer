@@ -173,7 +173,7 @@ Qwen TTS 使用新的专用 SDK 适配；把 CosyVoice 的 model 字符串换成
 ```
 
 ```powershell
-# 终端 3：已打包的 UE 程序，720p，帧率上限 30。
+# 终端 3：已打包的 UE 程序，1920×1080，帧率上限 30。
 .\DigitalHuman\Tools\start-digital-human.ps1
 ```
 
@@ -184,14 +184,38 @@ Qwen TTS 使用新的专用 SDK 适配；把 CosyVoice 的 model 字符串换成
 开发期间也可用 `start-digital-human.ps1 -EditorGame`。最终验收应关闭编辑器并使用打包版本。
 当前 UE 5.8 实际支持的参数是 **`-PixelStreamingConnectionURL`**，不是 `-PixelStreaming2ConnectionURL`。
 
+### 本机 GPU 接入已部署网页
+
+服务器端信令与 TURN 配置见 [部署说明](../../deploy/README.md)。完成配置后，渲染电脑
+不需要再启动本机后端或本机信令；在仓库根目录的两个终端分别运行：
+
+```powershell
+# 终端 1：保持 SSH 隧道运行，服务端的 UE 信令端口仍只监听回环地址。
+.\DigitalHuman\Tools\start-render-tunnel.ps1 -Server 47.239.50.129
+# 终端 2：本机渲染，默认 1080p / 30 FPS。
+.\DigitalHuman\Tools\start-digital-human.ps1
+```
+
+登录已部署网页后点击数字人连接按钮。网页从 `/api/avatar/config/` 获取同源
+`/ws/avatar/` 连接地址；HTTPS 页面不回退到用户电脑的本机信令地址。
+SSH 使用正常账户认证，脚本不保存密码。渲染期间保持电脑、EXE 和 SSH 隧道在线。
+
+### 重新打包
+
 新增或修改人物/动画资产后必须重新打包：
 
 ```powershell
 .\DigitalHuman\Tools\package.ps1
 ```
 
-输出为 `DigitalHuman/BuildOutput/Windows`。脚本默认引擎位置 `D:\Epic Game\UE_5.8`，其他机器可传入 `-EngineRoot`。
-语音求解模型 `/StreamingADA` 已加入 Always Cook；保留该配置，否则编辑器能运行而打包版本可能缺少模型。
+运行目录为 `DigitalHuman/BuildOutput/Windows`，上传云渲染平台使用 `DigitalHuman/BuildOutput/DigitalHuman.zip`。ZIP 放在运行目录外，避免再次压缩时包含旧 ZIP。
+脚本默认引擎位置 `D:\Epic Game\UE_5.8`，其他机器可传入 `-EngineRoot`。每次使用全新归档目录，成功后将上一个包备份至 `Saved/AssetCleanup/BuildBackup-*`，再替换标准运行目录。Development 配置保留自动化测试能力，上传包不含 PDB 调试符号。
+
+原生口型模型由 `Tools/configure_runtime_cook.py` 读取当前引擎的 `GetLatestModelAssetPath()`，通过 `RuntimeAssets/PAL_InterviewerSpeechModel` 精确 Always Cook。不要删除该标签：模型由 C++ 字符串加载，不会自动出现在地图的资源引用中。
+
+当前发布包只提供语音驱动面试官。Windows cook 排除 `GenericTracker` 图像跟踪目录，另用 `PAL_EditorVideoTrackingModels` 排除三个视频推理模型，并保留 Live Link 的共享 smoothing。工程关闭用于 Path Tracer 的 `NNEDenoiser`；实时场景继续使用 Lumen，原生口型所需的 `NNERuntimeORT` 保留。引擎中的面捕模型、角色源资产、Identity、Performance 和录制源素材仍在编辑器中可用；后续若发布视频面捕或 Path Tracer 功能，需要相应调整这些配置。
+
+`Tools/audit_asset_usage.py` 输出含硬引用、软引用及编辑器引用的资源报告到 `Saved/AssetCleanup/asset-usage.json`。清理仅移出无其他资产引用的旧组装资源，不按“未进入 cook”直接删除录制或角色源文件。被移出的文件及校验清单位于 `Saved/AssetCleanup`，该目录不进入 Git 或部署包。
 
 ## 模拟面试操作
 
@@ -261,7 +285,7 @@ Qwen 适配迁移后重新运行后端测试；前端 PCM/生命周期的 6 项�
 ```powershell
 # 终端 2：测试完成后 UE 自动退出，退出码应为 0。
 $audioTestArgs = @(
-    '-RenderOffscreen', '-AudioMixer', '-ResX=1280', '-ResY=720', '-Windowed',
+    '-RenderOffscreen', '-AudioMixer', '-ResX=1920', '-ResY=1080', '-Windowed',
     '-ExecCmds="t.MaxFPS 30,Automation RunTests Interviewer.FaceTransition+Interviewer.AvatarBinding+Interviewer.FaceSpeechPlayback+Interviewer.NativeAudioSmoke,Automation Quit"',
     '-ReportExportPath=D:/_Project/AiInterviewer/DigitalHuman/Saved/NativeAudioTest'
 )
@@ -287,7 +311,7 @@ $audioTestProcess.ExitCode
 
 网页按有效的 `duration_ms` 将 UE 准备超时限制在 18–125 秒；缺少或无效的时长仍使用 18 秒。问题朗读完成后才开始完整的 10 秒回答准备计时，重播和结束面试弹窗会暂停并保留剩余时间。
 
-The launcher uses UE's default media-capture and GPU-fence path, with both rendering and WebRTC capped at 30 FPS. Hardware H264 encoding remains the default; `start-digital-human.ps1 -SoftwareEncoding` selects VP8 only for an explicit software-encoder diagnostic. With `-Diagnostics`, playback responses include preparation and solve times, prepared and displayed frame counts, and audio/curve clock measurements. These launch changes require restarting the packaged application, not repackaging it.
+The launcher outputs 1920×1080 and uses UE's default media-capture and GPU-fence path, with both rendering and WebRTC capped at 30 FPS. Hardware H264 encoding remains the default; `start-digital-human.ps1 -SoftwareEncoding` selects VP8 only for an explicit software-encoder diagnostic. With `-Diagnostics`, playback responses include preparation and solve times, prepared and displayed frame counts, and audio/curve clock measurements. These launch changes require restarting the packaged application, not repackaging it.
 这些时延、角色帧率和十分钟稳定性不能从空场景或合成音调测试推断。
 
 ### 2026-10-04 新生成媒体的正式接口测试

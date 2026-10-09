@@ -2,7 +2,7 @@
  * @module interview-voice
  * Responsibilities: Coordinate playback/subtitles, 10-second preparation, automatic capture and five-second inactivity closure; never compute interview evaluation.
  * Implementation: Grant preparation after audible playback or an explicit voice fallback, preserving remaining preparation on replay. Isolate late events by epoch/capture identity; flush complete STT before automatic submission. A separate presentation controller supplies Agent facial dynamics with recorded fallback without delaying speech. Semantic receipts use MCP; inactivity/capture-limit closures use the normal answer boundary. Explicit end suspends submission.
- * Related Modules: SpeechCapture manages PCM/STT; agent.js provides submission callback and current question's answer eligibility; the pixel-player bundle exports PresentationController for bounded facial plans.
+ * Related Modules: SpeechCapture manages PCM/STT; agent.js provides submission callback and current question's answer eligibility; the pixel-player bundle exports PresentationController for bounded facial plans and loadAvatarConfiguration for approved transport settings.
  *
  * Declaration Index:
  * - InterviewVoice: Functionality: Coordinate automatic answering and safe final transcripts. Logic: Bind clocks/callbacks to the current capture and suspend during early-end choices. Constraints: No evaluation or capture retry.
@@ -29,7 +29,7 @@
  * - InterviewVoice.subtitle: Input: current transcribed text; Output: none; textContent prevents transcription from being executed as HTML; empty text hides subtitles.
  * - InterviewVoice.finishAnswer: Inputs: source (default silence); five-second inactivity or backend completion closes capture. Outputs: None.
  * - InterviewVoice.submitTranscript: Inputs: Instance final transcript, eligibility and suspended state. Outputs: None.
- * - InterviewVoice.connectAvatar: Load the official player bundle and connect the local signalling endpoint.
+ * - InterviewVoice.connectAvatar: Load approved connection settings and connect the official player.
  * - InterviewVoice.connectAvatar.object1.send: Deliver presentation messages through the current avatar player; an unready channel returns false.
  * - InterviewVoice.connectAvatar.callback1: Route UE playback events through utterance identity checks.
  * - InterviewVoice.connectAvatar.callback2: Display connection status supplied by the avatar player.
@@ -81,6 +81,11 @@ export class InterviewVoice {
     this.busy = false;
     this.capture = null;
     this.player = null;
+    // Serialize connection requests; retain the last automatic URL without replacing a local override.
+    // closed fences asynchronous configuration replies after page cleanup.
+    this.avatarConnecting = false;
+    this.avatarDefaultUrl = null;
+    this.closed = false;
     this.presentation = null;
     this.presentationActive = false;
     this.audio = null;
@@ -273,10 +278,20 @@ export class InterviewVoice {
     this.onAnswer(text, receipt);
   }
 
-  /** Load the official player bundle and connect the local signalling endpoint. */ async connectAvatar() {
+  /** Load approved connection settings before connecting the official player; never trigger speech or model calls. */ async connectAvatar() {
+    if (this.closed || this.avatarConnecting) return;
+    this.avatarConnecting = true;
     try {
+      const { AvatarPlayer, PresentationController, loadAvatarConfiguration } = await import("/stream-demo/pixel-player.js");
+      const configuration = await loadAvatarConfiguration();
+      if (this.closed) return;
+      if (!configuration.enabled) throw new Error(window.AppI18n?.t("avatar_not_configured") ?? "The interviewer renderer is not configured.");
+      const endpoint = document.getElementById("signalling-url");
+      if (!endpoint.value.trim() || endpoint.value.trim() === this.avatarDefaultUrl || location.protocol === "https:") {
+        endpoint.value = configuration.signalling_url;
+      }
+      this.avatarDefaultUrl = configuration.signalling_url;
       if (!this.player) {
-        const { AvatarPlayer, PresentationController } = await import("/stream-demo/pixel-player.js");
         this.presentation = new PresentationController({
           /** Deliver presentation messages only through the connected avatar channel. */
           send: (message) => this.player?.send(message) ?? false,
@@ -287,8 +302,9 @@ export class InterviewVoice {
         if (this.question) void this.presentation.setQuestion(this.question);
         this.presentation.setState(this.state);
       }
-      this.player.connect(document.getElementById("signalling-url").value.trim());
+      this.player.connect(endpoint.value.trim());
     } catch (error) { this.message(window.AppI18n?.t("voice_avatar_unavailable", { message: error.message }) ?? `The avatar is unavailable: ${error.message}. You can continue the voice interview.`); }
+    finally { this.avatarConnecting = false; }
   }
 
   /** Accept current playback events and select voice fallback after a disconnect. */ avatarEvent(event) {
@@ -562,5 +578,5 @@ export class InterviewVoice {
     this.updateControls();
   }
 
-  /** Release capture, playback and streaming resources when leaving the page. */ close() { this.reset(); this.setState("idle"); this.presentation?.close(); this.player?.close(); }
+  /** Release capture, playback and streaming resources when leaving the page; fence late connection configuration. */ close() { this.closed = true; this.reset(); this.setState("idle"); this.presentation?.close(); this.player?.close(); }
 }

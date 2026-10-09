@@ -1,8 +1,8 @@
 /**
  * @module digital-human-check
- * Responsibilities: Provide independent local avatar and speech diagnostics without interview or scoring fixtures.
- * Implementation: Preview complete facial behaviour locally or explicitly request one independent Agent plan for all four states. Test TTS playback and generated-audio STT through the local UE player and speech endpoint; release presentation/player resources on exit.
- * Related Modules: /stream-demo/pixel-player.js wraps the official UE player; /stream-demo/pcm-resampler.js converts decoded samples for the STT WebSocket.
+ * Responsibilities: Provide independent avatar and speech diagnostics without interview or scoring fixtures.
+ * Implementation: Preview complete facial behaviour locally or explicitly request one independent Agent plan for all four states. Load approved avatar settings before connecting; test TTS playback and generated-audio STT through the configured UE player and speech endpoint; release presentation/player resources on exit.
+ * Related Modules: /stream-demo/pixel-player.js wraps the official UE player and exports the authenticated configuration loader; /stream-demo/pcm-resampler.js converts decoded samples for the STT WebSocket.
  *
  * Declaration Index:
  * - element: Read a diagnostic control by its unique ID.
@@ -31,7 +31,7 @@
  * - transcribe.socket.onmessage: Resolve the handshake or final transcript from the socket.
  * - transcribe.socket.onerror: Report a recognition connection failure.
  * - transcribe.socket.onclose: Reject an unexpected recognition disconnect.
- * - callback1: Connect the official local avatar player.
+ * - callback1: Load approved connection settings and connect the official avatar player.
  * - callback2: Run one explicit text-to-speech check.
  * - callback3: Stop the current UE utterance.
  * - callback4: Run one explicit transcription of cached test audio.
@@ -46,11 +46,12 @@
  * - busy: An outstanding TTS request or UE playback.
  * - listeningTimers: Scheduled local activity observations, cancelled on state changes or playback.
  * - listeningPreviewId: Identity that prevents cancelled preview callbacks from emitting observations.
+ * - closed: Page-exit fence preventing a late configuration response from opening a player.
  *
  * Constraints:
  * Uses only generated or cached diagnostic audio, does not access the microphone, and does not submit interview answers or scoring data.
  */
-import { AvatarPlayer, PresentationController } from "/stream-demo/pixel-player.js";
+import { AvatarPlayer, PresentationController, loadAvatarConfiguration } from "/stream-demo/pixel-player.js";
 import { PCM16Resampler } from "/stream-demo/pcm-resampler.js";
 
 /** Read a diagnostic control by its unique ID. */
@@ -60,6 +61,7 @@ let activeId = null;
 let busy = false;
 let listeningTimers = [];
 let listeningPreviewId = null;
+let closed = false;
 const player = new AvatarPlayer(element("avatar"), onAvatar, onConnection);
 const presentation = new PresentationController({ send: sendPresentation, onStatus: presentationStatus, bootstrapIdle: false });
 
@@ -234,7 +236,7 @@ async function transcribe() {
     const bytes = new Uint8Array(samples.length * 2);
     const view = new DataView(bytes.buffer);
     samples.forEach(/** Encode one resampled sample as little-endian PCM16. */ (sample, index) => view.setInt16(index * 2, sample, true));
-    socket = new WebSocket(`ws://${location.host}/ws/speech/stt/`);
+    socket = new WebSocket(`${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/ws/speech/stt/`);
     let start;
     let finish;
     const started = new Promise(/** Keep the STT handshake promise's completion functions. */ (resolve, reject) => { start = {resolve, reject}; });
@@ -272,8 +274,19 @@ async function transcribe() {
   finally { socket?.close(); await context?.close(); controls(); }
 }
 
-/** Connect the official local avatar player. */
-element("connect").onclick = () => player.connect("ws://127.0.0.1:8889");
+/** Load approved settings and connect only after an explicit click; no model or microphone call. */
+element("connect").onclick = async () => {
+  if (closed) return;
+  element("connect").disabled = true;
+  try {
+    const configuration = await loadAvatarConfiguration();
+    if (closed) return;
+    if (!configuration.enabled) throw new Error("The interviewer renderer is not configured.");
+    element("signalling-url").textContent = configuration.signalling_url;
+    player.connect(configuration.signalling_url);
+  } catch (error) { onConnection(error.message); }
+  finally { element("connect").disabled = false; }
+};
 /** Run one explicit text-to-speech check. */
 element("speak").onclick = () => { void synthesize(); };
 /** Replay cached audio without an additional TTS call. */
@@ -288,4 +301,4 @@ element("apply-state").onclick = applyState;
 element("clear-expression").onclick = clearExpression;
 element("listening-preview").onclick = previewListening;
 /** Release the avatar connection when leaving the diagnostic page. */
-window.addEventListener("pagehide", () => { stopListeningPreview(); presentation.close(); player.close(); });
+window.addEventListener("pagehide", () => { closed = true; stopListeningPreview(); presentation.close(); player.close(); });
