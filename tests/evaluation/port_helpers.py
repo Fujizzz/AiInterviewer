@@ -21,11 +21,13 @@ def evaluation_output(prompt, data, schema):
             contradiction_evidence=[],
         )
     if schema is EvidenceExtraction:
-        text = data["answer"]["text"]
+        text = "".join(segment["text"] for segment in data["answer_segments"])
         return schema(
             evidence=[
                 dict(
-                    quote_spans=[dict(quote=text, char_start=0, char_end=len(text))],
+                    quote_spans=[
+                        dict(quote=text, segment_id=data["answer_segments"][0]["segment_id"])
+                    ],
                     normalized_claim=text,
                     evidence_kind="personal_action",
                     ownership_scope="personal",

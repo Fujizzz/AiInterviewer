@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from typing import Any
 from uuid import uuid4
@@ -15,6 +16,7 @@ from app.providers.llm import OpenAILLM, StructuredLLM
 from app.reporting.final_report import build_final_report
 from app.settings import interview_settings
 from app.tracing import TracedLLM
+from evaluation.assessment import assessed_report_context, update_display_history
 from shared.contracts import (
     CandidateAnswer,
     Competency,
@@ -69,143 +71,165 @@ class MVPInterviewApplication:
         read_answer: Callable[[str], str] = input,
         write: Callable[[str], None] = print,
     ) -> dict[str, Any]:
-        if duration_minutes < 1:
-            raise ValueError("duration_minutes must be positive")
-        if max_questions is not None and max_questions < 1:
-            raise ValueError("max_questions must be positive")
-        settings = interview_settings(
-            max_questions=max_questions,
-            max_questions_per_project=max_questions_per_project,
-            max_questions_per_topic=max_questions_per_topic,
-            max_follow_up_per_topic=max_follow_up_per_topic,
-        )
+        service = None
+        try:
+            if duration_minutes < 1:
+                raise ValueError("duration_minutes must be positive")
+            if max_questions is not None and max_questions < 1:
+                raise ValueError("max_questions must be positive")
+            settings = interview_settings(
+                max_questions=max_questions,
+                max_questions_per_project=max_questions_per_project,
+                max_questions_per_topic=max_questions_per_topic,
+                max_follow_up_per_topic=max_follow_up_per_topic,
+            )
 
-        interview_id = str(uuid4())
-        emit_trace(
-            "interview.started",
-            interview_id=interview_id,
-            duration_minutes=duration_minutes,
-            max_questions=settings.max_questions,
-            max_questions_per_project=settings.max_questions_per_project,
-            max_questions_per_topic=settings.max_questions_per_topic,
-            job_title=job_title,
-        )
-        candidate_profile, candidate_name = await parse_resume_profile(
-            resume_text,
-            llm=self.llm,
-            candidate_id=f"candidate-{interview_id}",
-        )
-        job_profile = JobProfile(
-            job_id=f"job-{interview_id}",
-            title=job_title,
-            competency_importance=DEFAULT_COMPETENCY_IMPORTANCE,
-        )
-        emit_trace("interview.settings", settings=settings.model_dump(mode="json"))
-        service = InterviewAgentService(
-            repository=self.repository,
-            evaluation=self.evaluation,
-            llm=self.agent_llm,
-            settings=settings,
-        )
-        duration_seconds = duration_minutes * 60
-        initialized = await service.initialize_interview(
-            InitializeInterviewRequest(
+            interview_id = str(uuid4())
+            emit_trace(
+                "interview.started",
                 interview_id=interview_id,
-                candidate_profile=candidate_profile,
-                job_profile=job_profile,
-                duration_seconds=duration_seconds,
-                enabled_stages=[InterviewStage.PROJECT_DEEP_DIVE],
-                planning_enabled=True,
+                duration_minutes=duration_minutes,
+                max_questions=settings.max_questions,
+                max_questions_per_project=settings.max_questions_per_project,
+                max_questions_per_topic=settings.max_questions_per_topic,
+                job_title=job_title,
             )
-        )
+            candidate_profile, candidate_name = await parse_resume_profile(
+                resume_text,
+                llm=self.llm,
+                candidate_id=f"candidate-{interview_id}",
+            )
+            job_profile = JobProfile(
+                job_id=f"job-{interview_id}",
+                title=job_title,
+                competency_importance=DEFAULT_COMPETENCY_IMPORTANCE,
+            )
+            emit_trace("interview.settings", settings=settings.model_dump(mode="json"))
+            service = InterviewAgentService(
+                repository=self.repository,
+                evaluation=self.evaluation,
+                llm=self.agent_llm,
+                settings=settings,
+                background_replanning=True,
+            )
+            duration_seconds = duration_minutes * 60
+            initialized = await service.initialize_interview(
+                InitializeInterviewRequest(
+                    interview_id=interview_id,
+                    candidate_profile=candidate_profile,
+                    job_profile=job_profile,
+                    duration_seconds=duration_seconds,
+                    enabled_stages=[InterviewStage.PROJECT_DEEP_DIVE],
+                    planning_enabled=True,
+                )
+            )
 
-        write(f"AI Interviewer started (Plan and Execute, {duration_minutes} minutes).")
-        history: list[dict[str, Any]] = []
-        action = await self._advance_non_question_actions(
-            service,
-            interview_id,
-            initialized.first_action,
-        )
-        while action.type == InterviewActionType.ASK_QUESTION:
-            question = action.question
-            if question is None or not question.text:
-                raise RuntimeError("Agent returned an ASK_QUESTION action without question text.")
-            write(f"\nQuestion {len(history) + 1} [{question.dialogue_action}]:")
-            write(question.text)
-            answer = read_answer("Your answer:\n> ").strip()
-            while not answer:
-                write("Please enter an answer (Ctrl+C to cancel).")
-                answer = read_answer("Your answer:\n> ").strip()
-
-            candidate_answer = CandidateAnswer(
-                interview_id=interview_id,
-                question_id=question.question_id,
-                answer_id=str(uuid4()),
-                text=answer,
-            )
-            evaluation_request = EvaluationRequest(
-                request_id=str(uuid4()),
-                interview_id=interview_id,
-                question=question,
-                answer=candidate_answer,
-            )
-            emit_trace("answer.received", answer=candidate_answer.model_dump(mode="json"))
-            feedback = await self.evaluation.evaluate(evaluation_request)
-            emit_trace("answer.evaluated", feedback=feedback.model_dump(mode="json"))
-            history.append(
-                {
-                    "question_id": question.question_id,
-                    "dialogue_action": question.dialogue_action,
-                    "parent_question_id": question.parent_question_id,
-                    "thread_id": question.thread_id,
-                    "project_id": question.project_id,
-                    "topic": question.topic,
-                    "difficulty": question.difficulty,
-                    "question": question.text,
-                    "answer": answer,
-                    "evaluation": feedback.model_dump(
-                        mode="json",
-                        include={
-                            "analysis",
-                            "dimensions",
-                            "answer_relevance",
-                            "evidence_strength",
-                            "evidence_ids",
-                        },
-                    ),
-                }
-            )
-            action = await service.apply_evaluation_feedback(
+            write(f"AI Interviewer started (Plan and Execute, {duration_minutes} minutes).")
+            history: list[dict[str, Any]] = []
+            action = await self._advance_non_question_actions(
+                service,
                 interview_id,
-                feedback,
-                answer=candidate_answer,
+                initialized.first_action,
             )
-            action = await self._advance_non_question_actions(service, interview_id, action)
+            while action.type == InterviewActionType.ASK_QUESTION:
+                question = action.question
+                if question is None or not question.text:
+                    raise RuntimeError(
+                        "Agent returned an ASK_QUESTION action without question text."
+                    )
+                write(f"\nQuestion {len(history) + 1} [{question.dialogue_action}]:")
+                write(question.text)
+                answer = (await asyncio.to_thread(read_answer, "Your answer:\n> ")).strip()
+                while not answer:
+                    write("Please enter an answer (Ctrl+C to cancel).")
+                    answer = (await asyncio.to_thread(read_answer, "Your answer:\n> ")).strip()
 
-        if action.type != InterviewActionType.FINISH:
-            raise RuntimeError(f"Interview stopped with unexpected action {action.type.value!r}.")
-        context = await self.repository.get_interview_context(interview_id)
-        report = await build_final_report(context, history, llm=self.llm)
-        return {
-            "interview_id": interview_id,
-            "candidate_name": candidate_name,
-            "candidate_profile": candidate_profile.model_dump(mode="json"),
-            "job_profile": job_profile.model_dump(mode="json"),
-            "topics": [project.name for project in candidate_profile.projects],
-            "question_history": history,
-            "interview_state": context.state.model_dump(mode="json"),
-            "interview_plan": context.plan.model_dump(mode="json"),
-            "plan_history": [item.model_dump(mode="json") for item in context.plan_history],
-            "topic_progress": {
-                key: value.model_dump(mode="json") for key, value in context.topic_progress.items()
-            },
-            "decision_logs": [
-                log.model_dump(mode="json")
-                for log in self.repository.decision_logs_for(interview_id)
-            ],
-            "interview_finished": context.state.status == "finished",
-            "final_report": report.model_dump(mode="json"),
-        }
+                candidate_answer = CandidateAnswer(
+                    interview_id=interview_id,
+                    question_id=question.question_id,
+                    answer_id=str(uuid4()),
+                    text=answer,
+                )
+                evaluation_request = EvaluationRequest(
+                    request_id=str(uuid4()),
+                    interview_id=interview_id,
+                    question=question,
+                    answer=candidate_answer,
+                )
+                emit_trace("answer.received", answer=candidate_answer.model_dump(mode="json"))
+                feedback = await self.evaluation.evaluate(evaluation_request)
+                emit_trace("answer.evaluated", feedback=feedback.model_dump(mode="json"))
+                history.append(
+                    {
+                        "question_id": question.question_id,
+                        "dialogue_action": question.dialogue_action,
+                        "parent_question_id": question.parent_question_id,
+                        "thread_id": question.thread_id,
+                        "project_id": question.project_id,
+                        "topic": question.topic,
+                        "difficulty": question.difficulty,
+                        "question": question.text,
+                        "answer": answer,
+                        "evaluation": feedback.model_dump(
+                            mode="json",
+                            include={
+                                "analysis",
+                                "dimensions",
+                                "answer_relevance",
+                                "evidence_strength",
+                                "evidence_ids",
+                                "analysis_status",
+                                "assessment_status",
+                            },
+                        ),
+                    }
+                )
+                action = await service.apply_evaluation_feedback(
+                    interview_id,
+                    feedback,
+                    answer=candidate_answer,
+                )
+                if hasattr(self.evaluation, "start_background"):
+                    self.evaluation.start_background(interview_id)
+                action = await self._advance_non_question_actions(service, interview_id, action)
+
+            if action.type != InterviewActionType.FINISH:
+                raise RuntimeError(
+                    f"Interview stopped with unexpected action {action.type.value!r}."
+                )
+            if hasattr(self.evaluation, "drain"):
+                await self.evaluation.drain(interview_id)
+            context = await self.repository.get_interview_context(interview_id)
+            if context.assessment_feedback_ids:
+                context = await assessed_report_context(self.repository, context)
+                update_display_history(history, context)
+            report = await build_final_report(context, history, llm=self.llm)
+            return {
+                "interview_id": interview_id,
+                "candidate_name": candidate_name,
+                "candidate_profile": candidate_profile.model_dump(mode="json"),
+                "job_profile": job_profile.model_dump(mode="json"),
+                "topics": [project.name for project in candidate_profile.projects],
+                "question_history": history,
+                "interview_state": context.state.model_dump(mode="json"),
+                "interview_plan": context.plan.model_dump(mode="json"),
+                "plan_history": [item.model_dump(mode="json") for item in context.plan_history],
+                "topic_progress": {
+                    key: value.model_dump(mode="json")
+                    for key, value in context.topic_progress.items()
+                },
+                "decision_logs": [
+                    log.model_dump(mode="json")
+                    for log in self.repository.decision_logs_for(interview_id)
+                ],
+                "interview_finished": context.state.status == "finished",
+                "final_report": report.model_dump(mode="json"),
+            }
+        finally:
+            if service is not None:
+                await service.close_background()
+            if hasattr(self.evaluation, "close"):
+                await self.evaluation.close()
 
     @staticmethod
     async def _advance_non_question_actions(

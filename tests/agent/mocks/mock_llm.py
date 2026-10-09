@@ -36,6 +36,24 @@ class MockLLMAdapter:
         if prompt_name == "question_quality_v1":
             return response_model.model_validate({"issues": []})
         self.calls.append((prompt_name, payload.copy()))
+        if prompt_name == "interview_planner_v1" and self._structured_payload is None:
+            return response_model.model_validate(
+                {
+                    "base_plan_version": payload["base_plan_version"],
+                    "topics": [
+                        {
+                            "project_id": item["project_id"],
+                            "topic_key": item["topic_key"],
+                            "objective": "Assess personal implementation of " + item["label"],
+                            "completion_criteria": "Concrete implementation and rationale",
+                            "relative_weight": 1.0,
+                            "depth": "standard",
+                        }
+                        for item in payload["eligible_topics"][:3]
+                    ],
+                    "reason": "Prioritize a few grounded goals for the remaining time",
+                }
+            )
         if prompt_name == "question_react_v1" and self._structured_payload is None:
             selection = selection_for(payload) if "dialogue_state" in payload else None
             text_payload = (

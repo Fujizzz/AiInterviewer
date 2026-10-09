@@ -73,7 +73,10 @@ async def test_tools_observations_then_final_preserve_plan_and_context():
     )
 
     assert result.stop_reason == "FINAL"
-    assert result.question.model_dump(exclude={"text"}) == question.model_dump(exclude={"text"})
+    assert result.question.model_dump(exclude={"text", "intent_id"}) == question.model_dump(
+        exclude={"text", "intent_id"}
+    )
+    assert result.question.intent_id == f"intent:{question.question_id}"
     history = llm.calls[1]["observations"][0]["result"]["entries"][0]
     assert history["answer"]["text"] == answer.text
     assert history["question"]["question_id"] == feedback.question_id

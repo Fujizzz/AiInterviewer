@@ -9,11 +9,12 @@ from agents.domain.models import (
     CommitTurnResult,
     InterviewContext,
 )
+from evaluation.background import MemoryShadowRepository, validate_shadow_job
 from evaluation.persistence import EvaluationRecord, validate_turn_evaluation
 from shared.contracts import InterviewAction, PlannedQuestion
 
 
-class InMemoryInterviewRepository:
+class InMemoryInterviewRepository(MemoryShadowRepository):
     """Publish complete Agent turns atomically and isolate interviews by ID."""
 
     def __init__(self) -> None:
@@ -85,6 +86,7 @@ class InMemoryInterviewRepository:
         saved_context.state = request.new_state.model_copy(deep=True)
         saved_context.state.state_version = current_version + 1
         saved_context.pending_evaluation = None
+        saved_context.pending_shadow_job = None
         if request.feedback_request_id is not None:
             saved_context.processed_feedback_ids = list(
                 dict.fromkeys([*stored.processed_feedback_ids, request.feedback_request_id])
@@ -108,8 +110,12 @@ class InMemoryInterviewRepository:
             self._evaluation_records.get(request.interview_id, []),
             self.questions.get(stored.state.current_question_id),
         )
+        shadow_job = validate_shadow_job(
+            request, stored, self.questions.get(stored.state.current_question_id)
+        )
         # No await occurs while publishing these values, so readers see all or none.
         self.contexts[request.interview_id] = saved_context
+        self.publish_shadow_job(shadow_job)
         if evaluation_record is not None:
             self._evaluation_records.setdefault(request.interview_id, []).append(evaluation_record)
         if saved_question is not None:

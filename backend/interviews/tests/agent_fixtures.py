@@ -30,6 +30,8 @@ establish real model capability and are not used by the production path.
 from unittest.mock import patch
 
 from agents.question.react import QuestionAgentDecision
+from app.adapters.assessment import AnswerAssessment, AnswerDecision
+from app.adapters.decision import CompactAnswerDecision
 from app.adapters.evaluation import AnswerEvidence
 from app.adapters.llm import GeneratedText
 from app.parsing.resume import ResumeExtraction
@@ -39,6 +41,7 @@ from interviews.agent_records import complete_request
 from interviews.agent_safety import make_output_receipt
 from shared.contracts.behavior import BehaviorAssessment
 from tests.agent.mocks.dialogue_output import plan_for, selection_for
+from tests.app.decision_fixtures import compact_output, legacy_data
 from tests.evaluation.port_helpers import SCHEMAS, evaluation_output
 
 RESUME = "Alex built a Python log analysis pipeline, tested malformed records with pytest."
@@ -145,6 +148,8 @@ class FixtureLLM:
         semantic quality.
         """
         # Scripted semantic pass; this fixture does not evaluate question quality.
+        if schema is CompactAnswerDecision:
+            return compact_output(self(prompt, legacy_data(data), AnswerDecision).model_dump())
         if schema.__name__ == "QuestionQualityReview":
             return schema(issues=[])
         self.calls.append(schema)
@@ -170,7 +175,7 @@ class FixtureLLM:
             plan = plan_for(data, selection) if selection else data["question_plan"]
             topic = str(plan["topic"]).rstrip(".,;:")
             output = {"text": f"What did you personally implement for {topic}, and why?"}
-        elif schema is AnswerEvidence:
+        elif schema in (AnswerEvidence, AnswerDecision, AnswerAssessment):
             output = {
                 "answer_relevance": 0.9,
                 "evidence_strength": 0.8,
@@ -200,6 +205,14 @@ class FixtureLLM:
             raise AssertionError(f"Unexpected schema: {schema.__name__}")
         if schema is QuestionAgentDecision:
             output.update(action="final", topic=None, limit=None, selection=selection)
+        if schema is AnswerDecision:
+            output = {
+                key: value
+                for key, value in output.items()
+                if key not in {"dimensions", "evidence_strength"}
+            }
+        elif schema is AnswerAssessment:
+            output = {key: output[key] for key in ("dimensions", "evidence_strength")}
         return schema.model_validate(output)
 
     def close(self):

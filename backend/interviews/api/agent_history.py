@@ -165,6 +165,9 @@ class AgentHistoryViewSet(
                 latest_action = {"type": "finish", "question": None}
                 progress = {key: result.get(key) for key in progress}
         questions = []
+        final_feedback = {
+            entry.get("question_id"): entry for entry in result.get("question_history", [])
+        }
         for question in interview.questions.select_related("answer"):
             checked_question = visible_questions.get(str(question.id))
             if checked_question is None:
@@ -181,6 +184,14 @@ class AgentHistoryViewSet(
                     ),
                     None,
                 )
+            final_entry = final_feedback.get(str(question.id))
+            if (
+                answer is not None
+                and final_entry is not None
+                and final_entry.get("answer") == answer.text
+            ):
+                # Only the already-approved final response may upgrade a pending assessment.
+                evaluation = final_entry.get("evaluation")
             questions.append(
                 {
                     "ordinal": question.ordinal,

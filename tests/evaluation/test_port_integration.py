@@ -411,7 +411,11 @@ async def test_shadow_concurrency_starts_both_engines_before_either_finishes():
 
 def test_rollout_switch_keeps_legacy_available_and_rejects_unreviewed_live_mode():
     application = MVPInterviewApplication(FixtureLLM(), evaluation_mode="legacy")
-    assert isinstance(application.evaluation, LLMEvaluationAdapter)
+    from app.adapters.assessment import RealtimeDecisionAdapter
+
+    assert isinstance(application.evaluation.legacy, RealtimeDecisionAdapter)
+    assert application.evaluation.formal is None
+    assert application.evaluation.assessment is not None
     with pytest.raises(ValueError, match="shadow or legacy"):
         MVPInterviewApplication(FixtureLLM(), evaluation_mode="formal")
 

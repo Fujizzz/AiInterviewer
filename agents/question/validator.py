@@ -18,6 +18,10 @@ _RUBRIC_LEAK_PATTERNS = (
 )
 
 _IMMUTABLE_FIELDS = (
+    "intent_id",
+    "objective_id",
+    "need_id",
+    "answer_unit",
     "dialogue_action",
     "parent_question_id",
     "thread_id",

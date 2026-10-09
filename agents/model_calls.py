@@ -23,6 +23,24 @@ class ModelCall:
 current_model_call: ContextVar[ModelCall | None] = ContextVar("model_call", default=None)
 
 
+class QuestionCallBudgetExhausted(RuntimeError):
+    pass
+
+
+@dataclass
+class QuestionCallBudget:
+    limit: int
+    used: int = 0
+
+    def consume(self):
+        if self.used >= self.limit:
+            raise QuestionCallBudgetExhausted("QUESTION_CALL_BUDGET_EXHAUSTED")
+        self.used += 1
+
+
+question_call_budget: ContextVar[QuestionCallBudget | None] = ContextVar("question_call_budget", default=None)
+
+
 def validation_issues(error, schema):
     """Describe schema locations and codes without output values or exception messages."""
     fields = set()
@@ -84,6 +102,11 @@ async def run_model_call(
     factory, *, operation, question_id=None, step=None, timeout_seconds, turn_deadline=None
 ):
     """A factory delays worker creation until the execution-local context is installed."""
+    budget = question_call_budget.get()
+    if budget is not None and operation in {
+        "question", "question_quality", "question_repeat_check", "question_issue_check"
+    }:
+        budget.consume()
     started = perf_counter()
     deadline = started + timeout_seconds
     scope = "model_call"

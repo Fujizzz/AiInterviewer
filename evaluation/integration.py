@@ -1,12 +1,21 @@
 """Apply Evaluation-owned projections; the Agent never recomputes scores."""
 
 from agents.domain.errors import StateConflictError
+from evaluation.background import DeferredShadowFeedback
 from evaluation.compatibility import apply_evidence
 from evaluation.persistence import EvaluatedFeedback
 from shared.contracts import CompetencyState
 
 
 def apply_evaluation(context, question, answer, feedback):
+    if isinstance(feedback, DeferredShadowFeedback):
+        context.pending_shadow_job = feedback.shadow_job
+        if feedback.shadow_job.assessment_requested:
+            context.assessment_feedback_ids = list(
+                dict.fromkeys([*context.assessment_feedback_ids, feedback.request_id])
+            )
+        apply_evidence(context, question, answer, feedback)
+        return
     if not isinstance(feedback, EvaluatedFeedback):
         # Silent skips intentionally bypass model evaluation. Keep their identities in
         # committed state so later scoring does not mistake them for lost evaluations.

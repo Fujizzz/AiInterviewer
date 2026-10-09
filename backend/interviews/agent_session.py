@@ -73,6 +73,7 @@ from app.application import DEFAULT_COMPETENCY_IMPORTANCE, MVPInterviewApplicati
 from app.parsing.resume import parse_resume_profile
 from app.reporting.final_report import build_final_report
 from app.settings import interview_settings
+from evaluation.assessment import assessed_report_context, update_display_history
 from shared.contracts import (
     AnswerAnalysis,
     CandidateAnswer,
@@ -213,6 +214,7 @@ class AgentSession:
             evaluation=self.app.evaluation,
             llm=self.app.agent_llm,
             settings=settings,
+            background_replanning=True,
         )
         async with self._stage("question_generation"):
             initialized = await self.service.initialize_interview(
@@ -297,6 +299,8 @@ class AgentSession:
                     "analysis",
                     "dimensions",
                     "evidence_ids",
+                    "analysis_status",
+                    "assessment_status",
                 },
             ),
         }
@@ -313,6 +317,8 @@ class AgentSession:
                 answer=answer if command.type != "skip" else None,
             )
         self.history.append(history_entry)
+        if hasattr(self.app.evaluation, "start_background"):
+            self.app.evaluation.start_background(self.interview_id)
         return await self._response()
 
     async def finish(self, command):
@@ -392,6 +398,11 @@ class AgentSession:
             }
         if self.action.type != InterviewActionType.FINISH:
             raise RuntimeError("Agent returned an unexpected action.")
+        if hasattr(self.app.evaluation, "drain"):
+            await self.app.evaluation.drain(self.interview_id)
+        if context.assessment_feedback_ids:
+            context = await assessed_report_context(self.app.repository, context)
+            update_display_history(self.history, context)
         if self.emit_event is not None:
             numeric = await build_final_report(context, self.history, llm=None)
             await self._emit(
@@ -454,6 +465,12 @@ class AgentSession:
                 "report_narrative_status": narrative_status,
             },
         }
+
+    async def close_background(self):
+        if getattr(self, "service", None) is not None:
+            await self.service.close_background()
+        if hasattr(self.app.evaluation, "close"):
+            await self.app.evaluation.close()
 
     def close(self):
         """Transfers cleanup request to model instances supporting close, without proactively

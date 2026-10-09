@@ -195,6 +195,15 @@ def read_io_snapshot(interview_id, request_id, owner_id):
             or context.state.state_version != record.state_version
         ):
             raise IOSafetyError("inconsistent interview state")
+        if context.state.status == "finished" and context.assessment_feedback_ids:
+            from evaluation.assessment import project_assessments
+
+            from .agent_repository import DjangoInterviewRepository
+
+            repository = DjangoInterviewRepository(interview_id)
+            context, _ = project_assessments(
+                context, repository._shadow_jobs(), repository._assessment_records()
+            )
     elif record.state_version != 0 or record.status != "preparing":
         raise IOSafetyError("missing interview state")
     return {

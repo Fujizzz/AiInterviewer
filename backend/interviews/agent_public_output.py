@@ -64,6 +64,8 @@ def public_question_history(history):
                     "evidence_strength",
                     "dimensions",
                     "evidence_ids",
+                    "analysis_status",
+                    "assessment_status",
                 )
                 if key in evaluation
             }

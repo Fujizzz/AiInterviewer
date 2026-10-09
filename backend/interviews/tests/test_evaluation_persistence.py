@@ -37,6 +37,7 @@ Variable Index:
 None
 """
 
+import asyncio
 import json
 from unittest.mock import patch
 from uuid import uuid4
@@ -45,6 +46,9 @@ from django.db import IntegrityError
 from django.test import TransactionTestCase
 
 from agents.domain.errors import InvalidAgentState, StateConflictError
+from app.adapters.assessment import AnswerDecision
+from app.adapters.evaluation import AnswerEvidence
+from app.adapters.rubric_evaluation import ShadowEvaluationAdapter
 from app.providers.llm import LLMError
 from evaluation.aggregator import replay_aggregation
 from evaluation.persistence import EvaluationRecord
@@ -53,7 +57,7 @@ from interviews.agent_records import discard_interview, reserve_request
 from interviews.agent_repository import DjangoInterviewRepository
 from interviews.agent_session import AgentSession
 from interviews.agent_socket import Answer, Finish, Skip, Start
-from interviews.evaluation_models import AgentEvaluation
+from interviews.evaluation_models import AgentAssessment, AgentEvaluation, AgentShadowJob
 
 from .agent_fixtures import ANSWER, RESUME, FixtureLLM, SafetyTestMixin, complete_fixture_request
 
@@ -65,9 +69,21 @@ class EvaluationPersistenceTests(SafetyTestMixin, TransactionTestCase):
     not online model quality. Intentional storage corruption is limited to each test database.
     """
 
-    async def start_session(self, count=3):
+    async def start_session(self, count=3, *, inline=False):
         """Reserve, start and approve an interview; return its session and initial response."""
-        session = AgentSession(llm=FixtureLLM())
+
+        class ContinuingFixtureLLM(FixtureLLM):
+            def __call__(self, prompt, data, schema):
+                result = super().__call__(prompt, data, schema)
+                if schema in (AnswerEvidence, AnswerDecision):
+                    result.analysis.thread_complete = False
+                    result.analysis.missing_information = ["How the fix was validated"]
+                return result
+
+        session = AgentSession(llm=ContinuingFixtureLLM())
+        if inline:
+            background = session.app.evaluation
+            session.app.evaluation = ShadowEvaluationAdapter(background.legacy, background.formal)
         command = Start(request_id=uuid4(), type="start", resume_text=RESUME, max_questions=count)
         await reserve_request(session.interview_id, command)
         result = await session.start(command)
@@ -83,6 +99,102 @@ class EvaluationPersistenceTests(SafetyTestMixin, TransactionTestCase):
             question_id=response["question"]["question_id"],
         )
 
+    async def test_delayed_capability_assessment_survives_restart_and_is_source_bound(self):
+        session, response = await self.start_session(count=8)
+        entered = asyncio.Event()
+        original = session.app.evaluation.assessment.assess
+
+        async def slow(_):
+            entered.set()
+            await asyncio.Event().wait()
+
+        try:
+            with patch.object(session.app.evaluation.assessment, "assess", slow):
+                first = self.command(response)
+                await reserve_request(session.interview_id, first)
+                response = await session.answer(first)
+                await complete_fixture_request(session.interview_id, first.request_id, response)
+                await entered.wait()
+                self.assertEqual(response["last_evaluation"]["assessment_status"], "pending")
+                second = self.command(response)
+                await reserve_request(session.interview_id, second)
+                response = await asyncio.wait_for(session.answer(second), 3)
+                await complete_fixture_request(session.interview_id, second.request_id, response)
+                self.assertEqual(await AgentAssessment.objects.acount(), 0)
+                await session.close_background()
+            fresh = DjangoInterviewRepository(session.interview_id)
+            before = await fresh.get_interview_context(session.interview_id)
+            jobs = await fresh.get_shadow_jobs(session.interview_id)
+            record = await original(jobs[0])
+            with self.assertRaises(InvalidAgentState):
+                await fresh.append_assessment_record(
+                    jobs[0], record.model_copy(update={"answer_id": "wrong"})
+                )
+            self.assertEqual(await AgentAssessment.objects.acount(), 0)
+            await fresh.append_assessment_record(jobs[0], record)
+            await fresh.append_assessment_record(jobs[0], record)
+            self.assertEqual(await AgentAssessment.objects.acount(), 1)
+            self.assertEqual(await fresh.get_interview_context(session.interview_id), before)
+            raw = await AgentAnswer.objects.aget(request_id=first.request_id)
+            self.assertEqual(raw.evaluation["assessment_status"], "pending")
+            from evaluation.assessment import assessed_report_context
+
+            projected = await assessed_report_context(fresh, before)
+            self.assertEqual(projected.state.competencies["ownership"].score, 3)
+            self.assertNotIn(record.answer_id, projected.unassessed_answer_ids)
+            self.assertEqual(projected.state.current_question_id, before.state.current_question_id)
+            self.assertEqual(projected.topic_progress, before.topic_progress)
+        finally:
+            await session.close_background()
+
+    async def test_background_shadow_allows_next_answer_and_resumes_after_cancellation(self):
+        """Persist pending jobs, advance SQL state, then resume scoring from a fresh repository."""
+        session, response = await self.start_session(count=8)
+        entered, release = asyncio.Event(), asyncio.Event()
+        original = session.app.evaluation.formal._score
+
+        async def slow(*args):
+            entered.set()
+            await release.wait()
+            return await original(*args)
+
+        try:
+            with patch.object(session.app.evaluation.formal, "_score", slow):
+                first = self.command(response)
+                await reserve_request(session.interview_id, first)
+                response = await session.answer(first)
+                await complete_fixture_request(session.interview_id, first.request_id, response)
+                await asyncio.wait_for(entered.wait(), 2)
+                second = self.command(response)
+                await reserve_request(session.interview_id, second)
+                response = await asyncio.wait_for(session.answer(second), 3)
+                await complete_fixture_request(session.interview_id, second.request_id, response)
+                self.assertEqual(await AgentEvaluation.objects.acount(), 0)
+                self.assertEqual(await AgentShadowJob.objects.acount(), 2)
+                before = await session.app.repository.get_interview_context(session.interview_id)
+                await session.close_background()
+            session.app.evaluation.formal.repository = DjangoInterviewRepository(
+                session.interview_id
+            )
+            self.assertTrue(
+                await session.app.evaluation.drain(session.interview_id, timeout_seconds=3)
+            )
+            records = await session.app.repository.get_evaluation_records(session.interview_id)
+            self.assertEqual(
+                [r.input.request_id for r in records],
+                [str(first.request_id), str(second.request_id)],
+            )
+            self.assertTrue(all(r.scored.evaluation.status == "completed" for r in records))
+            self.assertEqual(
+                await session.app.repository.get_interview_context(session.interview_id), before
+            )
+            self.assertEqual(
+                records[1].scored.aggregation.inputs.supersedes_snapshot_id,
+                records[0].scored.evaluation.score_snapshot.snapshot_id,
+            )
+        finally:
+            await session.close_background()
+
     async def test_complete_ledger_replays_after_repository_restart_and_is_private(self):
         """Commit two answers, reload/replay receipts, and assert public APIs contain no ledger."""
         session, response = await self.start_session()
@@ -91,6 +203,7 @@ class EvaluationPersistenceTests(SafetyTestMixin, TransactionTestCase):
             command = self.command(response)
             await reserve_request(session.interview_id, command)
             response = await session.answer(command)
+            await session.app.evaluation.drain(session.interview_id)
             await complete_fixture_request(session.interview_id, command.request_id, response)
             fresh = DjangoInterviewRepository(session.interview_id)
             records = await fresh.get_evaluation_records(session.interview_id)
@@ -142,7 +255,9 @@ class EvaluationPersistenceTests(SafetyTestMixin, TransactionTestCase):
             self.assertRaises(StateConflictError),
         ):
             await session.answer(command)
+            await session.app.evaluation.drain(session.interview_id)
         self.assertEqual(await AgentEvaluation.objects.acount(), 0)
+        self.assertEqual(await AgentShadowJob.objects.acount(), 0)
         self.assertEqual(
             await session.app.repository.get_interview_context(session.interview_id), before
         )
@@ -160,6 +275,7 @@ class EvaluationPersistenceTests(SafetyTestMixin, TransactionTestCase):
             session.app.evaluation.formal.service._judge, "judge", side_effect=LLMError("private")
         ):
             response = await session.answer(command)
+            await session.app.evaluation.drain(session.interview_id)
         await complete_fixture_request(session.interview_id, command.request_id, response)
         row = await AgentEvaluation.objects.aget(feedback_request_id=command.request_id)
         self.assertIsNone(row.snapshot_id)
@@ -170,6 +286,7 @@ class EvaluationPersistenceTests(SafetyTestMixin, TransactionTestCase):
         next_command = self.command(response)
         await reserve_request(session.interview_id, next_command)
         await session.answer(next_command)
+        await session.app.evaluation.drain(session.interview_id)
         row2 = await AgentEvaluation.objects.aget(feedback_request_id=next_command.request_id)
         next_record = EvaluationRecord.model_validate(row2.payload)
         self.assertEqual(
@@ -180,7 +297,7 @@ class EvaluationPersistenceTests(SafetyTestMixin, TransactionTestCase):
 
     async def test_stale_base_version_is_rejected_even_when_turn_cas_is_fresh(self):
         """Submit a stale receipt under a fresh turn CAS; neither context nor ledger may change."""
-        session, first = await self.start_session()
+        session, first = await self.start_session(inline=True)
         command = self.command(first)
         await reserve_request(session.interview_id, command)
         original = session.app.repository.commit_turn
@@ -198,6 +315,7 @@ class EvaluationPersistenceTests(SafetyTestMixin, TransactionTestCase):
             with self.assertRaises(StateConflictError):
                 await session.answer(command)
         self.assertEqual(await AgentEvaluation.objects.acount(), 0)
+        self.assertEqual(await AgentShadowJob.objects.acount(), 0)
         self.assertEqual(
             await session.app.repository.get_interview_context(session.interview_id), before
         )
@@ -208,6 +326,7 @@ class EvaluationPersistenceTests(SafetyTestMixin, TransactionTestCase):
         command = self.command(first)
         await reserve_request(session.interview_id, command)
         await session.answer(command)
+        await session.app.evaluation.drain(session.interview_id)
         context = await session.app.repository.get_interview_context(session.interview_id)
         entry = context.question_history[-1]
         expected = await session.app.repository.get_processed_feedback_action(
@@ -221,7 +340,7 @@ class EvaluationPersistenceTests(SafetyTestMixin, TransactionTestCase):
 
     async def test_omitted_receipt_cannot_commit_a_partial_turn(self):
         """Drop the pending receipt before commit and assert no partial feedback is persisted."""
-        session, first = await self.start_session()
+        session, first = await self.start_session(inline=True)
         command = self.command(first)
         await reserve_request(session.interview_id, command)
         original = session.app.repository.commit_turn
@@ -245,6 +364,7 @@ class EvaluationPersistenceTests(SafetyTestMixin, TransactionTestCase):
         command = self.command(first)
         await reserve_request(session.interview_id, command)
         await session.answer(command)
+        await session.app.evaluation.drain(session.interview_id)
         row = await AgentEvaluation.objects.aget(feedback_request_id=command.request_id)
         row.payload["base_state_version"] += 1
         # Deliberately bypass the append-only repository to simulate storage corruption.
@@ -268,6 +388,7 @@ class EvaluationPersistenceTests(SafetyTestMixin, TransactionTestCase):
         with patch.object(session.app.repository, "accept_answer", corrupt):
             with self.assertRaises(InvalidAgentState):
                 await session.answer(command)
+                await session.app.evaluation.drain(session.interview_id)
         self.assertEqual(await AgentEvaluation.objects.acount(), 0)
         self.assertIsNone(
             (await AgentAnswer.objects.aget(request_id=command.request_id)).evaluation
@@ -285,12 +406,17 @@ class EvaluationPersistenceTests(SafetyTestMixin, TransactionTestCase):
                 command = self.command(response)
                 await reserve_request(session.interview_id, command)
                 response = await session.answer(command)
+                await session.app.evaluation.drain(session.interview_id)
                 await complete_fixture_request(session.interview_id, command.request_id, response)
                 before = await session.app.repository.get_evaluation_records(session.interview_id)
                 finish = Finish(
-                    request_id=uuid4(), type="finish",
-                    **({"question_id": response["question"]["question_id"], "answer_text": ANSWER}
-                       if include_answer else {}),
+                    request_id=uuid4(),
+                    type="finish",
+                    **(
+                        {"question_id": response["question"]["question_id"], "answer_text": ANSWER}
+                        if include_answer
+                        else {}
+                    ),
                 )
                 await reserve_request(session.interview_id, finish)
                 finished = await session.finish(finish)
@@ -318,6 +444,7 @@ class EvaluationPersistenceTests(SafetyTestMixin, TransactionTestCase):
         await reserve_request(session.interview_id, command)
         with patch.object(session.app.evaluation, "evaluate", side_effect=AssertionError("skip")):
             response = await session.answer(command)
+            await session.app.evaluation.drain(session.interview_id)
         await complete_fixture_request(session.interview_id, command.request_id, response)
         self.assertEqual(await AgentEvaluation.objects.acount(), 0)
         raw = await AgentInterview.objects.aget(id=session.interview_id)
@@ -328,6 +455,7 @@ class EvaluationPersistenceTests(SafetyTestMixin, TransactionTestCase):
         answer = self.command(response)
         await reserve_request(session.interview_id, answer)
         await session.answer(answer)
+        await session.app.evaluation.drain(session.interview_id)
         records = await session.app.repository.get_evaluation_records(session.interview_id)
         self.assertEqual(len(records), 1)
         self.assertEqual(records[0].scored.evaluation.status, "completed")
@@ -343,13 +471,17 @@ class EvaluationPersistenceTests(SafetyTestMixin, TransactionTestCase):
         command = self.command(response)
         await reserve_request(session.interview_id, command)
         await session.answer(command)
+        await session.app.evaluation.drain(session.interview_id)
         row = await AgentEvaluation.objects.aget(interview_id=session.interview_id)
         await discard_interview(session.interview_id, owner_id=987654)
         self.assertTrue(await AgentEvaluation.objects.filter(id=row.id).aexists())
-        with patch(
-            "interviews.agent_records.AgentAnswer.objects.filter",
-            side_effect=IntegrityError("injected after scoring delete"),
-        ), self.assertRaises(IntegrityError):
+        with (
+            patch(
+                "interviews.agent_records.AgentAnswer.objects.filter",
+                side_effect=IntegrityError("injected after scoring delete"),
+            ),
+            self.assertRaises(IntegrityError),
+        ):
             await discard_interview(session.interview_id, owner_id=None)
         self.assertEqual((await AgentEvaluation.objects.aget(id=row.id)).payload, row.payload)
         self.assertTrue(await AgentTurn.objects.filter(interview_id=session.interview_id).aexists())

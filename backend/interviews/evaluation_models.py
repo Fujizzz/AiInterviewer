@@ -18,12 +18,54 @@ from django.db import models
 from django.db.models import F, Q
 
 
+class AgentShadowJob(models.Model):
+    """Immutable source snapshot saved atomically with legacy feedback for deferred scoring."""
+
+    interview = models.ForeignKey(
+        "AgentInterview", related_name="shadow_jobs", on_delete=models.CASCADE
+    )
+    answer = models.OneToOneField(
+        "AgentAnswer", related_name="shadow_job", on_delete=models.PROTECT
+    )
+    feedback_request = models.OneToOneField(
+        "AgentRequest", related_name="shadow_job", on_delete=models.PROTECT
+    )
+    base_state_version = models.PositiveIntegerField()
+    committed_state_version = models.PositiveIntegerField()
+    payload = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["committed_state_version"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["interview", "committed_state_version"], name="shadow_job_turn_version"
+            ),
+            models.CheckConstraint(
+                condition=Q(committed_state_version=F("base_state_version") + 1),
+                name="shadow_job_base_version",
+            ),
+        ]
+
+
+class AgentAssessment(models.Model):
+    """Deferred legacy capability assessment, independent of live dialogue state."""
+
+    job = models.OneToOneField(AgentShadowJob, related_name="assessment", on_delete=models.CASCADE)
+    payload = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["job__committed_state_version"]
+
+
 class AgentEvaluation(models.Model):
     """Persist a versioned scoring payload; source rows cannot be deleted while it exists.
 
     The repository validates payload identity and replay before insertion. Foreign keys and
     version constraints enforce relational identity; this model performs no scoring itself.
     """
+
     interview = models.ForeignKey(
         "AgentInterview", related_name="evaluations", on_delete=models.CASCADE
     )
@@ -41,6 +83,7 @@ class AgentEvaluation(models.Model):
 
     class Meta:
         """Read in commit order, with one receipt per interview version and CAS increment of one."""
+
         ordering = ["committed_state_version"]
         constraints = [
             models.UniqueConstraint(

@@ -41,6 +41,10 @@ agent:
   retries:
     llm_generation_retries: 3
     state_conflict_recomputations: 1
+  planning:
+    timeout_seconds: 30.0
+    replan_cooldown_questions: 2
+    minimum_question_seconds: 30
   question_agent:
     enabled: true
     quality_timeout_seconds: 20.0

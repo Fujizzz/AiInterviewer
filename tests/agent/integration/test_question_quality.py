@@ -12,7 +12,13 @@ import pytest
 from agents.config import load_agent_settings
 from agents.domain.models import InterviewHistoryEntry
 from agents.orchestrator import InterviewAgentService
-from agents.question.quality import QuestionQualityGate, QuestionQualityReview, followup_brief
+from agents.question.quality import (
+    QuestionQualityGate,
+    GroundingAdjudication,
+    QuestionQualityReview,
+    ReviewEvidenceError,
+    followup_brief,
+)
 from agents.question.react import ReactQuestionAgent
 from agents.question.validator import QuestionValidator
 from tests.agent.integration.test_question_pipeline_integration import pipeline_request
@@ -20,25 +26,84 @@ from tests.agent.integration.test_question_react import decision, seed
 from tests.agent.mocks import InMemoryRepository
 from tests.agent.mocks.dialogue_output import selection_for
 
+DEFAULT_DRAFT = (
+    "In this project, describe the implementation change and measured impact, such as caching?"
+)
+
+
+def supported_review(code, instruction="Ask only for the personally handled part."):
+    """Scripted semantic verdict with independently checkable source spans."""
+    actions = {
+        "OVERLOADED_QUESTION": "focus_primary_request",
+        "INTERNAL_RULE_LEAK": "rephrase_within_intent",
+        "UNSUPPORTED_PREMISE": "remove_unfounded_premise",
+        "TOPIC_MISMATCH": "restore_intent",
+        "ANSWER_HINT": "remove_hint",
+    }
+    issue = {
+        "code": code,
+        "instruction": instruction,
+        "question_quote": DEFAULT_DRAFT,
+        "repair_action": actions[code],
+    }
+    if code == "TOPIC_MISMATCH":
+        issue.update(
+            scope_relation="outside_target", actual_request="A different implementation target"
+        )
+    return {
+        "issues": [issue],
+        "answer_units": [
+            {
+                "request": "implementation change",
+                "quote": "implementation change",
+                "relation": "independent_output",
+            },
+            {
+                "request": "measured impact",
+                "quote": "measured impact",
+                "relation": "independent_output",
+            },
+        ]
+        if code == "OVERLOADED_QUESTION"
+        else [],
+    }
+
 
 class ReviewedModel:
     def __init__(self, reviews, drafts=None, delay=0):
         self.reviews = list(reviews)
-        self.drafts = list(drafts or ["What part of this project did you personally handle?"] * 4)
+        self.drafts = list(drafts or [DEFAULT_DRAFT,
+            "In this project, explain the implementation change?",
+            "In this project, which concrete implementation change did you make?",
+            "What implementation change did you personally make in this project?"])
+        self.last_draft = DEFAULT_DRAFT
         self.calls = []
         self.delay = delay
 
     async def generate_structured(self, *, prompt_name, payload, response_model):
         self.calls.append((prompt_name, deepcopy(payload)))
+        if response_model is GroundingAdjudication:
+            return response_model(checks=[dict(
+                issue_index=item["issue_index"], verdict="confirmed",
+                relation="suggested_answer" if item["code"] == "ANSWER_HINT" else "unestablished_experience",
+                request_quote=payload["question"], reason="Scripted supported finding",
+                premise_basis="new_assertion" if item["code"] == "UNSUPPORTED_PREMISE" else None,
+                asserted_fact_quote="implementation change" if item["code"] == "UNSUPPORTED_PREMISE" else "",
+            ) for item in payload["issues"]])
         if response_model is QuestionQualityReview:
             await asyncio.sleep(self.delay)
             review = self.reviews.pop(0)
             if isinstance(review, BaseException):
                 raise review
+            review = deepcopy(review)
+            for issue in review.get("issues", []):
+                if issue.get("question_quote") == DEFAULT_DRAFT:
+                    issue["question_quote"] = self.last_draft
             return response_model.model_validate(review)
+        self.last_draft = self.drafts.pop(0)
         return response_model.model_validate(
             decision(
-                text=self.drafts.pop(0),
+                text=self.last_draft,
                 selection=selection_for(payload) if "dialogue_state" in payload else None,
             )
         )
@@ -48,7 +113,6 @@ class ReviewedModel:
 @pytest.mark.parametrize(
     "code",
     [
-        "SEMANTIC_REPEAT",
         "OVERLOADED_QUESTION",
         "INTERNAL_RULE_LEAK",
         "UNSUPPORTED_PREMISE",
@@ -59,12 +123,7 @@ class ReviewedModel:
 async def test_review_revision_is_delivered_and_only_one_question_is_committed(code):
     model = ReviewedModel(
         [
-            {
-                "answer_requests": ["implementation", "measured impact"],
-                "issues": [
-                    {"code": code, "instruction": "Ask only for the personally handled part."}
-                ],
-            },
+            supported_review(code),
             {"issues": []},
         ]
     )
@@ -73,13 +132,16 @@ async def test_review_revision_is_delivered_and_only_one_question_is_committed(c
         pipeline_request()
     )
     assert response.first_action.decision_trace.details["generation_reason"] == "LLM_REPAIRED"
-    assert [name for name, _ in model.calls] == [
+    expected = [
         "question_react_v1",
         "question_quality_v1",
         "question_react_v1",
         "question_quality_v1",
     ]
-    repair = model.calls[2][1]
+    if code in {"ANSWER_HINT", "UNSUPPORTED_PREMISE"}:
+        expected.insert(2, "question_issue_check_v1")
+    assert [name for name, _ in model.calls] == expected
+    repair = next(p for n, p in model.calls[2:] if n == "question_react_v1")
     assert repair["repair_errors"] == [code]
     assert (
         repair["quality_feedback"][0]["instruction"] == "Ask only for the personally handled part."
@@ -96,7 +158,7 @@ async def test_review_revision_is_delivered_and_only_one_question_is_committed(c
 
 @pytest.mark.asyncio
 async def test_three_repairs_exhausted_then_fallback_without_a_fifth_generation_or_review():
-    issue = {"issues": [{"code": "SEMANTIC_REPEAT", "instruction": "Narrow the request."}]}
+    issue = supported_review("TOPIC_MISMATCH")
     model = ReviewedModel([issue] * 4)
     repository = InMemoryRepository()
     result = await InterviewAgentService(repository=repository, llm=model).initialize_interview(
@@ -120,8 +182,10 @@ async def test_missing_or_failed_review_never_publishes_unchecked_draft(failure)
     result = await InterviewAgentService(repository=repository, llm=model).initialize_interview(
         pipeline_request()
     )
-    assert len(model.calls) == 5  # One draft, four attempts to review the same draft.
-    assert all(payload == model.calls[1][1] for _, payload in model.calls[1:])
+    assert len(model.calls) == 3  # Same failure stops after one corrective review attempt.
+    assert all(payload["candidate_question"] == model.calls[1][1]["candidate_question"] for _, payload in model.calls[1:])
+    if failure == {}:
+        assert model.calls[2][1]["review_feedback"]["status"] == "REVIEW_INVALID"
     assert (
         result.first_action.decision_trace.details["question_agent_stop_reason"]
         == "QUALITY_UNAVAILABLE"
@@ -150,7 +214,7 @@ async def test_review_timeout_and_cancellation_do_not_publish_draft(total, revie
 @pytest.mark.parametrize(
     "failure",
     [
-        {"issues": [{"code": "SEMANTIC_REPEAT", "instruction": "Narrow the request."}]},
+        supported_review("TOPIC_MISMATCH"),
         RuntimeError("review unavailable"),
     ],
 )
@@ -161,11 +225,11 @@ async def test_third_repair_can_pass_without_adding_interview_questions(failure)
         pipeline_request()
     )
     review_failure = isinstance(failure, RuntimeError)
-    assert len(model.calls) == (5 if review_failure else 8)
+    assert len(model.calls) == (3 if review_failure else 8)
     assert result.first_action.decision_trace.details["generation_reason"] == (
-        "LLM_GENERATED" if review_failure else "LLM_REPAIRED"
+        "SAME_INTENT_FALLBACK_UNREVIEWED" if review_failure else "LLM_REPAIRED"
     )
-    assert not repository.decision_logs[-1].fallback_used
+    assert repository.decision_logs[-1].fallback_used == review_failure
     assert len(repository.questions) == 1
 
 
@@ -173,11 +237,7 @@ async def test_third_repair_can_pass_without_adding_interview_questions(failure)
 async def test_long_review_note_is_retained_without_retrying_generation():
     model = ReviewedModel(
         [
-            {
-                "issues": [
-                    {"code": "TOPIC_MISMATCH", "instruction": "Use the selected topic. " * 100}
-                ]
-            },
+            supported_review("TOPIC_MISMATCH", "Use the selected topic. " * 100),
             {"issues": []},
         ]
     )
@@ -195,7 +255,7 @@ async def test_long_review_note_is_retained_without_retrying_generation():
 
 @pytest.mark.asyncio
 async def test_review_outage_and_content_repair_share_one_bounded_budget():
-    issue = {"issues": [{"code": "TOPIC_MISMATCH", "instruction": "Ask about the selected topic."}]}
+    issue = supported_review("TOPIC_MISMATCH", "Ask about the selected topic.")
     model = ReviewedModel([RuntimeError("outage"), issue, RuntimeError("outage"), {"issues": []}])
     repository = InMemoryRepository()
     result = await InterviewAgentService(repository=repository, llm=model).initialize_interview(
@@ -242,14 +302,24 @@ def test_auxiliary_length_normalization_does_not_relax_control_fields():
     ],
 )
 async def test_overload_requires_multiple_independent_answer_requests(requests, expected):
-    issue = {"code": "OVERLOADED_QUESTION", "instruction": "Ask for one concrete detail first."}
-    model = ReviewedModel([{"issues": [issue], "answer_requests": requests}, {"issues": []}])
+    review = supported_review("OVERLOADED_QUESTION")
+    review["answer_units"] = [
+        {
+            "request": request,
+            "quote": ("implementation change", "measured impact")[index % 2],
+            "relation": "independent_output",
+        }
+        for index, request in enumerate(requests)
+    ]
+    model = ReviewedModel([review, {"issues": []}])
     repository = InMemoryRepository()
     result = await InterviewAgentService(repository=repository, llm=model).initialize_interview(
         pipeline_request()
     )
     assert result.first_action.decision_trace.details["generation_reason"] == expected
-    assert len(model.calls) == (2 if expected == "LLM_GENERATED" else 4)
+    assert len(model.calls) == (3 if expected == "LLM_GENERATED" else 4)
+    if expected == "LLM_GENERATED":
+        assert model.calls[2][1]["review_feedback"]["status"] == "REVIEW_INVALID"
     assert len(repository.questions) == 1
 
 
@@ -266,7 +336,8 @@ def test_single_answer_does_not_cancel_other_blocking_findings():
             ],
         }
     )
-    assert [issue.code for issue in review.consistent_verdict().issues] == ["TOPIC_MISMATCH"]
+    with pytest.raises(ReviewEvidenceError):
+        review.consistent_verdict()
     assert len(review.issues) == 2  # Original provider result remains available for diagnostics.
 
 
@@ -278,10 +349,9 @@ async def test_missing_overload_basis_retries_review_instead_of_passing_draft():
     result = await InterviewAgentService(repository=repository, llm=model).initialize_interview(
         pipeline_request()
     )
-    assert len(model.calls) == 5
+    assert len(model.calls) == 3
     assert (
-        result.first_action.decision_trace.details["question_agent_stop_reason"]
-        == "QUALITY_UNAVAILABLE"
+        result.first_action.decision_trace.details["question_agent_stop_reason"] == "REVIEW_INVALID"
     )
     assert repository.decision_logs[-1].fallback_used
 

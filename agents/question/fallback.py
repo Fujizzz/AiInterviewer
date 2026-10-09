@@ -35,6 +35,18 @@ def _resume_label(value: str, *, words: int, chars: int) -> str:
 
 
 class FallbackQuestionPolicy:
+    def apply_locked(self, plan: PlannedQuestion, *, project=None) -> PlannedQuestion:
+        """Simplify wording without silently replacing the information target.
+
+        This deterministic recovery is explicitly unreviewed; callers must block it
+        when the target itself has a proven repetition or unsupported premise.
+        """
+        name = _resume_label(project.name, words=30, chars=200) if project else "this project"
+        # answer_unit may only be a type label such as "mechanism" or "component".
+        goal = plan.information_goal.strip().rstrip("?？.。")
+        text = f'In your work on "{name}", could you explain the following: {goal}?'
+        return plan.model_copy(update={"text": text})
+
     def prepare_plan(self, plan: PlannedQuestion, interview) -> PlannedQuestion:
         """Choose a modest recovery target, never infer it from diagnostic keywords.
 

@@ -144,7 +144,10 @@ function renderHistoryDetail(detail) {
     const evaluation = turn.answer?.evaluation;
     if (!evaluation) historyParagraph(article, reviewText("unevaluated"), "history-meta");
     else {
-      historyParagraph(article, `${reviewText("relevance")}: ${evaluation.answer_relevance} · ${reviewText("evidence")}: ${evaluation.evidence_strength}`, "history-meta");
+      const assessment = evaluation.assessment_status === "pending" ? reviewText("assessment_pending")
+        : evaluation.assessment_status === "unavailable" ? reviewText("assessment_unavailable")
+          : `${reviewText("evidence")}: ${evaluation.evidence_strength}`;
+      historyParagraph(article, `${reviewText("relevance")}: ${evaluation.answer_relevance} · ${assessment}`, "history-meta");
       if (evaluation.analysis?.summary) historyParagraph(article, evaluation.analysis.summary);
       for (const [key, title] of [["missing_information", "missing"], ["contradictions", "contradictions"], ["uncertainties", "uncertainties"]]) {
         if (evaluation.analysis?.[key]?.length) historyParagraph(article, `${reviewText(title)}: ${evaluation.analysis[key].join("; ")}`);

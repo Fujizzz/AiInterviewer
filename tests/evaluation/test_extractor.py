@@ -32,7 +32,7 @@ async def test_atomic_claims_multispans_and_program_owned_identity(
         assert item.question_id == phase_two_input.question.question_id
         assert item.thread_id == phase_two_input.question.thread_id
         assert item.project_id == phase_two_input.question.project_id
-        assert item.extraction_version == "extractor-1.0.0"
+        assert item.extraction_version == "extractor-1.1.0"
         assert item.relation == "new" and not item.related_evidence_ids
         assert item.independence_group_id is None
 
@@ -51,10 +51,9 @@ async def test_invalid_evidence_fails_whole_batch_without_repair(
             "resume": "Reduced GPU memory usage",
             "history": "I did not change the model weights.",
         }[problem]
-        draft["quote_spans"] = [dict(quote=quote, char_start=0, char_end=len(quote))]
+        draft["quote_spans"] = [dict(quote=quote, segment_id="answer-current:s0")]
     elif problem == "offset":
-        draft["quote_spans"][0]["char_start"] += 1
-        draft["quote_spans"][0]["char_end"] += 1
+        draft["quote_spans"][0]["segment_id"] = "historical-answer:s0"
     elif problem == "overlap":
         draft["quote_spans"] *= 2
     else:
@@ -96,10 +95,10 @@ async def test_duplicate_items_are_rejected(phase_two_input, extraction_payload)
 
 async def test_unicode_whitespace_offsets_are_preserved(phase_two_request):
     text = "序🙂 我排查\n 日志。"
-    quote = " 我排查\n "
+    quote = " 我排查\n"
     phase_two_request.answer.text = text
     draft = dict(
-        quote_spans=[dict(quote=quote, char_start=2, char_end=8)],
+        quote_spans=[dict(quote=quote, segment_id="answer-current:s0")],
         normalized_claim="我排查日志",
         evidence_kind="personal_action",
         ownership_scope="personal",
@@ -110,11 +109,55 @@ async def test_unicode_whitespace_offsets_are_preserved(phase_two_request):
     items = await EvidenceExtractor(lambda prompt, data, schema: schema(evidence=[draft])).extract(
         context
     )
-    assert items[0].quote_spans[0].quote == quote
-    draft["quote_spans"][0].update(char_start=3, char_end=9)  # Incorrect UTF-16 offset.
+    assert "".join(s.quote for s in items[0].quote_spans) == quote
+    assert items[0].quote_spans[0].char_start == 2
+    assert items[0].quote_spans[-1].char_end == 7
+
+
+async def test_repeated_quote_requires_unambiguous_source(phase_two_request):
+    phase_two_request.answer.text = "I implemented a cache. I implemented a cache."
+    draft = dict(
+        quote_spans=[dict(quote="I implemented a cache.", segment_id="answer-current:s0")],
+        normalized_claim="Implemented a cache",
+        evidence_kind="personal_action",
+        ownership_scope="personal",
+        factuality="reported_experience",
+        specificity="concrete",
+    )
     with pytest.raises(EvaluationStageError, match="invalid_evidence"):
-        await EvidenceExtractor(lambda prompt, data, schema: schema(evidence=[draft])).extract(
-            context
+        await EvidenceExtractor(lambda p, d, s: s(evidence=[draft])).extract(
+            EvaluationInput.from_request(phase_two_request)
+        )
+
+
+async def test_segment_identity_resolves_repeated_text_across_windows(phase_two_request):
+    prefix = "I implemented a cache."
+    phase_two_request.answer.text = prefix + " " * (599 - len(prefix)) + "\n" + prefix
+    draft = dict(
+        quote_spans=[dict(quote="I implemented a cache.", segment_id="answer-current:s1")],
+        normalized_claim="Implemented a cache",
+        evidence_kind="personal_action",
+        ownership_scope="personal",
+        factuality="reported_experience",
+        specificity="concrete",
+    )
+    items = await EvidenceExtractor(lambda p, d, s: s(evidence=[draft])).extract(
+        EvaluationInput.from_request(phase_two_request)
+    )
+    assert items[0].quote_spans[0].char_start == 600
+
+
+def test_model_cannot_supply_offsets():
+    with pytest.raises(ValidationError):
+        EvidenceDraft.model_validate(
+            dict(
+                quote_spans=[dict(quote="action", segment_id="a:s0", char_start=0, char_end=6)],
+                normalized_claim="action",
+                evidence_kind="personal_action",
+                ownership_scope="personal",
+                factuality="reported_experience",
+                specificity="concrete",
+            )
         )
 
 
@@ -149,12 +192,12 @@ async def test_non_answer_fragment_cannot_be_laundered_into_evidence(
     phase_two_request.answer.text = quote + ". I implemented a cache."
     extraction_payload["evidence"] = [extraction_payload["evidence"][0]]
     extraction_payload["evidence"][0]["quote_spans"] = [
-        dict(quote=quote, char_start=0, char_end=len(quote))
+        dict(quote=quote, segment_id="answer-current:s0")
     ]
     with pytest.raises(EvaluationStageError, match="invalid_evidence"):
-        await EvidenceExtractor(
-            lambda prompt, data, schema: schema(**extraction_payload)
-        ).extract(EvaluationInput.from_request(phase_two_request))
+        await EvidenceExtractor(lambda prompt, data, schema: schema(**extraction_payload)).extract(
+            EvaluationInput.from_request(phase_two_request)
+        )
 
 
 @pytest.mark.parametrize(

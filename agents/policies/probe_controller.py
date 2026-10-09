@@ -19,7 +19,14 @@ class ProbeController:
             and history
             and history[-1].question.question_id == context.state.current_question_id
         ):
-            analysis = history[-1].feedback.analysis
+            feedback = history[-1].feedback
+            if feedback.analysis_status != "valid":
+                return ProbeDecision(
+                    should_probe=False,
+                    next_probe_depth=1,
+                    reason_code="ANALYSIS_UNAVAILABLE",
+                )
+            analysis = feedback.analysis
             reason = "THREAD_COMPLETE"
             block = controller.followup_block()
             if block:
@@ -30,7 +37,10 @@ class ProbeController:
                     action = "clarify"
                     goal = "Clarify the differing accounts: " + analysis.contradictions[0]
                 elif analysis.uncertainties:
-                    action, goal = "clarify", "Clarify how the approach was used in your own work"
+                    action, goal = "clarify", analysis.uncertainties[0]
+                elif controller.unresolved_goal(thread.topic_key):
+                    action = "probe"
+                    goal = context.topic_progress[thread.topic_key].missing_information[0]
                 elif analysis.status in {"partial", "non_answer"}:
                     action = "clarify"
                     goal = (
@@ -43,7 +53,10 @@ class ProbeController:
                     action, goal = "probe", "Explain one concrete implementation step in this work"
                 if action:
                     if controller.goal_already_asked(
-                        thread.project_id, goal, allow_current_clarification=True
+                        thread.project_id,
+                        goal,
+                        allow_current_clarification=True,
+                        topic_key=thread.topic_key,
                     ):
                         reason = "INFORMATION_GOAL_ALREADY_ASKED"
                     else:
