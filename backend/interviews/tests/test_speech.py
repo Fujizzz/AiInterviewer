@@ -33,6 +33,9 @@ Declaration Index:
   Audio capabilities expire and cannot grow memory without a fixed bound.
 - SpeechServiceTests.test_recognition_adapter_english_format_and_callback:
   Verify the real SDK boundary without creating a remote task.
+- QwenAudioFlashTests:
+  Verify inference-protocol WAV, regional routing, strict model selection, bounded
+  completion, deadline accounting and sanitized failures without provider calls.
 - SpeechHTTPTests:
   Exercise actual Django routes and loopback access with generated fixture bytes.
 - SpeechHTTPTests.test_tts_url_audio_and_unknown_capability:
@@ -97,6 +100,7 @@ import base64
 import io
 import json
 import os
+import threading
 import wave
 from unittest.mock import Mock, patch
 from urllib.parse import parse_qs, urlencode, urlsplit
@@ -440,6 +444,247 @@ class SpeechServiceTests(SimpleTestCase):
             session.stop()
             sdk.return_value.send_audio_frame.assert_called_once_with(b"\x00\x00")
             sdk.return_value.stop.assert_called_once()
+
+
+class QwenAudioFlashTests(SimpleTestCase):
+    """Exercise the new inference protocol while keeping all provider calls offline."""
+
+    def setUp(self):
+        import dashscope
+        # SDK import initializes SSL contexts; retain Windows platform variables
+        # for that initialization before isolating speech configuration.
+        from dashscope.audio import tts_v2  # noqa: F401
+
+        self.environment = patch.dict(
+            os.environ,
+            {
+                "SPEECH_ENABLED": "true",
+                "SPEECH_REGION": "beijing",
+                "SPEECH_TTS_MODEL": "qwen-audio-3.0-tts-flash",
+                "DASHSCOPE_API_KEY": "flash-test-key",
+            },
+            clear=True,
+        )
+        self.environment.start()
+        self.addCleanup(self.environment.stop)
+        for name, value in (("api_key", "prior-key"), ("base_websocket_api_url", "prior-url")):
+            sdk_global = patch.object(dashscope, name, value)
+            sdk_global.start()
+            self.addCleanup(sdk_global.stop)
+
+    def test_flash_success_routes_inference_pcm_and_preserves_shared_contract(self):
+        """Verify whole-utterance WAV, selected region/key and no async completion worker."""
+        import dashscope
+        from dashscope.audio.tts_v2 import AudioFormat
+
+        for region, host in (
+            ("beijing", "dashscope.aliyuncs.com"),
+            ("singapore", "dashscope-intl.aliyuncs.com"),
+        ):
+            with (
+                self.subTest(region=region),
+                patch.dict(os.environ, {"SPEECH_REGION": region}),
+                patch("dashscope.audio.tts_v2.SpeechSynthesizer") as sdk,
+                patch("dashscope.audio.qwen_tts_realtime.QwenTtsRealtime") as realtime,
+                patch("interviews.speech.service.time.monotonic", side_effect=[100, 102, 103, 104]),
+            ):
+                def finish(_timeout):
+                    callback = sdk.call_args.kwargs["callback"]
+                    callback.on_data(b"\x01\x00" * 2)
+                    callback.on_data(b"\x02\x00" * 3)
+                    callback.on_complete()
+                    callback.on_close()
+
+                sdk.return_value.streaming_complete.side_effect = finish
+                wav = synthesize("Could you describe your main contribution?")
+                with wave.open(io.BytesIO(wav), "rb") as audio:
+                    self.assertEqual(
+                        (audio.getnchannels(), audio.getframerate(), audio.getsampwidth()),
+                        (1, 24000, 2),
+                    )
+                    self.assertEqual(audio.readframes(5), b"\x01\x00" * 2 + b"\x02\x00" * 3)
+                options = sdk.call_args.kwargs
+                self.assertEqual(options["model"], "qwen-audio-3.0-tts-flash")
+                self.assertEqual(options["voice"], "loongeva_v3.6")
+                self.assertEqual(options["format"], AudioFormat.PCM_24000HZ_MONO_16BIT)
+                self.assertEqual(options["language_hints"], ["en"])
+                self.assertEqual(
+                    options["instruction"],
+                    "Speak calmly and professionally in clear English, at a natural interview pace.",
+                )
+                self.assertEqual(options["url"], f"wss://{host}/api-ws/v1/inference")
+                self.assertEqual(dashscope.api_key, "flash-test-key")
+                sdk.return_value.streaming_call.assert_called_once_with(
+                    "Could you describe your main contribution?"
+                )
+                sdk.return_value.streaming_complete.assert_called_once_with(43000)
+                sdk.return_value.call.assert_not_called()
+                sdk.return_value.async_streaming_complete.assert_not_called()
+                sdk.return_value.close.assert_called_once()
+                realtime.assert_not_called()
+
+    def test_flash_model_voice_and_workspace_configuration_are_explicit(self):
+        """Do not infer other protocols; explicit voice and regional workspace still win."""
+        config = SpeechConfig.load()
+        self.assertEqual(config.tts_voice, "loongeva_v3.6")
+        self.assertEqual(config.stt_model, "qwen-audio-3.1-asr-flash-streaming")
+        with patch.dict(
+            os.environ,
+            {"SPEECH_TTS_VOICE": "chosen-voice", "DASHSCOPE_SPEECH_WORKSPACE_ID": "test-space"},
+        ):
+            config = SpeechConfig.load()
+            self.assertEqual(config.tts_voice, "chosen-voice")
+            self.assertEqual(
+                config.endpoint,
+                "wss://test-space.cn-beijing.maas.aliyuncs.com/api-ws/v1/inference",
+            )
+        for model in (
+            "qwen-audio-3.0-tts-plus",
+            "qwen-audio-3.0-tts-flash-unknown",
+            "qwen3-tts-instruct-flash-realtime",
+        ):
+            with self.subTest(model=model), patch.dict(os.environ, {"SPEECH_TTS_MODEL": model}):
+                with self.assertRaises(SpeechError) as error:
+                    SpeechConfig.load()
+                self.assertEqual(error.exception.code, "unsupported_speech_model")
+        for model in ("qwen3-tts-flash-realtime", "qwen3-tts-flash-realtime-2025-11-27"):
+            with self.subTest(model=model), patch.dict(os.environ, {"SPEECH_TTS_MODEL": model}):
+                self.assertEqual(SpeechConfig.load().tts_voice, "Cherry")
+
+    def test_flash_completion_waits_for_sdk_callback_dispatch(self):
+        """SDK completion can wake the request before its terminal callback runs."""
+        with patch("dashscope.audio.tts_v2.SpeechSynthesizer") as sdk:
+            def finish(_timeout):
+                callback = sdk.call_args.kwargs["callback"]
+                callback.on_data(b"12")
+                delayed_callback = threading.Timer(0.01, callback.on_complete)
+                self.addCleanup(delayed_callback.join, 1)
+                delayed_callback.start()
+
+            sdk.return_value.streaming_complete.side_effect = finish
+            with wave.open(io.BytesIO(synthesize("A short question.")), "rb") as audio:
+                self.assertEqual(audio.readframes(1), b"12")
+            sdk.return_value.close.assert_called_once()
+
+    def test_flash_quota_failure_survives_close_and_send_failure(self):
+        """Retain sanitized quota feedback across errors from both SDK phases."""
+        for phase in ("streaming_call", "streaming_complete"):
+            with self.subTest(phase=phase), patch("dashscope.audio.tts_v2.SpeechSynthesizer") as sdk:
+                def reject(*_args):
+                    callback = sdk.call_args.kwargs["callback"]
+                    callback.on_data(b"\x01\x00")
+                    callback.on_error(json.dumps({"header": {
+                        "error_code": "AllocationQuota.FreeTierOnly", "message": "SECRET"
+                    }}))
+                    callback.on_close()
+                    callback.on_complete()
+                    raise ConnectionError("SECRET send failure")
+
+                getattr(sdk.return_value, phase).side_effect = reject
+                with self.assertRaises(SpeechError) as error:
+                    synthesize("A short question.")
+                self.assertEqual(error.exception.code, "quota_exhausted")
+                self.assertNotIn("SECRET", str(error.exception))
+                sdk.return_value.close.assert_called_once()
+
+    def test_flash_rejects_invalid_partial_oversized_and_timed_out_audio(self):
+        """Never play malformed bytes, incomplete tasks or provider-failed partial audio."""
+        cases = (
+            ("invalid_type", "invalid_speech_audio"),
+            ("empty", "invalid_speech_audio"),
+            ("odd", "invalid_speech_audio"),
+            ("oversized", "invalid_speech_audio"),
+            ("early_close", "speech_connection_closed"),
+            ("missing_completion", "speech_timeout"),
+            ("timeout", "speech_timeout"),
+            ("provider_failure", "speech_provider_error"),
+        )
+        for label, expected in cases:
+            with (
+                self.subTest(label=label),
+                patch("dashscope.audio.tts_v2.SpeechSynthesizer") as sdk,
+                patch("interviews.speech.service.MAX_AUDIO_BYTES", 8),
+                patch("interviews.speech.service.TTS_TIMEOUT_SECONDS", 0.1),
+            ):
+                def finish(_timeout):
+                    callback = sdk.call_args.kwargs["callback"]
+                    if label == "invalid_type":
+                        callback.on_data("SECRET invalid PCM")
+                    elif label == "odd":
+                        callback.on_data(b"x")
+                    elif label == "oversized":
+                        callback.on_data(b"12" * 3)
+                        callback.on_data(b"34" * 3)
+                        callback.on_data(b"56" * 3)
+                        self.assertLessEqual(len(callback.pcm), 8)
+                    elif label == "early_close":
+                        callback.on_close()
+                    elif label == "missing_completion":
+                        callback.on_data(b"12")
+                        return
+                    elif label == "timeout":
+                        callback.on_data(b"12")
+                        raise TimeoutError("SECRET provider timeout")
+                    elif label == "provider_failure":
+                        callback.on_data(b"12")
+                        callback.on_error("SECRET provider error")
+                    callback.on_complete()
+                    callback.on_close()
+
+                sdk.return_value.streaming_complete.side_effect = finish
+                with self.assertRaises(SpeechError) as error:
+                    synthesize("A short question.")
+                self.assertEqual(error.exception.code, expected)
+                self.assertNotIn("SECRET", str(error.exception))
+                sdk.return_value.close.assert_called_once()
+
+    def test_flash_exhausted_deadline_never_starts_an_indefinite_completion_wait(self):
+        """Connection/startup consume the same deadline as synthesis completion."""
+        with (
+            patch("dashscope.audio.tts_v2.SpeechSynthesizer") as sdk,
+            patch("interviews.speech.service.time.monotonic", side_effect=[100, 146]),
+        ):
+            with self.assertRaises(SpeechError) as error:
+                synthesize("A short question.")
+            self.assertEqual(error.exception.code, "speech_timeout")
+            sdk.return_value.streaming_complete.assert_not_called()
+            sdk.return_value.close.assert_called_once()
+
+    def test_flash_positive_submillisecond_remainder_is_bounded(self):
+        """A positive remainder must not round down to SDK's infinite zero timeout."""
+        with (
+            patch("dashscope.audio.tts_v2.SpeechSynthesizer") as sdk,
+            patch(
+                "interviews.speech.service.time.monotonic",
+                side_effect=[100, 144.9999, 144.99992, 144.99995],
+            ),
+        ):
+            def finish(_timeout):
+                callback = sdk.call_args.kwargs["callback"]
+                callback.on_data(b"12")
+                callback.on_complete()
+
+            sdk.return_value.streaming_complete.side_effect = finish
+            synthesize("A short question.")
+            sdk.return_value.streaming_complete.assert_called_once_with(1)
+            sdk.return_value.close.assert_called_once()
+
+    def test_flash_late_completion_does_not_extend_total_deadline(self):
+        """Even valid audio received after the total deadline cannot succeed."""
+        with (
+            patch("dashscope.audio.tts_v2.SpeechSynthesizer") as sdk,
+            patch("interviews.speech.service.time.monotonic", side_effect=[100, 101, 146]),
+        ):
+            def finish(_timeout):
+                callback = sdk.call_args.kwargs["callback"]
+                callback.on_data(b"12")
+                callback.on_complete()
+
+            sdk.return_value.streaming_complete.side_effect = finish
+            with self.assertRaises(SpeechError) as error:
+                synthesize("A short question.")
+            self.assertEqual(error.exception.code, "speech_timeout")
+            sdk.return_value.close.assert_called_once()
 
 
 @override_settings(INTERVIEW_REQUIRE_LOGIN=False)

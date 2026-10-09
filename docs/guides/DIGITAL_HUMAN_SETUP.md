@@ -8,7 +8,7 @@
 | 控制器 | 已生成 `BP_InterviewerController`，管理 Idle / Listening / Thinking / Speaking / Interrupted |
 | 原生音频桥接 | HTTP 下载新 WAV，在后台 CPU 完整准备口型曲线后开始播放；声音与插值口型使用同一播放时间线 |
 | 网页数字人播放器 | 使用 Epic UE 5.8 官方 SDK；实际浏览器已显示打包场景并收到 UE 控制器反馈 |
-| TTS | 已接入 Qwen3-TTS-Flash-Realtime，地区由根目录 `.env` 显式配置；实时 PCM 封装为整句 WAV，返回音频时长，临时音频有容量和期限限制 |
+| TTS | 支持 Qwen-Audio-3.0-TTS-Flash 与原有 Qwen3-TTS-Flash-Realtime，地区由根目录 `.env` 显式配置；实时 PCM 封装为整句 WAV，返回音频时长，临时音频有容量和期限限制 |
 | STT | 已接入 Qwen-Audio-3.1-ASR-Flash-Streaming：浏览器 PCM → 语音 WebSocket → 中间/最终转录 → 可修改的回答框 |
 | 面试闭环 | 接入原有 question / answer / finished 消息；支持 10 秒准备、5 秒静默自动提交及语义结束确认后的 MCP 提交，均交给原 Agent 评价 |
 | 人物 Rig 与 Assembly | **已完成**；当前场景使用 UE Cine 组装的 `BP_MHC_Hannah`，Avatar 与 InterviewCamera 引用已核对 |
@@ -100,8 +100,8 @@ SPEECH_ENABLED=true
 SPEECH_REGION=singapore
 DASHSCOPE_API_KEY=<与 SPEECH_REGION 对应地域的 key>
 DASHSCOPE_SPEECH_WORKSPACE_ID=
-SPEECH_TTS_MODEL=qwen3-tts-flash-realtime
-SPEECH_TTS_VOICE=Cherry
+SPEECH_TTS_MODEL=qwen-audio-3.0-tts-flash
+SPEECH_TTS_VOICE=loongeva_v3.6
 SPEECH_STT_MODEL=qwen-audio-3.1-asr-flash-streaming
 DJANGO_SECRET_KEY=<独立生成的 Django secret>
 ```
@@ -116,10 +116,10 @@ DJANGO_SECRET_KEY=<独立生成的 Django secret>
 语音合成和识别同时按地域选择各自的官方地址：
 
 ```text
-# SPEECH_REGION=singapore（默认）：STT / TTS
+# SPEECH_REGION=singapore（默认）：STT / Qwen-Audio TTS、Qwen3 TTS
 wss://dashscope-intl.aliyuncs.com/api-ws/v1/inference
 wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime
-# SPEECH_REGION=beijing：STT / TTS
+# SPEECH_REGION=beijing：STT / Qwen-Audio TTS、Qwen3 TTS
 wss://dashscope.aliyuncs.com/api-ws/v1/inference
 wss://dashscope.aliyuncs.com/api-ws/v1/realtime
 ```
@@ -127,16 +127,18 @@ wss://dashscope.aliyuncs.com/api-ws/v1/realtime
 它们独立于 LLM 的 OpenAI-compatible `DASHSCOPE_BASE_URL`。Key 必须与语音地域一致，不能跨地域混用。
 `DASHSCOPE_SPEECH_WORKSPACE_ID` 可留空；如显式配置，STT 使用该地域的工作空间域名：
 新加坡为 `{workspace}.ap-southeast-1.maas.aliyuncs.com`，北京为 `{workspace}.cn-beijing.maas.aliyuncs.com`。
-TTS 保持所选地域的公开 realtime 地址。设置地域不改变模型、音色、音频格式和超时默认值。
-地址契约见 [TTS SDK](https://www.alibabacloud.com/help/zh/model-studio/qwen-tts-realtime-python-sdk) 和
+Qwen-Audio TTS 与 STT 使用 inference 地址，配置工作空间时使用该地域的工作空间域名；原有 Qwen3 TTS 使用公开 realtime 地址。
+两种 TTS 均输出 24 kHz、单声道、16-bit WAV，不改变网页及 UE 音频接口。
+地址契约见 [Qwen-Audio TTS 接入](https://help.aliyun.com/zh/model-studio/qwen-audio-tts-model-access)、[Qwen3 TTS SDK](https://www.alibabacloud.com/help/zh/model-studio/qwen-tts-realtime-python-sdk) 和
 [ASR WebSocket](https://help.aliyun.com/zh/model-studio/qwen-audio-asr-streaming-websocket-api)。
 
 原始数字人集成验收使用新加坡凭据、`qwen3.7-plus` 文字模型及 `qwen-audio-3.1-asr-flash-streaming`。
 该记录不代表其他机器的本地配置或模型额度；每位协作者维护自己的被 Git 忽略的 `.env`。
-TTS 的 `qwen3-tts-flash-realtime` 与 ASR 单独计费和核算额度，ASR 额度不能用于文字转语音。
-Qwen TTS 使用新的专用 SDK 适配；把 CosyVoice 的 model 字符串换成 Qwen 名称不足以兼容协议。
-当前适配支持 Qwen3-TTS-Flash-Realtime 系列与 Qwen-Audio-3.0/3.1-ASR-Flash-Streaming；HTTP TTS、Voice Design、声音注册和 Fun-ASR 文件识别不能直接填入这些实时模型配置。
-默认音色 `Cherry` 支持英文；可按 [官方音色列表](https://help.aliyun.com/en/model-studio/qwen-tts-voice-list) 选择匹配的预设音色。
+TTS 与 ASR 单独计费和核算额度，ASR 额度不能用于文字转语音。
+当前推荐 `qwen-audio-3.0-tts-flash` 搭配英文女声 `loongeva_v3.6`；适配使用固定、平静专业的英文面试官语气指令。
+未设置 TTS 模型时仍保留原有 `qwen3-tts-flash-realtime` 与 `Cherry` 默认值，显式配置也可继续使用其日期版本。
+当前适配支持上述两种 TTS 与 Qwen-Audio-3.0/3.1-ASR-Flash-Streaming；Instruct TTS、HTTP TTS、Voice Design、声音克隆和 Fun-ASR 文件识别不能直接填入这些实时模型配置。
+音色必须匹配模型，可参考 [Qwen-Audio 音色列表](https://help.aliyun.com/en/model-studio/qwen-audio-tts-voice-list) 和 [Qwen3 音色列表](https://help.aliyun.com/en/model-studio/qwen-tts-voice-list)。
 参考 [Qwen realtime TTS SDK](https://www.alibabacloud.com/help/en/model-studio/qwen-tts-realtime-python-sdk)、[Qwen streaming ASR SDK](https://docs.modelstudio.console.alibabacloud.com/en/model-studio/qwen-audio-asr-streaming-python-sdk)、[免费额度说明](https://www.alibabacloud.com/help/en/model-studio/new-free-quota)。
 
 在仓库根目录启动后端：

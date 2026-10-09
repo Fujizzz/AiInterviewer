@@ -168,8 +168,8 @@ uv run python main.py resume.pdf \
 
 ```dotenv
 SPEECH_ENABLED=true
-SPEECH_TTS_MODEL=qwen3-tts-flash-realtime
-SPEECH_TTS_VOICE=Cherry
+SPEECH_TTS_MODEL=qwen-audio-3.0-tts-flash
+SPEECH_TTS_VOICE=loongeva_v3.6
 SPEECH_STT_MODEL=qwen-audio-3.1-asr-flash-streaming
 ```
 

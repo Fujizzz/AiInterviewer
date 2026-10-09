@@ -24,7 +24,11 @@ Declaration Index:
 - configure_sdk:
   Set the speech endpoint independently of the existing OpenAI-compatible LLM URL.
 - synthesize:
-  Collect Qwen realtime PCM into one bounded WAV compatible with the UE bridge.
+  Select a supported synthesis protocol and return bounded WAV for the UE bridge.
+- _synthesize_flash_pcm:
+  Collect Qwen-Audio Flash PCM with a synchronous deadline and explicit completion.
+- _wav_from_pcm:
+  Validate complete PCM and wrap the shared 24 kHz mono 16-bit WAV format.
 - synthesize.Callback:
   Bound streamed audio and distinguish completion, provider failure and disconnect.
 - synthesize.Callback.__init__:
@@ -72,6 +76,8 @@ Variable Index:
   Maximum PCM bytes for a 120-second TTS utterance.
 - TTS_TIMEOUT_SECONDS:
   Total synthesis deadline including WebSocket connection and audio collection.
+- QWEN_AUDIO_FLASH_MODEL / QWEN_AUDIO_FLASH_VOICE / QWEN_AUDIO_FLASH_INSTRUCTION:
+  Supported inference model and its matching default voice and English interviewer style.
 - audio_store:
   Process-local bounded WAV cache shared by synthesis and download routes.
 """
@@ -96,6 +102,11 @@ SPEECH_REGION_ENDPOINTS = {
 }
 MAX_AUDIO_BYTES = 24000 * 2 * 120
 TTS_TIMEOUT_SECONDS = 45
+QWEN_AUDIO_FLASH_MODEL = "qwen-audio-3.0-tts-flash"
+QWEN_AUDIO_FLASH_VOICE = "loongeva_v3.6"
+QWEN_AUDIO_FLASH_INSTRUCTION = (
+    "Speak calmly and professionally in clear English, at a natural interview pace."
+)
 
 
 class SpeechError(Exception):
@@ -151,13 +162,17 @@ class SpeechConfig:
             )
         tts_model = os.getenv("SPEECH_TTS_MODEL", "qwen3-tts-flash-realtime")
         stt_model = os.getenv("SPEECH_STT_MODEL", "qwen-audio-3.1-asr-flash-streaming")
-        if not tts_model.startswith("qwen3-tts-flash-realtime") or stt_model not in {
+        if (
+            not tts_model.startswith("qwen3-tts-flash-realtime")
+            and tts_model != QWEN_AUDIO_FLASH_MODEL
+        ) or stt_model not in {
             "qwen-audio-3.1-asr-flash-streaming",
             "qwen-audio-3.0-asr-flash-streaming",
         }:
             raise SpeechError(
                 "unsupported_speech_model",
-                "Use Qwen3-TTS-Flash-Realtime and Qwen-Audio-3.x-ASR-Flash-Streaming.",
+                "Use Qwen3-TTS-Flash-Realtime or Qwen-Audio-3.0-TTS-Flash, "
+                "and Qwen-Audio-3.x-ASR-Flash-Streaming.",
             )
         logger.info(
             "Speech configuration resolved region=%s tts_model=%s stt_model=%s workspace=%s",
@@ -173,7 +188,10 @@ class SpeechConfig:
             else f"wss://{host}/api-ws/v1/inference",
             f"wss://{host}/api-ws/v1/realtime",
             tts_model,
-            os.getenv("SPEECH_TTS_VOICE", "Cherry"),
+            os.getenv(
+                "SPEECH_TTS_VOICE",
+                QWEN_AUDIO_FLASH_VOICE if tts_model == QWEN_AUDIO_FLASH_MODEL else "Cherry",
+            ),
             stt_model,
         )
 
@@ -204,9 +222,10 @@ def configure_sdk(config):
 
 
 def synthesize(text):
-    """Collect Qwen realtime PCM into one bounded WAV compatible with the UE bridge.
-    """
+    """Return complete bounded WAV through the configured supported TTS protocol."""
     config = SpeechConfig.load()
+    if config.tts_model == QWEN_AUDIO_FLASH_MODEL:
+        return _wav_from_pcm(_synthesize_flash_pcm(config, text))
     from dashscope.audio.qwen_tts_realtime import (
         AudioFormat,
         QwenTtsRealtime,
@@ -321,6 +340,118 @@ def synthesize(text):
             except Exception:
                 # Cleanup failures cannot replace an already collected provider error.
                 pass
+    return _wav_from_pcm(pcm)
+
+
+def _synthesize_flash_pcm(config, text):
+    """Collect inference-protocol PCM without an asynchronous SDK completion worker.
+
+    The collector bounds memory while synchronous completion uses the remaining
+    total deadline. Only explicit provider completion permits audio playback;
+    partial audio and raw provider error messages never escape this adapter.
+    """
+    from dashscope.audio.tts_v2 import AudioFormat, ResultCallback, SpeechSynthesizer
+
+    class Callback(ResultCallback):
+        """Collect bounded bytes and preserve the first actionable failure."""
+
+        def __init__(self):
+            self.lock = threading.RLock()
+            self.done = threading.Event()
+            self.pcm = bytearray()
+            self.error = None
+            self.finished = False
+
+        def fail(self, error):
+            with self.lock:
+                if self.error is None and not self.finished:
+                    self.error = error
+                    self.done.set()
+
+        def on_data(self, data):
+            with self.lock:
+                if self.error is not None or self.finished:
+                    return
+                if not isinstance(data, (bytes, bytearray)):
+                    self.fail(SpeechError("invalid_speech_audio", "Invalid synthesis PCM."))
+                elif len(self.pcm) + len(data) > MAX_AUDIO_BYTES:
+                    self.fail(SpeechError("invalid_speech_audio", "Oversized synthesis audio."))
+                else:
+                    self.pcm.extend(data)
+
+        def on_complete(self):
+            with self.lock:
+                if self.error is None:
+                    self.finished = True
+                    self.done.set()
+
+        def on_error(self, message):
+            self.fail(provider_error(message))
+
+        def on_close(self):
+            self.fail(SpeechError("speech_connection_closed", "Speech connection closed early."))
+
+    configure_sdk(config)
+    collector = Callback()
+    deadline = time.monotonic() + TTS_TIMEOUT_SECONDS
+    synthesizer = None
+    try:
+        synthesizer = SpeechSynthesizer(
+            model=config.tts_model,
+            voice=config.tts_voice,
+            format=AudioFormat.PCM_24000HZ_MONO_16BIT,
+            instruction=QWEN_AUDIO_FLASH_INSTRUCTION,
+            language_hints=["en"],
+            url=config.endpoint,
+            callback=collector,
+        )
+        synthesizer.streaming_call(text)
+        if collector.error:
+            raise collector.error
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise SpeechError("speech_timeout", "Speech synthesis timed out; retry or use text.")
+        # Zero means an indefinite SDK wait, so a positive sub-millisecond
+        # remainder must still receive a positive bounded timeout.
+        synthesizer.streaming_complete(max(1, int(remaining * 1000)))
+        if collector.error:
+            raise collector.error
+        # The SDK releases its own completion event before dispatching
+        # on_complete. Wait for our verified terminal callback within the same
+        # deadline so a scheduling race cannot reject successfully received audio.
+        remaining = deadline - time.monotonic()
+        if remaining <= 0 or not collector.done.wait(remaining):
+            raise SpeechError("speech_timeout", "Speech synthesis timed out; retry or use text.")
+        if collector.error:
+            raise collector.error
+        if time.monotonic() > deadline:
+            raise SpeechError("speech_timeout", "Speech synthesis timed out; retry or use text.")
+        with collector.lock:
+            if not collector.finished:
+                raise SpeechError("speech_connection_closed", "Speech connection closed early.")
+            return bytes(collector.pcm)
+    except SpeechError:
+        raise
+    except TimeoutError as exc:
+        if collector.error:
+            raise collector.error from exc
+        raise SpeechError(
+            "speech_timeout", "Speech synthesis timed out; retry or use text."
+        ) from exc
+    except Exception as exc:
+        if collector.error:
+            raise collector.error from exc
+        raise provider_error(exc) from exc
+    finally:
+        if synthesizer is not None:
+            try:
+                synthesizer.close()
+            except Exception:
+                pass
+
+
+def _wav_from_pcm(pcm):
+    """Validate complete PCM and keep both synthesis protocols on one WAV contract."""
     if not pcm or len(pcm) % 2 or len(pcm) > MAX_AUDIO_BYTES:
         raise SpeechError("invalid_speech_audio", "Speech returned empty or oversized PCM audio.")
     output = io.BytesIO()
