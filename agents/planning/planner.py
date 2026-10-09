@@ -140,15 +140,21 @@ class InterviewPlannerAgent:
         # A finished narrow request without any diagnosed gap is not a usable
         # follow-up scope. Retain its unassessed record, but admit fresh goals.
         latest = context.question_history[-1] if context.question_history else None
+        fallback_eligible = eligible
         if latest and latest.feedback.analysis.thread_complete:
-            order = [
-                key
-                for key in order
+            fallback_eligible = {
+                key: item
+                for key, item in eligible.items()
                 if key not in context.used_topic_keys
                 or context.topic_progress[key].missing_information
-            ]
+            }
+            order = [key for key in order if key in fallback_eligible]
         if not context.plan.version or not order:
-            order += [key for key in fallback_order(context, eligible) if key not in order]
+            # Apply the same admission filter to replacement goals; otherwise the
+            # ranking immediately reselects the finished, already-used narrow scope.
+            order += [
+                key for key in fallback_order(context, fallback_eligible) if key not in order
+            ]
             capacity = max(
                 1,
                 (context.state.remaining_seconds - context.plan.closing_seconds)
@@ -323,7 +329,9 @@ class InterviewPlannerAgent:
                 t.completion_criteria = existing[t.topic_key].completion_criteria
         if self.sync_clock:
             self.sync_clock(context)
-        draft, adjustments = self._compile(proposal, context, eligible)
+        draft, adjustments = self._compile(
+            proposal, context, eligible if proposal.topics or not (fallback or local_only) else {}
+        )
         prior = context.plan_history[-1].proposal if context.plan_history else None
         before = (
             {item.topic_key: (index, item.model_dump()) for index, item in enumerate(prior.topics)}
