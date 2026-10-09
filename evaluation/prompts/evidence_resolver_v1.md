@@ -29,8 +29,9 @@ Independence is separate from relation. Multiple actions, outcomes and follow-up
 details about the SAME project event/technical decision share one episode even
 across different questions or threads. Same project alone, same competency or
 same thread does NOT prove the same episode; different questions do NOT prove
-independence. Use same_episode with same_episode_as evidence IDs, including all
-relation targets for duplicate/refines/contradicts/retracts. A new atomic fact in
+independence. Use same_episode with same_episode_as grounded earlier evidence IDs
+for duplicate/refines/contradicts/retracts. The program verifies that relation targets
+share that episode, including through earlier links. A new atomic fact in
 the same event can have relation=new AND independence=same_episode.
 Use new_episode only for a distinct event with concrete supporting context.
 Use unresolved when independence cannot be established; it cannot contribute.

@@ -138,7 +138,7 @@ async def test_redundant_debugging_plan_uses_alternate_topic() -> None:
 
 
 @pytest.mark.asyncio
-async def test_invalid_llm_output_repairs_three_times_then_uses_fallback() -> None:
+async def test_unchanged_invalid_draft_stops_early_and_preserves_fallback_intent() -> None:
     repository = InMemoryRepository()
     llm = MockLLMAdapter(failure_mode="invalid")
     service = InterviewAgentService(repository=repository, llm=llm)
@@ -147,10 +147,11 @@ async def test_invalid_llm_output_repairs_three_times_then_uses_fallback() -> No
 
     assert response.first_action.question is not None
     assert response.first_action.question.text
-    assert len(llm.calls) == 4
+    assert len(llm.calls) == 2
+    assert response.first_action.decision_trace.details["question_agent_stop_reason"] == "REPEATED_REJECTED_DRAFT"
     assert (
         response.first_action.decision_trace.details["generation_reason"]
-        == "CANDIDATE_SPECIFIC_FALLBACK"
+        == "SAME_INTENT_FALLBACK_UNREVIEWED"
     )
 
 

@@ -70,7 +70,7 @@ class QuestionAgentSettings(BaseModel):
 
 
 class PlanningSettings(BaseModel):
-    timeout_seconds: float = Field(default=20.0, gt=0)
+    timeout_seconds: float = Field(default=30.0, gt=0)
     replan_cooldown_questions: int = Field(default=2, ge=1)
     minimum_question_seconds: int = Field(default=30, ge=1)
 

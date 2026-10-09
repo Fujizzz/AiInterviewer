@@ -63,6 +63,7 @@ class CandidateClaim(BaseModel):
     claim_id: str
     text: str
     source_ref: str | None = None
+    source_refs: list[str] = Field(default_factory=list)
 
 
 class CandidateProject(BaseModel):
@@ -74,6 +75,7 @@ class CandidateProject(BaseModel):
     technologies: list[str] = Field(default_factory=list)
     claims: list[CandidateClaim] = Field(default_factory=list)
     metrics: list[str] = Field(default_factory=list)
+    source_refs: list[str] = Field(default_factory=list)
 
 
 class CandidateProfile(BaseModel):
@@ -81,6 +83,7 @@ class CandidateProfile(BaseModel):
     candidate_id: str
     skills: list[str] = Field(default_factory=list)
     projects: list[CandidateProject] = Field(default_factory=list)
+    source_coverage: dict[str, str] = Field(default_factory=dict)
 
 
 class JobProfile(BaseModel):
@@ -159,6 +162,10 @@ class PlannedQuestion(BaseModel):
     topic_key: str = ""
     information_goal: str = ""
     answer_excerpt: str = ""
+    intent_id: str = ""
+    objective_id: str = ""
+    need_id: str = ""
+    answer_unit: str = ""
 
 
 class CandidateAnswer(BaseModel):
@@ -218,6 +225,17 @@ class ContradictionEvidence(BaseModel):
     explanation: str = Field(min_length=1)
 
 
+class AnswerRelation(BaseModel):
+    """A grounded candidate correction/clarification, not independent verification."""
+
+    relation_id: str = ""
+    kind: Literal["supersedes", "clarifies", "disputes"]
+    earlier_answer_id: str
+    earlier_quote: str = Field(min_length=1)
+    current_quote: str = Field(min_length=1)
+    explanation: str = Field(min_length=1)
+
+
 class AnswerAnalysis(BaseModel):
     """Conversation-only feedback, safe to expose to the question agent."""
 
@@ -227,21 +245,37 @@ class AnswerAnalysis(BaseModel):
     missing_information: list[str] = Field(default_factory=list)
     contradictions: list[str] = Field(default_factory=list)
     uncertainties: list[str] = Field(default_factory=list)
+    limitations: list[str] = Field(default_factory=list)
     contradiction_evidence: list[ContradictionEvidence] = Field(default_factory=list)
     new_information: bool = False
     thread_complete: bool = False
     answer_scope: Literal["unknown", "label_only", "concrete", "none"] = "unknown"
     summary: str = ""
+    answer_relations: list[AnswerRelation] = Field(default_factory=list)
 
 
 class DimensionEvidence(BaseModel):
     competency: Competency
     observation: Literal["supported", "weak"]
-    quote: str = Field(min_length=1)
+    quote: str = ""
+    source_segment_ids: list[str] = Field(default_factory=list)
+    source_quotes: list[str] = Field(default_factory=list)
     fact: str = Field(min_length=1)
     rationale: str = Field(min_length=1)
     rubric_level: int | None = Field(default=None, ge=1, le=5)
     strength: float = Field(ge=0, le=1)
+
+
+class ObjectiveCoverage(BaseModel):
+    """Coverage of a confirmed agenda objective, independent of a narrow question."""
+
+    objective_id: str = Field(min_length=1)
+    coverage_status: Literal["partial", "sufficient"]
+    missing_information: list[str] = Field(default_factory=list)
+    supporting_segment_ids: list[str] = Field(default_factory=list)
+    supporting_quotes: list[str] = Field(default_factory=list)
+    answer_id: str = ""
+    rationale: str = ""
 
 
 class EvaluationFeedback(BaseModel):
@@ -253,6 +287,11 @@ class EvaluationFeedback(BaseModel):
     analysis: AnswerAnalysis = Field(default_factory=AnswerAnalysis)
     dimensions: list[DimensionEvidence] = Field(default_factory=list)
     evidence_ids: list[str] = Field(default_factory=list)
+    analysis_status: Literal["valid", "unavailable"] = "valid"
+    assessment_status: Literal["valid", "pending", "unavailable"] = "valid"
+    evaluation_issues: list[str] = Field(default_factory=list)
+    objective_coverage: list[ObjectiveCoverage] = Field(default_factory=list)
+    objective_coverage_status: Literal["valid", "unavailable"] = "unavailable"
 
 
 class DecisionTrace(BaseModel):

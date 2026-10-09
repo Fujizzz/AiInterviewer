@@ -93,6 +93,13 @@ def replay_resolution(history: ResolutionHistory) -> EvidenceResolution:
                 raise ValueError("the same episode must have the same project scope")
             episodes.join(key, target)
         for target in decision.related_evidence_ids:
+            if decision.relation in {
+                EvidenceRelation.DUPLICATE,
+                EvidenceRelation.REFINES,
+                EvidenceRelation.CONTRADICTS,
+                EvidenceRelation.RETRACTS,
+            } and episodes.root(key) != episodes.root(target):
+                raise ValueError("dependent relation targets must belong to the same episode")
             if effective[target].relation == EvidenceRelation.RETRACTS:
                 raise ValueError("a retraction act cannot serve as a factual relation target")
             if decision.relation in {EvidenceRelation.CONTRADICTS, EvidenceRelation.RETRACTS}:

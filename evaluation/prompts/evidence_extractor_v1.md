@@ -10,13 +10,13 @@ they concern the same competency. Do not split fragments of one claim merely to
 increase evidence count. normalized_claim is a concise faithful statement, with no
 added facts, inferred personal ownership, or invented results.
 
-quote_spans contains one or more ordered, non-overlapping exact substrings of the
-CURRENT answer. Preserve whitespace, punctuation and Unicode. char_start is a
-zero-based Python Unicode character index; char_end is exclusive (not a UTF-8 byte
-or UTF-16 offset). A single claim can cite multiple discontinuous passages. For
-example, in "我定位了锁竞争。团队开会。通过火焰图确认。", one diagnostic claim may cite
-{"quote":"我定位了锁竞争","char_start":0,"char_end":7} and
-{"quote":"通过火焰图确认","char_start":13,"char_end":20}.
+quote_spans contains one or more references {segment_id, quote} to answer_segments.
+Use the supplied current-answer segment_id and copy an EXACT substring from its
+text. Preserve whitespace, punctuation and Unicode. Never calculate or emit offsets;
+the program binds the quote to its source and calculates positions. Choose enough
+surrounding text to locate the quote uniquely within that segment. Order references
+by their appearance in the current answer, without overlap. A single claim can cite
+multiple discontinuous passages or passages across segment boundaries.
 Do not quote the question, resume, existing evidence index or historical answers as
 current evidence. History can clarify context, but cannot supply a missing claim.
 

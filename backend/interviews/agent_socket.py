@@ -548,6 +548,7 @@ async def agent_socket(scope, receive, send):
                     operation = None
                 if session is not None:
                     try:
+                        await session.close_background()
                         await discard_interview(session.interview_id, owner_id)
                     except Exception as exc:
                         logger.error(
@@ -721,6 +722,7 @@ async def agent_socket(scope, receive, send):
                     )
                     raise
                 finally:
+                    await session.close_background()
                     session.close()
         finally:
             if safety is not None:

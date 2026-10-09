@@ -48,11 +48,13 @@ from django.utils import timezone
 
 from agents.domain.errors import InvalidAgentState, StateConflictError
 from agents.domain.models import AgentDecisionLog, CommitTurnResult, InterviewContext
+from evaluation.assessment import AssessmentRecord, validate_assessment, validate_assessment_append
+from evaluation.background import ShadowJob, validate_shadow_job, validate_shadow_record
 from evaluation.persistence import EvaluationRecord, validate_turn_evaluation
 from shared.contracts import InterviewAction, PlannedQuestion
 
 from .agent_models import AgentAnswer, AgentInterview, AgentQuestion, AgentRequest, AgentTurn
-from .evaluation_models import AgentEvaluation
+from .evaluation_models import AgentAssessment, AgentEvaluation, AgentShadowJob
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +107,121 @@ class DjangoInterviewRepository:
         """
         self._scope(interview_id)
         return self._evaluation_records()
+
+    @sync_to_async
+    def get_shadow_jobs(self, interview_id):
+        self._scope(interview_id)
+        return self._shadow_jobs()
+
+    def _shadow_jobs(self):
+        jobs = []
+        for row in AgentShadowJob.objects.filter(interview_id=self.interview_id).select_related(
+            "answer__question", "feedback_request"
+        ):
+            job = ShadowJob.model_validate(row.payload)
+            if (
+                job.request.interview_id != self.interview_id
+                or job.request.request_id != str(row.feedback_request_id)
+                or job.request.answer.answer_id != str(row.answer_id)
+                or job.snapshot().state.state_version != row.base_state_version
+                or row.answer.text != job.request.answer.text
+                or str(row.answer.question_id) != job.request.question.question_id
+                or row.answer.question.payload != job.request.question.model_dump(mode="json")
+                or row.answer.evaluation != job.feedback.model_dump(mode="json")
+                or row.answer.committed_state_version != row.committed_state_version
+                or str(row.answer.request_id) != str(row.feedback_request_id)
+                or str(row.feedback_request.interview_id) != self.interview_id
+            ):
+                raise InvalidAgentState("Stored shadow job does not match its relational identity")
+            jobs.append(job)
+        return jobs
+
+    def _assessment_records(self):
+        jobs = {j.request.request_id: j for j in self._shadow_jobs()}
+        records = []
+        for row in AgentAssessment.objects.filter(
+            job__interview_id=self.interview_id
+        ).select_related("job"):
+            record = AssessmentRecord.model_validate(row.payload)
+            job = jobs.get(str(row.job.feedback_request_id))
+            if job is None:
+                raise InvalidAgentState("Assessment is missing its saved source")
+            records.append(validate_assessment(job, record))
+        return records
+
+    @sync_to_async
+    def get_assessment_records(self, interview_id):
+        self._scope(interview_id)
+        return self._assessment_records()
+
+    @sync_to_async
+    def append_assessment_record(self, job, result):
+        self._scope(job.request.interview_id)
+        with transaction.atomic():
+            changed = AgentInterview.objects.filter(id=self.interview_id).update(
+                updated_at=timezone.now()
+            )
+            if changed != 1:
+                raise InvalidAgentState("Assessment interview no longer exists")
+            jobs = self._shadow_jobs()
+            canonical = next(
+                (j for j in jobs if j.request.request_id == job.request.request_id), None
+            )
+            if canonical != job:
+                raise InvalidAgentState("Assessment job does not match the saved source")
+            prior = self._assessment_records()
+            existing = next((r for r in prior if r.request_id == result.request_id), None)
+            if existing is not None:
+                if existing != result:
+                    raise StateConflictError("Assessment already has different content")
+                return
+            stored = InterviewContext.model_validate(
+                AgentInterview.objects.get(id=self.interview_id).context
+            )
+            result = validate_assessment_append(job, result, stored, prior, jobs)
+            row = AgentShadowJob.objects.get(
+                interview_id=self.interview_id, feedback_request_id=job.request.request_id
+            )
+            AgentAssessment.objects.create(job=row, payload=result.model_dump(mode="json"))
+
+    @sync_to_async
+    def append_shadow_record(self, job, result):
+        self._scope(job.request.interview_id)
+        with transaction.atomic():
+            # Serialize result publication only. Never advance live state or await a model here.
+            changed = AgentInterview.objects.filter(id=self.interview_id).update(
+                updated_at=timezone.now()
+            )
+            if changed != 1:
+                raise InvalidAgentState("Shadow interview no longer exists")
+            jobs = self._shadow_jobs()
+            canonical = next(
+                (j for j in jobs if j.request.request_id == job.request.request_id), None
+            )
+            if canonical != job:
+                raise InvalidAgentState("Shadow job does not match the saved source")
+            prior = self._evaluation_records()
+            existing = next(
+                (r for r in prior if r.input.request_id == job.request.request_id), None
+            )
+            if existing is not None:
+                if existing != result:
+                    raise StateConflictError("Shadow result already has different content")
+                return
+            stored = InterviewContext.model_validate(
+                AgentInterview.objects.get(id=self.interview_id).context
+            )
+            result = validate_shadow_record(job, result, stored, prior, jobs)
+            snapshot = result.scored.evaluation.score_snapshot
+            AgentEvaluation.objects.create(
+                interview_id=self.interview_id,
+                answer_id=job.request.answer.answer_id,
+                feedback_request_id=job.request.request_id,
+                base_state_version=result.base_state_version,
+                committed_state_version=result.base_state_version + 1,
+                snapshot_id=snapshot.snapshot_id if snapshot else None,
+                payload=result.model_dump(mode="json"),
+            )
 
     @sync_to_async
     def get_interview_context(self, interview_id):
@@ -216,6 +333,7 @@ class DjangoInterviewRepository:
                 saved.state = request.new_state.model_copy(deep=True)
                 saved.state.state_version = version + 1
                 saved.pending_evaluation = None
+                saved.pending_shadow_job = None
                 saved.processed_feedback_ids = list(stored.processed_feedback_ids)
                 # Replay/identity validation and the receipt insert share the same CAS transaction
                 # as the answer and next action. Any subsequent failure rolls everything back.
@@ -232,6 +350,14 @@ class DjangoInterviewRepository:
                     )
                 else:
                     validate_turn_evaluation(request, stored, [], None)
+                shadow_question = None
+                if request.shadow_job is not None:
+                    shadow_question = PlannedQuestion.model_validate(
+                        AgentQuestion.objects.get(
+                            id=stored.state.current_question_id, interview_id=self.interview_id
+                        ).payload
+                    )
+                shadow_job = validate_shadow_job(request, stored, shadow_question)
                 if request.feedback_request_id is not None:
                     feedback = self.pending_feedback
                     if feedback is None or feedback.request_id != request.feedback_request_id:
@@ -261,6 +387,22 @@ class DjangoInterviewRepository:
                             committed_state_version=version + 1,
                             snapshot_id=snapshot.snapshot_id if snapshot else None,
                             payload=evaluation_record.model_dump(mode="json"),
+                        )
+                    if shadow_job is not None:
+                        source = shadow_job.request.answer
+                        if (
+                            str(answer.id) != source.answer_id
+                            or answer.text != source.text
+                            or feedback.model_dump() != shadow_job.feedback.model_dump()
+                        ):
+                            raise InvalidAgentState("Shadow source must match the accepted answer")
+                        AgentShadowJob.objects.create(
+                            interview_id=self.interview_id,
+                            answer=answer,
+                            feedback_request_id=feedback.request_id,
+                            base_state_version=version,
+                            committed_state_version=version + 1,
+                            payload=shadow_job.model_dump(mode="json"),
                         )
                     answer.evaluation = feedback.model_dump(mode="json")
                     answer.committed_state_version = version + 1

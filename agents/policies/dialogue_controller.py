@@ -10,7 +10,7 @@ from agents.config import load_agent_settings
 from agents.domain.models import DialogueThread
 from agents.planning.planner import execution_topics
 from agents.policies.topic_selector import TopicSelector
-from shared.contracts.planning import TopicProgress
+from shared.contracts.planning import InformationNeed, TopicProgress
 
 
 class DialogueController:
@@ -42,7 +42,7 @@ class DialogueController:
             for project in context.candidate_profile.projects
             if not self.project_exhausted(project.project_id)
             for topic in TopicSelector().candidates(project)
-            if topic.topic_key not in context.used_topic_keys
+            if (topic.topic_key not in context.used_topic_keys or self.can_resume(topic.topic_key))
             and self.topic_questions(topic.topic_key) < context.plan.max_questions_per_topic
         }
         if context.plan.planning_enabled:
@@ -53,6 +53,18 @@ class DialogueController:
                     return {item.topic_key: available[item.topic_key]}
             return {}
         return available
+
+    def can_resume(self, topic_key):
+        """Only a new accepted plan may reopen a deferred scope; counts are cumulative."""
+        progress = self.context.topic_progress.get(topic_key)
+        return bool(
+            self.context.plan.planning_enabled
+            and progress
+            and progress.status == "pending"
+            and progress.reason == "RESUMED_BY_PLAN"
+            and progress.coverage_status != "sufficient"
+            and topic_key in {item.topic_key for item in execution_topics(self.context)}
+        )
 
     def followup_block(self):
         context = self.context
@@ -73,7 +85,9 @@ class DialogueController:
             return "PROJECT_QUESTION_LIMIT"
         if self.topic_questions(active.topic_key) >= context.plan.max_questions_per_topic:
             return "TOPIC_QUESTION_LIMIT"
-        if latest.feedback.analysis.status in {"explicit_unknown", "refusal"}:
+        if getattr(
+            latest.feedback, "analysis_status", "valid"
+        ) == "valid" and latest.feedback.analysis.status in {"explicit_unknown", "refusal"}:
             return "CANDIDATE_STOPPED_THREAD"
         if active.no_information_count >= self.settings.probe.max_no_information_answers:
             return "NO_NEW_INFORMATION"
@@ -85,7 +99,28 @@ class DialogueController:
     def _goal_key(value):
         return " ".join(re.findall(r"\w+", value.casefold()))
 
-    def goal_already_asked(self, project_id, goal, *, allow_current_clarification=False):
+    def unresolved_goal(self, topic_key, goal=None):
+        progress = self.context.topic_progress.get(topic_key)
+        if not (
+            self.context.plan.planning_enabled
+            and progress
+            and progress.status in {"active", "pending"}
+            and progress.coverage_status == "partial"
+            and progress.missing_information
+        ):
+            return False
+        return goal is None or any(
+            self._goal_key(item) == self._goal_key(goal) for item in progress.missing_information
+        )
+
+    def goal_already_asked(
+        self,
+        project_id,
+        goal,
+        *,
+        allow_current_clarification=False,
+        topic_key=None,
+    ):
         """Allow unresolved current goals through to wording-level semantic review.
 
         Goal equality alone cannot distinguish a narrower clarification from a repeat.
@@ -101,15 +136,25 @@ class DialogueController:
             and latest
             and latest.question.thread_id == active.thread_id
             and latest.question.project_id == active.project_id
-            and not latest.feedback.analysis.thread_complete
+            and (
+                not latest.feedback.analysis.thread_complete
+                or self.unresolved_goal(active.topic_key, goal)
+            )
             and self.followup_block() is None
             else None
         )
         key = self._goal_key(goal)
+        resumable_goal = (
+            topic_key is not None
+            and self.can_resume(topic_key)
+            and self.unresolved_goal(topic_key, goal)
+        )
         return any(
             self._goal_key(previous) == key
             for thread in self.threads
-            if thread.project_id == project_id and thread.thread_id != reusable_thread
+            if thread.project_id == project_id
+            and thread.thread_id != reusable_thread
+            and not (resumable_goal and thread.topic_key == topic_key)
             for previous in thread.goals
         )
 
@@ -142,8 +187,11 @@ class DialogueController:
                 raise ValueError("FOLLOWUP_MUST_KEEP_CURRENT_THREAD")
             active.follow_up_count += 1
         else:
-            if question.topic_key in context.used_topic_keys:
+            resuming = self.can_resume(question.topic_key)
+            if question.topic_key in context.used_topic_keys and not resuming:
                 raise ValueError("UNKNOWN_OR_USED_TOPIC")
+            if self.topic_questions(question.topic_key) >= context.plan.max_questions_per_topic:
+                raise ValueError("TOPIC_QUESTION_LIMIT")
             if context.active_thread:
                 context.active_thread.closed_reason = closed_reason
                 context.closed_threads.append(context.active_thread)
@@ -153,7 +201,10 @@ class DialogueController:
                 topic=question.topic,
                 topic_key=question.topic_key,
             )
-            context.used_topic_keys.append(question.topic_key)
+            if question.topic_key not in context.used_topic_keys:
+                context.used_topic_keys.append(question.topic_key)
+            if resuming:
+                context.topic_progress[question.topic_key].resume_count += 1
             context.thread_difficulty = question.difficulty
             if question.project_id:
                 counts = context.state.project_visit_count
@@ -162,7 +213,14 @@ class DialogueController:
         if context.plan.planning_enabled:
             for key, progress in context.topic_progress.items():
                 if progress.status == "active" and key != question.topic_key:
-                    progress.status, progress.reason = "completed", "EXECUTOR_MOVED_ON"
+                    progress.status, progress.reason = "deferred", "EXECUTOR_MOVED_ON"
             progress = context.topic_progress.setdefault(question.topic_key, TopicProgress())
+            if question.need_id and not any(n.need_id == question.need_id for n in progress.information_needs):
+                progress.information_needs.append(InformationNeed(
+                    need_id=question.need_id, objective_id=progress.objective_id or question.topic_key,
+                    objective_version=progress.objective_version, target=question.information_goal,
+                    answer_unit=question.answer_unit or question.information_goal,
+                ))
             progress.status = "active"
+            progress.reason = "QUESTION_ASKED"
             progress.questions_asked += 1

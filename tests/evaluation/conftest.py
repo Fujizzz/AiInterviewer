@@ -79,9 +79,8 @@ def analysis_payload():
 @pytest.fixture
 def extraction_payload(phase_two_request):
     def spans(*quotes):
-        text = phase_two_request.answer.text
         return [
-            dict(quote=quote, char_start=text.index(quote), char_end=text.index(quote) + len(quote))
+            dict(quote=quote, segment_id=f"{phase_two_request.answer.answer_id}:s0")
             for quote in quotes
         ]
 

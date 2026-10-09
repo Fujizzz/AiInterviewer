@@ -69,7 +69,11 @@ class FileTrace:
         with self._lock:
             if self._closed or self._failure is not None:
                 return
-            text = self._render(event, data)
+            try:
+                text = self._render(event, data)
+            except Exception as error:
+                # Diagnostics must never replace a business exception or consume a repair.
+                text = f"Trace render error: {event} / {type(error).__name__}"
             if not text:
                 return
             try:
@@ -198,7 +202,10 @@ class FileTrace:
         if event == "question.quality":
             labels = {"PASS": "通过", "REVISE": "需要修复", "UNAVAILABLE": "检查不可用"}
             issues = ", ".join(data.get("issues", []))
-            text = f"提问质量：{labels[data['status']]}" + (f"；{issues}" if issues else "")
+            labels.update(REVIEW_CONFLICT="审查证据冲突", REVIEW_INVALID="审查证据无效")
+            text = f"提问质量：{labels.get(data['status'], data['status'])}" + (
+                f"；{issues}" if issues else ""
+            )
             if data.get("overload_discarded"):
                 text += "；已忽略与单一回答要求不一致的多问判定"
             if "OVERLOADED_QUESTION" in data.get("issues", []):
@@ -261,11 +268,27 @@ class FileTrace:
                 )
                 or "本轮无可评分证据"
             )
+            if feedback.get("assessment_status") == "pending":
+                dimensions = "能力评价待完成"
+            elif feedback.get("assessment_status") == "unavailable":
+                dimensions = "能力评价不可用"
             completed = "已充分" if feedback["analysis"].get("thread_complete") else "尚未充分"
             return (
                 f"回答分析：{feedback['analysis']['status']}；"
                 f"话题展开：{completed}；评价：{dimensions}"
             )
+        if event == "evaluation.assessment_completed":
+            record = data["assessment"]
+            if record["assessment_status"] != "valid":
+                return f"能力评价不可用：{record['answer_id']}"
+            scores = (
+                "；".join(
+                    f"{item['competency']}={item.get('rubric_level') or '证据不足'}"
+                    for item in record["dimensions"]
+                )
+                or "无可评分证据"
+            )
+            return f"能力评价完成：{record['answer_id']}；{scores}"
         if event == "interview.result":
             report = data["report"]
             score = report["overall_score"]

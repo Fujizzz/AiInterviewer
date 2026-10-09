@@ -47,7 +47,9 @@ def test_run_saves_only_one_concise_file(tmp_path):
     assert not any("提问质量" in line for line in printed)
     assert text.count("**最终问题**") == 2
     assert "I measured the cache hit rate." in text
-    assert "评价：ownership=3" in text
+    assert "评价：能力评价待完成" in text
+    assert "能力评价完成：" in text
+    assert "ownership=3" in text
     assert "## 最终结果" in text
     assert "completed" in text
     assert "secret_marker" not in text
@@ -99,7 +101,7 @@ def test_timeout_and_fallback_remain_visible(tmp_path):
         )
     text = trace.path.read_text(encoding="utf-8")
     assert "TIMEOUT" in text
-    assert "CANDIDATE_SPECIFIC_FALLBACK" in text
+    assert "POLICY_INTENT_FALLBACK_UNREVIEWED" in text
     assert "private provider error" not in text
 
 

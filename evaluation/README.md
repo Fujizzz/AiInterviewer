@@ -30,7 +30,9 @@ Evidence Resolver、确定性关系重放及 criterion 贡献门禁；第四阶�
 - `integration.py`：将 Evaluation 结果投影到共享状态；Agent 不再自行计算分数。
 - `compatibility.py`：保留旧 DimensionEvidence 的去重、score/coverage 计算行为。
 - `config/shadow-v1.json`：显式、未校准的 shadow 阈值，不作为正式发布配置。
-- `../app/adapters/rubric_evaluation.py`：正式端口、并行 shadow 包装和运行开关。
+- `background.py`：绑定原始问答与状态快照的后台评分任务、顺序追加校验。
+- `../app/adapters/rubric_evaluation.py`：正式端口和运行开关。
+- `../app/adapters/background_evaluation.py`：不阻塞实时问答的 shadow worker。
 - `../backend/interviews/evaluation_models.py`：持久化完整审计记录的内部追加式日志。
 - `../tests/evaluation/`：契约、Rubric、提取、失败恢复及 Planner 集成回归。
 
@@ -44,15 +46,31 @@ Evidence Resolver、确定性关系重放及 criterion 贡献门禁；第四阶�
 
 ## 运行接入与持久化
 
-CLI 和 Django 的应用组合默认使用 `EVALUATION_MODE=shadow`，并行运行旧适配器和四阶段
-新评分。新模型调用各有 30 秒阶段期限；等待双方结束后才进入原子提交，可能增加模型用量
-及单轮等待时间。`EVALUATION_MODE=legacy` 可回退到旧流程；环境变量不接受 `formal`，
+CLI 和 Django 的应用组合默认使用 `EVALUATION_MODE=shadow`，实时路径只等待
+`RealtimeDecisionAdapter`：回答状态、信息缺口、目标覆盖和有原文依据的矛盾/纠错。
+`AnswerDecision` schema 不包含能力证据、Rubric 等级或评分；实时反馈的
+`assessment_status=pending` 表示尚未评分，不表示低分或候选人回答失败。
+问答提交时原子保存后台任务和当时的完整状态快照。两个独立 worker 分别按回答顺序执行：
+原有语义的详细能力评分（一次调用）和四阶段 shadow 评分。评分各阶段仍有 30 秒期限。
+worker 只追加结果，不更新当前面试状态或计划，也不改写已提交的实时决定。
+后续回合在正常 CAS 提交内吸收已完成的能力评分；同一线程使用最新可用评分调整难度，
+未完成时保持难度，已撤回证据和其他线程的迟到评分不能使当前线程升级。
+报告使用已完成的能力评分，并明确保留失败/未完成的回答；shadow 仍只用于审计。
+CLI 输入在线程中读取，让候选人回答期间后台仍能运行。
+这移除了 shadow 的直接等待，但 API 用量、接口并发竞争和历史增长成本仍然存在。
+`EVALUATION_MODE=legacy` 关闭四阶段 shadow，但仍使用实时决策＋后台能力评分；环境变量不接受 `formal`，
 避免把未校准的 shadow 阈值用于线上发布。直接构造正式端口时必须显式提供 policy/profile。
 
 部署前执行 Django `python manage.py migrate`。新增迁移 `0010_evaluation_ledger` 只创建
 `AgentEvaluation` 表，不重写旧上下文或历史分数。CLI 的同一接口使用内存存储。
 与主分支的 `0010_agent_automatic_end` 通过 `0011_merge_evaluation_automatic_end` 合并；
 保留两个原有迁移编号，支持新数据库以及已经应用任一分支迁移的数据库升级。
+新增 `0012_background_shadow_jobs` 创建 `AgentShadowJob` 表，不改写已有评分。
+新增 `0013_deferred_capability_assessment` 创建 `AgentAssessment` 表。legacy 和 shadow
+两种生产配置都需要后台任务表；CLI 不需要数据库迁移。显式构造 `LLMEvaluationAdapter`
+仍可使用原同步评估接口，但不再是应用默认组合。
+正常结束时最多等待 60 秒收尾；连接关闭或超时会取消本地 worker，数据库保留未处理任务，
+可显式启动 worker 继续处理。当前没有自动恢复进程或断线重连服务；CLI 内存任务不跨进程保留。
 每条记录保存本轮输入、旧/安全反馈，以及新评分的完整 `ScoredEvaluation`：包含原始
 evidence ledger、关系决策、criterion assessments、snapshot 和完整 `AggregationRecord`。
 每轮重新 Judge 全部已提交证据，并通过 `supersedes_snapshot_id` 连接前一个成功快照。
@@ -61,19 +79,30 @@ evidence ledger、关系决策、criterion assessments、snapshot 和完整 `Agg
 评分日志，再删除受保护的回答、请求和面试记录；失败全部回滚，不影响简历或其他面试。
 静默 `skip` 不调用评分模型、不创建评分日志、不产生能力证据；提交时保存
 `unobserved_feedback_ids`，重启或裁剪对话历史后也不会将其误判为缺失评分。
-真正的旧流程评分缺口和失败日志仍阻断新评分发布。提前结束携带当前回答时，评分日志与
-最终状态原子提交；不携带当前回答时，仅保留此前已提交的评分记录。
+真正的旧流程评分缺口和失败日志仍阻断新评分发布。提前结束携带当前回答时，shadow 任务与
+最终状态原子提交，评分日志稍后追加；不携带当前回答时，不创建新的评分任务。
 
 `EvaluatedFeedback` 的私有 receipt 不参与 `model_dump()`；Question Agent、Planner、
 用户报告及历史 API 仍读取共享安全投影。调用方必须把端口返回对象直接交给
 `apply_evaluation_feedback(..., answer=answer)`，不要先转 JSON 再构造共享反馈，否则会
 丢失进程内 receipt。持久化通过 `CommitTurnRequest.evaluation_record` 显式传递。
+默认后台路径使用同样排除序列化的 `DeferredShadowFeedback.shadow_job`，通过
+`CommitTurnRequest.shadow_job` 保存任务。调用方在提交成功后调用 `start_background`，
+结束时 `drain`，释放模型客户端前先 `close`。原同步 `ShadowEvaluationAdapter` 仅保留给
+显式调用者和原子 receipt 兼容测试，不是生产默认组合。
 
 提交校验要求 `base_state_version` 等于 Repository CAS 的当前版本，且问题、已接受回答、
 Planner 目标、输入历史、旧 ledger 前缀、失败门禁及前序 snapshot 都一致。仓库还会
 执行确定性重放。过期结果报 `StateConflictError`；调用方需重新读取和评估，不能仅修改版本。
 事务后半段失败会回滚状态、下一题、反馈和全部评分记录；Django 预先接受的原回答仍保留。
 同一已提交请求返回保存的反馈/动作，不重新调用模型，也不重复追加记录。
+后台追加仍校验原始问题、回答、反馈、计划目标、历史前缀、累计 ledger 和确定性重放，
+但使用已提交任务的源版本，不要求当前面试版本仍停留在那一题，也不修改当前 CAS 版本。
+任务必须按回答顺序提交；失败结果可审计，存储异常保留待处理任务，不中断下一题。
+能力评分使用独立的 `AssessmentRecord`，再次校验请求、回答、源版本、段落 ID 和精确原文。
+已确认的后续纠错仍能撤回迟到评分中的旧证据。后台失败不把对话分析改成失败，也不自动降低能力分数。
+正常有效回答通常调用一次实时决策、一次后台能力评分；shadow 开启后另加四次，正常共六次。
+明确不会、拒绝、非回答或纯标签不调用能力评分模型；结构修复可能增加调用。
 
 失败轮次保存无 evidence/assessment/snapshot 的失败记录。后续成功评分继续携带
 `unassessed_feedback:<request_id>` 门禁；从 legacy 切换产生的历史缺口采用同样机制，
@@ -160,6 +189,9 @@ Analyzer 结论、Planner 完成判断、岗位权重、当前分数、简历或
 同一能力可以有多个 claim；模型不能填写 evidence ID、relation、独立组或分数。
 
 两个输出 schema 均禁止多余字段，并在 provider 返回后重新校验。
+`extractor-1.1.0` 的模型输出只包含当前回答自然段的 `segment_id` 和精确 `quote`，
+程序在指定段落中验证唯一匹配并计算字符位置，不让模型计算 Unicode offsets。
+未知段落、歧义引用、非原文引用和乱序/重叠引用仍整批拒绝；不从其他段落猜测修补。
 Extractor 使用 `validator.py` 集中执行原文/offset 和身份校验，不修补错误 quote。任一条不合法或同批
 重复 ID 都使本次提取整体失败，不能保留其他成功片段。常见 yes/ok、裸英文技术标签、
 明确不知道或拒答有程序过滤；其他语义标签（含中文）由独立 Analyzer 分类和提取 Prompt

@@ -1,11 +1,13 @@
 """Read-only dialogue view and validation of model-selected conversation actions."""
 
+from hashlib import sha256
 from typing import Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from agents.planning.planner import execution_topics, planning_view
+from agents.planning.needs import open_needs
 from agents.policies.dialogue_controller import DialogueController
 from shared.contracts import PlannedQuestion, QuestionType
 
@@ -18,6 +20,8 @@ class DialogueSelection(BaseModel):
     topic_key: str = Field(min_length=1)
     information_goal: str = Field(min_length=3, max_length=400)
     decision_summary: str = Field(min_length=3, max_length=300)
+    need_id: str = Field(default="", max_length=300)
+    answer_unit: str = Field(default="", max_length=400)
 
     @field_validator("decision_summary", mode="before")
     @classmethod
@@ -69,7 +73,8 @@ def dialogue_view(context, settings):
                 "questions_asked": controller.project_questions(project.project_id),
                 "question_limit": context.plan.max_questions_per_project,
                 "topics": [
-                    {"topic_key": key, "label": topic.topic[:100]}
+                    {"topic_key": key, "label": topic.topic[:100],
+                     "information_needs": [n.model_dump(mode="json") for n in open_needs(context.topic_progress.get(key), key)]}
                     for key, (owner, topic) in topics.items()
                     if owner.project_id == project.project_id
                 ],
@@ -143,6 +148,7 @@ def writing_brief(context, view):
             "project_id": active.project_id,
             "topic_key": active.topic_key,
             "topic": active.topic,
+            "information_needs": [n.model_dump(mode="json") for n in open_needs(context.topic_progress.get(active.topic_key), active.topic_key)],
         }
         if active and can_continue
         else None,
@@ -190,19 +196,32 @@ def resolve_selection(selection, context, settings, question_id=None):
         expected = "new_project" if active and project_id != active.project_id else "new_topic"
         if selection.dialogue_action != expected:
             raise ValueError("INCORRECT_DIALOGUE_ACTION")
+    progress = context.topic_progress.get(selection.topic_key)
+    needs = open_needs(progress, selection.topic_key)
+    registered = {n.need_id: n for n in needs}
+    if selection.need_id and selection.need_id not in registered:
+        raise ValueError("UNKNOWN_INFORMATION_NEED")
+    # An omitted ID selects the server's next need; it cannot create an escape route.
+    need = registered.get(selection.need_id) if selection.need_id else next(iter(needs), None)
+    goal = need.target if need else selection.information_goal
     if DialogueController(context, settings).goal_already_asked(
-        project_id, selection.information_goal, allow_current_clarification=continuing
+        project_id,
+        goal,
+        allow_current_clarification=continuing,
+        topic_key=selection.topic_key,
     ):
         raise ValueError("REPEATED_INFORMATION_GOAL")
     question_id = question_id or str(uuid4())
+    normalized_goal = " ".join(goal.casefold().split())
+    need_id = need.need_id if need else "need:" + sha256(f"{selection.topic_key}:{normalized_goal}".encode()).hexdigest()[:20]
     return PlannedQuestion(
         question_id=question_id,
         project_id=project_id,
         topic=topic,
         topic_key=selection.topic_key,
         dialogue_action=selection.dialogue_action,
-        information_goal=selection.information_goal,
-        intent=selection.information_goal,
+        information_goal=goal,
+        intent=goal,
         difficulty=context.thread_difficulty
         if continuing
         else settings.initial_question_difficulty,
@@ -210,4 +229,8 @@ def resolve_selection(selection, context, settings, question_id=None):
         question_type=QuestionType.IMPLEMENTATION if continuing else QuestionType.DESCRIPTION,
         thread_id=active.thread_id if continuing else question_id,
         parent_question_id=context.state.current_question_id if continuing else None,
+        intent_id=f"intent:{question_id}",
+        objective_id=getattr(progress, "objective_id", "") or f"objective:{selection.topic_key}",
+        need_id=need_id,
+        answer_unit=(need.answer_unit or need.target) if need else selection.answer_unit or goal,
     )

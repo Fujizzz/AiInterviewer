@@ -72,6 +72,7 @@ from agents.orchestrator.replay import replay_decision as replay_policy_decision
 from agents.orchestrator.state_machine import InterviewStageMachine
 from agents.orchestrator.termination import TerminationPolicy
 from agents.planning import InterviewPlannerAgent
+from agents.planning.pace import round_cost
 from agents.policies import DifficultyController
 from agents.policies.dialogue_controller import DialogueController
 from agents.policies.dialogue_policy import choose_dialogue
@@ -115,8 +116,9 @@ ResultT = TypeVar("ResultT")
 class InterviewAgentService:
     """Only public entry point for Agent orchestration.
 
-    The object owns immutable policies, adapters, and configuration only. Every
-    mutable interview value is loaded from and committed through RepositoryPort.
+    The object owns policies, adapters and optional speculative planning tasks.
+    Canonical state is loaded from and committed through RepositoryPort;
+    background snapshots propose preferences but never publish state.
     """
 
     def __init__(
@@ -128,6 +130,7 @@ class InterviewAgentService:
         llm: LLMPort | None = None,
         settings: AgentSettings | None = None,
         clock=time,
+        background_replanning: bool = False,
     ) -> None:
         """Functionality: Compose reusable policies and injected ports.
         Inputs: repository, rag, evaluation, llm, settings, clock.
@@ -145,6 +148,11 @@ class InterviewAgentService:
         self._settings = settings or load_agent_settings()
         self._clock = clock
         self._interview_planner = InterviewPlannerAgent(llm, self._settings, self._sync_clock)
+        from agents.planning.background import BackgroundReplanner
+
+        self._background_replanner = (
+            BackgroundReplanner(self._interview_planner) if background_replanning else None
+        )
         self._difficulty_controller = DifficultyController(self._settings)
         self._question_planner = QuestionPlanner()
         self._question_generator = (
@@ -341,6 +349,7 @@ class InterviewAgentService:
                     elapsed_seconds=elapsed_seconds,
                     answer=answer,
                 )
+            context = await self._context_after_assessments(context)
             try:
                 if finish_reason is not None:
                     self._sync_clock(context)
@@ -367,6 +376,47 @@ class InterviewAgentService:
                 if attempt >= maximum_recomputations:
                     raise
         raise AssertionError("bounded conflict loop exited unexpectedly")
+
+    async def _context_after_assessments(self, context):
+        if not context.assessment_feedback_ids:
+            return context
+        from evaluation.assessment import project_assessments
+
+        try:
+            jobs = await self._repository_call(
+                self._repository.get_shadow_jobs(context.interview_id),
+                operation="load assessment sources",
+            )
+            records = await self._repository_call(
+                self._repository.get_assessment_records(context.interview_id),
+                operation="load completed assessments",
+            )
+            updated, applied = project_assessments(context, jobs, records)
+            for question, feedback in applied:
+                if feedback.dimensions and not any(
+                    evidence.status == "active" and evidence.question_id == question.question_id
+                    for evidence in updated.evidence_records
+                ):
+                    continue
+                if (
+                    updated.active_thread is not None
+                    and (question.thread_id or question.question_id)
+                    == updated.active_thread.thread_id
+                    and feedback.analysis_status == "valid"
+                    and feedback.assessment_status == "valid"
+                ):
+                    updated.thread_difficulty = self._difficulty_controller.adjust(
+                        question.difficulty, feedback
+                    )
+            return updated
+        except Exception as error:
+            # Scores are optional for progression; storage/model failure is not low ability.
+            emit_trace(
+                "evaluation.assessment_refresh_unavailable",
+                interview_id=context.interview_id,
+                error_type=type(error).__name__,
+            )
+            return context
 
     async def _context_after_feedback(
         self,
@@ -415,11 +465,16 @@ class InterviewAgentService:
                 0,
                 updated.state.remaining_seconds - elapsed_seconds,
             )
-        updated.thread_difficulty = self._difficulty_controller.adjust(
-            current_question.difficulty, feedback
-        )
+        if feedback.analysis_status == "valid" and feedback.assessment_status == "valid":
+            updated.thread_difficulty = self._difficulty_controller.adjust(
+                current_question.difficulty, feedback
+            )
         apply_evaluation(updated, current_question, answer, feedback)
-        if updated.active_thread is not None:
+        if answer is not None and feedback.assessment_status != "valid":
+            updated.unassessed_answer_ids = list(
+                dict.fromkeys([*updated.unassessed_answer_ids, answer.answer_id])
+            )
+        if updated.active_thread is not None and feedback.analysis_status == "valid":
             updated.active_thread.no_information_count = (
                 0
                 if feedback.analysis.new_information
@@ -432,9 +487,10 @@ class InterviewAgentService:
                 feedback,
                 updated.state.elapsed_seconds - context.state.elapsed_seconds,
             )
-        updated.state.evidence_ids = list(
-            dict.fromkeys([*updated.state.evidence_ids, *feedback.evidence_ids])
-        )
+        if feedback.assessment_status == "valid":
+            updated.state.evidence_ids = list(
+                dict.fromkeys([*updated.state.evidence_ids, *feedback.evidence_ids])
+            )
         feedback_limit = self._settings.context.recent_feedback
         feedback_history = [
             *updated.recent_feedback,
@@ -462,7 +518,12 @@ class InterviewAgentService:
         if context.plan.planning_enabled and not self._termination_policy.should_finish(
             context.state, context.plan
         ):
-            await self._interview_planner.review(context)
+            if self._background_replanner:
+                self._background_replanner.consume(context)
+            await self._interview_planner.review(
+                context,
+                defer=self._background_replanner.request if self._background_replanner else None,
+            )
             self._sync_clock(context)
         if self._termination_policy.should_finish(context.state, context.plan):
             return await self._finish(
@@ -529,21 +590,24 @@ class InterviewAgentService:
                 information_goal="Explain one concrete implementation step",
             )
         if topic is None:
+            insufficient_time = (
+                context.plan.planning_enabled
+                and state.clock_started_at is not None
+                and state.remaining_seconds - context.plan.closing_seconds
+                < round_cost(context, self._settings)
+            )
             return await self._finish(
                 context,
                 feedback_request_id=feedback_request_id,
                 started_at=started_at,
-                reason="NO_MORE_TOPICS",
+                reason="INSUFFICIENT_TIME_FOR_NEW_TOPIC" if insufficient_time else "NO_MORE_TOPICS",
             )
         if (
             context.plan.planning_enabled
             and not probe.should_probe
             and state.clock_started_at is not None
             and state.remaining_seconds - context.plan.closing_seconds
-            < max(
-                self._settings.planning.minimum_question_seconds,
-                int(context.estimated_question_seconds),
-            )
+            < round_cost(context, self._settings)
         ):
             return await self._finish(
                 context,
@@ -622,13 +686,27 @@ class InterviewAgentService:
         generation_latency_ms = self._elapsed_ms(generation_started)
         timed_context = context.model_copy(deep=True)
         self._sync_clock(timed_context)
+        if question is None:
+            emit_trace(
+                "question.failed",
+                question_id=question_plan.question_id,
+                reason=generation_reason,
+                stop_reason=agent_result.stop_reason,
+                blocking_issues=agent_result.blocking_issues,
+            )
+            return await self._finish(
+                timed_context,
+                feedback_request_id=feedback_request_id,
+                started_at=started_at,
+                reason="NO_VALID_QUESTION",
+            )
         if self._termination_policy.should_finish(timed_context.state, timed_context.plan):
             return await self._finish(
                 timed_context,
                 feedback_request_id=feedback_request_id,
                 started_at=started_at,
             )
-        if agent_result.question is not None:
+        if agent_result.question is not None or agent_result.locked_intent is not None:
             project = next(
                 (
                     p
@@ -667,6 +745,7 @@ class InterviewAgentService:
             duration_ms=generation_latency_ms,
         )
         updated = context.model_copy(deep=True)
+        updated.last_question_generation_seconds = generation_latency_ms / 1000
         if updated.plan.planning_enabled and updated.state.clock_started_at is None:
             # Initial resume parsing, planning and first question generation are preparation.
             updated.state.clock_started_at = self._clock()
@@ -816,7 +895,7 @@ class InterviewAgentService:
         updated_context = context.model_copy(deep=True)
         if context.plan.planning_enabled:
             for progress in updated_context.topic_progress.values():
-                if progress.status in {"active", "pending"}:
+                if progress.status in {"active", "pending", "deferred"}:
                     progress.status = "skipped"
                     progress.reason = reason or self._termination_policy.reason_code(
                         state, context.plan
@@ -874,6 +953,7 @@ class InterviewAgentService:
             new_state=updated_context.state,
             new_context=updated_context,
             evaluation_record=updated_context.pending_evaluation,
+            shadow_job=updated_context.pending_shadow_job,
             question=question,
             decision_log=decision_log,
             feedback_request_id=feedback_request_id,
@@ -892,7 +972,15 @@ class InterviewAgentService:
             state=result.state.model_dump(mode="json"),
             decision_log=decision_log.model_dump(mode="json"),
         )
+        if self._background_replanner and result.action.type == InterviewActionType.ASK_QUESTION:
+            committed_snapshot = updated_context.model_copy(deep=True)
+            committed_snapshot.state = result.state.model_copy(deep=True)
+            self._background_replanner.start(committed_snapshot)
         return result.action
+
+    async def close_background(self):
+        if self._background_replanner:
+            await self._background_replanner.close()
 
     def _decision_log(
         self,
@@ -976,17 +1064,7 @@ class InterviewAgentService:
         interview: InterviewContext,
         previous_questions: Sequence[PlannedQuestion],
         agent_result: QuestionAgentResult,
-    ) -> tuple[PlannedQuestion, str]:
-        """Functionality: Generate and validate question text using the configured pipeline.
-        Inputs: question_plan, context, project, force_fallback, interview, previous_questions,
-        agent_result.
-        Outputs: Pair of PlannedQuestion and generation reason string; agent_result receives ReAct
-        observations.
-        Logic: Use autonomous ReAct when enabled, otherwise bounded legacy generation/repair;
-        preserve existing candidate-specific or generic fallback question policy.
-        Constraints: force_fallback selects the established fallback path; no changes to original
-        model limits or quality criteria.
-        """
+    ) -> tuple[PlannedQuestion | None, str]:
         if not force_fallback and self._question_agent is not None:
             result = await self._question_agent.generate(
                 question_plan,
@@ -999,8 +1077,43 @@ class InterviewAgentService:
             agent_result.decision_summary = result.decision_summary
             agent_result.steps = result.steps
             agent_result.stop_reason = result.stop_reason
+            agent_result.locked_intent = result.locked_intent
+            agent_result.retarget_requested = result.retarget_requested
+            agent_result.blocking_issues = result.blocking_issues
+            agent_result.repairs_used = result.repairs_used
+            agent_result.model_calls = result.model_calls
+            agent_result.elapsed_seconds = result.elapsed_seconds
             if result.question is not None:
                 return result.question, "LLM_REPAIRED" if result.repaired else "LLM_GENERATED"
+            if result.retarget_requested:
+                emit_trace(
+                    "controller.retarget",
+                    approved=False,
+                    intent_id=result.locked_intent.intent_id if result.locked_intent else None,
+                    reason="KEEP_INTENT_WITHIN_EXISTING_TURN_BUDGET",
+                )
+            if result.locked_intent is not None:
+                if set(result.blocking_issues) & {"SEMANTIC_REPEAT", "UNSUPPORTED_PREMISE"}:
+                    return None, "UNSAFE_INTENT_FALLBACK_BLOCKED"
+                locked = result.locked_intent
+                selected_project = next(
+                    (
+                        p
+                        for p in interview.candidate_profile.projects
+                        if p.project_id == locked.project_id
+                    ),
+                    None,
+                )
+                fallback = self._fallback_policy.apply_locked(locked, project=selected_project)
+                if self._question_validator.is_valid(fallback, locked):
+                    return fallback, "SAME_INTENT_FALLBACK_UNREVIEWED"
+                return None, "INVALID_INTENT_FALLBACK"
+            # No model route was accepted: preserve the controller's original target.
+            # The old recovery silently replaced it with a repeated ownership question.
+            fallback = self._fallback_policy.apply_locked(question_plan, project=project)
+            if self._question_validator.is_valid(fallback, question_plan):
+                return fallback, "POLICY_INTENT_FALLBACK_UNREVIEWED"
+            return None, "INVALID_POLICY_FALLBACK"
         elif not force_fallback and self._question_generator is not None:
             repair_errors: list[str] | None = None
             attempts = self._settings.retries.llm_generation_retries + 1

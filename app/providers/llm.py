@@ -133,7 +133,9 @@ class OpenAILLM:
         ]
         call = current_model_call.get()
         # The ReAct executor owns question repair; avoid nested provider repairs.
-        attempts = 1 if call and call.operation in {"question", "question_quality"} else 2
+        attempts = 1 if call and call.operation in {
+            "question", "question_quality", "question_repeat_check", "question_issue_check"
+        } else 2
         for attempt in range(attempts):
             completion = self.client.chat.completions.create(
                 model=self.model,

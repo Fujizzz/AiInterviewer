@@ -82,7 +82,7 @@ async def test_one_invalid_quote_discards_valid_siblings_and_successful_analysis
     phase_two_input, analysis_payload, extraction_payload
 ):
     extraction_payload["evidence"][1]["quote_spans"] = [
-        dict(quote="invented", char_start=0, char_end=8)
+        dict(quote="invented", segment_id="answer-current:s0")
     ]
     result = await EvaluationService(
         lambda prompt, data, schema: schema(

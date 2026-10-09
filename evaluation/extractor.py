@@ -13,11 +13,50 @@ from evaluation.model_calls import EvaluationModelClient, EvaluationStageError, 
 from evaluation.validator import validate_evidence
 from shared.contracts import Competency
 
-EXTRACTION_VERSION = "extractor-1.0.0"
+EXTRACTION_VERSION = "extractor-1.1.0"
+
+
+class QuoteReference(EvaluationModel):
+    segment_id: Text
+    quote: Text
+
+
+def answer_segments(context: EvaluationInput) -> list[dict]:
+    """Lossless paragraphs, never arbitrary windows that cut a quoted sentence."""
+    segments, start = [], 0
+    for index, text in enumerate(context.answer.text.splitlines(keepends=True)):
+        segments.append(
+            {
+                "segment_id": f"{context.answer.answer_id}:s{index}",
+                "text": text,
+                "char_start": start,
+            }
+        )
+        start += len(text)
+    return segments
+
+
+def resolve_quotes(references, segments) -> tuple[QuoteSpan, ...]:
+    spans = []
+    for reference in references:
+        segment = segments.get(reference.segment_id)
+        if segment is None:
+            raise ValueError("unknown current-answer segment")
+        source = segment["text"]
+        start = source.find(reference.quote)
+        if start < 0 or source.find(reference.quote, start + 1) >= 0:
+            raise ValueError("quote must have exactly one match in its source segment")
+        start += segment["char_start"]
+        spans.append(
+            QuoteSpan(
+                quote=reference.quote, char_start=start, char_end=start + len(reference.quote)
+            )
+        )
+    return tuple(spans)
 
 
 class EvidenceDraft(EvaluationModel):
-    quote_spans: tuple[QuoteSpan, ...] = Field(min_length=1)
+    quote_spans: tuple[QuoteReference, ...] = Field(min_length=1)
     normalized_claim: Text
     evidence_kind: Literal[
         "personal_action", "technical_explanation", "decision", "outcome", "reflection"
@@ -40,6 +79,11 @@ class EvidenceExtractor:
         if non_answer_status(context.answer.text) or is_bare_label(context.answer.text):
             return ()
         payload = context.extraction_payload()
+        segments = answer_segments(context)
+        payload["answer_segments"] = [
+            {"segment_id": segment["segment_id"], "text": segment["text"]} for segment in segments
+        ]
+        payload["answer"].pop("text")  # One authoritative quote source, not two competing views.
         payload["competency_taxonomy"] = [item.value for item in Competency]
         output = await self._client.call(
             stage="extractor", prompt=self._prompt, payload=payload, schema=EvidenceExtraction
@@ -48,11 +92,13 @@ class EvidenceExtractor:
         seen = set()
         try:
             for draft in output.evidence:
+                spans = resolve_quotes(draft.quote_spans, {s["segment_id"]: s for s in segments})
                 item = EvidenceItem(
-                    **draft.model_dump(),
+                    **draft.model_dump(exclude={"quote_spans"}),
+                    quote_spans=spans,
                     evidence_id=evidence_id(
                         answer_id=context.answer.answer_id,
-                        quote_spans=draft.quote_spans,
+                        quote_spans=spans,
                         normalized_claim=draft.normalized_claim,
                         evidence_kind=draft.evidence_kind,
                     ),

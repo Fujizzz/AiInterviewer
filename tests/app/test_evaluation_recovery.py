@@ -1,4 +1,4 @@
-"""Reject duplicate model evidence, repair within existing limits, and survive failure."""
+"""Independent conversation/assessment recovery and conservative evidence merging."""
 
 import asyncio
 import json
@@ -6,10 +6,9 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-from pydantic import ValidationError
 
 from agents.orchestrator import InterviewAgentService
-from app.adapters.evaluation import AnswerEvidence, LLMEvaluationAdapter
+from app.adapters.evaluation import AnswerEvidence, LLMEvaluationAdapter, grounded_dimensions
 from app.providers.llm import LLMError, OpenAILLM
 from shared.contracts import CandidateAnswer, EvaluationRequest
 from tests.agent.integration.test_question_pipeline_integration import pipeline_request
@@ -31,13 +30,11 @@ def output(duplicate=False, quote="I implemented the cache"):
         answer_relevance=0.8,
         evidence_strength=0.7,
         analysis=dict(status="substantive", answer_scope="concrete"),
-        dimensions=[item, item] if duplicate else [item],
+        dimensions=[item, item.copy()] if duplicate else [item],
     )
 
 
-def test_duplicate_dimension_enters_existing_provider_repair():
-    with pytest.raises(ValidationError, match="At most one assessment"):
-        AnswerEvidence.model_validate(output(True))
+def test_duplicate_dimension_merges_once_without_provider_repair_or_score_inflation():
     model = OpenAILLM.__new__(OpenAILLM)
     model.provider, model.model, model.options = "dashscope", "fake", {}
     model.request_timeout = 30
@@ -51,15 +48,16 @@ def test_duplicate_dimension_enters_existing_provider_repair():
         )
     )
     result = model("Evaluate", {}, AnswerEvidence)
-    assert len(result.dimensions) == 1
+    dimensions = grounded_dimensions(result.dimensions, "I implemented the cache", [])
+    assert len(dimensions) == 1
+    assert dimensions[0].rubric_level == 3
+    assert dimensions[0].strength == 0.7
     create = model.client.chat.completions.create
-    assert create.call_count == 2
-    repair_prompt = create.call_args.kwargs["messages"][0]["content"]
-    assert "Each competency may occur at most once" in repair_prompt
+    assert create.call_count == 1
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("failure", ["duplicate", "bad_quote", "provider", "timeout"])
+@pytest.mark.parametrize("failure", ["bad_structure", "bad_quote", "provider", "timeout"])
 async def test_failed_evaluation_preserves_answer_without_scores_and_continues(failure):
     repository = InMemoryRepository()
     service = InterviewAgentService(repository=repository)
@@ -76,12 +74,10 @@ async def test_failed_evaluation_preserves_answer_without_scores_and_continues(f
             raise LLMError("invalid", code="invalid_json")
         if failure == "timeout":
             raise TimeoutError()
-        return schema.model_validate(
-            output(
-                failure == "duplicate",
-                quote=("invented quote" if failure == "bad_quote" else answer.text),
-            )
-        )
+        raw = output(quote=("invented quote" if failure == "bad_quote" else answer.text))
+        if failure == "bad_structure":
+            raw["dimensions"][0]["rubric_level"] = 9
+        return schema.model_validate(raw)
 
     feedback = await LLMEvaluationAdapter(model, repository).evaluate(
         EvaluationRequest(
@@ -95,7 +91,13 @@ async def test_failed_evaluation_preserves_answer_without_scores_and_continues(f
     assert feedback.evidence_ids == []
     assert feedback.evidence_strength == 0
     assert not feedback.analysis.thread_complete
-    assert "unassessed" in feedback.analysis.summary
+    assert feedback.assessment_status == "unavailable"
+    if failure in {"bad_structure", "bad_quote"}:
+        assert feedback.analysis_status == "valid"
+        assert feedback.analysis.status == "substantive"
+    else:
+        assert feedback.analysis_status == "unavailable"
+        assert "unassessed" in feedback.analysis.summary
     action = await service.apply_evaluation_feedback(answer.interview_id, feedback, answer=answer)
     assert action.question is not None
     context = await repository.get_interview_context(answer.interview_id)

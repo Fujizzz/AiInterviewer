@@ -1,4 +1,4 @@
-"""Compatibility import; Evaluation owns all evidence and score aggregation."""
+"""Compatibility import; Evaluation owns evidence aggregation."""
 
 from evaluation.compatibility import apply_evidence
 

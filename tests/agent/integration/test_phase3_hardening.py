@@ -212,7 +212,7 @@ async def test_llm_timeout_stops_agent_and_commits_fallback() -> None:
     assert repository.decision_logs[-1].fallback_used is True
     assert (
         response.first_action.decision_trace.details["generation_reason"]
-        == "CANDIDATE_SPECIFIC_FALLBACK"
+        == "POLICY_INTENT_FALLBACK_UNREVIEWED"
     )
 
 

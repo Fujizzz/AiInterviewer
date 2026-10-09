@@ -38,7 +38,7 @@ from ai_security.errors import SecurityContextChanged
 
 from .agent_models import AgentAnswer, AgentInterview, AgentRequest, AgentTurn
 from .agent_safety import make_output_receipt
-from .evaluation_models import AgentEvaluation
+from .evaluation_models import AgentEvaluation, AgentShadowJob
 from .resume_models import ResumeVersion
 
 logger = logging.getLogger(__name__)
@@ -60,6 +60,7 @@ def discard_interview(interview_id, owner_id):
         if not owned.exists():
             return
         AgentEvaluation.objects.filter(interview_id=interview_id).delete()
+        AgentShadowJob.objects.filter(interview_id=interview_id).delete()
         AgentTurn.objects.filter(interview_id=interview_id).delete()
         AgentAnswer.objects.filter(question__interview_id=interview_id).delete()
         deleted, _ = owned.delete()

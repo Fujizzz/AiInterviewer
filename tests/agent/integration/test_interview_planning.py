@@ -5,8 +5,8 @@ from pydantic import ValidationError
 
 from agents.config import load_agent_settings
 from agents.orchestrator import InterviewAgentService
-from shared.contracts import AnswerAnalysis, CandidateAnswer, EvaluationFeedback
-from shared.contracts.planning import PlanDraft, TopicAllocation
+from shared.contracts import AnswerAnalysis, CandidateAnswer, EvaluationFeedback, ObjectiveCoverage
+from shared.contracts.planning import PlanDraft, PlanProposal, TopicAllocation
 from tests.agent.integration.test_question_pipeline_integration import pipeline_request
 from tests.agent.mocks import InMemoryRepository, MockLLMAdapter
 
@@ -25,7 +25,7 @@ class PlannerLLM(MockLLMAdapter):
         self.script = script
 
     async def generate_structured(self, *, prompt_name, payload, response_model):
-        if response_model is PlanDraft:
+        if response_model is PlanProposal:
             self.plans.append(payload)
             if self.script:
                 return self.script(payload, len(self.plans))
@@ -82,6 +82,21 @@ def feedback(question, index=1, complete=False):
     )
 
 
+def covered_feedback(question, answer_id, quote, index=1):
+    result = feedback(question, index, complete=True)
+    result.objective_coverage_status = "valid"
+    result.objective_coverage = [
+        ObjectiveCoverage(
+            objective_id=question.topic_key,
+            coverage_status="sufficient",
+            answer_id=answer_id,
+            supporting_quotes=[quote],
+            supporting_segment_ids=[f"{answer_id}:s0"],
+        )
+    ]
+    return result
+
+
 @pytest.mark.asyncio
 async def test_planner_selects_agenda_but_only_question_agent_writes_questions():
     llm = PlannerLLM()
@@ -103,7 +118,9 @@ async def test_expected_count_is_soft_replan_adds_followup_and_replay_is_idempot
     llm = PlannerLLM()
     service, repo, clock, result = await setup(llm)
     question = result.first_action.question
-    clock.value += 100
+    # Exhaust the soft topic allocation, so a semantic replan can extend its open goal.
+    allocation = result.plan.topics[0].budget_seconds
+    clock.value += allocation
     fb = feedback(question)
     answer = CandidateAnswer(
         interview_id=result.interview_id,
@@ -117,9 +134,9 @@ async def test_expected_count_is_soft_replan_adds_followup_and_replay_is_idempot
     assert action.question.parent_question_id == question.question_id
     assert context.plan.version == 2
     assert context.topic_progress[question.topic_key].questions_asked == 2
-    assert context.topic_progress[question.topic_key].elapsed_seconds == 100
-    assert context.plan.topics[0].expected_questions == 2
-    assert context.plan_history[0].topics[0].expected_questions == 1
+    assert context.topic_progress[question.topic_key].elapsed_seconds == allocation
+    assert context.plan.topics[0].expected_questions >= 2
+    assert context.plan_history[0].version == 1
     assert context.plan_history[1].answer_id == "answer-1"
     snapshot = context.model_dump()
     clock.value += 10
@@ -130,16 +147,27 @@ async def test_expected_count_is_soft_replan_adds_followup_and_replay_is_idempot
     assert (await repo.get_interview_context(result.interview_id)).model_dump() == snapshot
     next_action = await resumed.apply_evaluation_feedback(
         result.interview_id,
-        feedback(action.question, 2, complete=True),
+        covered_feedback(
+            action.question,
+            "answer-2",
+            "I implemented the missing operation and verified it with an integration test.",
+            index=2,
+        ),
+        answer=CandidateAnswer(
+            interview_id=result.interview_id,
+            question_id=action.question.question_id,
+            answer_id="answer-2",
+            text="I implemented the missing operation and verified it with an integration test.",
+        ),
     )
     context = await repo.get_interview_context(result.interview_id)
-    assert context.state.elapsed_seconds == 110
+    assert context.state.elapsed_seconds == allocation + 10
     assert next_action.question.topic_key != question.topic_key
     assert context.topic_progress[question.topic_key].status == "completed"
 
 
 @pytest.mark.asyncio
-async def test_completed_topic_cannot_be_reintroduced_and_failed_replan_retains_plan():
+async def test_closed_topic_is_not_reopened_and_failed_replan_compiles_known_fallback():
     initial = None
 
     def script(payload, count):
@@ -166,12 +194,24 @@ async def test_completed_topic_cannot_be_reintroduced_and_failed_replan_retains_
     clock.value += 40
     action = await service.apply_evaluation_feedback(
         result.interview_id,
-        feedback(result.first_action.question, complete=True),
+        covered_feedback(
+            result.first_action.question,
+            "completed-answer",
+            "I implemented the custom mechanism and verified its behavior.",
+        ),
+        answer=CandidateAnswer(
+            interview_id=result.interview_id,
+            question_id=result.first_action.question.question_id,
+            answer_id="completed-answer",
+            text="I implemented the custom mechanism and verified its behavior.",
+        ),
     )
     context = await repo.get_interview_context(result.interview_id)
-    assert context.plan.version == 1
+    assert context.plan.version == 2
+    assert context.plan_history[-1].fallback_used
     assert context.topic_progress[initial["topic_key"]].status == "completed"
-    assert action.type.value == "finish"
+    assert action.type.value == "ask_question"
+    assert action.question.topic_key != initial["topic_key"]
 
 
 @pytest.mark.asyncio
@@ -201,7 +241,7 @@ async def test_bad_initial_plan_falls_back_to_executable_agenda(problem):
 
     service, repo, clock, result = await setup(PlannerLLM(script))
     context = await repo.get_interview_context(result.interview_id)
-    assert context.plan_history[0].fallback_used
+    assert context.plan_history[0].fallback_used is (problem != "overbudget")
     assert result.first_action.type.value == "ask_question"
     assert (
         sum(t.budget_seconds for t in context.plan.topics)
@@ -280,24 +320,27 @@ async def test_planner_latency_is_removed_from_remaining_allocations():
         draft = await original(
             prompt_name=prompt_name, payload=payload, response_model=response_model
         )
-        if response_model is PlanDraft:
+        if response_model is PlanProposal:
             clock.value += 40
         return draft
 
     llm.generate_structured = delayed
-    clock.value += 100
+    spent = result.plan.topics[0].budget_seconds
+    clock.value += spent
     await service.apply_evaluation_feedback(
         result.interview_id,
         feedback(result.first_action.question),
     )
     context = await repo.get_interview_context(result.interview_id)
-    assert context.state.elapsed_seconds == 140
+    assert context.state.elapsed_seconds == spent + 40
     remaining = sum(
         max(0, item.budget_seconds - context.topic_progress[item.topic_key].elapsed_seconds)
         for item in context.plan.topics
         if context.topic_progress[item.topic_key].status in {"active", "pending"}
     )
-    assert remaining + context.plan.reserve_seconds + context.plan.closing_seconds <= 760
+    assert remaining + context.plan.reserve_seconds + context.plan.closing_seconds <= (
+        context.plan.duration_seconds - spent - 40
+    )
 
 
 def test_plan_schema_rejects_question_payload():

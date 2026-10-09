@@ -6,6 +6,8 @@ from pathlib import Path
 
 from agents.domain.errors import InvalidAgentState, StateConflictError
 from agents.tracing import emit_trace
+from app.adapters.assessment import BackgroundAssessmentAdapter, RealtimeDecisionAdapter
+from app.adapters.background_evaluation import BackgroundShadowEvaluationAdapter
 from evaluation.aggregation import ScoredEvaluation
 from evaluation.contracts import EvaluationResult
 from evaluation.inputs import AnswerSnapshot, QuestionSnapshot
@@ -171,8 +173,12 @@ def shadow_profile(job):
 
 def build_evaluation_adapter(llm, repository, legacy, *, mode=None):
     mode = mode if mode is not None else os.getenv("EVALUATION_MODE", "shadow")
+    decision = RealtimeDecisionAdapter(llm, repository)
+    assessment = BackgroundAssessmentAdapter(llm)
     if mode == "legacy":
-        return legacy
+        return BackgroundShadowEvaluationAdapter(
+            decision, None, assessment=assessment, repository=repository
+        )
     if mode != "shadow":
         raise ValueError("EVALUATION_MODE must be shadow or legacy")
     policy = AggregationPolicy.model_validate_json(
@@ -184,4 +190,4 @@ def build_evaluation_adapter(llm, repository, legacy, *, mode=None):
         policy=policy,
         profile=shadow_profile,
     )
-    return ShadowEvaluationAdapter(legacy, formal)
+    return BackgroundShadowEvaluationAdapter(decision, formal, assessment=assessment)

@@ -43,16 +43,18 @@ class RelationDecision(EvaluationModel):
             raise ValueError("only new evidence may omit relation targets")
         if (self.independence == "same_episode") != bool(self.same_episode_as):
             raise ValueError("same_episode requires existing episode references")
-        if self.relation in {
-            EvidenceRelation.DUPLICATE,
-            EvidenceRelation.REFINES,
-            EvidenceRelation.CONTRADICTS,
-            EvidenceRelation.RETRACTS,
-        } and (
-            self.independence != "same_episode"
-            or not set(self.related_evidence_ids) <= set(self.same_episode_as)
+        if (
+            self.relation
+            in {
+                EvidenceRelation.DUPLICATE,
+                EvidenceRelation.REFINES,
+                EvidenceRelation.CONTRADICTS,
+                EvidenceRelation.RETRACTS,
+            }
+            and self.independence != "same_episode"
         ):
             raise ValueError("dependent relations must share their targets' episode")
+        # Target membership can be transitive; replay verifies the actual graph.
         if (self.relation == EvidenceRelation.RETRACTS) != (self.retraction_span is not None):
             raise ValueError("only retracts requires an explicit current-answer retraction span")
         return self

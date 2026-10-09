@@ -1,11 +1,14 @@
 """Schema-validated provider fixture for the integrated MVP tests."""
 
 from agents.question.react import QuestionAgentDecision
+from app.adapters.assessment import AnswerAssessment, AnswerDecision
+from app.adapters.decision import CompactAnswerDecision
 from app.adapters.evaluation import AnswerEvidence
 from app.adapters.llm import GeneratedText
 from app.parsing.resume import ResumeExtraction
 from app.reporting.final_report import ReportNarrative
 from tests.agent.mocks.dialogue_output import plan_for, selection_for
+from tests.app.decision_fixtures import compact_output, legacy_data
 from tests.evaluation.port_helpers import SCHEMAS, evaluation_output
 
 
@@ -15,6 +18,8 @@ class FixtureLLM:
 
     def __call__(self, prompt, data, schema):
         # Scripted semantic pass; this fixture does not evaluate question quality.
+        if schema is CompactAnswerDecision:
+            return compact_output(self(prompt, legacy_data(data), AnswerDecision).model_dump())
         if schema.__name__ == "QuestionQualityReview":
             return schema(issues=[])
         self.calls.append((schema, data))
@@ -61,7 +66,7 @@ class FixtureLLM:
                     f"and why did you choose that approach?"
                 )
             }
-        elif schema is AnswerEvidence:
+        elif schema in (AnswerEvidence, AnswerDecision, AnswerAssessment):
             output = {
                 "answer_relevance": 0.9,
                 "evidence_strength": 0.8,
@@ -91,4 +96,12 @@ class FixtureLLM:
             raise AssertionError(f"Unexpected schema: {schema}")
         if schema is QuestionAgentDecision:
             output.update(action="final", topic=None, limit=None, selection=selection)
+        if schema is AnswerDecision:
+            output = {
+                key: value
+                for key, value in output.items()
+                if key not in {"dimensions", "evidence_strength"}
+            }
+        elif schema is AnswerAssessment:
+            output = {key: output[key] for key in ("dimensions", "evidence_strength")}
         return schema.model_validate(output)

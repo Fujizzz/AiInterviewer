@@ -8,6 +8,8 @@ from agents.domain.models import (
     CommitTurnResult,
     InterviewContext,
 )
+from evaluation.assessment import AssessmentRecord
+from evaluation.background import ShadowJob
 from evaluation.persistence import EvaluationRecord
 from shared.contracts import InterviewAction, InterviewPlan, InterviewState, PlannedQuestion
 
@@ -20,6 +22,14 @@ class InterviewRepositoryPort(Protocol):
     async def commit_turn(self, request: CommitTurnRequest) -> CommitTurnResult: ...
 
     async def get_evaluation_records(self, interview_id: str) -> list[EvaluationRecord]: ...
+
+    async def get_shadow_jobs(self, interview_id: str) -> list[ShadowJob]: ...
+
+    async def append_shadow_record(self, job: ShadowJob, record: EvaluationRecord) -> None: ...
+
+    async def get_assessment_records(self, interview_id: str) -> list[AssessmentRecord]: ...
+
+    async def append_assessment_record(self, job: ShadowJob, record: AssessmentRecord) -> None: ...
 
     async def get_processed_feedback_action(
         self,

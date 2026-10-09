@@ -91,6 +91,40 @@ def test_identical_claims_in_distinct_projects_are_not_collapsed():
     )
 
 
+def test_relation_target_may_share_episode_transitively():
+    root = source("root")
+    detail = source("detail", "I used contention sampling in that profiler.")
+    later = source("later", "I sampled contention at 10 millisecond intervals.")
+    relation = RelationDecision(
+        evidence_id=later.evidence.evidence_id,
+        relation="refines",
+        related_evidence_ids=(detail.evidence.evidence_id,),
+        independence="same_episode",
+        same_episode_as=(root.evidence.evidence_id,),
+        concise_rationale="A detail of the same diagnosis",
+    )
+    result = resolve(
+        (root, decision(root)), (detail, decision(detail, same=(root,))), (later, relation)
+    )
+    assert len({e.independence_group_id for e in result.evidence_items}) == 1
+
+
+def test_relation_target_in_different_episode_is_still_rejected():
+    root = source("root")
+    unrelated = source("other", "In a separate incident I sampled contention.")
+    later = source("later", "I sampled contention at 10 millisecond intervals.")
+    relation = RelationDecision(
+        evidence_id=later.evidence.evidence_id,
+        relation="refines",
+        related_evidence_ids=(unrelated.evidence.evidence_id,),
+        independence="same_episode",
+        same_episode_as=(root.evidence.evidence_id,),
+        concise_rationale="Incorrect cross-event link",
+    )
+    with pytest.raises(ValueError, match="same episode"):
+        resolve((root, decision(root)), (unrelated, decision(unrelated)), (later, relation))
+
+
 def test_duplicate_span_cannot_create_new_episode_in_same_answer():
     first = source("a", claim="I used a profiler. ")
     second = first.model_copy(

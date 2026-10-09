@@ -76,7 +76,9 @@ async def test_failed_evaluation_preserves_answer_and_keeps_planner_topic_open(
         return schema(
             evidence=[
                 dict(
-                    quote_spans=[dict(quote=quote, char_start=0, char_end=len(quote))],
+                    quote_spans=[
+                        dict(quote=quote, segment_id=data["answer_segments"][0]["segment_id"])
+                    ],
                     normalized_claim="I measured cache misses using a profiler.",
                     evidence_kind="personal_action",
                     ownership_scope="personal",

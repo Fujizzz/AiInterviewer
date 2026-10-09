@@ -3,8 +3,11 @@
 Repository and shared contracts use version 2.0.
 """
 
+from typing import Literal
+
 from pydantic import BaseModel, Field, model_validator
 
+from evaluation.background import ShadowJob
 from evaluation.persistence import EvaluationRecord
 from shared.contracts import (
     CandidateAnswer,
@@ -120,6 +123,8 @@ class EvidenceRecord(BaseModel):
     answer_id: str
     difficulty: int
     evidence: DimensionEvidence
+    status: Literal["active", "superseded", "disputed"] = "active"
+    relation_id: str | None = None
 
 
 class InterviewContext(BaseModel):
@@ -141,11 +146,19 @@ class InterviewContext(BaseModel):
     used_topic_keys: list[str] = Field(default_factory=list)
     evidence_records: list[EvidenceRecord] = Field(default_factory=list)
     pending_evaluation: EvaluationRecord | None = Field(default=None, exclude=True, repr=False)
+    pending_shadow_job: ShadowJob | None = Field(default=None, exclude=True, repr=False)
+    # Durable correction ledger, independent of the bounded question-agent history.
+    answer_relations: list[dict] = Field(default_factory=list)
+    unassessed_answer_ids: list[str] = Field(default_factory=list)
     processed_feedback_ids: list[str] = Field(default_factory=list)
+    pending_replan_trigger: str | None = None
+    assessment_feedback_ids: list[str] = Field(default_factory=list)
+    applied_assessment_ids: list[str] = Field(default_factory=list)
     topic_progress: dict[str, TopicProgress] = Field(default_factory=dict)
     plan_history: list[PlanRevision] = Field(default_factory=list)
     last_replan_question_index: int = 0
     estimated_question_seconds: float = 120.0
+    last_question_generation_seconds: float = Field(default=0, ge=0)
     policy_config_version: str
 
     @model_validator(mode="after")
@@ -169,6 +182,7 @@ class CommitTurnRequest(BaseModel):
     resulting_action: InterviewAction
     new_context: InterviewContext | None = None
     evaluation_record: EvaluationRecord | None = None
+    shadow_job: ShadowJob | None = None
 
     @model_validator(mode="after")
     def validate_turn(self) -> "CommitTurnRequest":

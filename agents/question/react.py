@@ -13,7 +13,7 @@ from pydantic_core import PydanticCustomError
 
 from agents.config import AgentSettings
 from agents.domain.models import InterviewContext, InterviewHistoryEntry
-from agents.model_calls import run_model_call, validation_issues
+from agents.model_calls import (QuestionCallBudget, question_call_budget, run_model_call, validation_issues)
 from agents.ports import LLMPort
 from agents.question.dialogue import (
     DialogueSelection,
@@ -21,7 +21,7 @@ from agents.question.dialogue import (
     resolve_selection,
     writing_brief,
 )
-from agents.question.quality import QuestionQualityGate, followup_brief
+from agents.question.quality import QuestionQualityGate, QuestionQualityReview, ReviewEvidenceError, followup_brief
 from agents.question.validator import QuestionValidator
 from agents.tracing import emit_trace
 from shared.contracts import PlannedQuestion
@@ -66,7 +66,7 @@ class QuestionAgentDecision(BaseModel):
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
-    action: Literal["get_history", "get_plan", "get_project", "final"] = Field(
+    action: Literal["get_history", "get_plan", "get_project", "final", "request_retarget"] = Field(
         description="Tool action or final; dialogue choices belong in selection.dialogue_action"
     )
     topic: str | None = Field(default=None, description="get_history filter only; null for final")
@@ -74,6 +74,8 @@ class QuestionAgentDecision(BaseModel):
     text: str | None = Field(default=None, description="Complete interview question for final only")
     project_id: str | None = Field(default=None, description="get_project argument only")
     selection: DialogueSelection | None = None
+    intent_id: str | None = None
+    retarget_reason: str | None = Field(default=None, max_length=500)
 
     @model_validator(mode="before")
     @classmethod
@@ -92,6 +94,19 @@ class QuestionAgentDecision(BaseModel):
 
     @model_validator(mode="after")
     def validate_action(self) -> QuestionAgentDecision:
+        if self.action == "request_retarget":
+            if not self.retarget_reason or not self.retarget_reason.strip():
+                raise ValueError("request_retarget requires a reason")
+            if any(
+                value is not None
+                for value in (self.selection, self.text, self.topic, self.limit, self.project_id)
+            ):
+                raise ValueError("request_retarget cannot submit a replacement route or question")
+            return self
+        if self.retarget_reason is not None:
+            raise ValueError("Only request_retarget accepts retarget_reason")
+        if self.action != "final" and self.intent_id is not None:
+            raise ValueError("Only final/request_retarget accepts intent_id")
         if self.action == "final" and self.selection is not None:
             # Some JSON-mode providers repeat selection fields in the tool arguments.
             # Selection remains authoritative and still passes all server-side guards.
@@ -126,6 +141,12 @@ class QuestionAgentResult:
     repaired: bool = False
     decision_summary: str = ""
     steps: list[dict[str, str | int]] = field(default_factory=list)
+    locked_intent: PlannedQuestion | None = None
+    retarget_requested: bool = False
+    blocking_issues: list[str] = field(default_factory=list)
+    repairs_used: int = 0
+    model_calls: int = 0
+    elapsed_seconds: float = 0.0
 
 
 class ReactQuestionAgent:
@@ -151,6 +172,9 @@ class ReactQuestionAgent:
         result = QuestionAgentResult()
         started = perf_counter()
         deadline = started + self._settings.question_agent.total_timeout_seconds
+        budget = QuestionCallBudget(self._settings.question_agent.max_tool_calls +
+                                    2 * (self._settings.retries.llm_generation_retries + 1))
+        budget_token = question_call_budget.set(budget)
         emit_trace(
             "react.started",
             question_id=question_plan.question_id,
@@ -175,6 +199,9 @@ class ReactQuestionAgent:
         except Exception as error:
             result.stop_reason = f"ERROR:{type(error).__name__}"
         finally:
+            result.model_calls = budget.used
+            question_call_budget.reset(budget_token)
+            result.elapsed_seconds = perf_counter() - started
             emit_trace(
                 "react.finished",
                 question_id=question_plan.question_id,
@@ -201,11 +228,18 @@ class ReactQuestionAgent:
         rejected_question: str | None = None
         rejected_attempts: list[dict[str, Any]] = []
         seen_calls: set[tuple[str, str | None, int | None]] = set()
+        rejected_drafts = set()
         tool_calls = 0
         repairs = 0
         rewrites = 0
         review_calls = 0
         final_only = False
+        locked_intent = (
+            plan.model_copy(deep=True) if not autonomous or getattr(plan, "intent_id", "") else None
+        )
+        if locked_intent is not None:
+            locked_intent = self._freeze_intent(locked_intent)
+            result.locked_intent = locked_intent
         previous_texts = {
             self._normalized(question.text)
             for question in [
@@ -253,6 +287,12 @@ class ReactQuestionAgent:
                 payload["writing_brief"] = writing_brief(interview, payload["dialogue_state"])
                 if payload["dialogue_state"]["followup_block"] is not None:
                     payload["followup_brief"] = None
+            if locked_intent is not None:
+                payload["locked_intent"] = locked_intent.model_dump(mode="json")
+                payload["intent_revision_rule"] = (
+                    "Return final with intent_id and text only (selection=null). Keep the same "
+                    "primary information target. A route/target change requires request_retarget."
+                )
             emit_trace(
                 "react.input",
                 question_id=plan.question_id,
@@ -261,6 +301,7 @@ class ReactQuestionAgent:
                 payload=payload,
             )
             try:
+                result.model_calls += 1
                 decision = await run_model_call(
                     lambda payload=payload: self._llm.generate_structured(
                         prompt_name=self.prompt_name,
@@ -295,19 +336,46 @@ class ReactQuestionAgent:
                     question_id=plan.question_id,
                     decision=decision.model_dump(mode="json"),
                 )
+                if decision.action == "request_retarget":
+                    self._request_retarget(result, locked_intent, decision.retarget_reason or "")
+                    return
                 if decision.action == "final":
-                    selected_plan = plan
+                    selected_plan = locked_intent or plan
                     repair_errors = []
-                    if autonomous:
+                    if locked_intent is not None:
+                        if decision.intent_id is not None and decision.intent_id != getattr(
+                            locked_intent, "intent_id", ""
+                        ):
+                            repair_errors.append("INTENT_ID_MISMATCH")
+                        if decision.selection is not None and not self._same_selection(
+                            decision.selection, locked_intent
+                        ):
+                            self._request_retarget(
+                                result, locked_intent, "REPAIR_CHANGED_CONFIRMED_INTENT"
+                            )
+                            return
+                    elif autonomous:
                         try:
                             if decision.selection is None:
                                 raise ValueError("FINAL_REQUIRES_DIALOGUE_SELECTION")
                             selected_plan = resolve_selection(
                                 decision.selection, interview, self._settings, plan.question_id
                             )
+                            locked_intent = self._freeze_intent(selected_plan)
+                            selected_plan = locked_intent
+                            result.locked_intent = locked_intent
+                            emit_trace(
+                                "question.intent_confirmed",
+                                question_id=plan.question_id,
+                                intent=locked_intent.model_dump(mode="json"),
+                            )
                         except ValueError as error:
                             repair_errors = [str(error)]
                     candidate = selected_plan.model_copy(update={"text": decision.text})
+                    if self._normalized(candidate.text) in rejected_drafts:
+                        result.stop_reason = "REPEATED_REJECTED_DRAFT"
+                        result.steps.append({"action": "final", "status": "UNCHANGED_REJECTED_DRAFT"})
+                        return
                     validation = self._validator.validate(candidate, selected_plan)
                     repair_errors.extend(validation.errors)
                     if self._normalized(candidate.text) in previous_texts:
@@ -315,8 +383,11 @@ class ReactQuestionAgent:
                     quality_feedback = []
                     rejected_question = candidate.text
                     if not repair_errors:
+                        review_feedback = None
+                        review_failures = set()
                         while True:
                             review_calls += 1
+                            result.model_calls += 1
                             try:
                                 review = await self._quality_gate.review(
                                     candidate,
@@ -324,27 +395,54 @@ class ReactQuestionAgent:
                                     previous_questions=previous_questions,
                                     step=review_calls,
                                     deadline=deadline,
+                                    review_feedback=review_feedback,
                                 )
                             except TimeoutError:
                                 raise
-                            except Exception:
+                            except Exception as error:
                                 retrying = repairs < self._settings.retries.llm_generation_retries
+                                schema_errors = validation_issues(error, QuestionQualityReview) if isinstance(error, ValidationError) else getattr(error, "validation_issues", [])
+                                signature = (type(error).__name__, tuple(error.errors if isinstance(error, ReviewEvidenceError) else schema_errors))
+                                if signature in review_failures:
+                                    retrying = False
+                                review_failures.add(signature)
+                                if schema_errors:
+                                    review_feedback = {"status": "REVIEW_INVALID", "errors": schema_errors}
+                                if isinstance(error, ReviewEvidenceError):
+                                    checked_kinds = getattr(error, "checked_kinds", (review_feedback or {}).get("checked_kinds", []))
+                                    review_feedback = {"status": error.code, "errors": error.errors}
+                                    review_feedback["checked_kinds"] = checked_kinds
+                                    if error.disputed_review is not None:
+                                        review_feedback["disputed_review"] = error.disputed_review
+                                        review_feedback["adjudication_kind"] = getattr(error, "adjudication_kind", "repeat")
+                                        result.blocking_issues = [
+                                            item["code"] for item in error.disputed_review["issues"]
+                                        ]
                                 emit_trace(
                                     "question.quality",
                                     question_id=plan.question_id,
-                                    status="UNAVAILABLE",
+                                    status=error.code
+                                    if isinstance(error, ReviewEvidenceError)
+                                    else "UNAVAILABLE",
                                     issues=[],
                                     retrying=retrying,
                                 )
                                 if not retrying:
-                                    result.stop_reason = "QUALITY_UNAVAILABLE"
+                                    result.stop_reason = (
+                                        error.code
+                                        if isinstance(error, ReviewEvidenceError)
+                                        else "QUALITY_UNAVAILABLE"
+                                    )
                                     result.steps.append({"action": "final", "status": "UNREVIEWED"})
                                     return
-                                # Retry the SAME draft, sharing the total retry/deadline budget.
+                                # Correct structure or adjudicate once; repeating identical
+                                # feedback cannot make the same review more trustworthy.
                                 repairs += 1
+                                result.repairs_used = repairs
                                 continue
                             quality_feedback = [issue.model_dump() for issue in review.issues]
                             repair_errors.extend(issue.code for issue in review.issues)
+                            result.blocking_issues = list(repair_errors)
                             break
                     emit_trace(
                         "react.validation",
@@ -378,6 +476,8 @@ class ReactQuestionAgent:
                         }
                     )
                     final_only = True
+                    if quality_feedback or validation.errors or "REPEATED_QUESTION" in repair_errors:
+                        rejected_drafts.add(self._normalized(candidate.text))
                 elif payload["final_only"]:
                     result.steps.append({"action": decision.action, "status": "TOOL_LIMIT"})
                     result.stop_reason = "TOOL_LIMIT"
@@ -428,8 +528,40 @@ class ReactQuestionAgent:
                 result.stop_reason = "INVALID_OUTPUT"
                 return
             repairs += 1
+            result.repairs_used = repairs
             rewrites += 1
         result.stop_reason = "STEP_LIMIT"
+
+    @staticmethod
+    def _freeze_intent(question):
+        updates = {}
+        if "intent_id" in type(question).model_fields and not question.intent_id:
+            updates["intent_id"] = f"intent:{question.question_id}"
+        return question.model_copy(update=updates, deep=True)
+
+    @staticmethod
+    def _same_selection(selection, intent):
+        if selection.need_id and selection.need_id == intent.need_id:
+            return all(getattr(selection, name) == getattr(intent, name)
+                       for name in ("dialogue_action", "project_id", "topic_key"))
+        fields = ("dialogue_action", "project_id", "topic_key", "information_goal")
+        return all(getattr(selection, name) == getattr(intent, name) for name in fields) and all(
+            not getattr(selection, name) or getattr(selection, name) == getattr(intent, name)
+            for name in ("need_id", "answer_unit")
+        )
+
+    @staticmethod
+    def _request_retarget(result, intent, reason):
+        result.locked_intent = intent
+        result.retarget_requested = True
+        result.stop_reason = "RETARGET_REQUIRED"
+        result.steps.append({"action": "request_retarget", "status": reason[:300]})
+        emit_trace(
+            "question.retarget_requested",
+            question_id=intent.question_id if intent else None,
+            intent_id=getattr(intent, "intent_id", "") if intent else None,
+            reason=reason[:500],
+        )
 
     def _execute_tool(
         self, decision: QuestionAgentDecision, interview: InterviewContext
@@ -489,7 +621,10 @@ class ReactQuestionAgent:
             "answer": answer,
             "question_truncated": len(entry.question.text or "") > limit,
             "answer_truncated": entry.answer is not None and len(entry.answer.text) > limit,
-            "analysis": entry.feedback.analysis.model_dump(mode="json"),
+            "analysis_status": getattr(entry.feedback, "analysis_status", "valid"),
+            "analysis": entry.feedback.analysis.model_dump(mode="json")
+            if getattr(entry.feedback, "analysis_status", "valid") == "valid"
+            else {"status": "unassessed", "missing_information": []},
         }
 
     @staticmethod
