@@ -58,7 +58,9 @@ def is_bare_label(text: str) -> bool:
     return re.fullmatch(r"[A-Za-z][A-Za-z0-9_+.#/-]{0,31}", text.strip()) is not None
 
 
-def safe_analysis(result: ConversationAnalysis, context: EvaluationInput) -> AnswerAnalysis:
+def safe_analysis(
+    result: ConversationAnalysis | AnswerAnalysis, context: EvaluationInput
+) -> AnswerAnalysis:
     analysis = AnswerAnalysis(**result.model_dump(mode="json"))
     literal_status = non_answer_status(context.answer.text)
     if literal_status:

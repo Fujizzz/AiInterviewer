@@ -99,6 +99,64 @@ class EvaluationPersistenceTests(SafetyTestMixin, TransactionTestCase):
             question_id=response["question"]["question_id"],
         )
 
+    async def test_formal_report_is_published_in_existing_history_api_with_explicit_status(self):
+        session, response = await self.start_session(count=1)
+        try:
+            command = self.command(response)
+            await reserve_request(session.interview_id, command)
+            result = await session.answer(command)
+            self.assertEqual(result["type"], "finished")
+            report = result["result"]["final_report"]
+            self.assertEqual(report["scoring_source"], "formal_evaluation")
+            self.assertEqual(report["score_status"], "provisional")
+            self.assertEqual(report["overall_score"], 3.0)
+            self.assertIn("Provisional", report["summary"])
+            records = await session.app.repository.get_evaluation_records(session.interview_id)
+            self.assertIsNone(records[-1].scored.aggregation.snapshot.overall_score)
+            await complete_fixture_request(session.interview_id, command.request_id, result)
+            detail = (
+                await self.async_client.get(f"/api/agent-interviews/{session.interview_id}/")
+            ).json()
+            self.assertEqual(detail["final_report"], report)
+            for secret in (
+                "criterion_weight",
+                "aggregation-trace",
+                "matched_anchor_ids",
+                "configuration_id",
+            ):
+                self.assertNotIn(secret, json.dumps(detail))
+        finally:
+            await session.close_background()
+
+    async def test_failed_last_round_still_publishes_valid_prior_score_in_history(self):
+        session, response = await self.start_session(count=2)
+        try:
+            first = self.command(response)
+            await reserve_request(session.interview_id, first)
+            response = await session.answer(first)
+            await session.app.evaluation.drain(session.interview_id)
+            await complete_fixture_request(session.interview_id, first.request_id, response)
+            last = self.command(response)
+            await reserve_request(session.interview_id, last)
+            with patch.object(
+                session.app.evaluation.formal.service._judge,
+                "judge",
+                side_effect=LLMError("private"),
+            ):
+                result = await session.answer(last)
+            report = result["result"]["final_report"]
+            self.assertEqual(report["score_status"], "provisional")
+            self.assertEqual(report["overall_score"], 3.0)
+            self.assertEqual(report["unscored_answer_count"], 1)
+            self.assertIn(f"unassessed_feedback:{last.request_id}", report["score_reasons"])
+            await complete_fixture_request(session.interview_id, last.request_id, result)
+            detail = (
+                await self.async_client.get(f"/api/agent-interviews/{session.interview_id}/")
+            ).json()
+            self.assertEqual(detail["final_report"], report)
+        finally:
+            await session.close_background()
+
     async def test_delayed_capability_assessment_survives_restart_and_is_source_bound(self):
         session, response = await self.start_session(count=8)
         entered = asyncio.Event()

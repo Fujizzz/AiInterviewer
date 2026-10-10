@@ -216,7 +216,10 @@ class BackgroundAssessmentAdapter:
                     "Assess only capability evidence grounded in the current candidate answer. "
                     "Do not decide follow-ups, topic completion, contradictions or planning. "
                     "Use exact source_segment_ids from answer_segments; the program restores "
-                    "quotes. Omit unobserved competencies and use at most one entry per "
+                    "quotes. Every returned dimension must cite at least one source segment. "
+                    "Absence of evidence is not weak performance: omit that dimension instead "
+                    "of assigning a low level. Omit unobserved competencies and use at most "
+                    "one entry per "
                     "competency (technical_depth, ownership, decision_making, debugging, "
                     "evaluation, adaptability). For each give concise fact/rationale, observation "
                     "supported or weak, strength 0-1 and optional rubric_level 1-5. "
@@ -238,12 +241,31 @@ class BackgroundAssessmentAdapter:
             )
             if result.dimensions is None or result.evidence_strength is None:
                 raise InvalidEvaluationEvidence("INVALID_ASSESSMENT_STRUCTURE")
-            dimensions = grounded_dimensions(result.dimensions, request.answer.text, segments)
+            cited, omitted = [], []
+            for dimension in result.dimensions:
+                if (
+                    not dimension.source_segment_ids
+                    and not dimension.quote.strip()
+                    and not any(q.strip() for q in dimension.source_quotes)
+                ):
+                    omitted.append(f"UNCITED_DIMENSION_OMITTED:{dimension.competency.value}")
+                else:
+                    cited.append(dimension)
+            # A missing observation cannot become a low score or discard other grounded scores.
+            # Nonempty invented references/quotes still fail the strict grounding check below.
+            dimensions = grounded_dimensions(cited, request.answer.text, segments)
+            if omitted and not dimensions:
+                return AssessmentRecord(
+                    **base,
+                    assessment_status="unavailable",
+                    evaluation_issues=omitted,
+                )
             return AssessmentRecord(
                 **base,
                 assessment_status="valid",
                 dimensions=dimensions,
                 evidence_strength=result.evidence_strength if dimensions else 0,
+                evaluation_issues=omitted,
             )
         except Exception as error:
             # Assessment failure cannot invent a score or alter the saved dialogue decision.

@@ -140,7 +140,7 @@ class ScriptedReviewer:
         )
 
 
-@override_settings(AI_SECURITY_ENABLED=True)
+@override_settings(AI_SECURITY_ENABLED=True, AI_SECURITY_MAX_SCAN_CHARS=100000)
 class IOSafetyTests(TransactionTestCase):
     """Function: regression of real closed loop; logic: independent database and controllable port;
     constraint: no change to production model parameters or five-second budget.
@@ -295,7 +295,7 @@ class IOSafetyTests(TransactionTestCase):
         self.assertEqual(internal.context["state"]["competencies"]["ownership"]["score"], 3.0)
         self.assertEqual(finished["result"]["final_report"]["overall_score"], 3.0)
         self.assertEqual(
-            finished["result"]["final_report"]["competencies"]["ownership"]["score"], 3.0
+            finished["result"]["final_report"]["competencies"]["debugging"]["score"], 3.0
         )
         base = f"/api/agent-interviews/{first['interview_id']}/"
         detail = (await self.async_client.get(base)).json()
@@ -347,6 +347,7 @@ class IOSafetyTests(TransactionTestCase):
             (await self.async_client.get(f"{base}requests/{rid}/")).json()["response"]
         )
 
+    @patch.dict("os.environ", {"EVALUATION_MODE": "legacy"})
     async def test_generated_narrative_still_requires_review(self):
         """Select a permitted statement quoting synthetic confidential candidate content through
         the normal narrative schema; source grounding must not replace semantic safety review.

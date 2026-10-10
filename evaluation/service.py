@@ -4,11 +4,11 @@ from agents.tracing import emit_trace
 from app.providers.llm import StructuredLLM
 from evaluation.aggregation import AggregationInput, ScoredEvaluation
 from evaluation.aggregator import aggregate_scores
-from evaluation.analyzer import NON_ANSWER_STATUSES, ConversationAnalyzer
+from evaluation.analyzer import NON_ANSWER_STATUSES, ConversationAnalyzer, safe_analysis
 from evaluation.contracts import EvaluationResult
 from evaluation.extractor import EvidenceExtractor
 from evaluation.inputs import EvaluationInput
-from evaluation.judge import RubricJudge
+from evaluation.judge import RubricJudge, RubricJudgement
 from evaluation.model_calls import EvaluationStageError
 from evaluation.policy import AggregationPolicy, ScoringProfile
 from evaluation.resolution import ResolutionHistory, ResolvedEvaluation
@@ -55,18 +55,25 @@ class EvaluationService:
         evaluation_failure_codes: tuple[str, ...] = (),
         supersedes_snapshot_id: str | None = None,
         reevaluation_reason: str | None = None,
+        analysis: AnswerAnalysis | None = None,
+        previous_judgement: RubricJudgement | None = None,
     ) -> ScoredEvaluation:
-        """Rejudge the complete resolved history and return a replayable score record.
+        """Rejudge changed evidence groups and return a complete replayable score record.
 
         Callers explicitly supply publication configuration; it is never sent to
         the model. Prior snapshots remain immutable. A stage failure publishes no
         new evidence, resolution, assessment, score or topic completion.
         """
-        resolved = await self.evaluate_resolved(context, history=history)
+        resolved = await self.evaluate_resolved(context, history=history, analysis=analysis)
         if resolved.evaluation.status == "failed":
             return ScoredEvaluation(evaluation=resolved.evaluation)
         try:
-            judgement = await self._judge.judge(resolved.resolution, rubric=rubric)
+            judgement = await self._judge.judge(
+                resolved.resolution,
+                rubric=rubric,
+                previous=previous_judgement,
+                previous_history=history,
+            )
             try:
                 aggregation = aggregate_scores(
                     AggregationInput(
@@ -103,14 +110,18 @@ class EvaluationService:
             return ScoredEvaluation(evaluation=self._failure(context, error))
 
     async def evaluate_resolved(
-        self, context: EvaluationInput, *, history: ResolutionHistory | None = None
+        self,
+        context: EvaluationInput,
+        *,
+        history: ResolutionHistory | None = None,
+        analysis: AnswerAnalysis | None = None,
     ) -> ResolvedEvaluation:
         """Phase-three entry point; keep evaluate() as the extraction-only API.
 
         Pass the complete pre-answer history, including original candidate source
         snapshots. Failed resolution discards this call's analysis/evidence too.
         """
-        result = await self.evaluate(context)
+        result = await self.evaluate(context, analysis=analysis)
         if result.status == "failed":
             return ResolvedEvaluation(evaluation=result)
         try:
@@ -139,7 +150,9 @@ class EvaluationService:
         except EvaluationStageError as error:
             return ResolvedEvaluation(evaluation=self._failure(context, error))
 
-    async def evaluate(self, context: EvaluationInput) -> EvaluationResult:
+    async def evaluate(
+        self, context: EvaluationInput, *, analysis: AnswerAnalysis | None = None
+    ) -> EvaluationResult:
         identity = dict(
             request_id=context.request_id,
             interview_id=context.interview_id,
@@ -147,7 +160,11 @@ class EvaluationService:
             answer_id=context.answer.answer_id,
         )
         try:
-            analysis = await self._analyzer.analyze(context)
+            analysis = (
+                await self._analyzer.analyze(context)
+                if analysis is None
+                else safe_analysis(AnswerAnalysis.model_validate(analysis.model_dump()), context)
+            )
             evidence = ()
             if analysis.status not in NON_ANSWER_STATUSES and analysis.answer_scope == "concrete":
                 evidence = await self._extractor.extract(context)

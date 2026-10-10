@@ -214,3 +214,23 @@ async def test_cancellation_propagates(phase_two_input, analysis_payload, stage)
 def test_invalid_timeout_is_configuration_error(timeout):
     with pytest.raises(ValueError, match="finite and positive"):
         EvaluationService(None, analyzer_timeout_seconds=timeout)
+
+
+async def test_reusing_validated_analysis_skips_analyzer_and_preserves_input(
+    phase_two_input, analysis_payload, extraction_payload
+):
+    from shared.contracts import AnswerAnalysis
+
+    calls = []
+
+    def model(prompt, data, schema):
+        calls.append(schema)
+        assert schema is EvidenceExtraction
+        return schema(**extraction_payload)
+
+    analysis = AnswerAnalysis(**analysis_payload)
+    original = analysis.model_dump()
+    result = await EvaluationService(model).evaluate(phase_two_input, analysis=analysis)
+    assert result.status == "completed" and len(result.evidence_items) == 2
+    assert calls == [EvidenceExtraction]
+    assert analysis.model_dump() == original

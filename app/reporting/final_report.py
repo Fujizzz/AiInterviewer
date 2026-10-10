@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import Field
 
@@ -19,6 +19,9 @@ class CompetencyResult(OutputModel):
     coverage: float = Field(ge=0.0, le=1.0)
     evidence_count: int = Field(ge=0)
     max_verified_difficulty: int = Field(ge=0, le=5)
+    status: Literal["published", "provisional", "unavailable"] | None = None
+    reliability: float | None = Field(default=None, ge=0, le=1)
+    reason_codes: list[str] = Field(default_factory=list)
 
 
 class ReportNarrative(OutputModel):
@@ -34,6 +37,14 @@ class FinalReport(OutputModel):
     summary: str
     unassessed_answer_ids: list[str] = Field(default_factory=list)
     corrections: list[dict[str, Any]] = Field(default_factory=list)
+    scoring_source: Literal["legacy", "formal_evaluation"] = "legacy"
+    score_status: Literal["published", "provisional", "unavailable"] | None = None
+    overall_coverage: float | None = Field(default=None, ge=0, le=1)
+    score_reasons: list[str] = Field(default_factory=list)
+    missing_competencies: list[str] = Field(default_factory=list)
+    score_snapshot_id: str | None = None
+    score_basis_snapshot_id: str | None = None
+    unscored_answer_count: int = Field(default=0, ge=0)
 
 
 async def build_final_report(
@@ -41,8 +52,12 @@ async def build_final_report(
     question_history: list[dict[str, Any]],
     *,
     llm: StructuredLLM | None = None,
+    formal_records=None,
 ) -> FinalReport:
     """Use canonical accepted evidence; a narrator cannot re-assess raw answers."""
+
+    if formal_records is not None:
+        return _formal_report(context, formal_records)
 
     competencies = {
         competency.value: CompetencyResult(
@@ -154,6 +169,50 @@ async def build_final_report(
         ),
         unassessed_answer_ids=ledger["unassessed_answer_ids"],
         corrections=ledger["corrections"],
+    )
+
+
+def _formal_report(context, records):
+    """Return a report even with gaps; numeric provisional values never claim full coverage."""
+    from evaluation.publication import formal_publication
+
+    publication = formal_publication(context, records)
+    competencies = {k: CompetencyResult(**v) for k, v in publication.pop("competencies").items()}
+    ledger = _report_ledger(context)
+    count = len(context.processed_feedback_ids)
+    status, score = publication["score_status"], publication["overall_score"]
+    if status == "published":
+        summary = f"Formal score: {score:.2f} / 5."
+    elif status == "provisional":
+        summary = (
+            f"Provisional score: {score:.2f} / 5, based only on scoreable evidence. "
+            "Some evidence or evaluation results are incomplete; this is not a complete assessment."
+        )
+    else:
+        summary = "Report completed; no reliable numeric score is available."
+    summary += (
+        f" Evidence coverage: {publication['overall_coverage']:.1%}. Based on {count} answers."
+    )
+    if publication["unscored_answer_count"]:
+        summary += f" {publication['unscored_answer_count']} answer(s) could not be scored."
+    strengths = [
+        f"{name}: {value.score:.2f} / 5 ({value.status})."
+        for name, value in competencies.items()
+        if value.score is not None
+    ]
+    weaknesses = [
+        f"More evidence is needed for {name}." for name in publication["missing_competencies"]
+    ]
+    if publication["score_reasons"]:
+        weaknesses.append("Scoring limitations: " + ", ".join(publication["score_reasons"]) + ".")
+    return FinalReport(
+        **publication,
+        competencies=competencies,
+        summary=summary,
+        strengths=strengths,
+        weaknesses=weaknesses,
+        corrections=ledger["corrections"],
+        unassessed_answer_ids=ledger["unassessed_answer_ids"],
     )
 
 

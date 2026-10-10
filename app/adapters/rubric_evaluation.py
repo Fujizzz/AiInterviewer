@@ -88,8 +88,21 @@ class RubricEvaluationAdapter:
             raise InvalidAgentState("Evaluation request ID already belongs to another input")
         return EvaluatedFeedback(**record.feedback.model_dump(), evaluation_record=record)
 
-    async def _score(self, context, inputs, records):
+    async def _score(self, context, inputs, records, feedback=None):
         history, previous = scoring_history(context.interview_id, records)
+        analysis = None
+        if feedback is not None:
+            if (feedback.request_id, feedback.question_id) != (
+                inputs.request_id,
+                inputs.question.question_id,
+            ):
+                raise InvalidAgentState("Reusable analysis must match the saved answer job")
+            if feedback.analysis_status == "valid" and feedback.analysis.answer_scope != "unknown":
+                analysis = feedback.analysis
+        prior = next(
+            (r.scored.aggregation for r in reversed(records) if r.scored.aggregation is not None),
+            None,
+        )
         profile = self.profile(context.job_profile) if callable(self.profile) else self.profile
         return await self.service.evaluate_scored(
             inputs,
@@ -97,6 +110,8 @@ class RubricEvaluationAdapter:
             policy=self.policy,
             profile=profile,
             history=history,
+            analysis=analysis,
+            previous_judgement=prior.inputs.judgement if prior else None,
             evaluation_failure_codes=failure_codes(
                 context.processed_feedback_ids,
                 records,

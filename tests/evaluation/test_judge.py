@@ -5,7 +5,13 @@ import pytest
 
 from agents.model_calls import current_model_call
 from app.providers.llm import LLMError
-from evaluation.judge import JudgeDraft, RubricJudge, bind_judgement, validate_judgement
+from evaluation.judge import (
+    GroupedJudgeDraft,
+    JudgeDraft,
+    RubricJudge,
+    bind_judgement,
+    validate_judgement,
+)
 from evaluation.model_calls import EvaluationStageError
 from evaluation.rubric import load_rubric_pack
 from tests.evaluation.resolver_helpers import assessment, decision, resolve, source
@@ -19,19 +25,21 @@ async def test_judge_sees_only_grounded_evidence_states_and_rubric():
     draft = draft_for(resolution, assessment("a", item))
 
     def model(prompt, payload, schema):
-        assert schema is JudgeDraft
-        assert set(payload) == {"judge_version", "rubric", "evidence", "states", "conflicts"}
-        assert payload["evidence"][0]["quote_spans"][0]["quote"] == item.turn.answer.text
-        assert len(payload["rubric"]["rubrics"]) == 6
+        assert schema is GroupedJudgeDraft
+        assert set(payload) == {"judge_version", "criteria", "groups"}
+        assert payload["groups"][0]["evidence"][0]["quotes"] == [item.turn.answer.text]
+        assert len(payload["criteria"]) == 21
         assert current_model_call.get().operation == "evaluation_judge"
         assert "chain of thought" in prompt and "untrusted data" in prompt
-        return draft
+        from tests.evaluation.port_helpers import evaluation_output
+
+        return evaluation_output(prompt, payload, schema)
 
     first = await RubricJudge(model).judge(resolution, rubric=rubric)
     assert validate_judgement(first, resolution, rubric=rubric) == first
     assert len(first.assessments) == 21
     assert sum(a.decision == "included" for a in first.assessments) == 1
-    assert first == bind_judgement(
+    assert bind_judgement(draft, resolution, rubric=rubric) == bind_judgement(
         draft.model_copy(update={"assessments": tuple(reversed(draft.assessments))}),
         resolution,
         rubric=rubric,
@@ -95,8 +103,8 @@ async def test_invalid_judge_output_fails_closed(problem):
         value["concise_rationale"] = " "
     else:
         value["overall_score"] = 5
-    with pytest.raises(EvaluationStageError, match="judge_invalid_"):
-        await RubricJudge(lambda *_: draft).judge(resolution, rubric=rubric)
+    with pytest.raises(ValueError):
+        bind_judgement(JudgeDraft.model_validate(draft), resolution, rubric=rubric)
 
 
 async def test_empty_history_returns_all_gaps_without_a_model_call():

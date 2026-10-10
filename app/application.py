@@ -203,7 +203,14 @@ class MVPInterviewApplication:
             if context.assessment_feedback_ids:
                 context = await assessed_report_context(self.repository, context)
                 update_display_history(history, context)
-            report = await build_final_report(context, history, llm=self.llm)
+            formal_records = (
+                await self.repository.get_evaluation_records(interview_id)
+                if getattr(self.evaluation, "formal", None) is not None
+                else None
+            )
+            report = await build_final_report(
+                context, history, llm=self.llm, formal_records=formal_records
+            )
             return {
                 "interview_id": interview_id,
                 "candidate_name": candidate_name,

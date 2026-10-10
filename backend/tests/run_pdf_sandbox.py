@@ -154,8 +154,12 @@ async def exercise_worker(source, *, cancel=False, crash=False):
                 try:
                     await task
                 except pdf_sandbox.PdfInputError as exc:
-                    expected = "失败" if crash else "超时"
-                    assert expected in str(exc), str(exc)
+                    expected = (
+                        "The PDF parsing process failed or reached a resource limit; processing was stopped."
+                        if crash else
+                        "PDF extraction and rendering timed out; processing was stopped."
+                    )
+                    assert str(exc) == expected, str(exc)
                 else:
                     raise AssertionError("Controlled worker must not succeed")
             assert len(processes) == 1 and processes[0].returncode == 0

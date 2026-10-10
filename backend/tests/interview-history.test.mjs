@@ -111,7 +111,7 @@ function historyTestPage() {
  */
   function selectors() { return []; }
   const context = vm.createContext({ document: { getElementById: node, createElement: create, querySelectorAll: selectors }, window: { addEventListener: silent }, fetch, console: { error: silent }, Date, encodeURIComponent });
-  const script = PRESENTATION_SOURCE.replaceAll("export function", "function").replace("export class", "class") + HISTORY_SOURCE.replace('import { reviewText, reviewTopics } from "./interview-progress.js";', "");
+  const script = PRESENTATION_SOURCE.replaceAll("export function", "function").replace("export class", "class") + HISTORY_SOURCE.replace('import { reviewText, reviewTopics, reviewScore } from "./interview-progress.js";', "");
   vm.runInContext(script, context); return { node, requests, context };
 }
 /**
@@ -167,3 +167,15 @@ async function historyFailure() {
   assert.match(page.node("history-status").textContent, /读取失败/); assert.equal(page.node("history-refresh").disabled, false); assert.equal(page.requests.length, 1);
 }
 test("history HTTP failures stay visible without retry", historyFailure);
+
+
+test("formal report publication labels distinguish provisional and unavailable results", () => {
+  const page = historyTestPage();
+  const text = vm.runInContext('reviewScore({score_status: "provisional", overall_coverage: 0.783333})', page.context);
+  assert.match(text, /暂定评分/);
+  assert.match(text, /78.3%/);
+  assert.match(vm.runInContext('reviewScore({score_status: "published", overall_coverage: 0.9})', page.context), /正式评分/);
+  assert.match(vm.runInContext('reviewScore({score_status: "unavailable", overall_coverage: 0})', page.context), /暂无法评分/);
+  assert.equal(vm.runInContext('reviewScore({overall_score: 3})', page.context), "");
+  assert.match(vm.runInContext('reviewScore({score_status: "provisional", unscored_answer_count: 1})', page.context), /1 轮未完成评分/);
+});

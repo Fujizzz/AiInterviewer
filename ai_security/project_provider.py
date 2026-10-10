@@ -31,6 +31,7 @@ Constraints:
 AI_SECURITY_KEEPALIVE_SECONDS is an optional positive finite idle lifetime, not a model deadline.
 复用 LLM_PROVIDER、对应 API_KEY/MODEL/BASE_URL、OPENAI_TEMPERATURE；不修改环境文件。
 DashScope 沿用业务 enable_thinking=False；OpenAI 沿用 Responses 且 store=False。
+DeepSeek uses Chat Completions JSON output with thinking explicitly disabled.
 sdk_timeout_seconds 为已有 Agent 请求超时；外层安全策略时限继续生效，不自动增大。
 _api_key 仅用于 SDK；_calls 记录无正文的响应模型、token 用量及调用状态，不含远端请求 ID。
 每个传输实例复用自己的连接池；首次调用绑定事件循环，禁止跨循环使用或关闭后重建。
@@ -110,9 +111,9 @@ class ProjectModelTransport:
         明确报错。原SDK最大连接数、模型参数和外层时限不变，不发送额外保活或重试请求。
         """
         self.provider = configuration.get("LLM_PROVIDER", "").strip().lower()
-        if self.provider not in {"dashscope", "openai"}:
-            raise ValueError("LLM_PROVIDER must be dashscope or openai")
-        prefix = "DASHSCOPE" if self.provider == "dashscope" else "OPENAI"
+        if self.provider not in {"dashscope", "openai", "deepseek"}:
+            raise ValueError("LLM_PROVIDER must be dashscope, openai or deepseek")
+        prefix = self.provider.upper()
         self._api_key = (configuration.get(f"{prefix}_API_KEY") or "").strip()
         self.model = (configuration.get(f"{prefix}_MODEL") or "").strip()
         if not self._api_key or not self.model:
@@ -120,7 +121,11 @@ class ProjectModelTransport:
         default_url = (
             "https://dashscope.aliyuncs.com/compatible-mode/v1"
             if self.provider == "dashscope"
-            else "https://api.openai.com/v1"
+            else (
+                "https://api.deepseek.com"
+                if self.provider == "deepseek"
+                else "https://api.openai.com/v1"
+            )
         )
         self._base_url = (configuration.get(f"{prefix}_BASE_URL") or default_url).strip()
         temperature = (configuration.get("OPENAI_TEMPERATURE", "0") or "").strip()
@@ -193,7 +198,7 @@ class ProjectModelTransport:
                 {"role": "system", "content": instructions},
                 {"role": "user", "content": user_text},
             ]
-            if self.provider == "dashscope":
+            if self.provider in {"dashscope", "deepseek"}:
                 formatting = {}
                 if schema is not None:
                     messages[0]["content"] += "\nJSON schema:\n" + json.dumps(schema)
@@ -204,7 +209,11 @@ class ProjectModelTransport:
                     model=self.model,
                     messages=messages,
                     **formatting,
-                    extra_body={"enable_thinking": False},
+                    extra_body=(
+                        {"thinking": {"type": "disabled"}}
+                        if self.provider == "deepseek"
+                        else {"enable_thinking": False}
+                    ),
                     **self.options,
                 )
                 usage = response.usage
@@ -420,6 +429,7 @@ class ProjectModelTransport:
             "model": self.model,
             "options": dict(self.options),
             "enable_thinking": False if self.provider == "dashscope" else None,
+            "thinking": "disabled" if self.provider == "deepseek" else None,
             "sdk_timeout_seconds": self.sdk_timeout_seconds,
             "sdk_max_retries": 0,
             "sdk_version": version("openai"),

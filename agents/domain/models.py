@@ -159,6 +159,7 @@ class InterviewContext(BaseModel):
     last_replan_question_index: int = 0
     estimated_question_seconds: float = 120.0
     last_question_generation_seconds: float = Field(default=0, ge=0)
+    coverage_question_criteria: list[str] = Field(default_factory=list)
     policy_config_version: str
 
     @model_validator(mode="after")

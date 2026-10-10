@@ -75,6 +75,10 @@ class PlanningSettings(BaseModel):
     minimum_question_seconds: int = Field(default=30, ge=1)
 
 
+class ScoringSettings(BaseModel):
+    max_supplemental_questions: int = Field(default=4, ge=0, le=10)
+
+
 class AgentSettings(QuestionBudgets):
     policy_config_version: str = "dialogue-policy-v2"
     min_question_difficulty: int = Field(default=1, ge=1, le=5)
@@ -92,6 +96,7 @@ class AgentSettings(QuestionBudgets):
     retries: RetrySettings = Field(default_factory=RetrySettings)
     question_agent: QuestionAgentSettings = Field(default_factory=QuestionAgentSettings)
     planning: PlanningSettings = Field(default_factory=PlanningSettings)
+    scoring: ScoringSettings = Field(default_factory=ScoringSettings)
 
 
 class ConfigDocument(BaseModel):

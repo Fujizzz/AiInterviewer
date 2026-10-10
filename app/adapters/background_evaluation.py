@@ -127,7 +127,7 @@ class BackgroundShadowEvaluationAdapter:
                 inputs = shadow_input(job, records)
                 emit_trace("evaluation.shadow_started", request_id=job.request.request_id)
                 try:
-                    scored = await self.formal._score(context, inputs, records)
+                    scored = await self.formal._score(context, inputs, records, job.feedback)
                 except Exception:
                     scored = ScoredEvaluation(
                         evaluation=EvaluationResult(

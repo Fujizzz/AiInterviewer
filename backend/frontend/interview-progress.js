@@ -156,6 +156,17 @@ export function reviewText(key, values = {}) {
  * Do not treat plan estimate as guarantee; return null for old records without plan, do not read internal state or guess default quota.
  *
  */
+export function reviewScore(report) {
+  if (!report?.score_status) return "";
+  const en = window.AppI18n?.language() === "en";
+  const labels = en ? { published: "Formal score", provisional: "Provisional score — incomplete evidence", unavailable: "Report completed — score unavailable" }
+    : { published: "正式评分", provisional: "暂定评分（证据不完整）", unavailable: "报告已生成（暂无法评分）" };
+  const coverage = Number.isFinite(report.overall_coverage) ? ` · ${en ? "Evidence coverage" : "证据覆盖率"} ${(report.overall_coverage * 100).toFixed(1)}%` : "";
+  const unscored = Number.isInteger(report.unscored_answer_count) && report.unscored_answer_count > 0
+    ? ` · ${report.unscored_answer_count} ${en ? "answer(s) unscored" : "轮未完成评分"}` : "";
+  return (labels[report.score_status] ?? report.score_status) + coverage + unscored;
+}
+
 export function reviewTopics(snapshot) {
   if (!snapshot?.interview_plan) return null;
   const plan = snapshot.interview_plan;

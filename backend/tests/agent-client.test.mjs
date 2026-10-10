@@ -301,7 +301,7 @@ async function makePage(options = {}) {
     + CAPTURE_SCRIPT.replace("export class SpeechCapture", "class SpeechCapture")
     + VOICE_SCRIPT.replace('import { SpeechCapture } from "./speech-capture.js";', "").replace("export class InterviewVoice", "class InterviewVoice")
       .replace('import("/stream-demo/pixel-player.js")', "loadAvatarModule()")
-    + SCRIPT.replace('import { InterviewVoice } from "./interview-voice.js";', "").replace('import { InterviewProgress } from "./interview-progress.js";', "");
+    + SCRIPT.replace('import { InterviewVoice } from "./interview-voice.js";', "").replace('import { InterviewProgress, reviewScore } from "./interview-progress.js";', "");
   const context = vm.createContext({
     document: { getElementById: getElement, createElement },
     window: { addEventListener: addPageListener, dispatchEvent: dispatchPageEvent },

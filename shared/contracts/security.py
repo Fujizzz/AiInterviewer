@@ -41,7 +41,7 @@ class SecurityContent(SecurityModel):
 
     content_id: Identifier
     source: Literal["user", "resume", "job", "rag", "tool_result", "memory", "model_output"]
-    text: str = Field(max_length=200_000)
+    text: str = Field(max_length=1_000_000)
     readable_by: tuple[Recipient, ...] = Field(min_length=1, max_length=3)
     derived_from: tuple[Identifier, ...] = Field(default=(), max_length=64)
 

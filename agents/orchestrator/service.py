@@ -515,6 +515,13 @@ class InterviewAgentService:
         repository failures propagate.
         """
         self._sync_clock(context)
+        if context.coverage_question_criteria:
+            return await self._finish(
+                context,
+                feedback_request_id=feedback_request_id,
+                started_at=started_at,
+                reason="COVERAGE_REVIEW",
+            )
         if context.plan.planning_enabled and not self._termination_policy.should_finish(
             context.state, context.plan
         ):
@@ -891,6 +898,10 @@ class InterviewAgentService:
         Constraints: Explicit reason overrides normal termination reason; no final-report model is
         invoked in this core method.
         """
+        if reason in {"NO_MORE_TOPICS", "NO_VALID_QUESTION", "COVERAGE_REVIEW"}:
+            supplement = await self._coverage_question(context, feedback_request_id, started_at)
+            if supplement is not None:
+                return supplement
         state = context.state
         updated_context = context.model_copy(deep=True)
         if context.plan.planning_enabled:
@@ -924,6 +935,71 @@ class InterviewAgentService:
             updated_context=updated_context,
             action=action,
             question=None,
+            decision_log=log,
+            feedback_request_id=feedback_request_id,
+        )
+
+    async def _coverage_question(self, context, feedback_request_id, started_at):
+        """Use saved formal gaps before a soft finish; respect user finish and every hard budget."""
+        if getattr(self._evaluation, "formal", None) is None:
+            return None
+        self._sync_clock(context)
+        if self._termination_policy.should_finish(context.state, context.plan):
+            return None
+        if context.state.remaining_seconds - context.plan.closing_seconds < round_cost(
+            context, self._settings
+        ):
+            return None
+        from agents.policies.score_coverage import coverage_question
+        from evaluation.publication import latest_scoring_record, scoreable_aggregation
+
+        records = await self._repository_call(
+            self._repository.get_evaluation_records(context.interview_id),
+            operation="read scoring coverage",
+        )
+        aggregation = scoreable_aggregation(latest_scoring_record(records))
+        target = coverage_question(context, aggregation, self._settings)
+        if target is None:
+            return None
+        self._sync_clock(context)
+        if self._termination_policy.should_finish(context.state, context.plan):
+            return None
+        key, question = target
+        updated = context.model_copy(deep=True)
+        DialogueController(updated, self._settings).record_question(
+            question, closed_reason="SCORING_COVERAGE"
+        )
+        updated.coverage_question_criteria.append(key)
+        updated.state.question_index += 1
+        updated.state.current_question_id = question.question_id
+        updated.state.asked_question_ids.append(question.question_id)
+        updated.state.last_question_type = question.question_type
+        updated.state.last_topic = question.topic
+        updated.state.active_project_id = question.project_id
+        updated.state.consecutive_probes = 0
+        action = InterviewAction(
+            action_id=str(uuid4()),
+            interview_id=context.interview_id,
+            type=InterviewActionType.ASK_QUESTION,
+            question=question,
+            decision_trace=DecisionTrace(
+                reason_code="SCORING_COVERAGE", details={"generation_reason": "COVERAGE_TEMPLATE"}
+            ),
+        )
+        log = self._decision_log(
+            action,
+            context,
+            difficulty=question.difficulty,
+            probe_depth=1,
+            topic=question.topic,
+            question_type=question.question_type,
+            total_agent_latency_ms=self._elapsed_ms(started_at),
+        )
+        return await self._commit_turn(
+            original_context=context,
+            updated_context=updated,
+            action=action,
+            question=question,
             decision_log=log,
             feedback_request_id=feedback_request_id,
         )
