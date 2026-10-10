@@ -100,6 +100,17 @@ class InformationNeed(BaseModel):
     status: Literal["open", "satisfied", "superseded", "blocked"] = "open"
 
 
+class CompletionRequirement(BaseModel):
+    """One persisted part of the accepted completion contract, with its own evidence."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    criterion_id: str = Field(min_length=1)
+    requirement: str = Field(min_length=1)
+    coverage_status: Literal["unassessed", "partial", "sufficient"] = "unassessed"
+    missing_information: list[str] = Field(default_factory=list)
+    evidence: list[dict] = Field(default_factory=list)
+
+
 class TopicProgress(BaseModel):
     questions_asked: int = Field(default=0, ge=0)
     elapsed_seconds: int = Field(default=0, ge=0)
@@ -115,6 +126,7 @@ class TopicProgress(BaseModel):
     next_need_id: str | None = None
     objective_version: int = Field(default=1, ge=1)
     information_needs: list[InformationNeed] = Field(default_factory=list)
+    completion_requirements: list[CompletionRequirement] = Field(default_factory=list)
 
     @model_validator(mode="before")
     @classmethod

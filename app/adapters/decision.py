@@ -16,11 +16,19 @@ class DecisionState(OutputModel):
     limitation_segments: list[str] = Field(default_factory=list)
 
 
+class CriterionDelta(OutputModel):
+    criterion_id: str
+    status: Literal["partial", "sufficient"]
+    missing: list[str] = Field(default_factory=list)
+    segments: list[str] = Field(default_factory=list)
+
+
 class CoverageDelta(OutputModel):
     objective_id: str
     status: Literal["partial", "sufficient"]
     missing: list[str] = Field(default_factory=list)
     segments: list[str] = Field(default_factory=list)
+    criteria: list[CriterionDelta] = Field(default_factory=list)
 
 
 class FactRelation(OutputModel):

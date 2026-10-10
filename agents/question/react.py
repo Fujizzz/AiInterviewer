@@ -13,7 +13,12 @@ from pydantic_core import PydanticCustomError
 
 from agents.config import AgentSettings
 from agents.domain.models import InterviewContext, InterviewHistoryEntry
-from agents.model_calls import (QuestionCallBudget, question_call_budget, run_model_call, validation_issues)
+from agents.model_calls import (
+    QuestionCallBudget,
+    question_call_budget,
+    run_model_call,
+    validation_issues,
+)
 from agents.ports import LLMPort
 from agents.question.dialogue import (
     DialogueSelection,
@@ -21,7 +26,12 @@ from agents.question.dialogue import (
     resolve_selection,
     writing_brief,
 )
-from agents.question.quality import QuestionQualityGate, QuestionQualityReview, ReviewEvidenceError, followup_brief
+from agents.question.quality import (
+    QuestionQualityGate,
+    QuestionQualityReview,
+    ReviewEvidenceError,
+    followup_brief,
+)
 from agents.question.validator import QuestionValidator
 from agents.tracing import emit_trace
 from shared.contracts import PlannedQuestion
@@ -172,8 +182,10 @@ class ReactQuestionAgent:
         result = QuestionAgentResult()
         started = perf_counter()
         deadline = started + self._settings.question_agent.total_timeout_seconds
-        budget = QuestionCallBudget(self._settings.question_agent.max_tool_calls +
-                                    2 * (self._settings.retries.llm_generation_retries + 1))
+        budget = QuestionCallBudget(
+            self._settings.question_agent.max_tool_calls
+            + 2 * (self._settings.retries.llm_generation_retries + 1)
+        )
         budget_token = question_call_budget.set(budget)
         emit_trace(
             "react.started",
@@ -197,6 +209,10 @@ class ReactQuestionAgent:
             result.stop_reason = "CANCELLED"
             raise
         except Exception as error:
+            from agents.domain.errors import ProviderUnavailable
+
+            if isinstance(error, ProviderUnavailable):
+                raise
             result.stop_reason = f"ERROR:{type(error).__name__}"
         finally:
             result.model_calls = budget.used
@@ -319,6 +335,10 @@ class ReactQuestionAgent:
             except TimeoutError:
                 raise
             except Exception as error:
+                from agents.domain.errors import ProviderUnavailable
+
+                if isinstance(error, ProviderUnavailable):
+                    raise
                 repair_errors = [f"INVALID_DECISION:{type(error).__name__}"]
                 issues = (
                     validation_issues(error, QuestionAgentDecision)
@@ -374,7 +394,9 @@ class ReactQuestionAgent:
                     candidate = selected_plan.model_copy(update={"text": decision.text})
                     if self._normalized(candidate.text) in rejected_drafts:
                         result.stop_reason = "REPEATED_REJECTED_DRAFT"
-                        result.steps.append({"action": "final", "status": "UNCHANGED_REJECTED_DRAFT"})
+                        result.steps.append(
+                            {"action": "final", "status": "UNCHANGED_REJECTED_DRAFT"}
+                        )
                         return
                     validation = self._validator.validate(candidate, selected_plan)
                     repair_errors.extend(validation.errors)
@@ -400,21 +422,45 @@ class ReactQuestionAgent:
                             except TimeoutError:
                                 raise
                             except Exception as error:
+                                from agents.domain.errors import ProviderUnavailable
+
+                                if isinstance(error, ProviderUnavailable):
+                                    raise
                                 retrying = repairs < self._settings.retries.llm_generation_retries
-                                schema_errors = validation_issues(error, QuestionQualityReview) if isinstance(error, ValidationError) else getattr(error, "validation_issues", [])
-                                signature = (type(error).__name__, tuple(error.errors if isinstance(error, ReviewEvidenceError) else schema_errors))
+                                schema_errors = (
+                                    validation_issues(error, QuestionQualityReview)
+                                    if isinstance(error, ValidationError)
+                                    else getattr(error, "validation_issues", [])
+                                )
+                                signature = (
+                                    type(error).__name__,
+                                    tuple(
+                                        error.errors
+                                        if isinstance(error, ReviewEvidenceError)
+                                        else schema_errors
+                                    ),
+                                )
                                 if signature in review_failures:
                                     retrying = False
                                 review_failures.add(signature)
                                 if schema_errors:
-                                    review_feedback = {"status": "REVIEW_INVALID", "errors": schema_errors}
+                                    review_feedback = {
+                                        "status": "REVIEW_INVALID",
+                                        "errors": schema_errors,
+                                    }
                                 if isinstance(error, ReviewEvidenceError):
-                                    checked_kinds = getattr(error, "checked_kinds", (review_feedback or {}).get("checked_kinds", []))
+                                    checked_kinds = getattr(
+                                        error,
+                                        "checked_kinds",
+                                        (review_feedback or {}).get("checked_kinds", []),
+                                    )
                                     review_feedback = {"status": error.code, "errors": error.errors}
                                     review_feedback["checked_kinds"] = checked_kinds
                                     if error.disputed_review is not None:
                                         review_feedback["disputed_review"] = error.disputed_review
-                                        review_feedback["adjudication_kind"] = getattr(error, "adjudication_kind", "repeat")
+                                        review_feedback["adjudication_kind"] = getattr(
+                                            error, "adjudication_kind", "repeat"
+                                        )
                                         result.blocking_issues = [
                                             item["code"] for item in error.disputed_review["issues"]
                                         ]
@@ -476,7 +522,11 @@ class ReactQuestionAgent:
                         }
                     )
                     final_only = True
-                    if quality_feedback or validation.errors or "REPEATED_QUESTION" in repair_errors:
+                    if (
+                        quality_feedback
+                        or validation.errors
+                        or "REPEATED_QUESTION" in repair_errors
+                    ):
                         rejected_drafts.add(self._normalized(candidate.text))
                 elif payload["final_only"]:
                     result.steps.append({"action": decision.action, "status": "TOOL_LIMIT"})
@@ -542,8 +592,10 @@ class ReactQuestionAgent:
     @staticmethod
     def _same_selection(selection, intent):
         if selection.need_id and selection.need_id == intent.need_id:
-            return all(getattr(selection, name) == getattr(intent, name)
-                       for name in ("dialogue_action", "project_id", "topic_key"))
+            return all(
+                getattr(selection, name) == getattr(intent, name)
+                for name in ("dialogue_action", "project_id", "topic_key")
+            )
         fields = ("dialogue_action", "project_id", "topic_key", "information_goal")
         return all(getattr(selection, name) == getattr(intent, name) for name in fields) and all(
             not getattr(selection, name) or getattr(selection, name) == getattr(intent, name)

@@ -20,7 +20,7 @@ class SlowPlanner(PlannerLLM):
         self.release = asyncio.Event()
 
     async def generate_structured(self, **kwargs):
-        if kwargs["prompt_name"] == "interview_planner_v1" and self.plans:
+        if kwargs["prompt_name"] == "interview_planner_v2" and self.plans:
             self.entered.set()
             await self.release.wait()
         return await super().generate_structured(**kwargs)
@@ -30,6 +30,7 @@ class SlowPlanner(PlannerLLM):
 async def test_slow_planner_does_not_block_next_question_or_write_state():
     llm = SlowPlanner()
     original, repo, clock, initial = await setup(llm)
+    original._settings.planning.replan_review_interval_questions = 1
     service = InterviewAgentService(
         repository=repo,
         llm=llm,
@@ -42,11 +43,22 @@ async def test_slow_planner_does_not_block_next_question_or_write_state():
         interview_id=initial.interview_id,
         question_id=q.question_id,
         answer_id="one",
-        text="I implemented the mechanism and explained its trade-off.",
+        text=(
+            "I implemented the mechanism, validated it with boundary tests "
+            "and explained its trade-off."
+        ),
     )
+    initial_context = await repo.get_interview_context(initial.interview_id)
     action = await asyncio.wait_for(
         service.apply_evaluation_feedback(
-            initial.interview_id, covered_feedback(q, answer.answer_id, answer.text), answer=answer
+            initial.interview_id,
+            covered_feedback(
+                q,
+                answer.answer_id,
+                answer.text,
+                requirements=initial_context.topic_progress[q.topic_key].completion_requirements,
+            ),
+            answer=answer,
         ),
         1,
     )

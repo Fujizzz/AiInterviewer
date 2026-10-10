@@ -36,13 +36,20 @@ class MockLLMAdapter:
         if prompt_name == "question_quality_v1":
             return response_model.model_validate({"issues": []})
         self.calls.append((prompt_name, payload.copy()))
-        if prompt_name == "interview_planner_v1" and self._structured_payload is None:
+        if (
+            prompt_name in {"interview_planner_v1", "interview_planner_v2"}
+            and self._structured_payload is None
+        ):
             return response_model.model_validate(
                 {
                     "base_plan_version": payload["base_plan_version"],
                     "topics": [
                         {
-                            "project_id": item["project_id"],
+                            **(
+                                {"project_id": item["project_id"]}
+                                if prompt_name.endswith("v1")
+                                else {}
+                            ),
                             "topic_key": item["topic_key"],
                             "objective": "Assess personal implementation of " + item["label"],
                             "completion_criteria": "Concrete implementation and rationale",

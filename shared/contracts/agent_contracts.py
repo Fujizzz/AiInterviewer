@@ -266,6 +266,17 @@ class DimensionEvidence(BaseModel):
     strength: float = Field(ge=0, le=1)
 
 
+class CriterionCoverage(BaseModel):
+    """An observation about one server-owned completion criterion."""
+
+    criterion_id: str = Field(min_length=1)
+    coverage_status: Literal["partial", "sufficient"]
+    missing_information: list[str] = Field(default_factory=list)
+    supporting_segment_ids: list[str] = Field(default_factory=list)
+    supporting_quotes: list[str] = Field(default_factory=list)
+    answer_id: str = ""
+
+
 class ObjectiveCoverage(BaseModel):
     """Coverage of a confirmed agenda objective, independent of a narrow question."""
 
@@ -276,6 +287,7 @@ class ObjectiveCoverage(BaseModel):
     supporting_quotes: list[str] = Field(default_factory=list)
     answer_id: str = ""
     rationale: str = ""
+    criterion_coverage: list[CriterionCoverage] = Field(default_factory=list)
 
 
 class EvaluationFeedback(BaseModel):

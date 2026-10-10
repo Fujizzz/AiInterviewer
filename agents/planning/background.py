@@ -15,6 +15,10 @@ class BackgroundReplanner:
     def request(self, context, trigger):
         # Durable intent survives a lost task. One task per interview coalesces triggers.
         context.pending_replan_trigger = trigger
+        task = self.tasks.get(context.interview_id)
+        if task is None or task.done():
+            context.last_planner_request_question_index = context.state.question_index
+            context.last_planner_estimated_question_seconds = context.estimated_question_seconds
         emit_trace("planning.deferred", interview_id=context.interview_id, trigger=trigger)
 
     def start(self, context):

@@ -14,6 +14,24 @@ def compact_output(output):
             complete=a.get("thread_complete", False),
             need=next(iter(a.get("missing_information", [])), None),
         ),
+        coverage=[
+            dict(
+                objective_id=item["objective_id"],
+                status=item["coverage_status"],
+                missing=item.get("missing_information", []),
+                segments=item.get("supporting_segment_ids", []),
+                criteria=[
+                    dict(
+                        criterion_id=c["criterion_id"],
+                        status=c["coverage_status"],
+                        missing=c.get("missing_information", []),
+                        segments=c.get("supporting_segment_ids", []),
+                    )
+                    for c in item.get("criterion_coverage", [])
+                ],
+            )
+            for item in output.get("objective_coverage", []) or []
+        ],
     )
 
 

@@ -86,6 +86,19 @@ class RealtimeDecisionAdapter(LLMEvaluationAdapter):
                         }
                         for proof in o["accepted_evidence"]
                     ],
+                    "completion_requirements": [
+                        {
+                            **requirement,
+                            "evidence": [
+                                {
+                                    "answer_id": proof["answer_id"],
+                                    "segments": proof["supporting_segment_ids"],
+                                }
+                                for proof in requirement["evidence"]
+                            ],
+                        }
+                        for requirement in o["completion_requirements"]
+                    ],
                 }
                 for o in objectives
             ],
@@ -168,6 +181,15 @@ class RealtimeDecisionAdapter(LLMEvaluationAdapter):
                     coverage_status=c.status,
                     missing_information=c.missing,
                     supporting_segment_ids=c.segments,
+                    criterion_coverage=[
+                        dict(
+                            criterion_id=item.criterion_id,
+                            coverage_status=item.status,
+                            missing_information=item.missing,
+                            supporting_segment_ids=item.segments,
+                        )
+                        for item in c.criteria
+                    ],
                 )
                 for c in raw.coverage
             ],

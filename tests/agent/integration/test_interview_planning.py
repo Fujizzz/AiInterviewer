@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from agents.config import load_agent_settings
 from agents.orchestrator import InterviewAgentService
+from agents.planning.wire import CompactPlanProposal
 from shared.contracts import AnswerAnalysis, CandidateAnswer, EvaluationFeedback, ObjectiveCoverage
 from shared.contracts.planning import PlanDraft, PlanProposal, TopicAllocation
 from tests.agent.integration.test_question_pipeline_integration import pipeline_request
@@ -25,7 +26,7 @@ class PlannerLLM(MockLLMAdapter):
         self.script = script
 
     async def generate_structured(self, *, prompt_name, payload, response_model):
-        if response_model is PlanProposal:
+        if response_model in {PlanProposal, CompactPlanProposal}:
             self.plans.append(payload)
             if self.script:
                 return self.script(payload, len(self.plans))
@@ -82,7 +83,7 @@ def feedback(question, index=1, complete=False):
     )
 
 
-def covered_feedback(question, answer_id, quote, index=1):
+def covered_feedback(question, answer_id, quote, index=1, *, requirements):
     result = feedback(question, index, complete=True)
     result.objective_coverage_status = "valid"
     result.objective_coverage = [
@@ -92,6 +93,16 @@ def covered_feedback(question, answer_id, quote, index=1):
             answer_id=answer_id,
             supporting_quotes=[quote],
             supporting_segment_ids=[f"{answer_id}:s0"],
+            criterion_coverage=[
+                dict(
+                    criterion_id=item.criterion_id,
+                    coverage_status="sufficient",
+                    answer_id=answer_id,
+                    supporting_quotes=[quote],
+                    supporting_segment_ids=[f"{answer_id}:s0"],
+                )
+                for item in requirements
+            ],
         )
     ]
     return result
@@ -152,6 +163,7 @@ async def test_expected_count_is_soft_replan_adds_followup_and_replay_is_idempot
             "answer-2",
             "I implemented the missing operation and verified it with an integration test.",
             index=2,
+            requirements=context.topic_progress[action.question.topic_key].completion_requirements,
         ),
         answer=CandidateAnswer(
             interview_id=result.interview_id,
@@ -191,6 +203,7 @@ async def test_closed_topic_is_not_reopened_and_failed_replan_compiles_known_fal
         )
 
     service, repo, clock, result = await setup(PlannerLLM(script))
+    initial_context = await repo.get_interview_context(result.interview_id)
     clock.value += 40
     action = await service.apply_evaluation_feedback(
         result.interview_id,
@@ -198,6 +211,9 @@ async def test_closed_topic_is_not_reopened_and_failed_replan_compiles_known_fal
             result.first_action.question,
             "completed-answer",
             "I implemented the custom mechanism and verified its behavior.",
+            requirements=initial_context.topic_progress[
+                result.first_action.question.topic_key
+            ].completion_requirements,
         ),
         answer=CandidateAnswer(
             interview_id=result.interview_id,
@@ -320,7 +336,7 @@ async def test_planner_latency_is_removed_from_remaining_allocations():
         draft = await original(
             prompt_name=prompt_name, payload=payload, response_model=response_model
         )
-        if response_model is PlanProposal:
+        if response_model in {PlanProposal, CompactPlanProposal}:
             clock.value += 40
         return draft
 
