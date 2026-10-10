@@ -57,7 +57,7 @@ def test_duplicate_dimension_merges_once_without_provider_repair_or_score_inflat
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("failure", ["bad_structure", "bad_quote", "provider", "timeout"])
+@pytest.mark.parametrize("failure", ["bad_structure", "bad_quote", "provider", "timeout", "system"])
 async def test_failed_evaluation_preserves_answer_without_scores_and_continues(failure):
     repository = InMemoryRepository()
     service = InterviewAgentService(repository=repository)
@@ -70,6 +70,8 @@ async def test_failed_evaluation_preserves_answer_without_scores_and_continues(f
     )
 
     def model(prompt, data, schema):
+        if failure == "system":
+            raise RuntimeError("analysis implementation error")
         if failure == "provider":
             raise LLMError("invalid", code="invalid_json")
         if failure == "timeout":

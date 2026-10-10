@@ -44,7 +44,10 @@ agent:
   planning:
     timeout_seconds: 30.0
     replan_cooldown_questions: 2
+    replan_review_interval_questions: 4
+    replan_pace_change_ratio: 0.35
     minimum_question_seconds: 30
+    question_start_cutoff_seconds: 30
   question_agent:
     enabled: true
     quality_timeout_seconds: 20.0

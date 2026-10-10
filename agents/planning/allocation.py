@@ -2,8 +2,7 @@
 
 from collections import Counter
 
-from agents.planning.pace import round_cost
-
+from agents.planning.pace import final_question_window, round_cost
 from shared.contracts.planning import PlanDraft, TopicAllocation, TopicProgress
 
 
@@ -43,11 +42,21 @@ class BudgetAllocator:
             context.plan.closing_seconds if context.plan.version else min(120, remaining // 15),
             remaining,
         )
+        final_question = final_question_window(
+            context, self.settings, closing_seconds=closing
+        )
+        if final_question:
+            # Duration controls whether another question starts, not how long an
+            # already issued answer may take. Allocate one final scope locally.
+            closing = 0
+            minimum = min(minimum, remaining)
         reserve = min(
             180,
             remaining // 10,
             max(0, remaining - closing - minimum) if proposal.topics else remaining,
         )
+        if final_question:
+            reserve = 0
         usable = max(0, remaining - closing - reserve)
         project_counts = Counter()
         for key, progress in context.topic_progress.items():
@@ -88,10 +97,16 @@ class BudgetAllocator:
             pace = minimum
             for item, seconds in zip(selected, amounts, strict=True):
                 # This is only a pace estimate. Actual admission enforces safety limits.
-                topic_remaining = context.plan.max_questions_per_topic - context.topic_progress.get(item.topic_key, TopicProgress()).questions_asked
-                extras = min(max(0, seconds // pace - 1), total_slots,
-                             context.plan.max_questions_per_project - project_counts[item.project_id],
-                             max(0, topic_remaining - 1))
+                topic_remaining = (
+                    context.plan.max_questions_per_topic
+                    - context.topic_progress.get(item.topic_key, TopicProgress()).questions_asked
+                )
+                extras = min(
+                    max(0, seconds // pace - 1),
+                    total_slots,
+                    context.plan.max_questions_per_project - project_counts[item.project_id],
+                    max(0, topic_remaining - 1),
+                )
                 estimate = 1 + extras
                 total_slots -= extras
                 project_counts[item.project_id] += extras

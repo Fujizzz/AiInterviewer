@@ -157,6 +157,9 @@ class InterviewContext(BaseModel):
     topic_progress: dict[str, TopicProgress] = Field(default_factory=dict)
     plan_history: list[PlanRevision] = Field(default_factory=list)
     last_replan_question_index: int = 0
+    # Local budget compilation must not reset the semantic planner's request cooldown.
+    last_planner_request_question_index: int = Field(default=0, ge=0)
+    last_planner_estimated_question_seconds: float = Field(default=120.0, gt=0)
     estimated_question_seconds: float = 120.0
     last_question_generation_seconds: float = Field(default=0, ge=0)
     policy_config_version: str

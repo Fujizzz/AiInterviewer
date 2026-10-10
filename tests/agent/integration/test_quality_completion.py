@@ -42,8 +42,11 @@ class RepeatModel:
                         "answer_units": [
                             {
                                 "request_quote": DRAFT,
-                                "requested_fact": "How shared state is stored and accessed",
-                                "missing_detail": "The storage mechanism is not described",
+                                "requested_fact": "How to store and access the shared state",
+                                "missing_detail": (
+                                    "How to store and access the shared state is not described"
+                                ),
+                                "new_detail_quote": "store and access the shared state",
                             }
                         ]
                         if self.verdict == "not_repeat"

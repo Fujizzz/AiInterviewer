@@ -1,12 +1,12 @@
-"""End on budget or terminal stage; assessment dimensions never drive termination."""
+"""Stop starting questions at the cutoff; an issued answer may exceed the duration."""
 
 from shared.contracts import InterviewStage
 
 
 class TerminationPolicy:
     def __init__(self, settings=None):
-        self.minimum_question_seconds = (
-            settings.planning.minimum_question_seconds if settings else 30
+        self.question_start_cutoff_seconds = (
+            settings.planning.question_start_cutoff_seconds if settings else 30
         )
 
     def should_finish(self, state, plan=None) -> bool:
@@ -17,7 +17,7 @@ class TerminationPolicy:
             or (
                 plan is not None
                 and plan.planning_enabled
-                and state.remaining_seconds < plan.closing_seconds + self.minimum_question_seconds
+                and state.remaining_seconds <= self.question_start_cutoff_seconds
             )
         )
 

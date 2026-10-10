@@ -68,11 +68,16 @@ from agents.domain.models import (
     RetrievalBatch,
     TopicSelection,
 )
+from agents.orchestrator.recovery import (
+    QuestionUnavailable,
+    activate_recovery,
+    quarantine,
+    recovery_target,
+)
 from agents.orchestrator.replay import replay_decision as replay_policy_decision
 from agents.orchestrator.state_machine import InterviewStageMachine
 from agents.orchestrator.termination import TerminationPolicy
 from agents.planning import InterviewPlannerAgent
-from agents.planning.pace import round_cost
 from agents.policies import DifficultyController
 from agents.policies.dialogue_controller import DialogueController
 from agents.policies.dialogue_policy import choose_dialogue
@@ -222,7 +227,13 @@ class InterviewAgentService:
             policy_config_version=self._settings.policy_config_version,
         )
         if request.planning_enabled:
-            await self._interview_planner.revise(context, "INITIAL_PLAN")
+            try:
+                await self._interview_planner.revise(context, "INITIAL_PLAN")
+            except AgentError:
+                raise
+            except Exception as error:
+                emit_trace("planning.initial_unavailable", error_type=type(error).__name__)
+                context.pending_replan_trigger = "RECOVERABLE_PLANNER_FAILURE"
         await self._repository_call(
             self._repository.initialize_interview(context),
             operation="initialize interview",
@@ -481,12 +492,24 @@ class InterviewAgentService:
                 else updated.active_thread.no_information_count + 1
             )
         if updated.plan.planning_enabled:
-            self._interview_planner.feedback(
-                updated,
-                current_question,
-                feedback,
-                updated.state.elapsed_seconds - context.state.elapsed_seconds,
-            )
+            prior_progress = {k: p.model_copy(deep=True) for k, p in updated.topic_progress.items()}
+            prior_plan = updated.plan.model_copy(deep=True)
+            try:
+                self._interview_planner.feedback(
+                    updated,
+                    current_question,
+                    feedback,
+                    updated.state.elapsed_seconds - context.state.elapsed_seconds,
+                )
+            except AgentError:
+                raise
+            except Exception as error:
+                updated.topic_progress, updated.plan = prior_progress, prior_plan
+                updated.question_history[-1].feedback.analysis_status = "unavailable"
+                updated.question_history[-1].feedback.evaluation_issues.append(
+                    "PLANNING_FEEDBACK_UNAVAILABLE"
+                )
+                emit_trace("planning.feedback_unavailable", error_type=type(error).__name__)
         if feedback.assessment_status == "valid":
             updated.state.evidence_ids = list(
                 dict.fromkeys([*updated.state.evidence_ids, *feedback.evidence_ids])
@@ -518,12 +541,21 @@ class InterviewAgentService:
         if context.plan.planning_enabled and not self._termination_policy.should_finish(
             context.state, context.plan
         ):
-            if self._background_replanner:
-                self._background_replanner.consume(context)
-            await self._interview_planner.review(
-                context,
-                defer=self._background_replanner.request if self._background_replanner else None,
-            )
+            try:
+                if self._background_replanner:
+                    self._background_replanner.consume(context)
+                await self._interview_planner.review(
+                    context,
+                    defer=self._background_replanner.request
+                    if self._background_replanner
+                    else None,
+                )
+            except AgentError:
+                raise
+            except Exception as error:
+                # Broken proposals/compilation do not make the interview terminal.
+                emit_trace("planning.review_unavailable", error_type=type(error).__name__)
+                context.pending_replan_trigger = "RECOVERABLE_PLANNER_FAILURE"
             self._sync_clock(context)
         if self._termination_policy.should_finish(context.state, context.plan):
             return await self._finish(
@@ -550,6 +582,69 @@ class InterviewAgentService:
         feedback_request_id: str | None,
         started_at: float,
     ) -> InterviewAction:
+        """A failed target is isolated; a different target uses deterministic recovery.
+
+        Recovery makes no additional model calls and never reuses a blocked intent.
+        Feedback and the recovered question still share one idempotent transaction.
+        Repository/state errors propagate without publishing a terminal state.
+        """
+        try:
+            return await self._try_ask_question(
+                context,
+                feedback_request_id=feedback_request_id,
+                started_at=started_at,
+            )
+        except QuestionUnavailable as failure:
+            updated = context.model_copy(deep=True)
+            self._sync_clock(updated)
+            quarantine(updated, failure)
+            if self._termination_policy.should_finish(updated.state, updated.plan):
+                return await self._finish(
+                    updated,
+                    feedback_request_id=feedback_request_id,
+                    started_at=started_at,
+                )
+            target = recovery_target(updated, self._settings)
+            if target is None:
+                # Only truly exhausted/covered scopes can take the normal terminal path.
+                return await self._finish(
+                    updated,
+                    feedback_request_id=feedback_request_id,
+                    started_at=started_at,
+                    reason=(
+                        "SCOPE_QUESTION_SAFETY_LIMIT"
+                        if updated.candidate_profile.projects
+                        and all(
+                            DialogueController(updated, self._settings).project_exhausted(
+                                p.project_id
+                            )
+                            for p in updated.candidate_profile.projects
+                        )
+                        else "NO_MORE_TOPICS"
+                    ),
+                )
+            activate_recovery(updated, target, self._settings)
+            emit_trace(
+                "question.recovery",
+                reason=failure.reason,
+                next_topic_key=target.topic.topic_key,
+                model_calls_added=0,
+            )
+            return await self._try_ask_question(
+                updated,
+                feedback_request_id=feedback_request_id,
+                started_at=started_at,
+                recovery=target,
+            )
+
+    async def _try_ask_question(
+        self,
+        context: InterviewContext,
+        *,
+        feedback_request_id: str | None,
+        started_at: float,
+        recovery=None,
+    ) -> InterviewAction:
         """Functionality: Admit and generate the next constrained question.
         Inputs: context, feedback_request_id, started_at.
         Outputs: ASK_QUESTION action or FINISH when no topic/time remains.
@@ -561,10 +656,21 @@ class InterviewAgentService:
         """
         state = context.state
         planner_started = perf_counter()
-        project, topic, probe = choose_dialogue(context, self._settings)
+        try:
+            project, topic, probe = (
+                (recovery.project, recovery.topic, recovery.probe)
+                if recovery
+                else choose_dialogue(context, self._settings)
+            )
+        except Exception as error:
+            if isinstance(error, AgentError):
+                raise
+            emit_trace("question.selection_unavailable", error_type=type(error).__name__)
+            raise QuestionUnavailable(reason="DIALOGUE_SELECTION_ERROR") from error
         if (
             topic is None
             and self._question_agent
+            and context.question_history
             and not followup_block(context, self._settings)
             and not context.question_history[-1].feedback.analysis.thread_complete
         ):
@@ -590,50 +696,37 @@ class InterviewAgentService:
                 information_goal="Explain one concrete implementation step",
             )
         if topic is None:
-            insufficient_time = (
-                context.plan.planning_enabled
-                and state.clock_started_at is not None
-                and state.remaining_seconds - context.plan.closing_seconds
-                < round_cost(context, self._settings)
-            )
-            return await self._finish(
-                context,
-                feedback_request_id=feedback_request_id,
-                started_at=started_at,
-                reason="INSUFFICIENT_TIME_FOR_NEW_TOPIC" if insufficient_time else "NO_MORE_TOPICS",
-            )
-        if (
-            context.plan.planning_enabled
-            and not probe.should_probe
-            and state.clock_started_at is not None
-            and state.remaining_seconds - context.plan.closing_seconds
-            < round_cost(context, self._settings)
-        ):
-            return await self._finish(
-                context,
-                feedback_request_id=feedback_request_id,
-                started_at=started_at,
-                reason="INSUFFICIENT_TIME_FOR_NEW_TOPIC",
-            )
+            raise QuestionUnavailable()
         latest = context.question_history[-1] if context.question_history else None
-        question_plan = self._question_planner.plan(
-            project=project,
-            topic=topic,
-            probe=probe,
-            thread=context.active_thread,
-            difficulty=(
-                context.thread_difficulty
-                if probe.should_probe
-                else self._settings.initial_question_difficulty
-            ),
-            parent_question_id=state.current_question_id,
-            answer_excerpt=(latest.answer.text[:1000] if latest and latest.answer else ""),
-        )
+        try:
+            planner = QuestionPlanner() if recovery else self._question_planner
+            question_plan = planner.plan(
+                project=project,
+                topic=topic,
+                probe=probe,
+                thread=context.active_thread,
+                difficulty=(
+                    context.thread_difficulty
+                    if probe.should_probe
+                    else self._settings.initial_question_difficulty
+                ),
+                parent_question_id=state.current_question_id,
+                answer_excerpt=(latest.answer.text[:1000] if latest and latest.answer else ""),
+            )
+        except AgentError:
+            raise
+        except Exception as error:
+            raise QuestionUnavailable(topic, reason="QUESTION_PLANNING_ERROR") from error
         agenda_item = next(
             (item for item in context.plan.topics if item.topic_key == topic.topic_key), None
         )
         if agenda_item and not probe.should_probe:
             question_plan.intent = question_plan.information_goal = agenda_item.objective
+        if recovery:
+            question_plan.intent = question_plan.information_goal = recovery.goal
+            progress = context.topic_progress.get(topic.topic_key)
+            question_plan.objective_id = topic.topic_key
+            question_plan.need_id = (progress.next_need_id or "") if progress else ""
         if (
             not probe.should_probe
             and context.active_thread
@@ -643,46 +736,73 @@ class InterviewAgentService:
         planner_latency_ms = self._elapsed_ms(planner_started)
         emit_trace("question.started", question_id=question_plan.question_id)
         previous_questions = await self._get_previous_questions(state)
-        requests = (
-            self._rag_router.build_requests(
-                question_plan,
-                interview_id=state.interview_id,
-                candidate_id=context.candidate_profile.candidate_id,
-                domain=project.domain if project else None,
+        try:
+            requests = (
+                self._rag_router.build_requests(
+                    question_plan,
+                    interview_id=state.interview_id,
+                    candidate_id=context.candidate_profile.candidate_id,
+                    domain=project.domain if project else None,
+                )
+                if self._rag_router and self._question_agent is None and not recovery
+                else []
             )
-            if self._rag_router and self._question_agent is None
-            else []
-        )
+        except Exception as error:
+            emit_trace("question.retrieval_unavailable", error_type=type(error).__name__)
+            requests = []
         retrieval_started = perf_counter()
-        batch = (
-            await self._rag_router.retrieve_with_diagnostics(requests)
-            if self._rag_router and requests
-            else RetrievalBatch()
-        )
-        retrieval_latency_ms = self._elapsed_ms(retrieval_started)
-        prompt_context = (
-            ""
-            if self._question_agent
-            else self._context_builder.build(
-                question_plan=question_plan,
-                retrieval_responses=batch.responses,
-                candidate_profile=context.candidate_profile,
-                selected_project=project,
-                previous_questions=previous_questions,
-                recent_feedback=context.recent_feedback,
+        try:
+            batch = (
+                await self._rag_router.retrieve_with_diagnostics(requests)
+                if self._rag_router and requests
+                else RetrievalBatch()
             )
-        )
+        except Exception as error:
+            emit_trace("question.retrieval_unavailable", error_type=type(error).__name__)
+            batch = RetrievalBatch()
+        retrieval_latency_ms = self._elapsed_ms(retrieval_started)
+        try:
+            prompt_context = (
+                ""
+                if self._question_agent or recovery
+                else self._context_builder.build(
+                    question_plan=question_plan,
+                    retrieval_responses=batch.responses,
+                    candidate_profile=context.candidate_profile,
+                    selected_project=project,
+                    previous_questions=previous_questions,
+                    recent_feedback=context.recent_feedback,
+                )
+            )
+        except AgentError:
+            raise
+        except Exception as error:
+            raise QuestionUnavailable(question_plan, reason="QUESTION_CONTEXT_ERROR") from error
         agent_result = QuestionAgentResult()
         generation_started = perf_counter()
-        question, generation_reason = await self._generate_question(
-            question_plan,
-            prompt_context,
-            project,
-            force_fallback=False,
-            interview=context,
-            previous_questions=previous_questions,
-            agent_result=agent_result,
-        )
+        try:
+            if recovery:
+                question = self._fallback_policy.apply_locked(question_plan, project=project)
+                if not self._question_validator.is_valid(question, question_plan):
+                    raise RuntimeError("Invalid recovery question; session remains active")
+                generation_reason = "NEXT_TOPIC_RECOVERY_UNREVIEWED"
+            else:
+                question, generation_reason = await self._generate_question(
+                    question_plan,
+                    prompt_context,
+                    project,
+                    force_fallback=False,
+                    interview=context,
+                    previous_questions=previous_questions,
+                    agent_result=agent_result,
+                )
+        except AgentError:
+            raise
+        except Exception as error:
+            if recovery:
+                raise
+            emit_trace("question.generation_unavailable", error_type=type(error).__name__)
+            raise QuestionUnavailable(question_plan, reason="QUESTION_GENERATION_ERROR") from error
         generation_latency_ms = self._elapsed_ms(generation_started)
         timed_context = context.model_copy(deep=True)
         self._sync_clock(timed_context)
@@ -694,11 +814,8 @@ class InterviewAgentService:
                 stop_reason=agent_result.stop_reason,
                 blocking_issues=agent_result.blocking_issues,
             )
-            return await self._finish(
-                timed_context,
-                feedback_request_id=feedback_request_id,
-                started_at=started_at,
-                reason="NO_VALID_QUESTION",
+            raise QuestionUnavailable(
+                agent_result.locked_intent or question_plan, reason=generation_reason
             )
         if self._termination_policy.should_finish(timed_context.state, timed_context.plan):
             return await self._finish(
@@ -1129,6 +1246,8 @@ class InterviewAgentService:
                         return candidate, "LLM_GENERATED" if attempt == 0 else "LLM_REPAIRED"
                     repair_errors = validation.errors
                 except Exception as error:  # external LLM failures degrade to a safe question
+                    if isinstance(error, AgentError):
+                        raise
                     repair_errors = [f"GENERATION_ERROR:{type(error).__name__}"]
 
         question_plan = self._fallback_policy.prepare_plan(question_plan, interview)

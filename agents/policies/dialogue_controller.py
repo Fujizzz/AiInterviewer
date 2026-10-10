@@ -91,7 +91,12 @@ class DialogueController:
             return "CANDIDATE_STOPPED_THREAD"
         if active.no_information_count >= self.settings.probe.max_no_information_answers:
             return "NO_NEW_INFORMATION"
-        if context.state.remaining_seconds <= self.settings.probe.minimum_remaining_seconds:
+        cutoff = (
+            self.settings.planning.question_start_cutoff_seconds
+            if context.plan.planning_enabled
+            else self.settings.probe.minimum_remaining_seconds
+        )
+        if context.state.remaining_seconds <= cutoff:
             return "TIME_LIMIT"
         return None
 
@@ -215,12 +220,18 @@ class DialogueController:
                 if progress.status == "active" and key != question.topic_key:
                     progress.status, progress.reason = "deferred", "EXECUTOR_MOVED_ON"
             progress = context.topic_progress.setdefault(question.topic_key, TopicProgress())
-            if question.need_id and not any(n.need_id == question.need_id for n in progress.information_needs):
-                progress.information_needs.append(InformationNeed(
-                    need_id=question.need_id, objective_id=progress.objective_id or question.topic_key,
-                    objective_version=progress.objective_version, target=question.information_goal,
-                    answer_unit=question.answer_unit or question.information_goal,
-                ))
+            if question.need_id and not any(
+                n.need_id == question.need_id for n in progress.information_needs
+            ):
+                progress.information_needs.append(
+                    InformationNeed(
+                        need_id=question.need_id,
+                        objective_id=progress.objective_id or question.topic_key,
+                        objective_version=progress.objective_version,
+                        target=question.information_goal,
+                        answer_unit=question.answer_unit or question.information_goal,
+                    )
+                )
             progress.status = "active"
             progress.reason = "QUESTION_ASKED"
             progress.questions_asked += 1
