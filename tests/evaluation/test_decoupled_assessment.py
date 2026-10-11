@@ -234,3 +234,79 @@ async def test_realtime_decision_invalid_structure_keeps_failure_separate_from_c
     feedback = await RealtimeDecisionAdapter(broken, repo).evaluate(request)
     assert feedback.analysis_status == "unavailable"
     assert not feedback.analysis.thread_complete and not feedback.dimensions
+
+
+async def test_shadow_reuses_valid_decision_and_makes_five_calls_per_concrete_answer():
+    from collections import Counter
+
+    from evaluation.analyzer import ConversationAnalysis
+    from evaluation.extractor import EvidenceExtraction
+    from evaluation.judge import GroupedJudgeDraft
+    from evaluation.resolution import ResolutionDraft
+    from tests.evaluation.port_helpers import SCHEMAS, evaluation_output
+
+    calls = []
+
+    def provider(prompt, data, schema):
+        calls.append(schema)
+        return (
+            evaluation_output(prompt, data, schema)
+            if schema in SCHEMAS
+            else model(prompt, data, schema)
+        )
+
+    agent, repo, _, _ = await setup(PlannerLLM())
+    port = build_evaluation_adapter(provider, repo, None, mode="shadow")
+    try:
+        for index in (1, 2):
+            request, _, _ = await commit(agent, repo, port, index)
+            assert await port.drain(request.interview_id, timeout_seconds=2)
+        records = await repo.get_evaluation_records(request.interview_id)
+        assert len(records) == 2
+        assert all(r.scored.evaluation.status == "completed" for r in records)
+        assert ConversationAnalysis not in calls
+        assert Counter(calls) == {
+            CompactAnswerDecision: 2,
+            AnswerAssessment: 2,
+            EvidenceExtraction: 2,
+            ResolutionDraft: 2,
+            GroupedJudgeDraft: 2,
+        }
+    finally:
+        await port.close()
+
+
+@pytest.mark.parametrize("retain_grounded", [True, False])
+async def test_uncited_low_score_is_omitted_without_losing_grounded_scores(retain_grounded):
+    from shared.contracts import DimensionEvidence
+
+    def provider(prompt, data, schema):
+        result = model(prompt, data, schema)
+        if schema is AnswerAssessment:
+            missing = DimensionEvidence(
+                competency="evaluation",
+                observation="weak",
+                fact="No tests described.",
+                rationale="There is no observed evaluation behavior.",
+                strength=0.2,
+                rubric_level=1,
+            )
+            result.dimensions = [*result.dimensions, missing] if retain_grounded else [missing]
+        return result
+
+    agent, repo, port = await prepared(provider)
+    try:
+        request, _, _ = await commit(agent, repo, port, 1)
+        assert await port.drain(request.interview_id, timeout_seconds=2)
+        record = (await repo.get_assessment_records(request.interview_id))[0]
+        assert record.evaluation_issues == ["UNCITED_DIMENSION_OMITTED:evaluation"]
+        if retain_grounded:
+            assert record.assessment_status == "valid"
+            assert [(d.competency.value, d.rubric_level) for d in record.dimensions] == [
+                ("ownership", 4)
+            ]
+        else:
+            assert record.assessment_status == "unavailable" and not record.dimensions
+            assert record.evidence_strength == 0
+    finally:
+        await port.close()

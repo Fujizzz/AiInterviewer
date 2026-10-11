@@ -74,6 +74,9 @@ AI_SECURITY_ENABLED = os.environ.get("AI_SECURITY_ENABLED", "true").strip().lowe
 if AI_SECURITY_ENABLED not in {"true", "false"}:
     raise ValueError("AI_SECURITY_ENABLED must be true or false")
 AI_SECURITY_ENABLED = AI_SECURITY_ENABLED == "true"
+AI_SECURITY_MAX_SCAN_CHARS = int(os.environ.get("AI_SECURITY_MAX_SCAN_CHARS", "100000"))
+if not 0 < AI_SECURITY_MAX_SCAN_CHARS <= 1_000_000:
+    raise ValueError("AI_SECURITY_MAX_SCAN_CHARS must be between 1 and 1000000")
 AVATAR_REMOTE_ENABLED = os.environ.get("AVATAR_REMOTE_ENABLED", "false").strip().lower() == "true"
 AVATAR_SIGNALLING_UPSTREAM = os.environ.get("AVATAR_SIGNALLING_UPSTREAM", "ws://127.0.0.1:8889")
 AUTH_PASSWORD_VALIDATORS = []

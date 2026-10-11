@@ -1,4 +1,4 @@
-"""Provide validated structured model calls for OpenAI and Alibaba Qwen."""
+"""Provide validated structured model calls for OpenAI, Qwen and DeepSeek."""
 
 import json
 import os
@@ -38,10 +38,11 @@ class OpenAILLM:
         """Load provider credentials and options, then initialize the shared SDK client."""
         load_dotenv(Path(__file__).resolve().parents[2] / ".env")
         self.provider = os.getenv("LLM_PROVIDER", "openai").strip().lower()
-        if self.provider not in {"openai", "dashscope"}:
-            raise LLMError("LLM_PROVIDER must be openai or dashscope.")
-        key_var = "DASHSCOPE_API_KEY" if self.provider == "dashscope" else "OPENAI_API_KEY"
-        model_var = "DASHSCOPE_MODEL" if self.provider == "dashscope" else "OPENAI_MODEL"
+        if self.provider not in {"openai", "dashscope", "deepseek"}:
+            raise LLMError("LLM_PROVIDER must be openai, dashscope or deepseek.")
+        prefix = self.provider.upper()
+        key_var = f"{prefix}_API_KEY"
+        model_var = f"{prefix}_MODEL"
         key = os.getenv(key_var, "").strip()
         self.model = os.getenv(
             model_var, "qwen-plus" if self.provider == "dashscope" else ""
@@ -55,6 +56,10 @@ class OpenAILLM:
             client_options["base_url"] = os.getenv(
                 "DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"
             ).strip()
+        elif self.provider == "deepseek":
+            client_options["base_url"] = os.getenv(
+                "DEEPSEEK_BASE_URL", "https://api.deepseek.com"
+            ).strip()
         timeouts = load_agent_settings().timeouts
         self.request_timeout = timeouts.llm_generation_seconds
         self.resume_timeout = timeouts.resume_extraction_seconds
@@ -65,7 +70,7 @@ class OpenAILLM:
     def __call__(self, prompt: str, data: dict, schema: type[T]) -> T:
         """Return schema-validated model output for the supplied prompt and data."""
         try:
-            if self.provider == "dashscope":
+            if self.provider in {"dashscope", "deepseek"}:
                 return self._qwen(prompt, data, schema)
             response = self.client.responses.parse(
                 model=self.model,
@@ -141,7 +146,11 @@ class OpenAILLM:
                 model=self.model,
                 messages=messages,
                 response_format={"type": "json_object"},
-                extra_body={"enable_thinking": False},
+                extra_body=(
+                    {"thinking": {"type": "disabled"}}
+                    if getattr(self, "provider", "dashscope") == "deepseek"
+                    else {"enable_thinking": False}
+                ),
                 timeout=self._remaining_timeout(),
                 **self.options,
             )

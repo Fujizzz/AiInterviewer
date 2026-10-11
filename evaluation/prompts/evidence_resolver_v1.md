@@ -41,3 +41,6 @@ as duplicate merely because its normalized claim matches.
 
 Give a concise_rationale summarizing observable source facts and the relation,
 not hidden reasoning. Do not change the source text or repair invalid spans.
+
+History contains raw evidence records. Original question/answer snapshots are stored once
+in source_answers; join by answer_id. resolved_history supplies their resolved relations.

@@ -2,10 +2,10 @@
 
 from evaluation.analyzer import ConversationAnalysis
 from evaluation.extractor import EvidenceExtraction
-from evaluation.judge import JudgeDraft
+from evaluation.judge import GroupedJudgeDraft, JudgeDraft
 from evaluation.resolution import ResolutionDraft
 
-SCHEMAS = (ConversationAnalysis, EvidenceExtraction, ResolutionDraft, JudgeDraft)
+SCHEMAS = (ConversationAnalysis, EvidenceExtraction, ResolutionDraft, GroupedJudgeDraft)
 
 
 def evaluation_output(prompt, data, schema):
@@ -46,6 +46,24 @@ def evaluation_output(prompt, data, schema):
                     concise_rationale="Independent reported action.",
                 )
                 for e in data["current_evidence"]
+            ]
+        )
+    if schema is GroupedJudgeDraft:
+        return schema(
+            groups=[
+                dict(
+                    group_id=g["group_id"],
+                    ratings=[
+                        dict(
+                            criterion_id="debugging.diagnostic_method",
+                            evidence_ids=[e["id"] for e in g["evidence"]],
+                            assigned_level=3,
+                            decision="included",
+                            rationale="Concrete diagnostic behavior.",
+                        )
+                    ],
+                )
+                for g in data["groups"]
             ]
         )
     if schema is JudgeDraft:

@@ -211,7 +211,29 @@ class AgentTests(SafetyTestMixin, TransactionTestCase):
                     expected_report = expected_report.replace(
                         reference.answer.answer_id, f"answer-{index}"
                     )
-                self.assertEqual(json.loads(actual_report), json.loads(expected_report))
+                # Snapshot hashes include per-run interview/answer identities. Verify
+                # each report is bound to its own replayable ledger before normalizing.
+                from evaluation.aggregator import replay_aggregation
+                from evaluation.publication import formal_publication
+
+                actual_report, expected_report = (
+                    json.loads(actual_report),
+                    json.loads(expected_report),
+                )
+                for report, run_repo, run_context in (
+                    (actual_report, repository, context),
+                    (expected_report, terminal.repository, terminal_context),
+                ):
+                    records = await run_repo.get_evaluation_records(run_context.interview_id)
+                    snapshot = replay_aggregation(records[-1].scored.aggregation)
+                    self.assertEqual(report["score_snapshot_id"], snapshot.snapshot_id)
+                    projection = formal_publication(run_context, records)
+                    self.assertEqual(
+                        report["score_basis_snapshot_id"], projection["score_basis_snapshot_id"]
+                    )
+                    for field in ("score_snapshot_id", "score_basis_snapshot_id"):
+                        report[field] = f"{field}-for-this-run"
+                self.assertEqual(actual_report, expected_report)
                 self.assertLess(result["interview_state"]["elapsed_seconds"], 120)
                 for key in ("interview_plan", "plan_history", "topic_progress", "decision_logs"):
                     self.assertNotIn(key, result)

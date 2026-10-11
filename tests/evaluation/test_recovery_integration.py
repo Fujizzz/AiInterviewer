@@ -9,7 +9,7 @@ from app.providers.llm import LLMError
 from evaluation.analyzer import ConversationAnalysis
 from evaluation.extractor import EvidenceExtraction
 from evaluation.inputs import EvaluationInput
-from evaluation.judge import JudgeDraft
+from evaluation.judge import GroupedJudgeDraft
 from evaluation.resolution import ResolutionDraft
 from evaluation.rubric import load_rubric_pack
 from evaluation.service import EvaluationService
@@ -58,7 +58,7 @@ async def test_failed_evaluation_preserves_answer_and_keeps_planner_topic_open(
             ConversationAnalysis: "analyzer",
             EvidenceExtraction: "extractor",
             ResolutionDraft: "resolver",
-            JudgeDraft: "judge",
+            GroupedJudgeDraft: "judge",
         }[schema]
         if current == failure:
             raise LLMError("Unavailable", code="invalid_json")

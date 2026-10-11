@@ -7,7 +7,7 @@ from agents.model_calls import current_model_call
 from app.providers.llm import LLMError
 from evaluation.aggregation import ScoredEvaluation
 from evaluation.aggregator import replay_aggregation
-from evaluation.judge import JudgeDraft
+from evaluation.judge import GroupedJudgeDraft
 from evaluation.rubric import load_rubric_pack
 from evaluation.service import EvaluationService
 from tests.evaluation.scoring_helpers import configuration
@@ -16,38 +16,9 @@ from tests.evaluation.test_resolved_service import model_for, proposals
 
 def judge_proposals(data):
     """Test provider output; only the diagnostic method has supporting behavior."""
-    key = data["evidence"][0]["evidence_id"]
-    return dict(
-        assessments=[
-            dict(
-                competency=r["competency"],
-                criterion_id=c["criterion_id"],
-                evidence_ids=[key] if c["criterion_id"] == "debugging.diagnostic_method" else [],
-                assigned_level=3 if c["criterion_id"] == "debugging.diagnostic_method" else None,
-                matched_anchor_ids=[c["criterion_id"] + ".l3"]
-                if c["criterion_id"] == "debugging.diagnostic_method"
-                else [],
-                decision="included"
-                if c["criterion_id"] == "debugging.diagnostic_method"
-                else "insufficient",
-                reason_codes=["observable_behavior"]
-                if c["criterion_id"] == "debugging.diagnostic_method"
-                else ["no_evidence"],
-                concise_rationale="Observable diagnostic evidence or a gap.",
-            )
-            for r in data["rubric"]["rubrics"]
-            for c in r["criteria"]
-        ],
-        unmapped_evidence=[
-            dict(
-                evidence_id=i["evidence_id"],
-                reason_code="no_relevant_criterion",
-                concise_rationale="No relevant behavior.",
-            )
-            for i in data["evidence"]
-            if i["evidence_id"] != key
-        ],
-    )
+    from tests.evaluation.port_helpers import evaluation_output
+
+    return evaluation_output("", data, GroupedJudgeDraft).model_dump()
 
 
 async def score(service, context, **kwargs):
@@ -69,7 +40,7 @@ async def test_four_stage_service_replays_and_does_not_confuse_coverage_with_top
     extraction_payload,
 ):
     def judge(prompt, data, schema):
-        assert schema is JudgeDraft
+        assert schema is GroupedJudgeDraft
         return schema(**judge_proposals(data))
 
     service = EvaluationService(
@@ -81,7 +52,8 @@ async def test_four_stage_service_replays_and_does_not_confuse_coverage_with_top
     assert first.evaluation.analysis.thread_complete
     assert first.evaluation.score_snapshot.overall_score is None
     assert first.aggregation.snapshot == replay_aggregation(first.aggregation)
-    assert len(first.evaluation.assessments) == 21
+    assert len({a.criterion_id for a in first.evaluation.assessments}) == 21
+    assert sum(a.decision == "included" for a in first.evaluation.assessments) == 2
     assert first == await score(service, phase_two_input)
     assert phase_two_input.model_dump_json() == before
     assert ScoredEvaluation.model_validate_json(first.model_dump_json()) == first
@@ -114,7 +86,7 @@ async def test_judge_failure_discards_all_new_artifacts(
         if failure == "timeout":
             raise TimeoutError()
         value = judge_proposals(data)
-        value["assessments"] = []
+        value["groups"][0]["ratings"][0]["evidence_ids"] = ["invented"]
         return schema(**value)
 
     service = EvaluationService(

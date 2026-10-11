@@ -9,7 +9,7 @@ from agents.domain.errors import InvalidAgentState, StateConflictError
 from app.adapters.background_evaluation import BackgroundShadowEvaluationAdapter
 from app.adapters.repository import InMemoryInterviewRepository
 from app.application import MVPInterviewApplication
-from evaluation.analyzer import ConversationAnalysis
+from evaluation.extractor import EvidenceExtraction
 from tests.agent.integration.test_interview_planning import PlannerLLM, setup
 from tests.app.fixtures import FixtureLLM
 from tests.app.test_interview import RESUME
@@ -158,7 +158,7 @@ async def test_cli_candidate_input_allows_background_scoring_to_run():
 
     class ObservedFixture(FixtureLLM):
         def __call__(self, prompt, data, schema):
-            if schema is ConversationAnalysis:
+            if schema is EvidenceExtraction:
                 started.set()
             return super().__call__(prompt, data, schema)
 

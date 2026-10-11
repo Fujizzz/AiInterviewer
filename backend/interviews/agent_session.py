@@ -403,13 +403,32 @@ class AgentSession:
         if context.assessment_feedback_ids:
             context = await assessed_report_context(self.app.repository, context)
             update_display_history(self.history, context)
+        formal_records = (
+            await self.app.repository.get_evaluation_records(self.interview_id)
+            if getattr(self.app.evaluation, "formal", None) is not None
+            else None
+        )
         if self.emit_event is not None:
-            numeric = await build_final_report(context, self.history, llm=None)
+            numeric = await build_final_report(
+                context, self.history, llm=None, formal_records=formal_records
+            )
             await self._emit(
                 {
                     "type": "assessment",
                     "assessment": numeric.model_dump(
-                        mode="json", include={"overall_score", "competencies"}
+                        mode="json",
+                        include={
+                            "overall_score",
+                            "competencies",
+                            "scoring_source",
+                            "score_status",
+                            "overall_coverage",
+                            "score_reasons",
+                            "missing_competencies",
+                            "score_snapshot_id",
+                            "score_basis_snapshot_id",
+                            "unscored_answer_count",
+                        },
                     ),
                 }
             )
@@ -438,7 +457,9 @@ class AgentSession:
                 raise
 
         async with self._stage("report_generation"):
-            report = await build_final_report(context, self.history, llm=observe_report)
+            report = await build_final_report(
+                context, self.history, llm=observe_report, formal_records=formal_records
+            )
         return {
             "type": "finished",
             "result": {

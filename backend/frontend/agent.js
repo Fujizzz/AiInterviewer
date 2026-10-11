@@ -66,7 +66,7 @@
  * Does not upload or edit resumes or alter budgets/scores; has no resend, alternate-resume selection, or model-call fallback path.
  */
 import { InterviewVoice } from "./interview-voice.js";
-import { InterviewProgress } from "./interview-progress.js";
+import { InterviewProgress, reviewScore } from "./interview-progress.js";
 
 /**
  * Input template unique ID, return DOM node; missing template causes explicit failure at calling location.
@@ -322,7 +322,9 @@ function displayAssessment(assessment) {
   el("report-panel").hidden = false;
   el("assessment-panel").hidden = false;
   el("score").textContent = assessment.overall_score === null ? uiText("agent_score_missing") : uiText("agent_score", { score: assessment.overall_score.toFixed(2) });
-  el("assessment").textContent = JSON.stringify(assessment.competencies, null, 2);
+  const publication = reviewScore(assessment);
+  if (publication) el("score").textContent = `${publication} · ${el("score").textContent}`;
+  el("assessment").textContent = JSON.stringify({ competencies: assessment.competencies, missing_competencies: assessment.missing_competencies, score_reasons: assessment.score_reasons }, null, 2);
 }
 /**
  * Input MessageEvent; validate connection/UUID, complete MCP handshake or unpack tool approval result, then deliver to original business branch.

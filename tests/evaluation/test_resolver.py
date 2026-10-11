@@ -383,8 +383,9 @@ async def test_resolver_payload_uses_grounded_full_history_without_rubric_or_sco
             "current_evidence",
             "history",
             "resolved_history",
+            "source_answers",
         }
-        assert data["history"][0]["turn"]["answer"]["text"] == old.turn.answer.text
+        assert data["source_answers"][0]["answer"]["text"] == old.turn.answer.text
         return schema(decisions=(decision(new, "refines", (old,)),))
 
     resolver = EvidenceResolver(model)

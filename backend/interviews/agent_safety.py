@@ -188,6 +188,7 @@ def read_io_snapshot(interview_id, request_id, owner_id):
     if record.status not in {"preparing", "active"}:
         raise IOSafetyError("interview unavailable")
     context = None
+    formal_scores = None
     if record.context is not None:
         context = InterviewContext.model_validate(record.context)
         if (
@@ -204,6 +205,10 @@ def read_io_snapshot(interview_id, request_id, owner_id):
             context, _ = project_assessments(
                 context, repository._shadow_jobs(), repository._assessment_records()
             )
+            if any(j.shadow_enabled for j in repository._shadow_jobs()):
+                from evaluation.publication import formal_publication
+
+                formal_scores = formal_publication(context, repository._evaluation_records())
     elif record.state_version != 0 or record.status != "preparing":
         raise IOSafetyError("missing interview state")
     return {
@@ -211,6 +216,7 @@ def read_io_snapshot(interview_id, request_id, owner_id):
         "context": context,
         "kind": command.kind,
         "latest_action": record.latest_action,
+        "formal_scores": formal_scores,
     }
 
 
@@ -299,9 +305,10 @@ class InterviewIOGateway:
         """Initialize with server interview/connection IDs, authenticated owner_id, and optional
         explicit test ports; issue no model request.
 
-        Read settings.AI_SECURITY_ENABLED once. Enabled mode preserves existing 100,000-character
-        and five-second budgets. Disabled mode constructs neither engine nor reviewer, including
-        injected ports; it retains authenticated state contracts and marks outputs unchecked.
+        Read settings.AI_SECURITY_ENABLED once. Enabled mode uses the configured character budget
+        (100,000 by default) and preserves the five-second review budget. Disabled mode constructs
+        neither engine nor reviewer, including injected ports; it retains authenticated state
+        contracts and marks outputs unchecked.
         """
         self.interview_id, self.owner_id = str(interview_id), owner_id
         self.actor_id = f"user-{owner_id}" if owner_id is not None else f"local-{connection_id}"
@@ -312,7 +319,7 @@ class InterviewIOGateway:
         if self.enabled:
             self.policy = SecurityPolicy(
                 policy_version="agent-io-v1",
-                max_scan_chars=100000,
+                max_scan_chars=settings.AI_SECURITY_MAX_SCAN_CHARS,
                 allowed_actions=tuple(f"publish_{kind}" for kind in OUTPUT_FIELDS),
                 semantic_timeout_seconds=5.0,
             )
@@ -479,6 +486,7 @@ class InterviewIOGateway:
                                 entry.model_dump(mode="json") for entry in context.question_history
                             ],
                             "current_question": (stored["latest_action"] or {}).get("question"),
+                            "formal_scores": stored.get("formal_scores"),
                             "computed_competencies": context.state.model_dump(mode="json")[
                                 "competencies"
                             ],

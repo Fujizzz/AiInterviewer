@@ -6,7 +6,7 @@ for a single fine-rank request.
 
 Declaration Index:
 - BackendLLM:
-  Reuses OpenAI/Qwen’s structured output logic, recording call information without inputs or keys.
+  Reuses structured output logic for OpenAI, Qwen and DeepSeek without logging inputs or keys.
 - BackendLLM.__init__:
   Establishes synchronous model client using loaded backend environment, without sending inference
   requests.
@@ -45,8 +45,7 @@ logger = logging.getLogger(__name__)
 
 
 class BackendLLM(OpenAILLM):
-    """Reuses OpenAI/Qwen’s structured output logic, recording call information without inputs or
-    keys.
+    """Reuse OpenAI/Qwen/DeepSeek structured output and log metadata without inputs or keys.
     """
 
     def __init__(self, *, interview_id=None):
@@ -68,9 +67,9 @@ class BackendLLM(OpenAILLM):
         """
         self.interview_id = interview_id
         self.provider = os.getenv("LLM_PROVIDER", "").strip().lower()
-        if self.provider not in {"openai", "dashscope"}:
-            raise LLMError("Set LLM_PROVIDER to openai or dashscope in repository-root .env.")
-        prefix = "DASHSCOPE" if self.provider == "dashscope" else "OPENAI"
+        if self.provider not in {"openai", "dashscope", "deepseek"}:
+            raise LLMError("Set LLM_PROVIDER to openai, dashscope or deepseek in root .env.")
+        prefix = self.provider.upper()
         key = os.getenv(f"{prefix}_API_KEY", "").strip()
         self.model = os.getenv(f"{prefix}_MODEL", "").strip()
         if not key or not self.model:
@@ -81,6 +80,10 @@ class BackendLLM(OpenAILLM):
         if self.provider == "dashscope":
             client_options["base_url"] = os.getenv(
                 "DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"
+            ).strip()
+        elif self.provider == "deepseek":
+            client_options["base_url"] = os.getenv(
+                "DEEPSEEK_BASE_URL", "https://api.deepseek.com"
             ).strip()
         timeouts = load_agent_settings().timeouts
         self.request_timeout = timeouts.llm_generation_seconds

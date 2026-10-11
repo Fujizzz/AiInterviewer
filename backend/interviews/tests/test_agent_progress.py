@@ -218,13 +218,15 @@ class ProgressTests(SafetyTestMixin, TransactionTestCase):
         """
         release = asyncio.Event()
 
-        async def block_report(context, history, *, llm=None):
+        async def block_report(context, history, *, llm=None, formal_records=None):
             """Input raw report parameters; only wait on barrier if llm is non-empty, then delegate
             real value and text report process.
             """
             if llm is not None:
                 await release.wait()
-            return await build_final_report(context, history, llm=llm)
+            return await build_final_report(
+                context, history, llm=llm, formal_records=formal_records
+            )
 
         with (
             patch("interviews.agent_session.BackendLLM", return_value=FixtureLLM()),
@@ -314,6 +316,7 @@ class ProgressTests(SafetyTestMixin, TransactionTestCase):
             await comm.wait()
         self.assertNotIn("private-resume-marker", " ".join(captured.output))
 
+    @patch.dict("os.environ", {"EVALUATION_MODE": "legacy"})
     async def test_report_fallback_is_visible(self):
         """Report model errors fall back to original report function; backend explicitly marks
         failure rather than falsely claiming text model success.

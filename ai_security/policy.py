@@ -24,7 +24,7 @@ class SecurityPolicy(SecurityModel):
     """功能：保存不可变策略；输入：全部显式配置；约束：不包含业务评分、模型或流量限额默认值。"""
 
     policy_version: Identifier
-    max_scan_chars: int = Field(gt=0, le=200_000)
+    max_scan_chars: int = Field(gt=0, le=1_000_000)
     allowed_actions: tuple[Identifier, ...]
     semantic_timeout_seconds: float = Field(gt=0, le=120, allow_inf_nan=False)
 

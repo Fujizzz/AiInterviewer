@@ -149,7 +149,9 @@ async def test_application_default_shadow_keeps_report_and_all_successful_record
     assert len(records) == 3
     assert all(r.scored.evaluation.status == "completed" for r in records)
     assert result["final_report"]["overall_score"] == 3
-    assert "score_snapshot" not in json.dumps(result)
+    assert '"score_snapshot":' not in json.dumps(result)
+    assert result["final_report"]["scoring_source"] == "formal_evaluation"
+    assert result["final_report"]["score_status"] == "provisional"
     first = records[0].model_dump_json()
     for before, after in zip(records, records[1:], strict=False):
         assert after.scored.aggregation.inputs.supersedes_snapshot_id == (

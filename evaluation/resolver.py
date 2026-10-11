@@ -321,9 +321,21 @@ class EvidenceResolver:
                 "question": context.question.model_dump(mode="json"),
                 "answer": context.answer.model_dump(mode="json"),
                 "current_evidence": [item.model_dump(mode="json") for item in current],
-                "history": [source.model_dump(mode="json") for source in history.sources],
+                "history": [source.evidence.model_dump(mode="json") for source in history.sources],
+                "source_answers": [
+                    turn.model_dump(mode="json") for turn in historical_turns.values()
+                ],
                 "resolved_history": [
-                    item.model_dump(mode="json") for item in previous.evidence_items
+                    item.model_dump(
+                        mode="json",
+                        include={
+                            "evidence_id",
+                            "relation",
+                            "related_evidence_ids",
+                            "independence_group_id",
+                        },
+                    )
+                    for item in previous.evidence_items
                 ],
             },
             schema=ResolutionDraft,
