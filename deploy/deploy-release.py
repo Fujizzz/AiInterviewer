@@ -6,6 +6,8 @@
 目录：
 - run：执行固定参数命令，失败终止发布，不静默重试。
 - app_command：加载 root 私有环境后降权执行 Python 应用命令。
+- wait_for_http_ready：有限等待 ASGI 登录页就绪，不重发业务或模型探针。
+- drain_archive：有界消费已切换版本的重复上传，避免再次解包和迁移。
 - extract_release：验证归档路径与类型并在新目录中解包。
 - main：加发布锁，预检、停止服务、迁移、切换并验证；失败保留现场和日志。
 关键变量：
@@ -21,10 +23,17 @@ import shlex
 import subprocess
 import sys
 import tarfile
+import time
+import urllib.error
+import urllib.request
 from pathlib import Path, PurePosixPath
 
 ROOT = Path("/opt/ai-interviewer")
 logger = logging.getLogger("ai-interviewer.deploy")
+HTTP_READY_TIMEOUT = 30
+HTTP_ATTEMPT_TIMEOUT = 2
+HTTP_RETRY_INTERVAL = 0.25
+ARCHIVE_LIMIT = 128 * 1024 * 1024
 
 
 def run(arguments):
@@ -48,6 +57,63 @@ def app_command(release, arguments):
             + command,
         ]
     )
+
+
+def wait_for_http_ready():
+    """只重试登录页 GET 的暂时连接失败；退出、HTTP/内容错误或 30 秒期限均阻断发布。"""
+    request = urllib.request.Request(
+        "http://127.0.0.1:8765/login/",
+        headers={"Host": "47.239.50.129", "X-Forwarded-Proto": "https"},
+    )
+    deadline = time.monotonic() + HTTP_READY_TIMEOUT
+    last_error = None
+    logger.info("Waiting for ASGI HTTP readiness")
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("ASGI HTTP was not ready within 30 seconds") from last_error
+        state = subprocess.run(
+            ["systemctl", "show", "--property=ActiveState", "--value", "ai-interviewer"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=min(HTTP_ATTEMPT_TIMEOUT, remaining),
+        ).stdout.strip()
+        if state not in {"active", "activating", "reloading"}:
+            raise RuntimeError(f"ASGI service is not running: {state}")
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("ASGI HTTP was not ready within 30 seconds") from last_error
+        try:
+            with urllib.request.urlopen(
+                request, timeout=min(HTTP_ATTEMPT_TIMEOUT, remaining)
+            ) as response:
+                if response.status != 200 or b'name="username"' not in response.read(64 * 1024):
+                    raise RuntimeError("ASGI readiness login page is invalid")
+            if time.monotonic() >= deadline:
+                raise TimeoutError("ASGI HTTP was not ready within 30 seconds")
+            logger.info("ASGI HTTP readiness verified")
+            return
+        except urllib.error.HTTPError:
+            raise
+        except urllib.error.URLError as error:
+            if not isinstance(error.reason, (ConnectionError, TimeoutError)):
+                raise
+            last_error = error
+        except (ConnectionError, TimeoutError) as error:
+            last_error = error
+        remaining = deadline - time.monotonic()
+        if remaining > 0:
+            time.sleep(min(HTTP_RETRY_INTERVAL, remaining))
+
+
+def drain_archive():
+    """有界消费已切换版本的重复上传；不解包、不重复迁移或重启服务。"""
+    size = 0
+    while block := sys.stdin.buffer.read(1024 * 1024):
+        size += len(block)
+        if size > ARCHIVE_LIMIT:
+            raise ValueError("Release archive exceeds limit")
 
 
 def extract_release(archive, destination):
@@ -95,13 +161,15 @@ def main():
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         release = ROOT / "releases" / revision
         deployed = ROOT / "deployed-revision"
-        if deployed.exists() and deployed.read_text().strip() == revision:
-            size = 0
-            while block := sys.stdin.buffer.read(1024 * 1024):
-                size += len(block)
-                if size > 128 * 1024 * 1024:
-                    raise ValueError("Release archive exceeds limit")
+        current = ROOT / "current"
+        is_current = current.is_symlink() and current.resolve() == release
+        if (deployed.exists() and deployed.read_text().strip() == revision) or is_current:
+            if not is_current:
+                raise RuntimeError("Recorded deployment is not the current release")
+            drain_archive()
+            wait_for_http_ready()
             app_command(release, [str(release / "deploy/smoke.py")])
+            deployed.write_text(revision + "\n")
             logger.info("Existing deployment verified revision=%s", revision)
             return
         release.mkdir(mode=0o755)
@@ -110,7 +178,7 @@ def main():
         with archive.open("xb") as target:
             while block := sys.stdin.buffer.read(1024 * 1024):
                 size += len(block)
-                if size > 128 * 1024 * 1024:
+                if size > ARCHIVE_LIMIT:
                     raise ValueError("Release archive exceeds limit")
                 target.write(block)
         logger.info("Preparing release revision=%s", revision)
@@ -155,8 +223,8 @@ def main():
             )
         run(["systemctl", "daemon-reload"])
         run(["systemctl", "enable", "--now", "ai-interviewer-celery", "ai-interviewer"])
-        # 应用启动由 systemd 启动动作确认；探针显式等待有限次数仅检查状态，不重放任务。
-        run(["/bin/sleep", "2"])
+        # Type=simple 只确认进程已启动；有界等待安全 GET 就绪，再执行一次完整业务验收。
+        wait_for_http_ready()
         app_command(release, [str(release / "deploy/smoke.py")])
         (ROOT / "deployed-revision").write_text(revision + "\n")
         logger.info("Deployment verified revision=%s", revision)

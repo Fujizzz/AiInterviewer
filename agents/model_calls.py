@@ -38,7 +38,9 @@ class QuestionCallBudget:
         self.used += 1
 
 
-question_call_budget: ContextVar[QuestionCallBudget | None] = ContextVar("question_call_budget", default=None)
+question_call_budget: ContextVar[QuestionCallBudget | None] = ContextVar(
+    "question_call_budget", default=None
+)
 
 
 def validation_issues(error, schema):
@@ -98,13 +100,51 @@ def safe_error_details(error):
     }
 
 
+def unavailable_provider_reason(error):
+    """Read structured codes only; a transient 429 is not exhausted credit."""
+    # Domain models load evaluation schemas, which themselves import this module.
+    # Import only at call time so the CLI/observer can import model_calls first.
+    from agents.domain.errors import ProviderUnavailable
+    seen = set()
+    while error is not None and id(error) not in seen:
+        seen.add(id(error))
+        if isinstance(error, ProviderUnavailable):
+            return error.reason_code
+        status = getattr(error, "status_code", None)
+        body = getattr(error, "body", None)
+        codes = [getattr(error, "code", None)]
+        if isinstance(body, dict):
+            codes.extend([body.get("code"), body.get("type")])
+            nested = body.get("error")
+            if isinstance(nested, dict):
+                codes.extend([nested.get("code"), nested.get("type")])
+        normalized = {str(c).casefold() for c in codes if isinstance(c, str)}
+        if status == 402 or normalized & {
+            "arrearage",
+            "insufficient_quota",
+            "quota_exhausted",
+            "insufficient_balance",
+            "account.overdue",
+            "account_overdue",
+            "credit_balance_too_low",
+        }:
+            return "API_QUOTA_EXHAUSTED"
+        if status in {401, 403}:
+            return "API_ACCESS_DENIED"
+        error = error.__cause__ or error.__context__
+    return None
+
+
 async def run_model_call(
     factory, *, operation, question_id=None, step=None, timeout_seconds, turn_deadline=None
 ):
     """A factory delays worker creation until the execution-local context is installed."""
     budget = question_call_budget.get()
     if budget is not None and operation in {
-        "question", "question_quality", "question_repeat_check", "question_issue_check"
+        "question",
+        "question_quality",
+        "question_repeat_check",
+        "question_issue_check",
     }:
         budget.consume()
     started = perf_counter()
@@ -155,6 +195,10 @@ async def run_model_call(
             **safe_error_details(error),
             duration_ms=round((perf_counter() - started) * 1000),
         )
+        reason = unavailable_provider_reason(error)
+        from agents.domain.errors import ProviderUnavailable
+        if reason and not isinstance(error, ProviderUnavailable):
+            raise ProviderUnavailable(reason) from error
         raise
     finally:
         current_model_call.reset(token)

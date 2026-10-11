@@ -12,21 +12,33 @@ from tests.app.test_objective_coverage import evaluation_request, objective_repo
 
 @pytest.mark.asyncio
 async def test_general_limitations_do_not_block_grounded_goal_completion():
+    repository = objective_repository()
+    repository.context.plan.topics[0].completion_criteria = "Describe version checks"
+    current = evaluation_request()
+    current.answer.text = "I implemented version checks. I have no online production statistics."
+
     def model(prompt, data, schema):
-        result = output(quote="I owned the shared state module.")
+        result = output(quote="I implemented version checks.")
         result["analysis"]["uncertainties"] = ["No online production statistics to cite"]
         result["objective_coverage"] = [
             dict(
                 objective_id="state",
                 coverage_status="sufficient",
                 supporting_segment_ids=[data["answer_segments"][0]["id"]],
+                criterion_coverage=[
+                    dict(
+                        criterion_id=data["objectives"][0]["completion_requirements"][0][
+                            "criterion_id"
+                        ],
+                        coverage_status="sufficient",
+                        supporting_segment_ids=[data["answer_segments"][0]["id"]],
+                    )
+                ],
             )
         ]
         return schema.model_validate(result)
 
-    feedback = await LLMEvaluationAdapter(model, objective_repository()).evaluate(
-        evaluation_request()
-    )
+    feedback = await LLMEvaluationAdapter(model, repository).evaluate(current)
     assert feedback.objective_coverage_status == "valid"
     assert feedback.objective_coverage[0].coverage_status == "sufficient"
 
@@ -155,12 +167,29 @@ async def test_general_limitation_is_grounded_and_does_not_become_a_followup_gap
                 complete=True,
                 limitation_segments=["current:s1"],
             ),
-            coverage=[dict(objective_id="state", status="sufficient", segments=["current:s0"])],
+            coverage=[
+                dict(
+                    objective_id="state",
+                    status="sufficient",
+                    segments=["current:s0"],
+                    criteria=[
+                        dict(
+                            criterion_id=data["objectives"][0]["completion_requirements"][0][
+                                "criterion_id"
+                            ],
+                            status="sufficient",
+                            segments=["current:s0"],
+                        )
+                    ],
+                )
+            ],
         )
 
     current = evaluation_request()
     current.answer.text = "I implemented version checks. I have no online statistics."
-    result = await RealtimeDecisionAdapter(model, objective_repository()).evaluate(current)
+    repository = objective_repository()
+    repository.context.plan.topics[0].completion_criteria = "Describe version checks"
+    result = await RealtimeDecisionAdapter(model, repository).evaluate(current)
     assert result.analysis.limitations == ["I have no online statistics."]
     assert not result.analysis.missing_information and not result.analysis.uncertainties
     assert result.objective_coverage[0].coverage_status == "sufficient"

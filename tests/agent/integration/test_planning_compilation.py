@@ -9,7 +9,7 @@ from agents.planning.pace import round_cost
 from agents.planning.planner import InterviewPlannerAgent, execution_topics
 from agents.policies.dialogue_controller import DialogueController
 from agents.tracing import trace_sink
-from shared.contracts import CandidateAnswer
+from shared.contracts import CandidateAnswer, ObjectiveCoverage
 from shared.contracts.planning import PlanDraft, PlanProposal, TopicAllocation, TopicProgress
 from tests.agent.integration.test_interview_planning import PlannerLLM, feedback, setup
 
@@ -54,11 +54,17 @@ async def test_four_recorded_overallocations_compile_without_another_model_call(
     assert sum(budgets) + reserve + closing > remaining
     proposal = PlanProposal.model_validate(legacy)
     draft, adjustments = planner._compile(proposal, context, eligible)
-    if remaining - draft.closing_seconds < round_cost(context, load_agent_settings()):
-        assert not draft.topics
-        assert any(a["reason"] == "INSUFFICIENT_ALLOCATION_TIME" for a in adjustments)
+    assert draft.topics
+    if remaining == 98:
+        # The requested final-round policy admits a question above thirty
+        # seconds, even if the observed round estimate is longer than this.
+        assert len(draft.topics) == 1
+        assert draft.topics[0].budget_seconds == 98
+        assert draft.closing_seconds == draft.reserve_seconds == 0
     else:
-        assert draft.topics
+        assert all(
+            t.budget_seconds >= round_cost(context, load_agent_settings()) for t in draft.topics
+        )
     assert (
         sum(t.budget_seconds for t in draft.topics) + draft.reserve_seconds + draft.closing_seconds
         <= remaining
@@ -66,7 +72,6 @@ async def test_four_recorded_overallocations_compile_without_another_model_call(
     assert [t.topic_key for t in draft.topics] == [t.topic_key for t in proposal.topics][
         : len(draft.topics)
     ]
-    assert all(t.budget_seconds >= round_cost(context, load_agent_settings()) for t in draft.topics)
     assert adjustments
 
 
@@ -256,7 +261,9 @@ async def test_rejected_semantic_proposal_is_traced_and_old_agenda_recompiled():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("remaining", [0, 10, 59, 60, 89, 90, 98, 150, 179, 180, 200, 900])
+@pytest.mark.parametrize(
+    "remaining", [0, 10, 20, 29, 30, 31, 40, 59, 60, 89, 90, 98, 150, 179, 180, 200, 900]
+)
 async def test_allocator_respects_deadline_and_reserve_at_short_boundaries(remaining):
     service, repo, clock, result = await setup(PlannerLLM())
     context = await repo.get_interview_context(result.interview_id)
@@ -268,13 +275,18 @@ async def test_allocator_respects_deadline_and_reserve_at_short_boundaries(remai
         sum(t.budget_seconds for t in draft.topics) + draft.reserve_seconds + draft.closing_seconds
         <= remaining
     )
-    assert all(t.budget_seconds >= round_cost(context, load_agent_settings()) for t in draft.topics)
-    if remaining - draft.closing_seconds < round_cost(context, load_agent_settings()):
+    if remaining <= 30:
         assert not draft.topics
+    elif remaining < 180:
+        # Cold-start round estimate is 120s and closing is 60s. A single last
+        # question uses the remaining time, without forcing its answer to fit.
+        assert len(draft.topics) == 1
+        assert draft.topics[0].budget_seconds == remaining
+        assert draft.closing_seconds == draft.reserve_seconds == 0
     else:
         assert draft.topics
-    if remaining >= 60:
         assert draft.closing_seconds == 60
+        assert all(t.budget_seconds >= 120 for t in draft.topics)
 
 
 @pytest.mark.asyncio
@@ -468,8 +480,6 @@ async def test_complete_narrow_answer_does_not_implicitly_complete_the_plan_obje
 
 @pytest.mark.asyncio
 async def test_explicit_objective_gap_survives_complete_narrow_answer():
-    from types import SimpleNamespace
-
     service, repo, clock, result = await setup(PlannerLLM())
     context = await repo.get_interview_context(result.interview_id)
     question = result.first_action.question
@@ -479,7 +489,7 @@ async def test_explicit_objective_gap_survives_complete_narrow_answer():
         answer_id="objective-answer",
         text="The state fields are question ID and answer ID.",
     )
-    update = SimpleNamespace(
+    update = ObjectiveCoverage(
         objective_id=question.topic_key,
         coverage_status="partial",
         missing_information=["How the state is durably stored and loaded"],

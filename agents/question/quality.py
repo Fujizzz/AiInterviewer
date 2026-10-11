@@ -53,6 +53,7 @@ class ComparedAnswerUnit(BaseModel):
     requested_fact: str = Field(min_length=1, max_length=400)
     previous_answer_quote: str = ""
     missing_detail: str = ""
+    new_detail_quote: str = ""
 
 
 class RepeatCheck(BaseModel):
@@ -339,7 +340,20 @@ class QuestionQualityGate:
         sources = []
         if project:
             sources.extend(
-                {"source_id": f"resume:claim:{c.claim_id}", "text": c.text[:limit]}
+                {
+                    "source_id": f"resume:project:{project.project_id}:{name}",
+                    "project_id": project.project_id,
+                    "text": text[:limit],
+                }
+                for name, text in (("name", project.name), ("domain", project.domain))
+                if text
+            )
+            sources.extend(
+                {
+                    "source_id": f"resume:claim:{c.claim_id}",
+                    "project_id": project.project_id,
+                    "text": c.text[:limit],
+                }
                 for c in project.claims[:20]
             )
             sources.extend(
@@ -359,6 +373,14 @@ class QuestionQualityGate:
         )
         return {
             "grounding_sources": sources,
+            "project_context": {
+                "project_id": project.project_id,
+                "name": project.name[:limit],
+                "domain": project.domain,
+                "claim_ids": [c.claim_id for c in project.claims[:20]],
+            }
+            if project
+            else None,
             "candidate_question": question.text,
             "information_goal": question.information_goal,
             "topic": question.topic,
@@ -532,6 +554,7 @@ class QuestionQualityGate:
                         for i, issue in issues.items()
                     ],
                     "sources": payload["grounding_sources"],
+                    "project_context": payload.get("project_context"),
                 },
                 response_model=GroundingAdjudication,
             ),
@@ -703,6 +726,32 @@ class QuestionQualityGate:
                 errors.append("REPEAT_CHECK_VERDICT_CONFLICT")
             elif not check.answer_units or not any(u.missing_detail for u in check.answer_units):
                 errors.append("NON_REPEAT_REQUIRES_EXPLICIT_NEW_FACT")
+            elif any(
+                not unit.new_detail_quote.strip()
+                or unit.new_detail_quote not in unit.request_quote
+                or unit.new_detail_quote not in unit.requested_fact
+                or unit.new_detail_quote not in unit.missing_detail
+                or unit.new_detail_quote.casefold() in previous["text"].casefold()
+                for unit in check.answer_units
+                if unit.missing_detail
+            ) or any(unit.previous_answer_quote for unit in check.answer_units):
+                # A missing result cannot authorize asking the already answered setup
+                # again. Require a draft that explicitly requests ONLY the new detail.
+                retained.append(
+                    issue.model_copy(
+                        update={
+                            "instruction": (
+                                "Rewrite to ask only the unresolved detail: "
+                                + "; ".join(
+                                    u.missing_detail for u in check.answer_units if u.missing_detail
+                                )
+                                + ". The current draft does not isolate this new request; "
+                                "do not ask the answered setup or metrics again."
+                            )[:1000],
+                            "repair_action": "narrow_unanswered_request",
+                        }
+                    )
+                )
         emit_trace(
             "question.repeat_check",
             question_id=question.question_id,

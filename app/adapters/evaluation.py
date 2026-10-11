@@ -7,10 +7,11 @@ from pathlib import Path
 from pydantic import Field, TypeAdapter, ValidationError, field_validator
 
 from agents.config import load_agent_settings
+from agents.domain.errors import AgentError
 from agents.model_calls import run_model_call, safe_error_details
 from agents.planning.coverage import conflicts_for_coverage
 from agents.tracing import emit_trace
-from app.providers.llm import LLMError, OutputModel, StructuredLLM
+from app.providers.llm import OutputModel, StructuredLLM
 from shared.contracts import (
     AnswerAnalysis,
     DimensionEvidence,
@@ -89,7 +90,10 @@ class LLMEvaluationAdapter:
     async def evaluate(self, request: EvaluationRequest) -> EvaluationFeedback:
         try:
             return await self._evaluate(request)
-        except (LLMError, TimeoutError, ValidationError, InvalidEvaluationEvidence) as error:
+        except AgentError:
+            # Authentication/quota and state/storage failures are not local analysis errors.
+            raise
+        except Exception as error:
             emit_trace(
                 "evaluation.fallback",
                 question_id=request.question.question_id,
@@ -325,6 +329,8 @@ class LLMEvaluationAdapter:
 
 
 def agenda_objectives(context, project_id):
+    from agents.planning.completion import requirements_for_objective
+
     plan = getattr(context, "plan", None)
     progress_by_topic = getattr(context, "topic_progress", {})
     return [
@@ -343,6 +349,12 @@ def agenda_objectives(context, project_id):
             "accepted_evidence": getattr(
                 progress_by_topic.get(item.topic_key), "coverage_evidence", []
             ),
+            "completion_requirements": [
+                requirement.model_dump(mode="json")
+                for requirement in requirements_for_objective(
+                    item, progress_by_topic.get(item.topic_key)
+                )
+            ],
         }
         for item in getattr(plan, "topics", [])
         if item.project_id == project_id
@@ -350,6 +362,9 @@ def agenda_objectives(context, project_id):
 
 
 def grounded_objective_coverage(updates, objectives, segments, answer_id, analysis, status):
+    from agents.planning.completion import project_completion
+    from shared.contracts.planning import CompletionRequirement
+
     if updates is None:
         return [], ["OBJECTIVE_COVERAGE_UNAVAILABLE"] if objectives else []
     if status != "valid" or analysis.status in {"non_answer", "explicit_unknown", "refusal"}:
@@ -379,8 +394,43 @@ def grounded_objective_coverage(updates, objectives, segments, answer_id, analys
         ):
             issues.append("CONFLICTING_OBJECTIVE_COMPLETION")
         else:
+            requirements = [
+                CompletionRequirement.model_validate(item)
+                for item in allowed[update.objective_id].get("completion_requirements", [])
+            ]
+            known = {item.criterion_id: item for item in requirements}
+            criterion_counts = {}
+            for observed in update.criterion_coverage:
+                criterion_counts[observed.criterion_id] = (
+                    criterion_counts.get(observed.criterion_id, 0) + 1
+                )
+            observations = []
+            for observed in update.criterion_coverage:
+                prior = known.get(observed.criterion_id)
+                if prior is None or criterion_counts[observed.criterion_id] != 1:
+                    issues.append("INVALID_COMPLETION_CRITERION_ID")
+                    continue
+                if any(key not in by_id for key in observed.supporting_segment_ids):
+                    issues.append("INVALID_COMPLETION_CRITERION_SEGMENT")
+                    continue
+                quotes = list(dict.fromkeys(by_id[key] for key in observed.supporting_segment_ids))
+                if observed.coverage_status == "sufficient" and (
+                    not quotes
+                    or observed.missing_information
+                    or conflicts_for_coverage(analysis, quotes, prior.evidence)
+                ):
+                    issues.append("UNSUPPORTED_COMPLETION_CRITERION")
+                    continue
+                observations.append(
+                    observed.model_copy(
+                        update={"answer_id": answer_id, "supporting_quotes": quotes}
+                    )
+                )
+            projected, _ = project_completion(
+                update.model_copy(update={"criterion_coverage": observations}), requirements
+            )
             accepted.append(
-                update.model_copy(
+                projected.model_copy(
                     update={
                         "answer_id": answer_id,
                         "supporting_segment_ids": list(

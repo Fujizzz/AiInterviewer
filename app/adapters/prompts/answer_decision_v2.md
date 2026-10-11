@@ -11,6 +11,16 @@ already answered trade-off open. Require current supporting segment IDs; omit un
 Use analysis.limitation_segments for exact current segments admitting general limitations;
 these are preserved for reporting, not automatically used as follow-up needs.
 
+Each objective supplies server-owned completion_requirements. In coverage.criteria return
+the exact criterion_id, status, missing and current supporting segments for each addressed
+requirement. Judge them independently; prior criterion evidence is preserved. An overall
+sufficient verdict cannot close omitted or unevidenced requirements. Implementation details
+or predictions do not prove validation: validation needs an actual test/comparison procedure
+and its checks, measurements and limitations. Distinguish setup, metric definitions, measurement
+procedure and observed results. If setup/method is answered but results are absent, mark the
+method criterion sufficient and narrow the results criterion's missing to actual results only.
+Require actual numbers only when that criterion asks for them, not as a universal depth checklist.
+
 Check previous candidate facts relevant to this answer even across threads of the same project.
 For every changed fact return the original earlier and current segment IDs, relation kind,
 and compatibility. Explicitly evaluate whether both statements can hold in the SAME context.

@@ -171,3 +171,41 @@ def test_unknown_evaluation_failure_is_not_bypassed():
         )
     )
     assert formal_publication(context, [record])["overall_score"] is None
+
+
+@pytest.mark.parametrize("remaining, read_delay", [(40, 0), (31, 0), (30, 0), (31, 2)])
+async def test_scoring_supplements_follow_shared_question_start_cutoff(
+    monkeypatch, remaining, read_delay
+):
+    agent, repo, shadow = await prepared()
+    agent._evaluation = shadow
+    try:
+        await commit(agent, repo, shadow, 1)
+        assert await shadow.drain("pipeline-interview", timeout_seconds=3)
+        context = await repo.get_interview_context("pipeline-interview")
+        agent._clock.value = (
+            context.state.clock_started_at + context.plan.duration_seconds - remaining
+        )
+        original_read = repo.get_evaluation_records
+
+        async def delayed_read(interview_id):
+            records = await original_read(interview_id)
+            agent._clock.value += read_delay
+            return records
+
+        monkeypatch.setattr(repo, "get_evaluation_records", delayed_read)
+        action = await agent._finish(
+            context, feedback_request_id=None, started_at=0, reason="NO_MORE_TOPICS"
+        )
+        saved = await repo.get_interview_context(context.interview_id)
+        if remaining - read_delay > 30:
+            assert action.type == "ask_question"
+            assert action.question.topic_key.startswith("coverage:")
+            assert saved.state.question_index == context.state.question_index + 1
+            assert len(saved.coverage_question_criteria) == 1
+        else:
+            assert action.type == "finish"
+            assert saved.state.question_index == context.state.question_index
+            assert saved.coverage_question_criteria == []
+    finally:
+        await shadow.close()

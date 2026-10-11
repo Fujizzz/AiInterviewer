@@ -166,11 +166,17 @@ async def test_corrected_evidence_retracts_objective_completion_until_new_suppor
             "supporting_segment_ids": ["old:s0"],
         }
     ]
+    for criterion in progress.completion_requirements:
+        criterion.coverage_status = "sufficient"
+        criterion.evidence = [dict(progress.coverage_evidence[0])]
     answer = CandidateAnswer(
         interview_id=result.interview_id,
         question_id=question.question_id,
         answer_id="correction",
-        text="Correction: I stored state in memory.",
+        text=(
+            "Correction: I stored state in memory. "
+            "I validated committed updates by reading the stored state back."
+        ),
     )
     fb = feedback(question, complete=True)
     fb.analysis.answer_relations = [
@@ -189,6 +195,9 @@ async def test_corrected_evidence_retracts_objective_completion_until_new_suppor
     planner.feedback(context, question, fb, 10)
     assert progress.status == "deferred" and progress.coverage_status == "partial"
     assert progress.coverage_evidence == [] and progress.next_need_id
+    assert all(
+        c.coverage_status == "partial" and not c.evidence for c in progress.completion_requirements
+    )
     fb.objective_coverage_status = "valid"
     fb.objective_coverage = [
         ObjectiveCoverage(
@@ -197,8 +206,19 @@ async def test_corrected_evidence_retracts_objective_completion_until_new_suppor
             answer_id=answer.answer_id,
             supporting_quotes=[answer.text],
             supporting_segment_ids=["correction:s0"],
+            criterion_coverage=[
+                {
+                    "criterion_id": criterion.criterion_id,
+                    "coverage_status": "sufficient",
+                    "answer_id": answer.answer_id,
+                    "supporting_quotes": [answer.text],
+                    "supporting_segment_ids": ["correction:s0", "correction:s1"],
+                }
+                for criterion in progress.completion_requirements
+            ],
         )
     ]
     planner.feedback(context, question, fb, 0)
     assert progress.coverage_status == "sufficient"
     assert progress.coverage_evidence[0]["answer_id"] == "correction"
+    assert all(c.coverage_status == "sufficient" for c in progress.completion_requirements)

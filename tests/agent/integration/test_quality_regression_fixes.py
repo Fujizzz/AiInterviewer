@@ -211,9 +211,39 @@ async def test_observed_generation_is_part_of_the_compiled_round_cost():
     context.last_question_generation_seconds = 45
     service._interview_planner.feedback(context, question, feedback(question), 155)
     assert round_cost(context, load_agent_settings()) == 144
-    context.state.remaining_seconds = context.plan.closing_seconds + 143
     planner = service._interview_planner
-    draft, adjustments = planner._compile(context.plan_history[-1].proposal, context, planner._eligible(context))
+
+    def compile_at(remaining):
+        context.state.remaining_seconds = remaining
+        return planner._compile(
+            context.plan_history[-1].proposal, context, planner._eligible(context)
+        )
+
+    # Ordinary allocations still use the observed 144-second round cost:
+    # 350 - 60 closing - 35 reserve = 255, which admits one round, not two.
+    # An incorrect 120-second estimate would have admitted both goals.
+    draft, adjustments = compile_at(350)
+    assert len(draft.topics) == 1
+    assert draft.topics[0].budget_seconds == 255
+    assert draft.closing_seconds == 60 and draft.reserve_seconds == 35
+    assert any(a.get("reason") == "INSUFFICIENT_ALLOCATION_TIME" for a in adjustments)
+
+    # The final-question policy releases closing time rather than ending early
+    # when that reservation would leave one second less than the estimated round.
+    draft, _ = compile_at(203)
+    assert len(draft.topics) == 1
+    assert draft.topics[0].budget_seconds == 203
+    assert draft.topics[0].expected_questions == 1
+    assert draft.closing_seconds == draft.reserve_seconds == 0
+
+    # A last answer may exceed the remaining time; the estimate is not its limit.
+    draft, _ = compile_at(31)
+    assert len(draft.topics) == 1
+    assert draft.topics[0].budget_seconds == 31
+    assert draft.closing_seconds == draft.reserve_seconds == 0
+    assert round_cost(context, load_agent_settings()) == 144
+
+    draft, adjustments = compile_at(30)
     assert not draft.topics
     assert any(a["reason"] == "INSUFFICIENT_ALLOCATION_TIME" for a in adjustments)
 

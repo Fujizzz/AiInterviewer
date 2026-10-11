@@ -38,3 +38,13 @@ class RAGTimeout(AgentError):
 class LLMTimeout(AgentError):
     code = "LLM_TIMEOUT"
     retryable = True
+
+
+class ProviderUnavailable(AgentError):
+    """Authentication or exhausted credit prevents meaningful model execution."""
+
+    code = "MODEL_PROVIDER_UNAVAILABLE"
+
+    def __init__(self, reason_code):
+        self.reason_code = reason_code
+        super().__init__(f"Model provider unavailable ({reason_code})")

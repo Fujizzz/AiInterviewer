@@ -8,6 +8,15 @@ For each unit, either provide an exact previous_answer_quote that supplies it, O
 missing_detail describing the specific fact absent from the prior answer, never both.
 The program treats all units supported by prior quotes as already answered regardless
 of the narrative verdict. A not_repeat verdict requires this explicit gap mapping.
+For a missing_detail, new_detail_quote must quote the words in request_quote that explicitly
+ask for that specific new fact. Missing measured results require a request for results,
+not merely "specific experiment settings and metrics". Generic qualifiers such as
+"specific" or "in detail" cannot establish a new fact.
+Use that exact new_detail_quote phrase in requested_fact and missing_detail so the gap
+cannot silently change from a request for metrics to a request for measured results.
+Do not expand the draft's meaning
+with facts mentioned only in your reason. A draft mixing answered units with a new unit
+must be rewritten to isolate the new unit before it can pass.
 Do not create units for details that the current QUESTION does not actually request,
 even if current_target mentions them. Renaming design as implementation, expanding a
 workflow's phase names, or changing its topic label is not itself a new requested fact.

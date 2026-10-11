@@ -56,6 +56,7 @@ from uuid import uuid4
 from asgiref.testing import ApplicationCommunicator
 from django.test import SimpleTestCase, TransactionTestCase
 
+from agents.orchestrator import InterviewAgentService
 from interviews.agent_socket import agent_socket
 from interviews.answer_mcp import (
     InterviewMCP,
@@ -87,8 +88,7 @@ async def read_json(comm, timeout=4):
 
 
 async def send_json(comm, message):
-    """Inputs: communicator/JSON data. Outputs: None; no retries or remote network access.
-    """
+    """Inputs: communicator/JSON data. Outputs: None; no retries or remote network access."""
     await comm.send_input({"type": "websocket.receive", "text": json.dumps(message)})
 
 
@@ -137,8 +137,7 @@ class EndRecognition:
         assert language_hints == ["zh", "en"]
 
     def start(self):
-        """Inputs: fixture state. Outputs: None; explicitly avoid SDK/network startup.
-        """
+        """Inputs: fixture state. Outputs: None; explicitly avoid SDK/network startup."""
 
     def feed(self, pcm):
         """Inputs: valid PCM bytes. Outputs: callback events; second frame may reveal new draft
@@ -339,6 +338,61 @@ class CompletionMCPTests(SafetyTestMixin, TransactionTestCase):
     Constraints: isolated DB and explicit offline model output; no claimed real security/model
     efficacy.
     """
+
+    async def test_rejected_next_target_returns_question_instead_of_finishing(self):
+        """A failed target must not short-circuit the MCP interview lifecycle."""
+        llm = FixtureLLM()
+        with patch("interviews.agent_session.BackendLLM", return_value=llm):
+            comm = ApplicationCommunicator(agent_socket, socket_scope("/ws/agent/"))
+            await comm.send_input({"type": "websocket.connect"})
+            await comm.receive_output()
+            await read_json(comm)
+            await initialize_mcp(comm)
+            await send_json(
+                comm,
+                {
+                    "type": "start",
+                    "request_id": str(uuid4()),
+                    "resume_text": RESUME,
+                    "max_questions": 3,
+                },
+            )
+            await read_json(comm)
+            first = (await read_json(comm))["question"]
+            identifier = str(uuid4())
+            with patch.object(
+                InterviewAgentService,
+                "_generate_question",
+                new=AsyncMock(return_value=(None, "UNSAFE_INTENT_FALLBACK_BLOCKED")),
+            ) as rejected:
+                await send_json(
+                    comm,
+                    {
+                        "jsonrpc": "2.0",
+                        "id": identifier,
+                        "method": "tools/call",
+                        "params": {
+                            "name": "finish_current_answer",
+                            "arguments": {
+                                "question_id": first["question_id"],
+                                "answer_text": ANSWER,
+                                "completion_receipt": issue_completion_receipt(
+                                    None, first["question_id"], ANSWER
+                                ),
+                            },
+                        },
+                    },
+                )
+                self.assertEqual((await read_json(comm))["operation"], "answer")
+                response = await read_json(comm)
+                self.assertEqual(response["id"], identifier)
+                content = response["result"]["structuredContent"]
+                self.assertEqual(content["type"], "question")
+                self.assertNotEqual(content["question"]["question_id"], first["question_id"])
+                self.assertEqual(rejected.await_count, 1)
+            await comm.send_input({"type": "websocket.disconnect", "code": 1000})
+            await comm.wait()
+        self.assertTrue(llm.closed)
 
     async def test_tool_advances_once_and_stale_calls_are_rejected(self):
         """Verify MCP call evaluates the complete answer, returns next question, and rejects

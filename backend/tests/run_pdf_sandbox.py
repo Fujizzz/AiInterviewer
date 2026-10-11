@@ -155,7 +155,8 @@ async def exercise_worker(source, *, cancel=False, crash=False):
                     await task
                 except pdf_sandbox.PdfInputError as exc:
                     expected = (
-                        "The PDF parsing process failed or reached a resource limit; processing was stopped."
+                        "The PDF parsing process failed or reached a resource limit; "
+                        "processing was stopped."
                         if crash else
                         "PDF extraction and rendering timed out; processing was stopped."
                     )

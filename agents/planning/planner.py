@@ -2,8 +2,10 @@
 
 from collections import Counter
 
+from agents.domain.errors import ProviderUnavailable
 from agents.model_calls import run_model_call, safe_error_details
 from agents.planning.allocation import BudgetAllocator, PlanConstraintError
+from agents.planning.completion import project_completion, requirements_for_objective
 from agents.planning.coverage import conflicts_for_coverage
 from agents.planning.needs import replace_objective, sync_needs
 from agents.planning.objectives import (
@@ -12,7 +14,9 @@ from agents.planning.objectives import (
     prepare_objectives,
     seed_entry_need,
 )
-from agents.planning.pace import round_cost
+from agents.planning.pace import admission_cost, round_cost
+from agents.planning.payload import payload_chars, planner_payload
+from agents.planning.wire import CompactPlanProposal
 from agents.tracing import emit_trace
 from shared.contracts.planning import (
     PlanProposal,
@@ -93,7 +97,7 @@ def planning_view(context):
 
 
 class InterviewPlannerAgent:
-    prompt_name = "interview_planner_v1"
+    prompt_name = "interview_planner_v2"
 
     def __init__(self, llm, settings, sync_clock=None):
         self.llm, self.settings, self.sync_clock = llm, settings, sync_clock
@@ -152,9 +156,7 @@ class InterviewPlannerAgent:
         if not context.plan.version or not order:
             # Apply the same admission filter to replacement goals; otherwise the
             # ranking immediately reselects the finished, already-used narrow scope.
-            order += [
-                key for key in fallback_order(context, fallback_eligible) if key not in order
-            ]
+            order += [key for key in fallback_order(context, fallback_eligible) if key not in order]
             capacity = max(
                 1,
                 (context.state.remaining_seconds - context.plan.closing_seconds)
@@ -164,7 +166,13 @@ class InterviewPlannerAgent:
         topics = []
         for key in order:
             if key in preferences:
-                topics.append(preferences[key].model_copy(deep=True))
+                # The initial proposal's replace flag is a one-time operation,
+                # not an instruction to erase coverage every time budgets move.
+                topics.append(
+                    preferences[key].model_copy(
+                        deep=True, update={"objective_change": "preserve"}
+                    )
+                )
                 continue
             previous = existing.get(key)
             label = eligible[key]["label"].replace("?", "").replace("？", "")[:250]
@@ -190,28 +198,7 @@ class InterviewPlannerAgent:
     async def revise(self, context, trigger, *, speculative=False):
         base_version = context.plan.version
         eligible = self._eligible(context)
-        latest = context.question_history[-1] if context.question_history else None
-        payload = {
-            "trigger": trigger,
-            "base_plan_version": base_version,
-            "candidate_profile": context.candidate_profile.model_dump(mode="json"),
-            "job_profile": context.job_profile.model_dump(mode="json"),
-            "remaining_seconds": context.state.remaining_seconds,
-            "eligible_topics": list(eligible.values()),
-            "current_plan": planning_view(context),
-            "safety_guardrails": {
-                "max_questions": context.plan.max_questions,
-                "max_questions_per_project": context.plan.max_questions_per_project,
-                "max_questions_per_topic": context.plan.max_questions_per_topic,
-                "questions_already_asked": context.state.question_index,
-            },
-            "latest_analysis": latest.feedback.analysis.model_dump()
-            if latest and getattr(latest.feedback, "analysis_status", "valid") == "valid"
-            else None,
-            "analysis_status": getattr(latest.feedback, "analysis_status", "valid")
-            if latest
-            else None,
-        }
+        payload = planner_payload(context, trigger, eligible)
         local_only = base_version > 0 and (
             context.state.remaining_seconds - context.plan.closing_seconds
             < self.settings.planning.timeout_seconds
@@ -225,9 +212,13 @@ class InterviewPlannerAgent:
             plan_version=context.plan.version,
             remaining_seconds=context.state.remaining_seconds,
             payload=payload,
+            payload_chars=payload_chars(payload),
             reason_code="PLANNER_COST_NOT_JUSTIFIED" if local_only else trigger,
         )
         fallback, raw_proposal = False, None
+        if not local_only:
+            context.last_planner_request_question_index = context.state.question_index
+            context.last_planner_estimated_question_seconds = context.estimated_question_seconds
         try:
             if self.llm is None and not local_only:
                 raise PlanConstraintError("NO_PLANNER_PROVIDER")
@@ -238,7 +229,7 @@ class InterviewPlannerAgent:
                     lambda: self.llm.generate_structured(
                         prompt_name=self.prompt_name,
                         payload=payload,
-                        response_model=PlanProposal,
+                        response_model=CompactPlanProposal,
                     ),
                     operation="interview_planner",
                     timeout_seconds=min(
@@ -248,7 +239,12 @@ class InterviewPlannerAgent:
                 )
             )
             raw_proposal = raw.model_dump() if hasattr(raw, "model_dump") else raw
-            proposal = PlanProposal.model_validate(raw_proposal)
+            # Legacy provider adapters/replay fixtures can still return full persisted plans.
+            proposal = (
+                raw.expand(context, eligible)
+                if isinstance(raw, CompactPlanProposal)
+                else PlanProposal.model_validate(raw_proposal)
+            )
             existing_objectives = {t.topic_key: t for t in context.plan.topics}
             for preference in proposal.topics:
                 previous = existing_objectives.get(preference.topic_key)
@@ -279,6 +275,8 @@ class InterviewPlannerAgent:
                     },
                 )
         except Exception as error:
+            if isinstance(error, ProviderUnavailable):
+                raise
             if self.sync_clock:
                 self.sync_clock(context)
             fallback = True
@@ -324,7 +322,8 @@ class InterviewPlannerAgent:
         proposal.topics = [t for t in proposal.topics if t.topic_key in eligible]
         existing = {t.topic_key: t for t in context.plan.topics}
         for t in proposal.topics:
-            if t.topic_key in existing and t.objective_change == "preserve":
+            if t.topic_key in existing and (local_only or t.objective_change == "preserve"):
+                t.objective_change = "preserve"
                 t.objective = existing[t.topic_key].objective
                 t.completion_criteria = existing[t.topic_key].completion_criteria
         if self.sync_clock:
@@ -370,6 +369,7 @@ class InterviewPlannerAgent:
                 replace_objective(progress)
             if not previous:
                 seed_entry_need(progress, item.topic_key, eligible[item.topic_key]["label"])
+            progress.completion_requirements = requirements_for_objective(item, progress)
             if progress.status == "deferred":
                 progress.status, progress.reason = "pending", "RESUMED_BY_PLAN"
             adjusted.append(
@@ -472,6 +472,17 @@ class InterviewPlannerAgent:
                 )
             ]
             if len(retained) != len(target.coverage_evidence):
+                retained_ids = {proof["answer_id"] for proof in retained}
+                for criterion in target.completion_requirements:
+                    evidence = [
+                        proof for proof in criterion.evidence if proof["answer_id"] in retained_ids
+                    ]
+                    if len(evidence) != len(criterion.evidence):
+                        criterion.evidence = evidence
+                        criterion.coverage_status = "partial"
+                        criterion.missing_information = [
+                            "Reassess corrected evidence: " + criterion.requirement
+                        ]
                 target.coverage_evidence = retained
                 target.evidence_answer_ids = list(
                     dict.fromkeys(record["answer_id"] for record in retained)
@@ -512,6 +523,32 @@ class InterviewPlannerAgent:
                 target = context.topic_progress[item.topic_key]
                 if target.status == "skipped":
                     continue  # Candidate boundaries cannot be reopened by an evaluation.
+                requirements = requirements_for_objective(item, target)
+                valid_observations = []
+                known_criteria = {c.criterion_id for c in requirements}
+                counts = Counter(c.criterion_id for c in update.criterion_coverage)
+                for observation in update.criterion_coverage:
+                    if (
+                        observation.criterion_id in known_criteria
+                        and counts[observation.criterion_id] == 1
+                        and observation.answer_id == answer.answer_id
+                        and (
+                            observation.coverage_status != "sufficient"
+                            or observation.supporting_quotes
+                        )
+                        and not (
+                            observation.coverage_status == "sufficient"
+                            and observation.missing_information
+                        )
+                        and all(
+                            q.strip() and q in answer.text for q in observation.supporting_quotes
+                        )
+                    ):
+                        valid_observations.append(observation)
+                update, target.completion_requirements = project_completion(
+                    update.model_copy(update={"criterion_coverage": valid_observations}),
+                    requirements,
+                )
                 missing = list(dict.fromkeys(update.missing_information))
                 if item.topic_key == question.topic_key:
                     missing = list(
@@ -573,22 +610,20 @@ class InterviewPlannerAgent:
         )
         latest = context.question_history[-1].feedback
         valid_analysis = getattr(latest, "analysis_status", "valid") == "valid"
-        trigger = None
+        local_trigger = None
         if progress and progress.status in {"completed", "skipped"}:
-            trigger = "TOPIC_FINISHED"
+            local_trigger = "TOPIC_FINISHED"
         elif (
             item
             and progress
-            and remaining_allocation(context, item) < round_cost(context, self.settings)
+            and remaining_allocation(context, item) < admission_cost(context, self.settings)
         ):
-            trigger = "ALLOCATION_REACHED"
-        elif valid_analysis and latest.analysis.contradictions:
-            trigger = "CONTRADICTION_FOUND"
+            local_trigger = "ALLOCATION_REACHED"
         if (
             sum(remaining_allocation(context, t) for t in execution_topics(context))
             > context.state.remaining_seconds - context.plan.closing_seconds
         ):
-            trigger = "TIME_DRIFT"
+            local_trigger = "TIME_DRIFT"
         from agents.policies.dialogue_controller import DialogueController
 
         controller = DialogueController(context, self.settings)
@@ -600,27 +635,47 @@ class InterviewPlannerAgent:
         exhausted = (
             not controller.available_topics() and not can_continue and bool(self._eligible(context))
         )
-        if exhausted:
-            trigger = trigger or "AGENDA_EXHAUSTED"
-        if trigger and (
-            exhausted
-            or context.state.question_index - context.last_replan_question_index
-            >= self.settings.planning.replan_cooldown_questions
+        since_request = context.state.question_index - context.last_planner_request_question_index
+        baseline_pace = context.last_planner_estimated_question_seconds
+        pace_changed = (
+            abs(context.estimated_question_seconds - baseline_pace) / baseline_pace
+            >= self.settings.planning.replan_pace_change_ratio
+        )
+        trigger = None
+        if valid_analysis and latest.analysis.contradictions:
+            trigger = "CONTRADICTION_FOUND"
+        elif exhausted:
+            trigger = "AGENDA_EXHAUSTED"
+        elif pace_changed:
+            trigger = "PACE_CHANGED"
+        elif since_request >= self.settings.planning.replan_review_interval_questions:
+            trigger = "PERIODIC_REVIEW"
+        request_model = bool(
+            trigger
+            and self._eligible(context)
+            and (exhausted or since_request >= self.settings.planning.replan_cooldown_questions)
+        )
+        # Compile before requesting a background proposal, so its base version is current.
+        # A synchronous semantic revision already compiles: don't publish two revisions.
+        if (
+            (local_trigger or exhausted)
+            and self._eligible(context)
+            and not (request_model and defer is None)
         ):
+            self.accept(
+                context,
+                self._fallback(context, self._eligible(context)),
+                local_trigger or "AGENDA_EXHAUSTED",
+                local_only=True,
+            )
+        if request_model:
             if defer is None:
                 await self.revise(context, trigger)
             else:
                 defer(context, trigger)
-                if exhausted or trigger == "TIME_DRIFT":
-                    self.accept(
-                        context,
-                        self._fallback(context, self._eligible(context)),
-                        trigger,
-                        local_only=True,
-                    )
         for topic in context.plan.topics:
             progress = context.topic_progress[topic.topic_key]
             if progress.status in {"pending", "active"} and remaining_allocation(
                 context, topic
-            ) < round_cost(context, self.settings):
+            ) < admission_cost(context, self.settings):
                 progress.status, progress.reason = "deferred", "TOPIC_TIME_EXHAUSTED"

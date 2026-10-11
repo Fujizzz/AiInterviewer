@@ -9,6 +9,10 @@ UNSUPPORTED_PREMISE requires an asserted personal implementation, event or resul
 from the supplied background. An open inquiry about whether/how something was implemented,
 or an explicit hypothetical scenario, is a neutral_request; it does not assert experience.
 A project name, known technology or reported metric alone is established context.
+Project name/domain sources and claims share project_id. Use that explicit association:
+an employer, internship role or project background in the project name applies to its
+claims even when the individual claim does not repeat it. Cite both sources when needed;
+the project name does not establish a new implementation or result absent from the claims.
 
 For UNSUPPORTED_PREMISE, separate the established activity from the detail being requested.
 Return premise_basis=requested_detail when implementation/validation detail has not yet
