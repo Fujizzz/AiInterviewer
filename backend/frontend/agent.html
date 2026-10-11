@@ -27,6 +27,7 @@ The page does not upload, extract or edit profile data and does not persist prof
   <script type="module" src="/stream-demo/i18n.js"></script>
   <link rel="stylesheet" href="/stream-demo/style.css">
   <link rel="stylesheet" href="/stream-demo/agent.css">
+  <link rel="stylesheet" href="/stream-demo/evaluation-report.css">
   <script type="module" src="/stream-demo/agent.js"></script>
   <script type="module" src="/stream-demo/interview-camera.js"></script>
   <link rel="stylesheet" href="/stream-demo/account.css">
@@ -115,8 +116,8 @@ Displayed only after receiving complete finished response; scores shown directly
   <section id="report-panel" class="panel" hidden>
     <h2 data-i18n="report_title">Interview report</h2>
     <a href="/interview-review/" data-i18n="review_history_link">View saved interview reviews ↗</a><p id="score"></p><p id="report-summary"></p>
-    <details id="assessment-panel" hidden><summary data-i18n="assessment_title">View skill scores and coverage</summary><pre id="assessment"></pre></details>
-    <details><summary data-i18n="full_result">Full result and decision log</summary><pre id="report"></pre></details>
+    <div id="assessment-panel" hidden><div id="assessment"></div></div>
+    <div id="report" aria-live="polite"></div>
   </section>
 
 </main></body>

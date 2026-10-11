@@ -40,6 +40,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import vm from "node:vm";
+const REPORT_SOURCE = readFileSync(new URL("../frontend/evaluation-report.js", import.meta.url), "utf8");
 const HISTORY_SOURCE = readFileSync(new URL("../frontend/interview-history.js", import.meta.url), "utf8");
 const PRESENTATION_SOURCE = readFileSync(new URL("../frontend/interview-progress.js", import.meta.url), "utf8");
 const HISTORY_HTML = readFileSync(new URL("../frontend/interview-review.html", import.meta.url), "utf8");
@@ -111,7 +112,7 @@ function historyTestPage() {
  */
   function selectors() { return []; }
   const context = vm.createContext({ document: { getElementById: node, createElement: create, querySelectorAll: selectors }, window: { addEventListener: silent }, fetch, console: { error: silent }, Date, encodeURIComponent });
-  const script = PRESENTATION_SOURCE.replaceAll("export function", "function").replace("export class", "class") + HISTORY_SOURCE.replace('import { reviewText, reviewTopics, reviewScore } from "./interview-progress.js";', "");
+  const script = REPORT_SOURCE.replaceAll("export function", "function") + PRESENTATION_SOURCE.replaceAll("export function", "function").replace("export class", "class") + HISTORY_SOURCE.replace('import { renderEvaluationReport } from "./evaluation-report.js";', "").replace('import { reviewText, reviewTopics } from "./interview-progress.js";', "");
   vm.runInContext(script, context); return { node, requests, context };
 }
 /**
@@ -178,4 +179,13 @@ test("formal report publication labels distinguish provisional and unavailable r
   assert.match(vm.runInContext('reviewScore({score_status: "unavailable", overall_coverage: 0})', page.context), /暂无法评分/);
   assert.equal(vm.runInContext('reviewScore({overall_score: 3})', page.context), "");
   assert.match(vm.runInContext('reviewScore({score_status: "provisional", unscored_answer_count: 1})', page.context), /1 轮未完成评分/);
+});
+
+
+test("history uses the same readable report without an additional request", () => {
+  const page = historyTestPage();
+  vm.runInContext('renderHistoryDetail({job_title:"Engineer", status:"completed", created_at:"2026-10-11", security_output_available:true, final_report:{scoring_source:"formal_evaluation", score_status:"provisional", overall_score:3, overall_coverage:0.75, unscored_answer_count:1, competencies:{}}})', page.context);
+  const text = historyText(page.node("history-detail-body"));
+  assert.match(text, /面试能力评估报告/); assert.match(text, /75.0%/); assert.match(text, /未计入本次结果/);
+  assert.equal(page.requests.length, 1);
 });

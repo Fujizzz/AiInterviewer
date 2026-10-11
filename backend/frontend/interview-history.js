@@ -32,7 +32,8 @@
  * No browser persistence of data; do not fill missing content from internal context in old records; failure requires explicit refresh.
  *
  */
-import { reviewText, reviewTopics, reviewScore } from "./interview-progress.js";
+import { renderEvaluationReport } from "./evaluation-report.js";
+import { reviewText, reviewTopics } from "./interview-progress.js";
 let historyPage = 1;
 let historyListing = null;
 let historyDetail = null;
@@ -120,11 +121,10 @@ function renderHistoryDetail(detail) {
   const report = detail.final_report;
   if (report) {
     const summary = historySection(body, reviewText("summary"));
-    historyParagraph(summary, `${reviewText("score")}: ${report.overall_score === null ? reviewText("unknown") : report.overall_score} / 5`, "history-score");
     if (detail.report_narrative_status === "fallback") historyParagraph(summary, reviewText("narrative"), "history-notice");
-    if (reviewScore(report)) historyParagraph(summary, reviewScore(report), "history-notice");
-    historyParagraph(summary, report.summary);
-    for (const key of ["strengths", "weaknesses"]) { const section = historySection(summary, reviewText(key)); const list = historyElement("ul"); for (const text of report[key] ?? []) list.append(historyElement("li", text)); section.append(list); }
+    const reportBody = historyElement("div");
+    renderEvaluationReport(reportBody, report);
+    summary.append(reportBody);
   }
   const topics = reviewTopics(detail);
   if (topics) {

@@ -30,6 +30,8 @@ ASSETS = {
     "agent.js",
     "interview-progress.js",
     "interview-history.js",
+    "evaluation-report.js",
+    "evaluation-report.css",
     "interview-review.html",
     "interview-history.css",
     "agent.css",

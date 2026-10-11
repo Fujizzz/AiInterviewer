@@ -211,6 +211,13 @@ class AgentTests(SafetyTestMixin, TransactionTestCase):
                     expected_report = expected_report.replace(
                         reference.answer.answer_id, f"answer-{index}"
                     )
+                    self.assertEqual(actual.question.text, reference.question.text)
+                    actual_report = actual_report.replace(
+                        actual.question.question_id, f"question-{index}"
+                    )
+                    expected_report = expected_report.replace(
+                        reference.question.question_id, f"question-{index}"
+                    )
                 # Snapshot hashes include per-run interview/answer identities. Verify
                 # each report is bound to its own replayable ledger before normalizing.
                 from evaluation.aggregator import replay_aggregation

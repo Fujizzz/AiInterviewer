@@ -302,6 +302,16 @@ class IOSafetyTests(TransactionTestCase):
         self.assertEqual(detail["job_profile"], finished["result"]["job_profile"])
         self.assertNotIn("competency_importance", detail["job_profile"])
         self.assertEqual(detail["final_report"], finished["result"]["final_report"])
+        report = finished["result"]["final_report"]
+        if report["scoring_source"] == "formal_evaluation":
+            evidence = next(
+                json.loads(e.text)
+                for e in final_check.evidence
+                if e.content_id == "interview_evidence"
+            )
+            self.assertEqual(evidence["formal_scores"]["explanation"], report["explanation"])
+            self.assertTrue(report["explanation"]["competencies"])
+
         pending = second["last_evaluation"]
         assessed = detail["questions"][0]["answer"]["evaluation"]
         self.assertEqual(pending["assessment_status"], "pending")

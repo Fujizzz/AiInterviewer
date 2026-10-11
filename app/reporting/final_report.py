@@ -11,6 +11,7 @@ from agents.config import load_agent_settings
 from agents.domain.models import InterviewContext
 from agents.model_calls import run_model_call
 from app.providers.llm import OutputModel, StructuredLLM
+from app.reporting.explanation import ReportExplanation, build_explanation
 from shared.contracts.agent_contracts import AnswerRelation
 
 
@@ -30,6 +31,7 @@ class ReportNarrative(OutputModel):
 
 
 class FinalReport(OutputModel):
+    explanation: ReportExplanation | None = None
     overall_score: float | None = Field(default=None, ge=1.0, le=5.0)
     competencies: dict[str, CompetencyResult]
     strengths: list[str]
@@ -177,6 +179,7 @@ def _formal_report(context, records):
     from evaluation.publication import formal_publication
 
     publication = formal_publication(context, records)
+    explanation = build_explanation(context, records, publication)
     competencies = {k: CompetencyResult(**v) for k, v in publication.pop("competencies").items()}
     ledger = _report_ledger(context)
     count = len(context.processed_feedback_ids)
@@ -207,6 +210,7 @@ def _formal_report(context, records):
         weaknesses.append("Scoring limitations: " + ", ".join(publication["score_reasons"]) + ".")
     return FinalReport(
         **publication,
+        explanation=explanation,
         competencies=competencies,
         summary=summary,
         strengths=strengths,

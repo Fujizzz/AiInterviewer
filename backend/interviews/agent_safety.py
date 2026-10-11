@@ -206,9 +206,15 @@ def read_io_snapshot(interview_id, request_id, owner_id):
                 context, repository._shadow_jobs(), repository._assessment_records()
             )
             if any(j.shadow_enabled for j in repository._shadow_jobs()):
+                from app.reporting.explanation import build_explanation
                 from evaluation.publication import formal_publication
 
-                formal_scores = formal_publication(context, repository._evaluation_records())
+                records = repository._evaluation_records()
+                formal_scores = formal_publication(context, records)
+                # Review public evidence against the same persisted score basis as the report.
+                formal_scores["explanation"] = build_explanation(
+                    context, records, formal_scores
+                ).model_dump(mode="json")
     elif record.state_version != 0 or record.status != "preparing":
         raise IOSafetyError("missing interview state")
     return {

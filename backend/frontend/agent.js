@@ -65,6 +65,7 @@
  * Constraints:
  * Does not upload or edit resumes or alter budgets/scores; has no resend, alternate-resume selection, or model-call fallback path.
  */
+import { renderEvaluationReport } from "./evaluation-report.js";
 import { InterviewVoice } from "./interview-voice.js";
 import { InterviewProgress, reviewScore } from "./interview-progress.js";
 
@@ -140,6 +141,7 @@ let questionId = null;
 let pendingId = null;
 let pendingCommand = null;
 let terminal = false;
+let completedReport = null;
 let interviewActive = false;
 let resumesLoading = false;
 let availableResumes = [];
@@ -265,6 +267,7 @@ function endWait() {
  * Clear old Q&A, report, and time display, retain saved version selection and job, no network operation.
  */
 function clearResults() {
+  completedReport = null;
   progress.reset();
   voice.reset();
   voice.setState("idle");
@@ -310,7 +313,7 @@ function stop(message) {
   el("end-interview-dialog").close();
   endWait();
   controls();
-  if (!el("report-panel").hidden && el("report").textContent === "") {
+  if (!el("report-panel").hidden && !completedReport) {
     el("report-summary").textContent = uiText("agent_report_incomplete");
   }
   status(message);
@@ -324,7 +327,9 @@ function displayAssessment(assessment) {
   el("score").textContent = assessment.overall_score === null ? uiText("agent_score_missing") : uiText("agent_score", { score: assessment.overall_score.toFixed(2) });
   const publication = reviewScore(assessment);
   if (publication) el("score").textContent = `${publication} · ${el("score").textContent}`;
-  el("assessment").textContent = JSON.stringify({ competencies: assessment.competencies, missing_competencies: assessment.missing_competencies, score_reasons: assessment.score_reasons }, null, 2);
+  el("score").hidden = true;
+  el("report-summary").hidden = false;
+  renderEvaluationReport(el("assessment"), assessment, { compact: true });
 }
 /**
  * Input MessageEvent; validate connection/UUID, complete MCP handshake or unpack tool approval result, then deliver to original business branch.
@@ -414,7 +419,10 @@ function onMessage(event) {
       displayAssessment(report);
       const summaryPrefix = message.result.report_narrative_status === "fallback" ? uiText("agent_report_fallback") : "";
       el("report-summary").textContent = summaryPrefix + report.summary;
-      el("report").textContent = JSON.stringify(message.result, null, 2);
+      completedReport = report;
+      el("assessment-panel").hidden = true;
+      el("report-summary").hidden = report.scoring_source === "formal_evaluation" && !summaryPrefix;
+      renderEvaluationReport(el("report"), report);
       stop(uiText("agent_finished"));
     } else if (message.type === "discarded") { stop(uiText("interview_discarded")); clearResults(); }
     else if (message.type === "cancelled") stop(uiText("agent_cancelled"));
@@ -518,6 +526,7 @@ function onPreparationKeydown(event) {
  * Original version name remains unchanged; known status uses stable key, unexpected parsing exceptions preserve existing error text.
  */
 function onPreparationLanguage() {
+  if (completedReport) renderEvaluationReport(el("report"), completedReport);
   progress.render();
   for (const option of el("resume-select").children) {
     if (!option.value) option.textContent = uiText("agent_resume_select");

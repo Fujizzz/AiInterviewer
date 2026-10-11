@@ -126,6 +126,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import vm from "node:vm";
+const REPORT_SOURCE = readFileSync(new URL("../frontend/evaluation-report.js", import.meta.url), "utf8");
 
 const SCRIPT = readFileSync(new URL("../frontend/agent.js", import.meta.url), "utf8");
 const HTML = readFileSync(new URL("../frontend/agent.html", import.meta.url), "utf8") + readFileSync(new URL("../frontend/workspace-nav.html", import.meta.url), "utf8");
@@ -297,11 +298,11 @@ async function makePage(options = {}) {
   async function loadAvatarModule() {
     return { async loadAvatarConfiguration() { return { enabled: false }; } };
   }
-  const clientScript = PROGRESS_SCRIPT.replaceAll("export function", "function").replace("export class InterviewProgress", "class InterviewProgress")
+  const clientScript = REPORT_SOURCE.replaceAll("export function", "function") + PROGRESS_SCRIPT.replaceAll("export function", "function").replace("export class InterviewProgress", "class InterviewProgress")
     + CAPTURE_SCRIPT.replace("export class SpeechCapture", "class SpeechCapture")
     + VOICE_SCRIPT.replace('import { SpeechCapture } from "./speech-capture.js";', "").replace("export class InterviewVoice", "class InterviewVoice")
       .replace('import("/stream-demo/pixel-player.js")', "loadAvatarModule()")
-    + SCRIPT.replace('import { InterviewVoice } from "./interview-voice.js";', "").replace('import { InterviewProgress, reviewScore } from "./interview-progress.js";', "");
+    + SCRIPT.replace('import { renderEvaluationReport } from "./evaluation-report.js";', "").replace('import { InterviewVoice } from "./interview-voice.js";', "").replace('import { InterviewProgress, reviewScore } from "./interview-progress.js";', "");
   const context = vm.createContext({
     document: { getElementById: getElement, createElement },
     window: { addEventListener: addPageListener, dispatchEvent: dispatchPageEvent },
@@ -1221,3 +1222,20 @@ async function syntheticPCMEarlyEnd() {
   }
 }
 test("synthetic PCM supports both evaluated early end and discard without extra answers", syntheticPCMEarlyEnd);
+
+
+test("finished evaluation renders a readable report and hides preliminary assessment", async () => {
+  const page = await makePage(); startPrepared(page);
+  const ws = Socket.instances.at(-1); const id = hello(ws);
+  ws.emit({ type: "finished", request_id: id, result: { final_report: {
+    scoring_source: "formal_evaluation", score_status: "provisional", overall_score: 3,
+    competencies: { ownership: { score: 3, coverage: .5, evidence_count: 1 } },
+    unscored_answer_count: 1, summary: "Original backend summary",
+  } } });
+  function contents(node) { return node.textContent + node.children.map(contents).join(" "); }
+  assert.match(contents(page.el("report")), /面试能力评估报告/);
+  assert.match(contents(page.el("report")), /未计入本次结果/);
+  assert.equal(page.el("assessment-panel").hidden, true);
+  assert.equal(page.el("report-summary").hidden, true);
+  assert.doesNotMatch(page.el("agent-status").textContent, /failed/);
+});

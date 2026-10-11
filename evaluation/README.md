@@ -452,3 +452,35 @@ uv run pytest -q tests/evaluation
 uv run ruff check .
 uv run pytest -q
 ```
+
+
+## 可阅读报告与前端接口
+
+`app/reporting/final_report.py` 的正式报告新增可选 `explanation`（展示版本 `1.0`）。
+`app/reporting/explanation.py` 直接读取 `score_basis_snapshot_id` 对应的可评分聚合，
+不调用模型、不重新判断答案、不修改原始分数。每项能力提供已评分/总观察项数、
+有效选中证据数、最多三个原文示例、未展示数量和局限代码。示例包含问题、回答 ID、
+轮次、精确原文、对应观察等级及证据特征；重复的补充证据不冒充独立评分贡献。
+未发布的观察项、零权重和阻断冲突不作为评分例证。内部 rubric、锚点、权重及
+judge 推理文本不进入公开解释。安全审查使用同一份持久化来源的解释作为核对依据。
+
+传输与权限保持现有链路：`/ws/agent/` 的 `finished.result.final_report`，以及
+`GET /api/agent-interviews/{id}/` 的 `final_report`，均返回经过原安全边界批准的报告；
+不新增数据库迁移或绕过所有权检查的接口。`assessment` 仍是提前发布的数字结果，
+不能被前端当成完整报告。历史记录缺少 `explanation` 时，展示原分数并明确缺少依据，
+不在读取历史时重新调用模型或改写历史回执。
+
+`backend/frontend/evaluation-report.js` 与 `.css` 被完成页 `/agent/` 和历史页
+`/interview-review/` 共用，支持中英文、展开证据以及下载离线 HTML 报告。
+用户报告聚焦能力表现、回答依据和练习建议；不展示内部快照编号、评分实现说明和重复的诊断汇总。
+暂定状态及未评分回答在顶部简洁提示，技术说明保留在本文档和后端数据中。
+下载文件已展开原文，可用浏览器打印或保存为 PDF。候选人文本全部通过 textContent
+创建节点，导出使用这些已转义节点，不执行报告内容中的 HTML。
+
+报告区分正式、暂定、无法评分：处理失败不是候选人能力缺点，覆盖率不是准确率或
+录用概率，练习建议是通用复盘提示。该展示改进不表示评分体系已经完成人工标定。
+
+针对性验证：`pytest tests/app/test_report_explanation.py`；
+`node --test backend/tests/evaluation-report.test.mjs backend/tests/agent-client.test.mjs backend/tests/interview-history.test.mjs`；
+Django 的 `interviews.tests.test_agent`、`interviews.tests.test_agent_safety` 覆盖终端/网页
+报告一致性、来源核对、持久化和历史 API 返回。
