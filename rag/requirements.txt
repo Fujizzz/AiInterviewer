@@ -7,11 +7,15 @@
 pyyaml>=6.0
 pydantic>=2.6
 requests>=2.31
-datasets>=2.18
+datasets>=2.18,<5
 openpyxl>=3.1
 tiktoken>=0.6
 numpy>=1.26
 psycopg[binary,pool]>=3.1
 pgvector>=0.3
 # Pulls torch. BAAI/bge-m3 (query/chunk embeddings) and BAAI/bge-reranker-v2-m3 (optional rerank).
-sentence-transformers>=3.0
+sentence-transformers>=3.0,<6
+# transformers 5.x needs tokenizers>=0.23.1 and huggingface-hub>=1, which clashes with the root
+# completion-gate extra (tokenizers==0.22.2). Keep transformers on 4.x so both extras can coexist.
+transformers>=4.51,<5
+huggingface-hub<1

@@ -39,6 +39,11 @@ uv sync --extra dev                           # the normal team environment: no 
 uv pip install -r rag/requirements.txt        # add the retrieval stack on top (re-run after every uv sync)
 ```
 
+The manifest pins `transformers<5`, `huggingface-hub<1` and `datasets<5`: transformers 5.x needs
+`tokenizers>=0.23.1`, which conflicts with the root `completion-gate` extra (`tokenizers==0.22.2`).
+With these pins both extras install side by side (verified with `uv pip compile` on Python 3.11 and
+3.13, and by running the full suite in such an environment).
+
 `rag/adapter.py`, `rag/settings.py` and `rag/retrieval/{lazy,access,intent,confidence,types}.py`
 import without the extra, so the adapter unit tests run everywhere. `create_rag_adapter()` raises
 `RAGUnavailableError` (with the install command) if the extra is missing.
