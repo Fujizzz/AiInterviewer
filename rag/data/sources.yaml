@@ -1,0 +1,1551 @@
+# IntelliHire RAG data source registry.
+#
+# Every source consumed by the pipeline (or planned for later) MUST be
+# registered here, even if its loader is not implemented yet. Unimplemented
+# loaders (`crawler`, `manual`) are expected to print "not implemented /
+# manual" and skip cleanly — see rag/loaders/base.py.
+#
+# Fields:
+#   name             unique id, used as filename stem under data/raw|clean|chunks
+#   namespace        candidate|job|technical|rubric|question|test
+#   priority         P0|P1|P2
+#   url              canonical homepage / repo / dataset / paper URL
+#   loader           git|hf|arxiv|crawler|xlsx|manual
+#   path / paths     (git) sparse-checkout subdir(s) actually containing docs
+#   license          license string; CC-NC / no-license called out explicitly
+#   auto_level       full|semi|manual  (how much of the fetch is automatable)
+#   trust_level      official|curated|community|reference_only
+#   refresh_cycle    how often this should be re-fetched
+#   domain           broad subject area
+#   related_technologies  list of tags
+#   include/exclude  (git: repo-relative paths; crawler: paths relative to crawl.prefix)
+#                    glob lists. `*` = one path segment, `**` = any depth, `{a,b}` = alternation.
+#                    Directory excludes (`dir/**`) are also pushed into the git sparse-checkout
+#                    so excluded blobs are never downloaded.
+#   max_file_kb      skip individual source files larger than this (generated pages)
+#   clean_profile    markdown|rst|d2l|mintlify|hugo|html - source-specific markup conversion
+#                    applied before the generic cleaner (see rag/profiles.py)
+#   options          loader-specific: git {py_gallery, exts}, hf {files, dedupe_against},
+#                    crawler {crawl: prefix/start_urls/allow/deny/main_selectors/...},
+#                    xlsx {parser, glob}
+#   reference_only   true => loader must refuse to chunk full text (metadata only)
+#   verified         whether the repo/dataset/paper identity was confirmed to
+#                    exist via `git ls-remote` / HF API / arXiv API during
+#                    registry construction (2026-10-02). false = could not be
+#                    confirmed, needs a human to verify before first use.
+#   notes            free-text caveats (path accuracy, license nuance, etc.)
+
+sources:
+
+  # ============================================================
+  # P0 — technical (git docs)
+  # ============================================================
+  - name: transformers
+    namespace: technical
+    priority: P0
+    url: https://github.com/huggingface/transformers
+    loader: git
+    # Tree-verified (git ls-tree, 2026-10-02): docs/source/en has 755 md files, of
+    # which 531 are auto-generated per-model pages under model_doc/.
+    paths:
+      - "docs/source/en/*.md"
+      - "docs/source/en/main_classes/"
+      - "docs/source/en/tasks/"
+      - "docs/source/en/quantization/"
+      - "docs/source/en/model_doc/{bert,gpt2,t5,llama,vit,clip}.md"
+    include:
+      - "docs/source/en/*.md"
+      - "docs/source/en/main_classes/**"
+      - "docs/source/en/tasks/**"
+      - "docs/source/en/quantization/{overview,concept_guide,selecting,bitsandbytes,gptq,awq}.md"
+      - "docs/source/en/model_doc/{bert,gpt2,t5,llama,vit,clip}.md"
+    exclude:
+      # contributor / maintainer docs
+      - "docs/source/en/{contributing,add_new_model,add_new_pipeline,add_vision_processing_components,add_audio_processing_components,modular_transformers,modeling_rules,pr_checks,testing,how_to_hack_models,custom_models,community,notebooks,auto_docstring,monkey_patching,fusion_mapping,weightconverter,model_output_tracing,heterogeneous_configurations}.md"
+      # release-style / index pages
+      - "docs/source/en/{models_timeline,index}.md"
+      # hardware-specific (Gaudi / special accelerators)
+      - "docs/source/en/{perf_train_gaudi,perf_train_special,deepspeed_alst}.md"
+    max_file_kb: 120
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: monthly
+    domain: ml-engineering
+    related_technologies: [transformers, nlp, pytorch, huggingface]
+    reference_only: false
+    verified: true
+    notes: >
+      English only (docs/source/en; i18n dirs are siblings and never fetched).
+      Inclusion decision: keep conceptual/how-to top-level guides, main_classes/
+      (Trainer, pipelines, tokenizer, generation...), tasks/ guides and the
+      core quantization guides (overview/concept/selecting + the 3 most common
+      methods). model_doc/ is 531 auto-generated per-model API stubs (identical
+      template, mostly autodoc blocks) -> excluded except a 6-page cap of
+      canonical architectures (bert, gpt2, t5, llama, vit, clip) as
+      representative examples. Contributor docs (contributing, add_new_model,
+      modular_transformers, testing, pr_checks...), the models timeline,
+      Gaudi/special-hardware pages and internal/ (auto-generated utils API)
+      are excluded.
+
+  - name: vllm
+    namespace: technical
+    priority: P0
+    url: https://github.com/vllm-project/vllm
+    loader: git
+    path: docs
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: monthly
+    domain: ml-serving
+    related_technologies: [vllm, llm-serving, inference, pagedattention]
+    reference_only: false
+    verified: true
+    notes: >
+      Confirmed: docs/ contains 238 md files at HEAD a810316c0894b8a43e53458ae5b14c9ad0b18b5d.
+      Actually run (see reports). KNOWN LIMITATION: vllm's docs use
+      pymdownx.snippets `--8<-- "path[:section]"` includes pointing at ~40
+      files outside docs/ (mostly vllm/**/*.py source files, e.g.
+      vllm/envs.py, vllm/model_executor/layers/*.py). git_loader widens the
+      sparse-checkout on demand to pull in whichever of those files are
+      referenced and inlines them (or the named start/end-marker section)
+      when the result is small enough to be a sane chunk
+      (<= SNIPPET_INLINE_MAX_TOKENS = 2000 tokens, see git_loader.py); larger
+      targets (e.g. vllm/envs.py's full `env-vars-definition` section is
+      ~21k tokens) are left as a stripped directive instead of becoming one
+      giant un-splittable fenced-code chunk. Counts of resolved/stripped are
+      reported per run (fetch_errors in the json report carry a
+      "snippet-include (--8<--): ..." summary line).
+
+  - name: langgraph
+    namespace: technical
+    priority: P0
+    url: https://github.com/langchain-ai/docs
+    loader: git
+    # Tree-verified: LangGraph docs live in the unified langchain-ai/docs repo,
+    # src/oss/langgraph/*.mdx (45 files) — NOT in langchain-ai/langgraph.
+    paths: ["src/oss/langgraph/"]
+    include: ["src/oss/langgraph/**"]
+    exclude:
+      - "src/oss/langgraph/changelog-*.mdx"
+      - "src/oss/langgraph/frontend/**"
+      - "src/oss/langgraph/case-studies.mdx"
+    max_file_kb: 150      # raised from 100: add-memory.mdx (102 KB) and use-graph-api.mdx (124 KB) are core LangGraph docs
+    clean_profile: mintlify
+    license: MIT
+    auto_level: full
+    trust_level: official
+    refresh_cycle: monthly
+    domain: agent-frameworks
+    related_technologies: [langgraph, agents, llm-orchestration]
+    reference_only: false
+    verified: true
+    notes: >
+      Python-flavoured content only: Mintlify `:::python` / `:::js` conditional
+      blocks are resolved keeping Python and dropping JS-only blocks
+      (clean_profile: mintlify). Changelogs, frontend/UI integration pages and
+      customer case studies excluded (not Q&A material). The 6 errors/*.mdx pages
+      (GRAPH_RECURSION_LIMIT etc.) are kept: short, concrete failure modes.
+
+  - name: llama_index
+    namespace: technical
+    priority: P0
+    url: https://github.com/run-llama/llama_index
+    loader: git
+    # Tree-verified: docs/ = api_reference/ (754 generated mkdocs stubs),
+    # examples/ (671 notebooks) and src/content/docs/framework (hand-written
+    # guides, 155 md + 28 mdx). Only the hand-written guides are taken.
+    paths: ["docs/src/content/docs/framework/"]
+    include: ["docs/src/content/docs/framework/**"]
+    exclude:
+      - "docs/src/content/docs/framework/_static/**"
+      - "docs/src/content/docs/framework/presentations/**"
+      - "docs/src/content/docs/framework/community/integrations/**"
+      - "docs/src/content/docs/framework/community/llama_packs/**"
+      - "docs/src/content/docs/framework/module_guides/llama_deploy/**"
+      - "**/CHANGELOG*"
+      - "**/*.ipynb"
+    max_file_kb: 100
+    clean_profile: mintlify
+    license: MIT
+    auto_level: full
+    trust_level: official
+    refresh_cycle: monthly
+    domain: rag-frameworks
+    related_technologies: [llama_index, rag, retrieval]
+    reference_only: false
+    verified: true
+    notes: >
+      Original path `docs` pulled 1600+ files, ~2/3 auto-generated api_reference
+      stubs and example notebooks -> narrowed to the hand-written framework
+      guides (understanding/, module_guides/, optimizing/, getting started).
+      Integration catalogue pages, llama_pack listings, slide materials and
+      llama_deploy (separate product) excluded.
+
+  - name: d2l-en
+    namespace: technical
+    priority: P0
+    url: https://github.com/d2l-ai/d2l-en
+    loader: git
+    # Tree-verified: content = chapter_*/*.md at repo root (d2lbook markdown with
+    # mxnet/pytorch/tensorflow/jax tabs).
+    paths: ["chapter_*/"]
+    include: ["chapter_*/*.md"]
+    exclude:
+      - "chapter_{references,installation,notation,preface}/**"
+      - "chapter_appendix-tools-for-deep-learning/**"
+      - "chapter_*/index.md"
+    max_file_kb: 200
+    clean_profile: d2l
+    license: CC-BY-SA-4.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: deep-learning-theory
+    related_technologies: [deep-learning, math, pytorch]
+    reference_only: false
+    verified: true
+    notes: >
+      English only (the repo is the English edition). clean_profile d2l keeps the
+      PyTorch variant only: `%%tab` code cells for mxnet/tensorflow/jax and
+      `:begin_tab:` prose blocks for other frameworks are dropped, `%%tab`
+      markers/`#@save` stripped, d2lbook cross-ref roles (:label:/:numref:/:eqref:/
+      :cite:) rewritten or removed. Per-chapter index.md (toctree only),
+      references/installation/notation/preface and the tooling appendix
+      (AWS/Colab/contributing) excluded.
+
+  - name: pytorch-tutorials
+    namespace: technical
+    priority: P0
+    url: https://github.com/pytorch/tutorials
+    loader: git
+    # Tree-verified: *_source/ dirs hold both .rst pages and sphinx-gallery .py
+    # tutorials (code + reST comments). Both are taken; .py is converted to
+    # text+fenced-code by the `py_gallery` option.
+    paths: ["beginner_source/", "intermediate_source/", "recipes_source/", "advanced_source/"]
+    include: ["{beginner,intermediate,recipes,advanced}_source/**"]
+    exclude:
+      - "**/*index.rst"
+      - "**/*_index.rst"
+      - "**/README*"
+      - "**/data/**"
+      - "**/_static/**"
+    options:
+      py_gallery: true
+    max_file_kb: 100
+    clean_profile: rst
+    license: BSD-3-Clause
+    auto_level: full
+    trust_level: official
+    refresh_cycle: monthly
+    domain: ml-engineering
+    related_technologies: [pytorch, deep-learning]
+    reference_only: false
+    verified: true
+    notes: >
+      Used pytorch/tutorials (task fallback) because pytorch/pytorch docs/source is
+      Sphinx autodoc. unstable_source (prototype features) excluded by not being
+      listed in `paths`; toctree-only index pages excluded.
+
+  - name: system-design-primer
+    namespace: technical
+    priority: P0
+    url: https://github.com/donnemartin/system-design-primer
+    loader: git
+    paths: ["README.md", "solutions/system_design"]
+    exclude:
+      # every translation (README-zh-Hans.md, README-ja.md, ...) — 92 of 245 chunks were Chinese
+      - "**/README-*.md"
+      - "**/*-{zh,zh-Hans,zh-TW,ja,ko,ru,es,fr,de,pt,it,tr,vi,id,ar,he,hi}.md"
+      - "TRANSLATIONS.md"
+    license: CC-BY-SA-4.0
+    auto_level: full
+    trust_level: community
+    refresh_cycle: quarterly
+    domain: system-design
+    related_technologies: [system-design, distributed-systems, interview-prep]
+    reference_only: false
+    verified: true
+    notes: "Actually run. Main content is the root README.md (very large, heading-rich) plus solutions/system_design/*/README.md case studies. solutions/object_oriented_design is code (.py/.ipynb), excluded."
+
+  - name: cp-algorithms
+    namespace: technical
+    priority: P0
+    url: https://github.com/cp-algorithms/cp-algorithms
+    loader: git
+    path: src
+    options:
+      # ~80 "Practice problems" link-only lists are dropped as link-index; they are counted in
+      # the report but intentionally NOT written to data/reports/dropped/ (pure noise for audit).
+      dropped_not_persisted: [link-index]
+    license: CC-BY-SA-4.0
+    auto_level: full
+    trust_level: community
+    refresh_cycle: quarterly
+    domain: algorithms
+    related_technologies: [algorithms, data-structures, competitive-programming]
+    reference_only: false
+    verified: true
+    notes: "Actually run. src/ has 170 md files, mkdocs-based."
+
+  - name: fastapi
+    namespace: technical
+    priority: P0
+    url: https://github.com/fastapi/fastapi
+    loader: git
+    # docs_src/ holds the code examples that the docs pull in with `{* ../../docs_src/x.py hl[..] *}`.
+    # It is fetched (sparse) only so the loader can inline those examples; it is NOT in `include`,
+    # so docs_src files are never ingested as standalone chunks.
+    paths: ["docs/en", "docs_src"]
+    include: ["docs/en/docs/**"]
+    options:
+      code_include_base: docs/en     # include paths are relative to docs/en (../../docs_src -> <repo>/docs_src)
+    exclude:
+      # release notes alone were 559 of 1,332 chunks (42%) and are changelog, not Q&A material
+      - "docs/en/docs/release-notes.md"
+      # project-community / maintainer / translation-process pages
+      - "docs/en/docs/{contributing,fastapi-people,management,management-tasks,newsletter,help-fastapi,external-links,translations,translation-banner,_llm-test,project-generation}.md"
+      - "docs/en/docs/{about,resources}/**"
+    license: MIT
+    auto_level: full
+    trust_level: official
+    refresh_cycle: monthly
+    domain: web-backend
+    related_technologies: [fastapi, python, rest-api]
+    reference_only: false
+    verified: true
+    notes: "Actually run. docs/en has 156 md files (confirmed; docs/ also has 11 other locale dirs, excluded)."
+
+  - name: django
+    namespace: technical
+    priority: P0
+    url: https://github.com/django/django
+    loader: git
+    # Tree-verified: docs/**/*.txt (676 reST files; Django's non-standard .txt
+    # extension). releases/ alone is 396 files.
+    paths: ["docs/intro/", "docs/topics/", "docs/howto/", "docs/ref/", "docs/faq/", "docs/glossary.txt"]
+    include: ["docs/**/*.txt"]
+    exclude:
+      - "docs/ref/contrib/gis/**"
+      - "docs/howto/{contributing,_images}/**"
+      - "docs/**/contents.txt"
+    options:
+      exts: [".txt"]
+    max_file_kb: 300      # docs/ref/models/querysets.txt (QuerySet API reference) is 162 KB
+    clean_profile: rst
+    license: BSD-3-Clause
+    auto_level: full
+    trust_level: official
+    refresh_cycle: monthly
+    domain: web-backend
+    related_technologies: [django, python, web-framework]
+    reference_only: false
+    verified: true
+    notes: >
+      Included: intro/ (tutorials), topics/ (conceptual: ORM, auth, caching,
+      migrations...), howto/, ref/ (models, QuerySets, settings, middleware, forms,
+      class-based views...), faq/, glossary. Excluded: releases/ (396 release
+      notes), internals/ + misc/ (contributor/governance/deprecation timeline),
+      _theme/_ext/man (build tooling), ref/contrib/gis (GeoDjango niche).
+      reST directives are converted by clean_profile `rst` (code-block ->
+      fenced code, :ref:/:class:/:doc: roles -> plain text, versionadded/changed ->
+      inline notes, admonitions -> bold labels, toctree/image/module directives
+      dropped).
+
+  - name: postgres-docs
+    namespace: technical
+    priority: P0
+    url: https://www.postgresql.org/docs/current/
+    loader: crawler
+    license: "PostgreSQL License (permissive, similar to MIT/BSD)"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: databases
+    related_technologies: [postgresql, sql, pgvector]
+    reference_only: false
+    verified: true
+    clean_profile: html
+    options:
+      crawl:
+        prefix: "https://www.postgresql.org/docs/current/"
+        start_urls: ["https://www.postgresql.org/docs/current/index.html"]
+        delay_seconds: 1.5          # >= 1s required; politeness margin
+        max_pages: 260
+        main_selectors: ["#docContent"]
+        strip_selectors: [".navheader", ".navfooter", ".id_link", ".indexterm", "#docComments", ".titlepage-nav"]
+        version_regex: 'PostgreSQL ([0-9]+\.[0-9]+) Documentation'
+        version_prefix: "PostgreSQL "
+        # /docs/current/ moves with every release; pin chunk URLs to the major version we crawled
+        permalink: {match: "/docs/current/", replace: "/docs/{major}/"}
+        # Whitelist of page names (relative to prefix) useful for interview prep:
+        # SQL language, indexes, concurrency/MVCC/transactions, performance tuning,
+        # internals (storage, WAL, planner, vacuum), replication/HA/backup.
+        allow:
+          - "tutorial-{transactions,window,fk,views,inheritance,agg,join,table}.html"
+          - "sql-syntax*.html"
+          - "ddl*.html"
+          - "dml*.html"
+          - "queries*.html"
+          - "datatype.html"
+          - "datatype-{numeric,character,datetime,boolean,json,uuid,enum,geometric,net,textsearch,xml,pseudo,money,bit,binary,oid}.html"
+          - "arrays.html"
+          - "rowtypes.html"
+          - "indexes*.html"
+          - "mvcc*.html"
+          - "transaction-iso.html"
+          - "explicit-locking.html"
+          - "applevel-consistency.html"
+          - "locking-indexes.html"
+          - "performance-tips.html"
+          - "using-explain.html"
+          - "planner-stats*.html"
+          - "explicit-joins.html"
+          - "populate.html"
+          - "non-durability.html"
+          - "parallel-*.html"
+          - "when-can-parallel-query-be-used.html"
+          - "storage*.html"
+          - "btree*.html"
+          - "gin-intro.html"
+          - "gist-intro.html"
+          - "brin-intro.html"
+          - "routine-vacuuming.html"
+          - "routine-reindex.html"
+          - "wal*.html"
+          - "planner-optimizer.html"
+          - "query-path.html"
+          - "overview.html"
+          - "high-availability.html"
+          - "different-replication-solutions.html"
+          - "warm-standby*.html"
+          - "hot-standby*.html"
+          - "logical-replication*.html"
+          - "backup*.html"
+          - "continuous-archiving.html"
+          - "failover.html"
+        deny:
+          - "release*.html"
+          - "functions*.html"
+          - "*print*.html"
+          - "wal-internals.html"
+          - "storage-init.html"
+    notes: >
+      Generic polite crawler (rag/loaders/crawler_loader.py): robots.txt checked
+      (Disallow only /docs/devel/ and non-doc paths), >=1.5s delay, descriptive
+      UA, URL-prefix scope, whitelist/deny globs, max_pages cap, raw HTML cached
+      in data/raw/postgres-docs/. Main content = #docContent minus navheader/
+      navfooter. doc_version taken from the page (e.g. "PostgreSQL 18.6").
+      Excluded: per-function reference (functions-*), SQL command reference
+      (sql-<command>.html), release notes, client/server config reference.
+
+  - name: redis-docs
+    namespace: technical
+    priority: P0
+    url: https://github.com/redis/docs
+    loader: git
+    # Tree-verified: content/ (Hugo) is 6000+ files, dominated by Redis
+    # Enterprise/Cloud/Kubernetes versioned manuals (rs/7.4, 7.8, 7.22, 8.0,
+    # kubernetes/*, rc/*) and RedisVL/AI docs. Only core OSS concept docs taken.
+    paths:
+      - "content/develop/data-types/"
+      - "content/develop/get-started/"
+      - "content/develop/pubsub/"
+      - "content/develop/using-commands/"
+      - "content/develop/programmability/"
+      - "content/develop/use-cases/*/_index.md"
+      - "content/operate/oss_and_stack/management/"
+    include:
+      - "content/develop/data-types/**"
+      - "content/develop/get-started/**"
+      - "content/develop/pubsub/**"
+      - "content/develop/using-commands/**"
+      - "content/develop/programmability/**"
+      - "content/develop/use-cases/*/_index.md"
+      - "content/operate/oss_and_stack/management/**"
+    exclude:
+      - "content/develop/data-types/{json,timeseries,vector-sets}/**"
+      - "content/develop/get-started/search-tutorial/**"   # RediSearch module tutorial: multi-KB JSON dumps
+      - "content/operate/oss_and_stack/management/optimization/benchmarks/**"
+      - "content/operate/oss_and_stack/management/security/gpgkey.txt"
+    max_file_kb: 100
+    clean_profile: hugo
+    license: "Redis docs: CC-BY-SA-4.0 (code samples may differ; verify per-file)"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: monthly
+    domain: databases
+    related_technologies: [redis, caching, nosql]
+    reference_only: false
+    verified: true
+    notes: >
+      Real content dir is content/ (Hugo). Interview-relevant subset: core data
+      types (strings/hashes/lists/sets/sorted sets/streams/geo/probabilistic),
+      getting started, pub/sub, transactions/programmability, command usage, the
+      13 use-case pattern pages (cache-aside, rate limiter, session store, job
+      queue, leaderboard, streaming...; per-client code dirs excluded) and OSS
+      operations (persistence, replication, Sentinel, scaling/cluster, latency,
+      memory optimisation, security). Excluded: Redis Enterprise/Cloud/
+      Kubernetes manuals (versioned duplicates, thousands of files), RedisVL
+      and AI/vector docs, client-library docs, integrations, module-specific
+      JSON/TimeSeries/vector-set docs, release notes, benchmarks. Hugo
+      shortcodes ({{< >}}/{{% %}}) are stripped by clean_profile `hugo`.
+
+  - name: kafka-docs
+    namespace: technical
+    priority: P0
+    url: https://github.com/apache/kafka
+    loader: git
+    # Tree-verified: docs/ = 112 Markdown files (Hugo), NOT HTML. Embedded raw
+    # HTML (tables/divs/anchors) inside the markdown is converted by the shared
+    # HTML->markdown cleaner (clean_profile: hugo).
+    paths: ["docs/"]
+    include: ["docs/**"]
+    exclude:
+      - "docs/**/upgrade*"
+      - "docs/getting-started/upgrade.md"
+      - "docs/**/_index.md"
+    max_file_kb: 200
+    clean_profile: hugo
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: monthly
+    domain: streaming
+    related_technologies: [kafka, streaming, event-driven]
+    reference_only: false
+    verified: true
+    notes: >
+      Docs are Markdown-in-repo (Hugo), not HTML-in-repo. Config reference pages
+      (configuration/*-configs.md) are auto-generated tables and are kept but
+      split by headings. Upgrade guides and section _index.md stubs excluded.
+
+  - name: kafka-config-reference
+    namespace: technical
+    priority: P0
+    url: https://github.com/apache/kafka-site
+    loader: git
+    # The configuration reference tables (producer/consumer/broker/topic/...) are NOT in
+    # apache/kafka: its docs pull them in at build time via {{< include-html >}}. The
+    # generated HTML lives in apache/kafka-site, content/en/<ver>/generated/ (tree-verified;
+    # latest_version "43" per hugo.yaml).
+    paths: ["content/en/43/generated/"]
+    include:
+      - "content/en/43/generated/{kafka_config,producer_config,consumer_config,topic_config,group_config,admin_client_config,streams_config,connect_config}.html"
+    options:
+      exts: [".html"]
+      title_prefix: "Kafka "
+      titles: {kafka_config: "Kafka Broker Config"}
+    max_file_kb: 400
+    clean_profile: html
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: monthly
+    domain: streaming
+    related_technologies: [kafka, configuration, producer, consumer]
+    reference_only: false
+    verified: true
+    notes: >
+      Fills the gap left by kafka-docs (whose config pages only contain an include-html
+      stub). Generated HTML fragments (one <li> per config: name, description, type/
+      default/valid values/importance table) are converted to markdown. Only the 8
+      most interview-relevant references are taken (broker, producer, consumer, topic,
+      group, admin client, streams, connect); metrics/protocol/mirror/transform
+      references are excluded. doc_version is the kafka-site commit.
+
+  - name: tech-interview-handbook
+    namespace: question
+    priority: P0
+    url: https://github.com/yangshun/tech-interview-handbook
+    loader: git
+    paths: ["apps/website/contents", "apps/website/blog"]
+    license: MIT
+    auto_level: full
+    trust_level: community
+    refresh_cycle: quarterly
+    domain: interview-prep
+    related_technologies: [coding-interview, system-design, behavioral-interview]
+    reference_only: false
+    verified: true
+    notes: "Actually run. apps/website/contents has 53 md files (algorithms/, resume.md, negotiation.md, system-design.md, etc.); apps/website/blog has long-form articles."
+
+  # ---- P0 question (datasets) ----
+  - name: leetcode-dataset
+    namespace: question
+    priority: P0
+    url: https://huggingface.co/datasets/newfacade/LeetCodeDataset
+    loader: hf
+    license: Apache-2.0
+    auto_level: full
+    trust_level: curated
+    refresh_cycle: quarterly
+    domain: coding-interview
+    related_technologies: [leetcode, python, algorithms]
+    reference_only: false
+    verified: true
+    notes: "Actually run. Confirmed via HF API, revision 215604aeed660029df7de2fea5a4d7b6ed476a08. Only title/description/tags/difficulty go into text per spec; no full test cases."
+
+  - name: leetcode-python-dataset
+    namespace: question
+    priority: P0
+    url: https://huggingface.co/datasets/justindal/leetcode-python-dataset
+    loader: hf
+    license: Apache-2.0
+    auto_level: full
+    trust_level: community
+    refresh_cycle: quarterly
+    domain: coding-interview
+    related_technologies: [leetcode, python, algorithms]
+    reference_only: false
+    verified: true
+    options:
+      # The default config (train/valid/test.jsonl) is chat-formatted
+      # fine-tuning data (messages[]); the `benchmark` config carries structured
+      # fields (slug, problem, difficulty, tags) — use that one only.
+      files: ["benchmark.jsonl"]
+      # Cross-source dedupe: one chunk per problem. Problems whose slug already
+      # exists in this source are dropped here and recorded as provenance on the
+      # primary chunk (metadata.also_in_sources).
+      dedupe_against: leetcode-dataset
+    notes: >
+      Confirmed via HF API (justindal/leetcode-python-dataset, merges newfacade +
+      greengerong). benchmark.jsonl has 3420 rows: 2831 newfacade-derived (same
+      problems as LeetCodeDataset) + 589 greengerong. Solutions and tests are
+      never put into chunk text. train/valid/test/validation.jsonl are
+      chat-formatted duplicates and are not used.
+
+  - name: skillsfuture-ict
+    namespace: job
+    priority: P0
+    url: https://www.skillsfuture.gov.sg/skills-framework/ict
+    loader: xlsx
+    license: "Singapore Government (SkillsFuture Singapore / IMDA) - check terms on the download page; attribution required"
+    auto_level: semi
+    trust_level: official
+    refresh_cycle: yearly
+    domain: job-taxonomy
+    related_technologies: [skills-framework, ict, singapore]
+    reference_only: false
+    verified: true
+    options:
+      parser: skillsfuture_ict
+      glob: "*.xlsx"
+    notes: >
+      MANUAL DOWNLOAD REQUIRED. As of 2026-10-02: https://www.skillsfuture.gov.sg/skills-framework/ict
+      renders an empty Next.js 404 shell to non-browser clients, the Jobs-Skills
+      Portal (https://jobsandskills.skillsfuture.gov.sg/frameworks/skills-frameworks)
+      answers HTTP 403 to scripted clients (WAF) — so no direct public no-login
+      Excel URL could be located and nothing was bypassed. Download the Skills
+      Framework for Infocomm Technology (ICT) Excel manually in a browser and
+      place the .xlsx file(s) in data/raw/skillsfuture-ict/. The parser
+      (rag/loaders/xlsx_loader.py) is header-driven and was written against the
+      documented JRD / job-role-to-TSC/CCS sheet structure, tested on synthetic
+      fixtures only — NOT yet against the real file.
+
+  - name: mycareersfuture-jd
+    namespace: job
+    priority: P0
+    url: https://www.mycareersfuture.gov.sg/
+    loader: crawler
+    license: "Scraped job postings — no redistribution license; internal research use only"
+    auto_level: manual
+    trust_level: community
+    refresh_cycle: weekly
+    domain: job-postings
+    related_technologies: [job-descriptions, singapore]
+    reference_only: false
+    verified: false
+    notes: "Task notes a team-authored mcf_scraper.py is expected but not present in this repo. Loader is stubbed (not implemented); mark verified:false until the scraper script and its ToS compliance are confirmed by the team."
+
+  # ---- P0 rubric / test (manual, team-authored) ----
+  - name: bars-competencies
+    namespace: rubric
+    priority: P0
+    url: ""
+    loader: manual
+    license: "Team-authored, internal to IntelliHire project"
+    auto_level: manual
+    trust_level: curated
+    refresh_cycle: as-needed
+    domain: interview-scoring
+    related_technologies: [bars, rubric, competency-model]
+    reference_only: false
+    verified: true
+    notes: "6 BARS competencies to be authored by the team (no upstream source); loader prints manual placeholder. Content should live under data/raw/bars-competencies/ as markdown/YAML once written."
+
+  - name: synthetic-interview-samples
+    namespace: test
+    priority: P0
+    url: ""
+    loader: manual
+    license: "Team-authored, internal to IntelliHire project"
+    auto_level: manual
+    trust_level: curated
+    refresh_cycle: as-needed
+    domain: interview-scoring
+    related_technologies: [synthetic-data, resume, interview-answers]
+    reference_only: false
+    verified: true
+    notes: "Synthetic resumes + weak/mid/strong answer triples, team-authored for BARS scorer regression tests. Not yet written; loader is a placeholder."
+
+  # ============================================================
+  # P0 — papers (arXiv)
+  # ============================================================
+  - name: paper-attention-is-all-you-need
+    namespace: technical
+    priority: P0
+    url: https://arxiv.org/abs/1706.03762
+    loader: arxiv
+    license: "arXiv.org perpetual non-exclusive license (check per-paper; this one: arXiv.org license)"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: nlp-foundations
+    related_technologies: [transformer, attention, deep-learning]
+    reference_only: false
+    verified: true
+    notes: "arXiv id 1706.03762, confirmed via arXiv API. Actually run via https://arxiv.org/html/1706.03762 (HTTP 200)."
+
+  - name: paper-lora
+    namespace: technical
+    priority: P0
+    url: https://arxiv.org/abs/2106.09685
+    loader: arxiv
+    license: "arXiv.org perpetual non-exclusive license"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: ml-efficiency
+    related_technologies: [lora, fine-tuning, peft]
+    reference_only: false
+    verified: true
+    notes: "arXiv id 2106.09685, confirmed via arXiv API. Actually run."
+
+  - name: paper-pagedattention-vllm
+    namespace: technical
+    priority: P0
+    url: https://arxiv.org/abs/2309.06180
+    loader: arxiv
+    license: "arXiv.org perpetual non-exclusive license"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: ml-serving
+    related_technologies: [vllm, pagedattention, kv-cache]
+    reference_only: false
+    verified: true
+    notes: "arXiv id 2309.06180, confirmed via arXiv API. Actually run."
+
+  - name: paper-rag
+    namespace: technical
+    priority: P0
+    url: https://arxiv.org/abs/2005.11401
+    loader: arxiv
+    license: "arXiv.org perpetual non-exclusive license"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: rag
+    related_technologies: [rag, retrieval, nlp]
+    reference_only: false
+    verified: true
+    notes: "arXiv id 2005.11401, confirmed via arXiv API. Actually run."
+
+  - name: paper-react
+    namespace: technical
+    priority: P0
+    url: https://arxiv.org/abs/2210.03629
+    loader: arxiv
+    license: "arXiv.org perpetual non-exclusive license"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: agents
+    related_technologies: [react, agents, reasoning]
+    reference_only: false
+    verified: true
+    notes: "arXiv id 2210.03629, confirmed via arXiv API. Actually run."
+
+  - name: paper-reflexion
+    namespace: technical
+    priority: P0
+    url: https://arxiv.org/abs/2303.11366
+    loader: arxiv
+    license: "arXiv.org perpetual non-exclusive license"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: agents
+    related_technologies: [reflexion, agents, self-reflection]
+    reference_only: false
+    verified: true
+    notes: "arXiv id 2303.11366, confirmed via arXiv API. Actually run."
+
+  # ============================================================
+  # P1
+  # ============================================================
+  - name: mdn-content
+    namespace: technical
+    priority: P1
+    url: https://github.com/mdn/content
+    loader: git
+    path: files/en-us
+    license: CC-BY-SA-2.5
+    auto_level: full
+    trust_level: official
+    refresh_cycle: monthly
+    domain: web-frontend
+    related_technologies: [html, css, javascript, web-apis]
+    reference_only: false
+    verified: true
+    notes: "Confirmed files/en-us (14683 md files)."
+
+  - name: react-dev
+    namespace: technical
+    priority: P1
+    url: https://github.com/reactjs/react.dev
+    loader: git
+    path: src/content
+    license: CC-BY-4.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: monthly
+    domain: web-frontend
+    related_technologies: [react, javascript, frontend]
+    reference_only: false
+    verified: true
+    notes: "Confirmed src/content (225 md files)."
+
+  - name: vuejs-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/vuejs/docs
+    loader: git
+    path: src
+    license: CC-BY-4.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: monthly
+    domain: web-frontend
+    related_technologies: [vue, javascript, frontend]
+    reference_only: false
+    verified: true
+    notes: "Confirmed src/guide, src/api, src/tutorial subdirs exist; path set to src to cover all."
+
+  - name: nextjs-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/vercel/next.js
+    loader: git
+    path: docs
+    license: MIT
+    auto_level: full
+    trust_level: official
+    refresh_cycle: monthly
+    domain: web-frontend
+    related_technologies: [nextjs, react, ssr]
+    reference_only: false
+    verified: true
+    notes: "Confirmed docs/01-app (289) + docs/02-pages (265) md files on canary branch."
+
+  - name: typescript-handbook
+    namespace: technical
+    priority: P1
+    url: https://github.com/microsoft/TypeScript-Website
+    loader: git
+    path: packages/documentation
+    license: CC-BY-4.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: web-frontend
+    related_technologies: [typescript, javascript]
+    reference_only: false
+    verified: true
+    notes: "Confirmed packages/documentation (133 md files) is the handbook content."
+
+  - name: swift-book
+    namespace: technical
+    priority: P1
+    url: https://github.com/swiftlang/swift-book
+    loader: git
+    path: TSPL.docc
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: mobile
+    related_technologies: [swift, ios]
+    reference_only: false
+    verified: true
+    notes: "Repo existence confirmed via ls-remote; path TSPL.docc is the documented structure of this repo (DocC catalog) but not tree-verified in this session — flagged for a quick check before first real fetch."
+
+  - name: kotlin-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/JetBrains/kotlin-web-site
+    loader: git
+    path: docs/topics
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: mobile
+    related_technologies: [kotlin, android]
+    reference_only: false
+    verified: true
+    notes: "Repo existence confirmed; path docs/topics is the known convention for this site but not tree-verified this session."
+
+  - name: flutter-website
+    namespace: technical
+    priority: P1
+    url: https://github.com/flutter/website
+    loader: git
+    path: src/content
+    license: CC-BY-4.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: mobile
+    related_technologies: [flutter, dart, mobile]
+    reference_only: false
+    verified: true
+    notes: "Repo existence confirmed; path not tree-verified this session (flutter/website migrated to an Eleventy/markdown site under src/content — verify before first fetch)."
+
+  - name: react-native-website
+    namespace: technical
+    priority: P1
+    url: https://github.com/facebook/react-native-website
+    loader: git
+    path: docs
+    license: MIT
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: mobile
+    related_technologies: [react-native, mobile]
+    reference_only: false
+    verified: true
+    notes: "Repo existence confirmed; path not tree-verified this session."
+
+  - name: front-end-interview-handbook
+    namespace: question
+    priority: P1
+    url: https://github.com/yangshun/front-end-interview-handbook
+    loader: git
+    path: .
+    license: MIT
+    auto_level: full
+    trust_level: community
+    refresh_cycle: quarterly
+    domain: interview-prep
+    related_technologies: [frontend, javascript, interview]
+    reference_only: false
+    verified: true
+    notes: "Repo existence confirmed; exact content subdir not tree-verified this session."
+
+  - name: android-interview-questions
+    namespace: question
+    priority: P1
+    url: https://github.com/MindorksOpenSource/android-interview-questions
+    loader: git
+    path: .
+    license: "Unspecified on repo (treat as all-rights-reserved until confirmed; do not redistribute)"
+    auto_level: full
+    trust_level: community
+    refresh_cycle: quarterly
+    domain: interview-prep
+    related_technologies: [android, kotlin, java, interview]
+    reference_only: false
+    verified: true
+    notes: "Repo existence confirmed; README.md is the entire content (single-file Q&A list), not tree-verified in depth."
+
+  - name: pandas-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/pandas-dev/pandas
+    loader: git
+    path: doc/source
+    license: BSD-3-Clause
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: data-science
+    related_technologies: [pandas, python, data-analysis]
+    reference_only: false
+    verified: true
+    notes: "Task referred to this repo as 'pandas'; actual org/repo is pandas-dev/pandas (confirmed via ls-remote). Path doc/source is the known convention, not tree-verified this session."
+
+  - name: statsmodels-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/statsmodels/statsmodels
+    loader: git
+    path: docs/source
+    license: BSD-3-Clause
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: data-science
+    related_technologies: [statsmodels, statistics, python]
+    reference_only: false
+    verified: true
+    notes: "Repo existence confirmed; path not tree-verified this session."
+
+  - name: spark-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/apache/spark
+    loader: git
+    path: docs
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: data-engineering
+    related_technologies: [spark, big-data, scala]
+    reference_only: false
+    verified: true
+    notes: "Repo existence confirmed; docs/ is the well-known convention (jekyll site), not tree-verified this session."
+
+  - name: airflow-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/apache/airflow
+    loader: git
+    path: docs
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: data-engineering
+    related_technologies: [airflow, orchestration, python]
+    reference_only: false
+    verified: true
+    notes: "Repo existence confirmed; docs/ is a large multi-package tree (docs/apache-airflow etc.), not tree-verified in full this session."
+
+  - name: dbt-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/dbt-labs/docs.getdbt.com
+    loader: git
+    path: website/docs
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: data-engineering
+    related_technologies: [dbt, analytics-engineering, sql]
+    reference_only: false
+    verified: true
+    notes: "Repo existence confirmed; path website/docs is the known Docusaurus convention, not tree-verified this session."
+
+  - name: ml-interviews-alirezadir
+    namespace: question
+    priority: P1
+    url: https://github.com/alirezadir/Machine-Learning-Interviews
+    loader: git
+    path: src
+    license: "Unspecified (community notes repo; treat as reference/curated, confirm license before redistribution)"
+    auto_level: full
+    trust_level: community
+    refresh_cycle: quarterly
+    domain: interview-prep
+    related_technologies: [ml-interview, system-design, ml]
+    reference_only: false
+    verified: true
+    notes: "Repo existence confirmed via ls-remote."
+
+  - name: ml-interviews-book
+    namespace: question
+    priority: P1
+    url: https://github.com/chiphuyen/ml-interviews-book
+    loader: git
+    path: contents
+    license: "All rights reserved by author (book excerpt repo) — treat as reference_only-leaning community source, confirm before full ingestion"
+    auto_level: full
+    trust_level: community
+    refresh_cycle: quarterly
+    domain: interview-prep
+    related_technologies: [ml-interview, data-science]
+    reference_only: false
+    verified: true
+    notes: "Repo existence confirmed; path not tree-verified this session."
+
+  - name: data-science-interviews
+    namespace: question
+    priority: P1
+    url: https://github.com/alexeygrigorev/data-science-interviews
+    loader: git
+    path: .
+    license: CC-BY-4.0
+    auto_level: full
+    trust_level: community
+    refresh_cycle: quarterly
+    domain: interview-prep
+    related_technologies: [data-science, interview]
+    reference_only: false
+    verified: true
+    notes: "Repo existence confirmed."
+
+  - name: ragas-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/explodinggradients/ragas
+    loader: git
+    path: docs
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: rag-evaluation
+    related_technologies: [ragas, rag, evaluation]
+    reference_only: false
+    verified: true
+    notes: "Repo existence confirmed."
+
+  - name: mcp-spec
+    namespace: technical
+    priority: P1
+    url: https://github.com/modelcontextprotocol/modelcontextprotocol
+    loader: git
+    path: docs
+    license: "CC-BY-4.0 (spec text); code samples Apache-2.0 — verify per directory"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: agent-frameworks
+    related_technologies: [mcp, agents, tool-use]
+    reference_only: false
+    verified: true
+    notes: "Repo existence confirmed."
+
+  - name: anthropic-cookbook
+    namespace: technical
+    priority: P1
+    url: https://github.com/anthropics/anthropic-cookbook
+    loader: git
+    path: .
+    license: MIT
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: llm-engineering
+    related_technologies: [claude, prompting, rag]
+    reference_only: false
+    verified: true
+    notes: "Mostly Jupyter notebooks; git loader extracts markdown cells per spec."
+
+  - name: openai-cookbook
+    namespace: technical
+    priority: P1
+    url: https://github.com/openai/openai-cookbook
+    loader: git
+    path: examples
+    license: MIT
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: llm-engineering
+    related_technologies: [openai, prompting, rag]
+    reference_only: false
+    verified: true
+    notes: "Repo existence confirmed; examples/ is mixed .md and .ipynb."
+
+  - name: prompt-engineering-guide
+    namespace: technical
+    priority: P1
+    url: https://github.com/dair-ai/Prompt-Engineering-Guide
+    loader: git
+    path: pages
+    license: MIT
+    auto_level: full
+    trust_level: community
+    refresh_cycle: quarterly
+    domain: llm-engineering
+    related_technologies: [prompt-engineering, llm]
+    reference_only: false
+    verified: true
+    notes: "Repo existence confirmed; this is a Next.js site, content under pages/ as .en.mdx files — path not tree-verified this session."
+
+  - name: hf-agents-course
+    namespace: technical
+    priority: P1
+    url: https://github.com/huggingface/agents-course
+    loader: git
+    path: units
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: agent-frameworks
+    related_technologies: [agents, huggingface, llm]
+    reference_only: false
+    verified: true
+    notes: "Repo existence confirmed; path not tree-verified this session."
+
+  - name: llm-course
+    namespace: technical
+    priority: P1
+    url: https://github.com/mlabonne/llm-course
+    loader: git
+    path: .
+    license: Apache-2.0
+    auto_level: full
+    trust_level: community
+    refresh_cycle: quarterly
+    domain: llm-engineering
+    related_technologies: [llm, fine-tuning, training]
+    reference_only: false
+    verified: true
+    notes: "Repo existence confirmed; content is mostly a single README.md roadmap + linked notebooks."
+
+  - name: esco
+    namespace: job
+    priority: P1
+    url: https://esco.ec.europa.eu/en/use-esco/download
+    loader: crawler
+    license: "CC-BY-4.0 (ESCO is EU open data)"
+    auto_level: manual
+    trust_level: official
+    refresh_cycle: yearly
+    domain: job-taxonomy
+    related_technologies: [esco, skills-taxonomy, eu]
+    reference_only: false
+    verified: true
+    notes: "ESCO publishes a REST API and bulk CSV/RDF downloads; loader for the API is not implemented yet."
+
+  - name: onet
+    namespace: job
+    priority: P1
+    url: https://www.onetcenter.org/database.html
+    loader: crawler
+    license: "O*NET data: public domain (US government work), attribution requested"
+    auto_level: manual
+    trust_level: official
+    refresh_cycle: yearly
+    domain: job-taxonomy
+    related_technologies: [onet, occupations, skills-taxonomy]
+    reference_only: false
+    verified: true
+    notes: "O*NET Web Services requires a free API key; loader not implemented yet."
+
+  - name: kaggle-linkedin-job-postings
+    namespace: job
+    priority: P1
+    url: https://www.kaggle.com/datasets/arshkon/linkedin-job-postings
+    loader: manual
+    license: "Kaggle dataset license — see dataset page (CC0/ODbL varies, verify before redistribution)"
+    auto_level: manual
+    trust_level: community
+    refresh_cycle: quarterly
+    domain: job-postings
+    related_technologies: [linkedin, job-postings]
+    reference_only: false
+    verified: false
+    notes: "Requires Kaggle API credentials not available in this environment; dataset slug not independently re-verified this session (common/well-known dataset, but mark verified:false until a team member confirms with Kaggle auth)."
+
+  - name: kaggle-resume-dataset
+    namespace: test
+    priority: P1
+    url: https://www.kaggle.com/datasets/snehaanbhawal/resume-dataset
+    loader: manual
+    license: "Kaggle dataset license — see dataset page, verify before redistribution"
+    auto_level: manual
+    trust_level: community
+    refresh_cycle: quarterly
+    domain: resume-screening
+    related_technologies: [resume, nlp]
+    reference_only: false
+    verified: false
+    notes: "Same Kaggle-auth limitation as above; namespace is `test` per task spec (used for BARS/resume-parsing regression tests, not RAG retrieval)."
+
+  # ============================================================
+  # P2
+  # ============================================================
+  - name: kubernetes-website
+    namespace: technical
+    priority: P2
+    url: https://github.com/kubernetes/website
+    loader: git
+    path: content/en/docs
+    license: CC-BY-4.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: devops
+    related_technologies: [kubernetes, containers, devops]
+    reference_only: false
+    verified: true
+    notes: "Repo existence confirmed; path is the well-known convention, not tree-verified this session."
+
+  - name: docker-docs
+    namespace: technical
+    priority: P2
+    url: https://github.com/docker/docs
+    loader: git
+    path: content
+    license: "Apache-2.0 (code samples); docs text license varies, verify before redistribution"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: devops
+    related_technologies: [docker, containers]
+    reference_only: false
+    verified: true
+    notes: "Repo existence confirmed; path not tree-verified this session."
+
+  - name: devops-exercises
+    namespace: question
+    priority: P2
+    url: https://github.com/bregman-arie/devops-exercises
+    loader: git
+    path: .
+    license: "Unspecified — treat as reference/curated, confirm before redistribution"
+    auto_level: full
+    trust_level: community
+    refresh_cycle: quarterly
+    domain: devops
+    related_technologies: [devops, interview, kubernetes, docker]
+    reference_only: false
+    verified: true
+    notes: "Repo existence confirmed."
+
+  - name: owasp-cheatsheets
+    namespace: technical
+    priority: P2
+    url: https://github.com/OWASP/CheatSheetSeries
+    loader: git
+    path: cheatsheets
+    license: CC-BY-SA-4.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: security
+    related_technologies: [security, web-security, owasp]
+    reference_only: false
+    verified: true
+    notes: "Repo existence confirmed; cheatsheets/ is the documented convention, not tree-verified this session."
+
+  - name: owasp-wstg
+    namespace: technical
+    priority: P2
+    url: https://github.com/OWASP/wstg
+    loader: git
+    path: document
+    license: CC-BY-SA-4.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: security
+    related_technologies: [security, pentesting, owasp]
+    reference_only: false
+    verified: true
+    notes: "Repo existence confirmed; path not tree-verified this session."
+
+  - name: mitre-cti
+    namespace: technical
+    priority: P2
+    url: https://github.com/mitre/cti
+    loader: git
+    path: enterprise-attack
+    license: "MITRE ATT&CK Terms of Use (free to use with attribution)"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: security
+    related_technologies: [mitre-attack, threat-intel, stix]
+    reference_only: false
+    verified: true
+    notes: >
+      Content is STIX 2.x JSON, not markdown/rst — the git_loader as specified
+      (*.md/*.mdx/*.rst/*.ipynb) will find nothing here. A dedicated STIX JSON
+      parser is needed before this source can actually produce chunks; flagged
+      for the team, not implemented in this task.
+
+  - name: zephyr-docs
+    namespace: technical
+    priority: P2
+    url: https://github.com/zephyrproject-rtos/zephyr
+    loader: git
+    path: doc
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: embedded
+    related_technologies: [zephyr, rtos, embedded]
+    reference_only: false
+    verified: true
+    notes: "Repo existence confirmed; path not tree-verified this session."
+
+  - name: playwright-docs
+    namespace: technical
+    priority: P2
+    url: https://github.com/microsoft/playwright
+    loader: git
+    path: docs/src
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: testing
+    related_technologies: [playwright, e2e-testing, automation]
+    reference_only: false
+    verified: true
+    notes: "Repo existence confirmed; path not tree-verified this session."
+
+  - name: pytest-docs
+    namespace: technical
+    priority: P2
+    url: https://github.com/pytest-dev/pytest
+    loader: git
+    path: doc/en
+    license: MIT
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: testing
+    related_technologies: [pytest, python, testing]
+    reference_only: false
+    verified: true
+    notes: "Repo existence confirmed; path not tree-verified this session."
+
+  - name: godot-docs
+    namespace: technical
+    priority: P2
+    url: https://github.com/godotengine/godot-docs
+    loader: git
+    path: tutorials
+    license: CC-BY-3.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: game-dev
+    related_technologies: [godot, gamedev]
+    reference_only: false
+    verified: true
+    notes: "Repo existence confirmed; path not tree-verified this session."
+
+  # ============================================================
+  # reference_only = true
+  # Loader MUST refuse to chunk full text for these; metadata-only entries.
+  # ============================================================
+  - name: ostep
+    namespace: technical
+    priority: P2
+    url: https://pages.cs.wisc.edu/~remzi/OSTEP/
+    loader: manual
+    license: "CC-BY-NC-SA-3.0 (explicitly non-commercial; do not ingest full text)"
+    auto_level: manual
+    trust_level: reference_only
+    refresh_cycle: never
+    domain: operating-systems
+    related_technologies: [operating-systems, cs-fundamentals]
+    reference_only: true
+    verified: true
+    notes: "Operating Systems: Three Easy Pieces. Non-commercial license — reference_only, metadata/citation only, never full-text chunked."
+
+  - name: google-sre-book
+    namespace: technical
+    priority: P2
+    url: https://sre.google/sre-book/table-of-contents/
+    loader: manual
+    license: "CC-BY-NC-ND-4.0 (no derivatives; do not ingest full text)"
+    auto_level: manual
+    trust_level: reference_only
+    refresh_cycle: never
+    domain: sre
+    related_technologies: [sre, reliability, devops]
+    reference_only: true
+    verified: true
+    notes: "reference_only, metadata/citation only."
+
+  - name: terraform-docs
+    namespace: technical
+    priority: P2
+    url: https://developer.hashicorp.com/terraform/docs
+    loader: manual
+    license: "HashiCorp BUSL-1.1 for recent Terraform releases (not OSI open-source); treat as reference_only"
+    auto_level: manual
+    trust_level: reference_only
+    refresh_cycle: never
+    domain: devops
+    related_technologies: [terraform, iac]
+    reference_only: true
+    verified: false
+    notes: "Candidate backing repo hashicorp/web-unified-docs exists (confirmed via GitHub API) but exact doc-content path not verified; since this source is reference_only (never fully ingested) and the license is restrictive, left verified:false rather than guessing a path."
+
+  - name: cuda-programming-guide
+    namespace: technical
+    priority: P2
+    url: https://docs.nvidia.com/cuda/cuda-c-programming-guide/
+    loader: manual
+    license: "Proprietary NVIDIA documentation — no redistribution; reference_only"
+    auto_level: manual
+    trust_level: reference_only
+    refresh_cycle: never
+    domain: gpu-computing
+    related_technologies: [cuda, gpu, nvidia]
+    reference_only: true
+    verified: true
+    notes: "Not a git repo; proprietary vendor docs. reference_only, metadata/citation only."
+
+  - name: bytebytego-system-design-101
+    namespace: technical
+    priority: P2
+    url: https://github.com/ByteByteGoHq/system-design-101
+    loader: manual
+    license: "CC-BY-NC-ND-4.0 (confirmed restrictive license on repo); reference_only"
+    auto_level: manual
+    trust_level: reference_only
+    refresh_cycle: never
+    domain: system-design
+    related_technologies: [system-design, interview-prep]
+    reference_only: true
+    verified: true
+    notes: "Repo existence confirmed via GitHub API; license is non-commercial/no-derivatives, consistent with task note. reference_only."
+
+  - name: roadmap-sh
+    namespace: technical
+    priority: P2
+    url: https://roadmap.sh
+    loader: manual
+    license: "Custom content license, all rights reserved by roadmap.sh — reference_only"
+    auto_level: manual
+    trust_level: reference_only
+    refresh_cycle: never
+    domain: career-roadmaps
+    related_technologies: [roadmap, career-development]
+    reference_only: true
+    verified: false
+    notes: >
+      Registered the website itself as canonical, not a GitHub repo: the
+      formerly-known mirror kamranahmedse/developer-roadmap now 301-redirects
+      to a different repo (nilbuild/developer-roadmap) under the GitHub API,
+      which is an unexplained ownership change worth treating with suspicion.
+      Marked verified:false rather than trusting that redirect; this source is
+      reference_only anyway (metadata/citation only, no full-text ingestion).
+
+  - name: dualoptimization-jobrec
+    namespace: technical
+    priority: P2
+    url: ""
+    loader: manual
+    license: "Unknown — not verified"
+    auto_level: manual
+    trust_level: reference_only
+    refresh_cycle: never
+    domain: job-recommendation
+    related_technologies: [job-recommendation, optimization]
+    reference_only: true
+    verified: false
+    notes: >
+      Could not identify a canonical paper/repo matching "DualOptimization_jobrec"
+      with confidence from the name alone (no GitHub repo or arXiv paper found
+      under this exact name during registry construction). Registered as a
+      placeholder with verified:false and an empty url — needs the team member
+      who proposed this source to supply the actual link before it is usable.
+      reference_only regardless, per task instructions.

@@ -1,0 +1,18 @@
+# Identifier-only evaluation slice (DRAFT -- needs human review).
+# Query = an exact code identifier (optionally with one context word). Relevance = LITERAL CONTAINMENT:
+# a chunk is relevant iff its text contains the identifier verbatim (case-insensitive regex-escaped).
+# This is deliberately mechanical, so it is independent of any retriever and of the main gold set, and
+# it intentionally counts every chunk that mentions the identifier (it can over-count trivial mentions).
+# Used to choose lexical.ident_bonus:  python -m rag.cli eval --ident-study
+status: "draft — needs human review"
+queries:
+  - {id: i01, category: identifier, query: "torch.autograd",              relevant: [{text: ['torch\.autograd']}]}
+  - {id: i02, category: identifier, query: "min.insync.replicas",         relevant: [{text: ['min\.insync\.replicas']}]}
+  - {id: i03, category: identifier, query: "select_related",              relevant: [{text: ['select_related']}]}
+  - {id: i04, category: identifier, query: "KStream",                     relevant: [{text: ['KStream']}]}
+  - {id: i05, category: identifier, query: "pg_stat_statements extension", relevant: [{text: ['pg_stat_statements']}]}
+  - {id: i06, category: identifier, query: "@app.get",                    relevant: [{text: ['@app\.get']}]}
+  - {id: i07, category: identifier, query: "asyncio.gather",              relevant: [{text: ['asyncio\.gather']}]}
+  - {id: i08, category: identifier, query: "XREADGROUP consumer group",   relevant: [{text: ['XREADGROUP']}]}
+  - {id: i09, category: identifier, query: "max_model_len",               relevant: [{text: ['max_model_len']}]}
+  - {id: i10, category: identifier, query: "transaction.atomic",          relevant: [{text: ['transaction\.atomic']}]}
