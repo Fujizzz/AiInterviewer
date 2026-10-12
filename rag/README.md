@@ -5,6 +5,9 @@ index, hybrid retrieval (dense bge-m3 + lexical, fused by RRF, optional cross-en
 based namespace access control, retrieval confidence signals, an offline evaluation harness, and
 `rag/adapter.py`, which exposes all of it as the Agent's `RAGPort`.
 
+**Teammates integrating this module: start with [docs/TEAM_INTEGRATION.md](docs/TEAM_INTEGRATION.md)**
+(setup, restoring the shared DB dump, wiring into `InterviewAgentService`, open team decisions).
+
 The module makes no interview-policy decisions. Which source to query, when, and how many chunks
 remain `agents/routing/rag_router.py` concerns; the adapter only translates the contract.
 
