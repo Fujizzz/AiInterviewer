@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 
+from .access import CANDIDATE_NAMESPACE
 from .intent import RetrievalIntent
 
 # Only the weighted 'simple' column exists. An 'english' column was evaluated and dropped (migration
@@ -41,8 +42,21 @@ def build_filter_clause(
     if not namespaces:
         raise ValueError("refusing to build a filter with no namespaces")
     a = alias
-    clauses = [f"{a}.namespace = ANY(%(ns)s)"]
-    params: dict[str, object] = {"ns": list(namespaces)}
+    open_ns = [n for n in namespaces if n != CANDIDATE_NAMESPACE]
+    params: dict[str, object] = {"ns": open_ns}
+    if len(open_ns) == len(namespaces):
+        clauses = [f"{a}.namespace = ANY(%(ns)s)"]
+    else:
+        # Candidate chunks are only visible together with an exact owner match. This is enforced
+        # here as well as in access.scope_namespaces: a caller that skips the latter still cannot
+        # build a predicate that reaches another candidate's (or any unowned) rows.
+        if not intent.candidate_id:
+            raise ValueError("refusing to build a candidate-namespace filter without candidate_id")
+        clauses = [
+            f"({a}.namespace = ANY(%(ns)s) OR "
+            f"({a}.namespace = '{CANDIDATE_NAMESPACE}' AND {a}.candidate_id = %(cand)s))"
+        ]
+        params["cand"] = intent.candidate_id
     f = intent.filters
     if f.domain:
         clauses.append(f"{a}.domain = ANY(%(f_domain)s)")
@@ -249,6 +263,7 @@ def lexical_params(query: str) -> tuple[int, int, dict[str, object]]:
 
 FETCH_SQL = (
     "SELECT chunk_id, text, title, heading_path, source_url, doc_version, namespace, source_name, "
-    "domain, difficulty, trust_level, license FROM chunks "
-    "WHERE chunk_id = ANY(%(ids)s) AND namespace = ANY(%(ns)s)"
+    "domain, difficulty, trust_level, license, candidate_id FROM chunks "
+    "WHERE chunk_id = ANY(%(ids)s) AND (namespace = ANY(%(ns)s) "
+    "OR (namespace = 'candidate' AND candidate_id = %(cand)s))"  # %(cand)s NULL => never matches
 )

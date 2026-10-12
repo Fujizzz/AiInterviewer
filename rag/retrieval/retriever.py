@@ -14,7 +14,7 @@ import psycopg
 from ..index.db import connect
 from ..index.embed import Embedder, build_embedding_text
 from ..index.load import check_index_meta
-from .access import resolve_namespaces
+from .access import CANDIDATE_NAMESPACE, resolve_namespaces, scope_namespaces
 from .confidence import DEFAULT_RULE, ConfidenceRule, RetrievalResult, assess
 from .fusion import rrf_fuse
 from .intent import RetrievalIntent
@@ -55,6 +55,7 @@ class Retriever:
         planner_overrides: dict[str, str] | None = None,
         check_model: bool = True,
         embed_kwargs: dict | None = None,
+        connection: psycopg.Connection | None = None,
     ):
         self.dsn = dsn
         self._embedder = embedder
@@ -74,7 +75,11 @@ class Retriever:
         self.planner_overrides = dict(planner_overrides or {})
         self.check_model = check_model
         self.embed_kwargs = embed_kwargs or {}
-        self._conn: psycopg.Connection | None = None
+        # An injected connection (e.g. checked out of a pool by the RAGPort adapter) is borrowed:
+        # it must be autocommit, it is never replaced or closed here, and a Retriever bound to it
+        # must not be shared between threads.
+        self._borrowed = connection is not None
+        self._conn: psycopg.Connection | None = connection
         self._checked = False
         self._iterative_ok: bool | None = None
 
@@ -82,6 +87,8 @@ class Retriever:
     @property
     def conn(self) -> psycopg.Connection:
         if self._conn is None or self._conn.closed:
+            if self._borrowed:
+                raise RuntimeError("the connection injected into this Retriever is closed")
             self._conn = connect(self.dsn)
             self._conn.autocommit = True
             self._checked = False
@@ -102,7 +109,7 @@ class Retriever:
         return self._reranker
 
     def close(self) -> None:
-        if self._conn is not None and not self._conn.closed:
+        if not self._borrowed and self._conn is not None and not self._conn.closed:
             self._conn.close()
 
     def _ensure_model_matches(self) -> None:
@@ -144,7 +151,9 @@ class Retriever:
         not depend on its values."""
         import numpy as np
 
-        namespaces = resolve_namespaces(role, intent.namespaces)
+        namespaces = scope_namespaces(
+            resolve_namespaces(role, intent.namespaces), intent.candidate_id
+        )
         qvec = np.full(1024, 1.0 / 32.0, dtype=np.float32)
         return self._run_dense(intent, namespaces, max(self.top_n, intent.k), qvec, explain=True)
 
@@ -195,6 +204,13 @@ class Retriever:
         if mode not in MODES:
             raise ValueError(f"mode must be one of {MODES}")
         namespaces = resolve_namespaces(role, intent.namespaces)  # raises on violation
+        namespaces = scope_namespaces(namespaces, intent.candidate_id)  # fail closed on candidate
+        if not namespaces:
+            return RetrievalResult(
+                [],
+                confidence="low",
+                reasons=["no readable namespace: candidate scope (candidate_id) is missing"],
+            )
         t0 = time.perf_counter()
         n = max(self.top_n, intent.k)
         dense_rows = self._dense(intent, namespaces, n) if mode in ("dense", "hybrid") else []
@@ -221,7 +237,7 @@ class Retriever:
         rrf_score = {cid: s for cid, s in order if s is not None}
 
         pool = [cid for cid, _ in order][: (max(self.rerank_n, intent.k) if rerank else intent.k)]
-        passages = self._hydrate(pool, namespaces)
+        passages = self._hydrate(pool, namespaces, intent.candidate_id)
         by_id = {p.chunk_id: p for p in passages}
         ordered = [by_id[c] for c in pool if c in by_id]
         for p in ordered:
@@ -280,13 +296,20 @@ class Retriever:
     def _rerank_view(p: Passage) -> dict:
         return {"title": p.title, "heading_path": p.heading_path, "text": p.text}
 
-    def _hydrate(self, ids: list[str], namespaces: Sequence[str]) -> list[Passage]:
+    def _hydrate(
+        self, ids: list[str], namespaces: Sequence[str], candidate_id: str | None = None
+    ) -> list[Passage]:
         if not ids:
             return []
-        rows = self.conn.execute(FETCH_SQL, {"ids": ids, "ns": list(namespaces)}).fetchall()
+        open_ns = [n for n in namespaces if n != CANDIDATE_NAMESPACE]
+        cand = candidate_id if CANDIDATE_NAMESPACE in namespaces else None
+        rows = self.conn.execute(FETCH_SQL, {"ids": ids, "ns": open_ns, "cand": cand}).fetchall()
         out = []
-        for cid, text, title, hp, url, ver, ns, src, dom, diff, trust, lic in rows:
-            if ns not in namespaces:  # defence in depth; SQL already filtered
+        for cid, text, title, hp, url, ver, ns, src, dom, diff, trust, lic, owner in rows:
+            # defence in depth; SQL already filtered on both conditions
+            if ns not in namespaces:
+                continue
+            if ns == CANDIDATE_NAMESPACE and (not cand or owner != cand):
                 continue
             out.append(
                 Passage(
@@ -302,6 +325,7 @@ class Retriever:
                     difficulty=diff,
                     trust_level=trust,
                     license=lic,
+                    candidate_id=owner,
                 )
             )
         return out

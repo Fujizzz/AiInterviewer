@@ -120,8 +120,19 @@ def source_for(ns: str) -> str:
     return "vllm"
 
 
-def mk(cid, ns, text, source, title=None, heading=("H",), domain="d", difficulty=None, tech=()):
-    return {
+def mk(
+    cid,
+    ns,
+    text,
+    source,
+    title=None,
+    heading=("H",),
+    domain="d",
+    difficulty=None,
+    tech=(),
+    candidate_id=None,
+):
+    row = {
         "chunk_id": cid,
         "namespace": ns,
         "text": text,
@@ -142,6 +153,9 @@ def mk(cid, ns, text, source, title=None, heading=("H",), domain="d", difficulty
         "ingested_at": "2026-10-02T00:00:00Z",
         "metadata": {"k": cid},
     }
+    if ns == "candidate":  # migration 003: candidate chunks must be owned
+        row["candidate_id"] = candidate_id or "cand-A"
+    return row
 
 
 FIXTURE = [
@@ -216,6 +230,15 @@ FIXTURE = [
         domain="resume",
     ),
     mk(
+        "cand-2",
+        "candidate",
+        "Candidate B owns the consistency layer migration and runs Kafka in production",
+        source_for("candidate"),
+        heading=("Experience",),
+        domain="resume",
+        candidate_id="cand-B",
+    ),
+    mk(
         "job-1",
         "job",
         "Backend engineer role requires Kafka and PostgreSQL experience",
@@ -283,7 +306,7 @@ def test_migrate_is_idempotent(dsn):
     assert "already current" in dbmod.migrate(dsn)
     with dbmod.connect(dsn) as c:
         assert c.execute("SELECT count(*) FROM candidate_identity").fetchone()[0] == 0
-        assert c.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 2
+        assert c.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 3
 
 
 def test_load_rows_roundtrip(loaded):
@@ -432,7 +455,7 @@ def test_evaluator_cannot_see_candidate_job_or_question(retriever):
 
 def test_recommender_and_planner_scopes(retriever):
     q = "Kafka consistency Backend engineer candidate migration"
-    rec = retriever.retrieve(RetrievalIntent(query=q, k=20), "recommender")
+    rec = retriever.retrieve(RetrievalIntent(query=q, k=20, candidate_id="cand-A"), "recommender")
     assert {p.namespace for p in rec} <= {"job", "candidate"} and {"cand-1", "job-1"} <= set(
         ids(rec)
     )
@@ -504,7 +527,7 @@ def test_migration_002_dropped_tsv_en_and_is_recorded(loaded):
             )
         }
         assert "tsv" in cols and "tsv_en" not in cols
-        assert sorted(r[0] for r in c.execute("SELECT version FROM schema_migrations")) == [1, 2]
+        assert sorted(r[0] for r in c.execute("SELECT version FROM schema_migrations")) == [1, 2, 3]
     assert "already current" in dbmod.migrate(loaded)
 
 
@@ -844,3 +867,66 @@ def test_hnsw_iterative_scan_with_restrictive_filter(hnsw_dsn):
             pytest.skip(f"pgvector {ver} < 0.8 has no iterative scan")
     finally:
         r.close()
+
+
+# ---------------- candidate isolation (migration 003) ----------------
+
+
+def test_candidate_chunks_are_only_returned_to_their_owner(retriever):
+    q = "Candidate migration of the consistency layer with Kafka"
+    for owner, mine, other in (("cand-A", "cand-1", "cand-2"), ("cand-B", "cand-2", "cand-1")):
+        intent = RetrievalIntent(query=q, namespaces=["candidate"], candidate_id=owner, k=20)
+        for mode in ("dense", "lexical", "hybrid"):
+            got = retriever.retrieve(intent, "question_planner", mode=mode)
+            assert ids(got) == [mine] and other not in ids(got), (owner, mode)
+            assert all(p.candidate_id == owner for p in got)
+
+
+def test_candidate_namespace_fails_closed_without_candidate_id(retriever):
+    q = "Candidate migration of the consistency layer with Kafka"
+    for cid in (None, "", "   "):
+        got = retriever.retrieve(
+            RetrievalIntent(query=q, namespaces=["candidate"], candidate_id=cid), "question_planner"
+        )
+        assert list(got) == [] and got.low_confidence
+    # default role namespaces: candidate is silently dropped, other namespaces still answer
+    default = retriever.retrieve(RetrievalIntent(query=q, k=20), "question_planner")
+    assert {"cand-1", "cand-2"}.isdisjoint(ids(default)) and len(default) > 0
+
+
+def test_candidate_id_never_widens_other_namespaces_and_unknown_owner_sees_nothing(retriever):
+    q = "Candidate migration of the consistency layer with Kafka"
+    none = retriever.retrieve(
+        RetrievalIntent(query=q, namespaces=["candidate"], candidate_id="cand-Z"),
+        "question_planner",
+    )
+    assert list(none) == []
+    mixed = retriever.retrieve(
+        RetrievalIntent(query=q, candidate_id="cand-A", k=20), "question_planner"
+    )
+    assert "cand-1" in ids(mixed) and "cand-2" not in ids(mixed)
+
+
+def test_candidate_id_is_a_bound_parameter(retriever):
+    evil = "cand-A' OR '1'='1"
+    got = retriever.retrieve(
+        RetrievalIntent(query="consistency Kafka", namespaces=["candidate"], candidate_id=evil),
+        "question_planner",
+    )
+    assert list(got) == []
+
+
+def test_database_rejects_unowned_candidate_chunks_and_owned_non_candidate_chunks(loaded):
+    import psycopg
+
+    base = (
+        "INSERT INTO chunks (chunk_id, namespace, text, source_name, source_type, source_url, "
+        "trust_level, license, token_count, text_hash, embedding_model, embedding, candidate_id) "
+        "SELECT 'bad-1', %s, 'x', 'vllm', 'git_docs', 'u', 'official', 'MIT', 1, 'h', 'm', "
+        "embedding, %s FROM chunks LIMIT 1"
+    )
+    with psycopg.connect(loaded) as c:
+        for ns, owner in (("candidate", None), ("candidate", ""), ("technical", "cand-A")):
+            with pytest.raises(psycopg.errors.CheckViolation):
+                with c.transaction():
+                    c.execute(base, (ns, owner))

@@ -53,6 +53,7 @@ CHUNK_COLS = [
     "token_count",
     "ingested_at",
     "metadata",
+    "candidate_id",
     "text_hash",
     "embedding_model",
     "embedding",

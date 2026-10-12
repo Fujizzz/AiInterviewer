@@ -21,6 +21,7 @@ class Passage:
     difficulty: str | None = None
     trust_level: str | None = None
     license: str | None = None
+    candidate_id: str | None = None  # owner; only set for candidate-namespace chunks
     # dense = cosine similarity (0..1, higher better); lexical = heuristic ts_rank_cd-based score;
     # rrf = reciprocal-rank-fusion score; rerank = cross-encoder probability. None = stage not run
     # or the chunk was not in that stage's candidate list.

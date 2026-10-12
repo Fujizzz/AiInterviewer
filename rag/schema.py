@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 try:
     import tiktoken
@@ -104,6 +104,9 @@ class Chunk(BaseModel):
     # levels, role_family). Optional and defaults to {} so older chunk files
     # and consumers stay compatible.
     metadata: dict[str, Any] = Field(default_factory=dict)
+    # Owner of a candidate-namespace chunk (resume content). Required for namespace=candidate and
+    # forbidden elsewhere; retrieval only ever returns such a chunk to the same candidate_id.
+    candidate_id: str | None = None
 
     @field_validator("text")
     @classmethod
@@ -126,8 +129,19 @@ class Chunk(BaseModel):
             raise ValueError("token_count must be >= 0")
         return v
 
+    @model_validator(mode="after")
+    def candidate_scope(self) -> Chunk:
+        is_candidate = self.namespace == Namespace.CANDIDATE
+        if is_candidate and not (self.candidate_id and self.candidate_id.strip()):
+            raise ValueError("candidate-namespace chunks require a non-empty candidate_id")
+        if not is_candidate and self.candidate_id is not None:
+            raise ValueError("candidate_id is only allowed on candidate-namespace chunks")
+        return self
+
     def to_jsonl_dict(self) -> dict:
         d = self.model_dump()
+        if d.get("candidate_id") is None:
+            d.pop("candidate_id", None)  # keep non-candidate chunk files byte-identical
         d["namespace"] = self.namespace.value
         d["source_type"] = self.source_type.value
         d["trust_level"] = self.trust_level.value

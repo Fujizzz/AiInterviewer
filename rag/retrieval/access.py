@@ -57,3 +57,18 @@ def resolve_namespaces(role: str, requested: Sequence[str] | None = None) -> tup
             f"role {role!r} may not read namespaces {denied} (allowed: {list(allowed)}){extra}"
         )
     return req
+
+
+CANDIDATE_NAMESPACE = "candidate"
+
+
+def scope_namespaces(namespaces: Sequence[str], candidate_id: str | None) -> tuple[str, ...]:
+    """Fail-closed candidate scoping, applied after role resolution.
+
+    The `candidate` namespace is only readable together with a concrete candidate_id; without one
+    it is dropped (never widened to "all candidates"). May return an empty tuple -- callers must
+    then return no results without touching the database.
+    """
+    if candidate_id and candidate_id.strip():
+        return tuple(namespaces)
+    return tuple(n for n in namespaces if n != CANDIDATE_NAMESPACE)

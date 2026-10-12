@@ -53,6 +53,10 @@ class RetrievalIntent:
     k                     passages to return
     strict_attrs          True => difficulty/competency become hard equality filters
                           (rows without the attribute are excluded)
+    candidate_id          owner scope for the `candidate` namespace. Candidate chunks are returned
+                          ONLY when their candidate_id equals this value; when it is missing or
+                          blank the `candidate` namespace is dropped (fail closed). It has no effect
+                          on other namespaces.
     """
 
     query: str
@@ -64,10 +68,11 @@ class RetrievalIntent:
     filters: Filters = field(default_factory=Filters)
     k: int = 5
     strict_attrs: bool = False
+    candidate_id: str | None = None
 
     def __post_init__(self) -> None:
         self.query = clean_text(self.query)
-        for f in ("target_competency", "difficulty", "purpose", "candidate_claim"):
+        for f in ("target_competency", "difficulty", "purpose", "candidate_claim", "candidate_id"):
             setattr(self, f, clean_text(getattr(self, f)))
         if self.namespaces is not None:
             self.namespaces = [
@@ -76,6 +81,8 @@ class RetrievalIntent:
                     [self.namespaces] if isinstance(self.namespaces, str) else self.namespaces
                 )
             ]
+        if self.candidate_id is not None:
+            self.candidate_id = self.candidate_id.strip() or None
         if not self.query or not self.query.strip():
             raise ValueError("RetrievalIntent.query must be non-empty")
         if not (1 <= self.k <= 100):

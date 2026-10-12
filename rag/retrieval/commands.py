@@ -35,6 +35,7 @@ def cmd_search(argv: list[str]) -> int:
     p.add_argument("--source-name", default=None)
     p.add_argument("--tech", default=None, help="related_technologies, comma-separated")
     p.add_argument("--difficulty", default=None)
+    p.add_argument("--candidate-id", default=None, help="owner scope for the candidate namespace")
     p.add_argument("--json", action="store_true")
     a = p.parse_args(argv)
 
@@ -46,6 +47,7 @@ def cmd_search(argv: list[str]) -> int:
             k=a.k,
             namespaces=_csv(a.namespace) or None,
             difficulty=a.difficulty,
+            candidate_id=a.candidate_id,
             filters=Filters(
                 domain=_csv(a.domain),
                 source_name=_csv(a.source_name),
