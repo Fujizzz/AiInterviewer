@@ -42,8 +42,15 @@ def load_dotenv(path: Path | None = None) -> dict[str, str]:
 
 
 def get_dsn(env: dict[str, str] | None = None) -> str:
-    """Build the libpq DSN from DATABASE_URL or POSTGRES_* (env > .env > dev defaults)."""
+    """Build the libpq DSN: RAG_DATABASE_URL, else DATABASE_URL, else POSTGRES_*.
+
+    Precedence for each value is environment > rag/.env > dev defaults.
+    """
     merged = {**load_dotenv(), **(env if env is not None else os.environ)}
+    # RAG_DATABASE_URL is the module-scoped name (wins); DATABASE_URL / POSTGRES_* keep the
+    # original standalone behaviour.
+    if merged.get("RAG_DATABASE_URL"):
+        return merged["RAG_DATABASE_URL"]
     if merged.get("DATABASE_URL"):
         return merged["DATABASE_URL"]
     user = merged.get("POSTGRES_USER", "intellihire")
