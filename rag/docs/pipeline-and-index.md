@@ -7,6 +7,8 @@
 > `uv run python -m rag.cli ...`, tests live in `tests/rag/`, and the `.env` / `docker-compose.yml`
 > sit in `rag/`. The `candidate_ref` mentioned for the candidate namespace was superseded by the
 > first-class `chunks.candidate_id` column (migration 003) -- see `rag/README.md`.
+> Only the `.md` reports are versioned; `.json` reports are local, gitignored artifacts. A generic
+> `DATABASE_URL` is no longer read (use `RAG_DATABASE_URL` or `POSTGRES_*`).
 > The "306 passed, 0 skipped" figure below is the standalone repo's; see `rag/README.md` for the
 > current test matrix.
 
@@ -74,7 +76,7 @@ python -m rag.cli chunk --source vllm
 python -m rag.cli report --priority P0
 
 # 跑测试
-pytest tests/ -v
+pytest tests/rag -v
 ```
 
 ## Chunk schema
@@ -219,7 +221,7 @@ RetrievalIntent + role --> namespace ACL --> dense top-N (HNSW) + lexical top-N 
 新增文件：`docker-compose.yml`、`.env.example`、`rag/index/{config,schema.sql,db,embed,load,commands}.py`、
 `rag/retrieval/{access,intent,types,sql,fusion,retriever,rerank,commands}.py`、
 `rag/eval/{gold,metrics,run,commands}.py`、`data/eval/gold_queries.yaml`、
-`tests/test_{embed_cache,retrieval_units,eval_gold,index_db}.py`。
+`tests/rag/test_{embed_cache,retrieval_units,eval_gold,index_db}.py`。
 
 ## 怎么跑
 
@@ -240,7 +242,7 @@ python -m rag.cli eval --tune         # 网格调参(162 点) + LOO / 2-fold 检
 python -m rag.cli eval --ident-study  # ident_bonus {0,1,2,3} 在主 gold 与标识符切片上的对比
 python -m rag.cli eval --confidence   # gold vs negative 的置信度分离表
 python -m rag.cli search "..." --role evaluator --rerank --min-rerank 0.5   # 低于阈值的 passage 被丢弃
-pytest tests/ -v                      # DB 集成测试在 Postgres 不可达时自动 skip
+pytest tests/rag -v                      # DB 集成测试在 Postgres 不可达时自动 skip
 ```
 
 ## Embedding
@@ -457,7 +459,7 @@ rerank 变体（pool 10/20/30 × 直接替换 / 与 hybrid 再做 RRF）都落�
 每个 chunk 的 `source_url` 必须是不可变链接：git 来源含 commit sha，arXiv 含 `vN`，数据集含 revision，**postgres-docs 是 `https://www.postgresql.org/docs/<major>/<page>`**
 （`<major>` 取自 `doc_version`，如 "PostgreSQL 18.6" → 18；以前是会随版本漂移的 `/docs/current/`）。修在 loader：`sources.yaml` 的 `options.crawl.permalink`
 + `crawler_loader.apply_permalink`。URL 不在 embedding 文本里，所以**不需要重新 embedding**（`embed` 报告 reused=487、embedded=0），只重跑了 `chunk` + `index`（走爬虫缓存，
-仅 1 次 robots.txt 请求，没有重新抓页面）。`tests/test_chunks_e2e.py::test_every_source_url_is_an_immutable_permalink` 对全部 chunk 断言这一点。
+仅 1 次 robots.txt 请求，没有重新抓页面）。`tests/rag/test_chunks_e2e.py::test_every_source_url_is_an_immutable_permalink` 对全部 chunk 断言这一点。
 
 ## 实际索引统计（真实 pgvector/pgvector:pg17）
 

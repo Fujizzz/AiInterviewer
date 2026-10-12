@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 # Optional rag-extra dependencies: skip the whole module when they are not installed.
@@ -138,3 +140,12 @@ def test_corrupt_workbook_is_reported_not_crashing(tmp_path):
     (tmp_path / "skillsfuture-ict" / "bad.xlsx").write_bytes(b"not an excel file")
     res = fetch(src(tmp_path), tmp_path)
     assert res.skipped and "could not parse" in res.skip_reason
+
+
+def test_manual_download_note_never_contains_absolute_paths(tmp_path):
+    """The note is written into committed pipeline reports: no home/tmp directory may leak."""
+    res = fetch(src(tmp_path), tmp_path)
+    assert str(tmp_path) not in res.skip_reason and "/Users/" not in res.skip_reason
+    repo_raw = Path(__file__).resolve().parents[2] / "rag" / "data" / "raw"
+    res = fetch(src(tmp_path), repo_raw)
+    assert "<repo>/rag/data/raw/" in res.skip_reason and str(repo_raw) not in res.skip_reason

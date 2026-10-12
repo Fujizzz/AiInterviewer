@@ -253,6 +253,15 @@ def roles_to_docs(roles: list[Role], file_name: str, version: str) -> list[RawDo
     return docs
 
 
+def _display_path(path: Path) -> str:
+    """Repo-relative form for messages that end up in committed reports (no home paths)."""
+    root = Path(__file__).resolve().parents[2]
+    try:
+        return f"<repo>/{path.resolve().relative_to(root).as_posix()}"
+    except ValueError:
+        return path.name
+
+
 def fetch(source: Source, raw_dir: Path) -> FetchResult:
     parser = (source.options or {}).get("parser", "skillsfuture_ict")
     if parser != "skillsfuture_ict":
@@ -265,8 +274,8 @@ def fetch(source: Source, raw_dir: Path) -> FetchResult:
     files = sorted(p for p in src_dir.glob(pattern) if not p.name.startswith("~$"))
     if not files:
         reason = (
-            f"MANUAL DOWNLOAD REQUIRED: no {pattern} in {src_dir}. Download the Skills Framework "
-            "for "
+            f"MANUAL DOWNLOAD REQUIRED: no {pattern} in {_display_path(src_dir)}. "
+            "Download the Skills Framework for "
             f"Infocomm Technology Excel from {source.url} (SkillsFuture Singapore) in a browser "
             "and place "
             f"it there. Not auto-downloaded: the page is not scriptable (JS shell / HTTP 403)."
