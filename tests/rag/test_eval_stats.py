@@ -3,7 +3,9 @@
 import pytest
 
 # Optional rag-extra dependencies: skip the whole module when they are not installed.
+# rag.eval.tune imports rag.index.db, which needs pgvector; the deploy CI env has psycopg only.
 pytest.importorskip("psycopg")
+pytest.importorskip("pgvector")
 
 from rag.eval import tune
 from rag.eval.stats import compare_modes, paired_bootstrap
