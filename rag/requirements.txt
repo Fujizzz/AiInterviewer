@@ -1,0 +1,17 @@
+# Responsibilities: optional dependencies of the retrieval layer (ingestion, embedding, pgvector, rerank).
+# Implementation: module-local manifest, NOT part of the root pyproject/uv.lock, so the Agent, app and
+# backend (and CI without a database) never install torch. Same pattern as backend/requirements.txt.
+# Install into the project environment:  uv pip install -r rag/requirements.txt
+# Related Modules: rag/adapter.py (RAGPort adapter), rag/index (Postgres+pgvector), rag/loaders.
+# Declaration Index: None. Variable Index: lower bounds only; the tested set is in rag/README.md.
+pyyaml>=6.0
+pydantic>=2.6
+requests>=2.31
+datasets>=2.18
+openpyxl>=3.1
+tiktoken>=0.6
+numpy>=1.26
+psycopg[binary,pool]>=3.1
+pgvector>=0.3
+# Pulls torch. BAAI/bge-m3 (query/chunk embeddings) and BAAI/bge-reranker-v2-m3 (optional rerank).
+sentence-transformers>=3.0
