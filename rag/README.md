@@ -55,7 +55,7 @@ Run from the repository root.
 ```bash
 cp rag/.env.example rag/.env                          # dev-only defaults; the file is gitignored
 docker compose -f rag/docker-compose.yml up -d        # Postgres 17 + pgvector, healthchecked
-uv run python -m rag.cli migrate                      # schema.sql + migrations 002, 003 (idempotent)
+uv run python -m rag.cli migrate                      # schema.sql + migrations 002, 003 (idempotent; prints the target db)
 
 uv run python -m rag.cli all --priority P0            # fetch -> clean -> chunk -> report
 uv run python -m rag.cli embed --all                  # bge-m3 vectors -> rag/data/embeddings (resumable)
@@ -85,12 +85,14 @@ All optional. Unset means the default. Parsed by `RAGSettings.from_env()`.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `RAG_DATABASE_URL` | none | libpq DSN. Falls back to `DATABASE_URL`, then `POSTGRES_USER/PASSWORD/HOST/PORT/DB`, then `rag/.env`, then the dev defaults in `rag/.env.example`. Set it explicitly outside local development. |
+| `RAG_DATABASE_URL` | none | libpq DSN. Falls back to `POSTGRES_USER/PASSWORD/HOST/PORT/DB`, then `rag/.env`, then the dev defaults in `rag/.env.example`. A generic `DATABASE_URL` is **deliberately ignored** (it usually belongs to the backend, and `migrate` / `index` write to the target). `migrate` and `index` print the target `host:port/db` before touching it. Set it explicitly outside local development. |
 | `RAG_ROLE` | `question_planner` | Retrieval role (ACL): `question_planner`, `evaluator`, `recommender`. |
 | `RAG_RERANK` | `false` | Run the bge-reranker-v2-m3 cross-encoder over the top 10 (loads a second ~2.3 GB model; its measured gain is not yet statistically significant). |
 | `RAG_POOL_MIN` / `RAG_POOL_MAX` | `1` / `4` | psycopg_pool size = maximum concurrent retrievals. |
 | `RAG_POOL_TIMEOUT_SECONDS` | `1.5` | Max wait for a free pooled connection, then the call raises (the router records the source as failed). |
 | `RAG_CONNECT_TIMEOUT_SECONDS` | `3.0` | Postgres connect timeout and the start-up wait in `create_rag_adapter()`. |
+| `RAG_STATEMENT_TIMEOUT_MS` | `2500` | Server-side `statement_timeout` on every pooled connection (a bit above the router's 2 s): the database cancels a runaway query itself and the connection returns to the pool. |
+| `RAG_LOCK_TIMEOUT_MS` | `1000` | Server-side `lock_timeout` on pooled connections. |
 | `RAG_DEVICE` | auto | `cpu`, `mps` or `cuda` for the models. |
 | `RAG_FILTER_DIFFICULTY` | `true` | Map request difficulty to LeetCode tiers for `source=question`. |
 | `RAG_FILTER_COMPETENCY` | `false` | Pass `competency` as a (lenient) filter. Off because no chunk has a competency label yet. |
@@ -109,16 +111,16 @@ from rag.adapter import RAGUnavailableError, create_rag_adapter
 # once, at process start-up (the model load takes seconds, the Agent's RAG timeout is 2 s)
 try:
     rag = create_rag_adapter()
-    await rag.warmup()          # loads bge-m3, verifies index_meta, runs one dummy query
-except RAGUnavailableError:     # extra not installed / DB down / not migrated
-    rag = None                  # the Agent runs without retrieval, as today
+    await rag.warmup()  # runs SELECT 1 on the pool, caches domains, loads bge-m3, checks index_meta, encodes once
+except RAGUnavailableError:  # extra not installed / DB down / not migrated
+    rag = None  # the Agent runs without retrieval, as today
 
 service = InterviewAgentService(
     repository=repository,
     evaluation=evaluation,
     llm=llm,
     settings=settings,
-    rag=rag,                    # <- new
+    rag=rag,  # <- new
     background_replanning=True,
 )
 # on shutdown: await rag.aclose()
@@ -175,8 +177,11 @@ source and records `RAGTimeout` separately):
 * DB unreachable, pool exhausted (`PoolTimeout`), embedding-model / `index_meta` mismatch, model load
   failure, or a role that may not read the requested namespace (`NamespaceAccessError`): the
   exception propagates unchanged and the router marks that source failed;
-* cancellation by the router's timeout stops waiting, but the worker thread finishes its query;
-  `RAG_POOL_MAX` bounds how many such orphans can exist.
+* cancellation by the router's timeout only stops *waiting*: the worker thread keeps its pooled
+  connection until its statement finishes or `RAG_STATEMENT_TIMEOUT_MS` cancels it server-side.
+  Repeated timeouts can therefore briefly occupy pool slots (new calls then fail fast with
+  `PoolTimeout` after `RAG_POOL_TIMEOUT_SECONDS`), but no query runs unbounded. Model loading or
+  an in-flight embedding is not interruptible and is not covered by the statement timeout.
 
 ## Candidate isolation (security-critical)
 

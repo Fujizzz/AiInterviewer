@@ -45,6 +45,8 @@ class PooledRetriever:
         pool_max: int = 4,
         pool_timeout: float = 1.5,
         connect_timeout: float = 3.0,
+        statement_timeout_ms: int = 2500,
+        lock_timeout_ms: int = 1000,
         device: str | None = None,
         rerank_available: bool = False,
     ) -> None:
@@ -64,11 +66,28 @@ class PooledRetriever:
             min_size=pool_min,
             max_size=pool_max,
             timeout=pool_timeout,
-            kwargs={"connect_timeout": int(max(1, round(connect_timeout)))},
+            kwargs=self.connection_kwargs(connect_timeout, statement_timeout_ms, lock_timeout_ms),
             configure=self._configure,
             open=False,
             name="rag-retrieval",
         )
+
+    @staticmethod
+    def connection_kwargs(
+        connect_timeout: float, statement_timeout_ms: int, lock_timeout_ms: int
+    ) -> dict[str, object]:
+        """libpq settings for every pooled connection.
+
+        The server-side timeouts matter because asyncio cancellation (RAGRouter's timeout) only
+        stops *waiting*: the worker thread keeps its connection until the statement ends.
+        statement_timeout makes the database cancel a runaway query itself, which frees the
+        connection (and the pool slot) instead of leaving it busy indefinitely.
+        """
+        return {
+            "connect_timeout": int(max(1, round(connect_timeout))),
+            "options": f"-c statement_timeout={int(statement_timeout_ms)} "
+            f"-c lock_timeout={int(lock_timeout_ms)}",
+        }
 
     # -- lifecycle --------------------------------------------------------
     @staticmethod
@@ -86,11 +105,18 @@ class PooledRetriever:
         self._pool.close(timeout=1.0)
 
     def warmup(self) -> None:
-        """Load the models, verify the index embedding identity and run one dummy query.
+        """Load the models, verify the index embedding identity, touch the database and encode.
+
+        Runs a trivial query on a pooled connection (so the pool is warm and the database
+        reachable), caches the domain vocabulary, loads bge-m3, checks `index_meta` against the
+        model and encodes one dummy string.
 
         Call this at application start-up: the first real query would otherwise pay the model
         load (seconds) and exceed the Agent's per-call RAG timeout.
         """
+        with self._pool.connection() as conn:
+            conn.execute("SELECT 1")
+        self.known_domains()
         self._ensure_index_matches_model()
         self._embedder.encode(["warmup"])
         if self._rerank_available:

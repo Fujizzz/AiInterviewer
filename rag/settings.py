@@ -1,8 +1,8 @@
 """Environment-driven settings of the RAGPort adapter.
 
 Every variable is optional; unset means the default shown. The database location follows
-rag.index.config.get_dsn (RAG_DATABASE_URL, else DATABASE_URL, else POSTGRES_*, with rag/.env as
-a local-development fallback).
+rag.index.config.get_dsn: RAG_DATABASE_URL, else POSTGRES_*. A generic DATABASE_URL is ignored (it
+often belongs to another service); rag/.env is a local-development fallback.
 """
 
 from __future__ import annotations
@@ -50,6 +50,8 @@ class RAGSettings:
     pool_max: int = 4  # RAG_POOL_MAX
     pool_timeout_seconds: float = 1.5  # RAG_POOL_TIMEOUT_SECONDS (wait for a free connection)
     connect_timeout_seconds: float = 3.0  # RAG_CONNECT_TIMEOUT_SECONDS
+    statement_timeout_ms: int = 2500  # RAG_STATEMENT_TIMEOUT_MS (a bit above RAGRouter's 2 s)
+    lock_timeout_ms: int = 1000  # RAG_LOCK_TIMEOUT_MS
     device: str | None = None  # RAG_DEVICE (cpu | mps | cuda; None => auto)
     filter_difficulty: bool = True  # RAG_FILTER_DIFFICULTY (question source only)
     filter_competency: bool = False  # RAG_FILTER_COMPETENCY
@@ -60,6 +62,8 @@ class RAGSettings:
             raise ValueError(f"unknown role {self.role!r}; known: {sorted(ROLE_NAMESPACES)}")
         if not 1 <= self.pool_min <= self.pool_max:
             raise ValueError("require 1 <= pool_min <= pool_max")
+        if self.statement_timeout_ms <= 0 or self.lock_timeout_ms <= 0:
+            raise ValueError("statement/lock timeouts must be positive milliseconds")
         if self.pool_timeout_seconds <= 0 or self.connect_timeout_seconds <= 0:
             raise ValueError("timeouts must be positive")
 
@@ -79,6 +83,10 @@ class RAGSettings:
             connect_timeout_seconds=float(
                 _number(env, "RAG_CONNECT_TIMEOUT_SECONDS", default.connect_timeout_seconds, float)
             ),
+            statement_timeout_ms=int(
+                _number(env, "RAG_STATEMENT_TIMEOUT_MS", default.statement_timeout_ms, int)
+            ),
+            lock_timeout_ms=int(_number(env, "RAG_LOCK_TIMEOUT_MS", default.lock_timeout_ms, int)),
             device=(env.get("RAG_DEVICE") or "").strip() or None,
             filter_difficulty=_bool(env, "RAG_FILTER_DIFFICULTY", default.filter_difficulty),
             filter_competency=_bool(env, "RAG_FILTER_COMPETENCY", default.filter_competency),

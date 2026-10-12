@@ -71,6 +71,12 @@ class RetrievalIntent:
     candidate_id: str | None = None
 
     def __post_init__(self) -> None:
+        if self.candidate_id is not None:
+            if "\x00" in self.candidate_id:
+                # Never "clean" an owner id: dropping the NUL could turn it into another
+                # candidate's id. Refuse instead.
+                raise ValueError("candidate_id must not contain NUL bytes")
+            self.candidate_id = self.candidate_id.strip() or None
         self.query = clean_text(self.query)
         for f in ("target_competency", "difficulty", "purpose", "candidate_claim", "candidate_id"):
             setattr(self, f, clean_text(getattr(self, f)))
@@ -81,8 +87,7 @@ class RetrievalIntent:
                     [self.namespaces] if isinstance(self.namespaces, str) else self.namespaces
                 )
             ]
-        if self.candidate_id is not None:
-            self.candidate_id = self.candidate_id.strip() or None
+
         if not self.query or not self.query.strip():
             raise ValueError("RetrievalIntent.query must be non-empty")
         if not (1 <= self.k <= 100):

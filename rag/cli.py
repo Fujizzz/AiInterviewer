@@ -518,6 +518,18 @@ def select_sources(args: argparse.Namespace) -> list[Source]:
     return selected
 
 
+CLI_DESCRIPTION = """\
+Ingestion pipeline (options below): fetch | clean | chunk | report | all
+
+Index / retrieval commands (each has its own --help):
+  migrate   apply schema.sql and migrations to the Postgres at RAG_DATABASE_URL / POSTGRES_*
+  embed     embed chunks with bge-m3 into rag/data/embeddings (no database needed)
+  index     idempotently load chunks + vectors into Postgres
+  search    run one retrieval, e.g.  search "kv cache" --role question_planner
+  eval      retrieval evaluation / tuning against the gold sets
+"""
+
+
 def _dispatch_index_commands(argv: list[str]) -> int | None:
     """migrate | embed | index | search | eval live in rag.index / rag.retrieval / rag.eval
     (lazy imports: the fetch/clean/chunk pipeline must not need torch or psycopg)."""
@@ -537,7 +549,11 @@ def main(argv: list[str] | None = None) -> int:
     handled = _dispatch_index_commands(list(sys.argv[1:] if argv is None else argv))
     if handled is not None:
         return handled
-    parser = argparse.ArgumentParser(prog="python -m rag.cli")
+    parser = argparse.ArgumentParser(
+        prog="python -m rag.cli",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=CLI_DESCRIPTION,
+    )
     parser.add_argument("command", choices=["fetch", "clean", "chunk", "report", "all"])
     parser.add_argument(
         "--source",

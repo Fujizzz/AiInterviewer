@@ -42,17 +42,15 @@ def load_dotenv(path: Path | None = None) -> dict[str, str]:
 
 
 def get_dsn(env: dict[str, str] | None = None) -> str:
-    """Build the libpq DSN: RAG_DATABASE_URL, else DATABASE_URL, else POSTGRES_*.
+    """Build the libpq DSN: RAG_DATABASE_URL, else POSTGRES_* (dev defaults point at localhost).
 
-    Precedence for each value is environment > rag/.env > dev defaults.
+    Precedence for each value is environment > rag/.env > dev defaults. A generic DATABASE_URL is
+    deliberately NOT read: it commonly belongs to another service (e.g. the backend), and
+    `migrate` / `index` write to whatever this returns.
     """
     merged = {**load_dotenv(), **(env if env is not None else os.environ)}
-    # RAG_DATABASE_URL is the module-scoped name (wins); DATABASE_URL / POSTGRES_* keep the
-    # original standalone behaviour.
     if merged.get("RAG_DATABASE_URL"):
         return merged["RAG_DATABASE_URL"]
-    if merged.get("DATABASE_URL"):
-        return merged["DATABASE_URL"]
     user = merged.get("POSTGRES_USER", "intellihire")
     pw = merged.get("POSTGRES_PASSWORD", "intellihire_dev_only")
     host = merged.get("POSTGRES_HOST", "127.0.0.1")

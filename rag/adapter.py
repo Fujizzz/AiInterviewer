@@ -65,6 +65,14 @@ class RetrievalBackend(Protocol):
     ) -> RetrievalResult: ...
 
 
+def _owner_id(raw: str | None) -> str | None:
+    """Normalised owner scope: surrounding whitespace is stripped; blank, or containing a NUL
+    byte (never silently "repaired" into some other id), means no scope."""
+    if raw is None or "\x00" in raw:
+        return None
+    return raw.strip() or None
+
+
 def _normalise_domain(value: str) -> str:
     return value.strip().lower().replace("_", "-").replace(" ", "-")
 
@@ -129,7 +137,7 @@ class RAGAdapter:
     # -- request -> intent ------------------------------------------------
     def _build_intent(self, request: RetrievalRequest) -> RetrievalIntent | None:
         source = request.source
-        candidate_id = (request.candidate_id or "").strip() or None
+        candidate_id = _owner_id(request.candidate_id)
         if source == RetrievalSource.CANDIDATE and candidate_id is None:
             # Fail closed: without an owner there is nothing a candidate may see. No DB call.
             return None
@@ -180,7 +188,7 @@ class RAGAdapter:
         if self._drop_low_confidence and result.low_confidence:
             return []
         expected_ns = SOURCE_NAMESPACE[request.source]
-        owner = (request.candidate_id or "").strip()
+        owner = _owner_id(request.candidate_id) or ""
         chunks: list[RetrievedChunk] = []
         for passage in result:
             # Defence in depth, independent of the backend's own filters: a misbehaving backend
@@ -286,6 +294,8 @@ def create_rag_adapter(
         pool_max=settings.pool_max,
         pool_timeout=settings.pool_timeout_seconds,
         connect_timeout=settings.connect_timeout_seconds,
+        statement_timeout_ms=settings.statement_timeout_ms,
+        lock_timeout_ms=settings.lock_timeout_ms,
         device=settings.device,
         rerank_available=settings.rerank,
     )

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 
 import psycopg
+import psycopg.conninfo
 from pgvector.psycopg import register_vector
 
 from . import config
@@ -21,6 +22,17 @@ def connect(dsn: str | None = None, timeout: int = 5, register: bool = True) -> 
             # `vector` type does not exist yet (before the first migrate)
             conn.rollback()
     return conn
+
+
+def describe_dsn(dsn: str | None = None) -> str:
+    """host:port/dbname only; never credentials."""
+    try:
+        info = psycopg.conninfo.conninfo_to_dict(dsn or config.get_dsn())
+        return (
+            f"{info.get('host', 'localhost')}:{info.get('port', '5432')}/{info.get('dbname', '?')}"
+        )
+    except Exception:
+        return "<unparseable DSN>"
 
 
 def db_reachable(dsn: str | None = None) -> bool:

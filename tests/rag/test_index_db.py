@@ -930,3 +930,72 @@ def test_database_rejects_unowned_candidate_chunks_and_owned_non_candidate_chunk
             with pytest.raises(psycopg.errors.CheckViolation):
                 with c.transaction():
                     c.execute(base, (ns, owner))
+
+
+# ---------------- pooled backend + adapter against a real database ----------------
+
+
+@pytest.fixture()
+def pooled(loaded):
+    """PooledRetriever on the throwaway DB; the model is replaced by the bag-of-words embedder."""
+    pytest.importorskip("psycopg_pool")
+    from rag.retrieval.pool import PooledRetriever
+
+    backend = PooledRetriever(loaded, pool_min=1, pool_max=4, statement_timeout_ms=300)
+    backend._embedder = FakeEmbedder()  # same identity as the stored index_meta
+    backend.open(wait_timeout=5)
+    yield backend
+    backend.close()
+
+
+async def test_adapter_over_real_pool_isolates_two_candidates(pooled):
+    import asyncio
+
+    from rag.adapter import RAGAdapter
+    from shared.contracts import RetrievalSource
+    from tests.rag.adapter_helpers import make_request
+
+    adapter = RAGAdapter(pooled)
+    query = "Candidate migration of the consistency layer with Kafka"
+
+    async def ask(candidate_id):
+        response = await adapter.retrieve(
+            make_request(RetrievalSource.CANDIDATE, query=query, candidate_id=candidate_id)
+        )
+        return [c.chunk_id for c in response.chunks]
+
+    # concurrent calls through one pool: no cross-talk between owners
+    a, b, z, none, blank = await asyncio.gather(
+        ask("cand-A"), ask("cand-B"), ask("cand-Z"), ask(None), ask("   ")
+    )
+    assert a == ["cand-1"] and b == ["cand-2"]
+    assert z == [] and none == [] and blank == []
+    # whitespace around the id is normalised (pinned): " cand-B " is cand-B, not a new identity
+    assert await ask(" cand-B ") == ["cand-2"]
+    # NUL bytes are refused, never stripped into another candidate's id
+    assert await ask("cand-\x00B") == [] and await ask("\x00") == []
+    # other sources never return candidate chunks
+    tech = await adapter.retrieve(
+        make_request(RetrievalSource.TECHNICAL, query=query, candidate_id="cand-A", top_k=20)
+    )
+    assert not {"cand-1", "cand-2"} & {c.chunk_id for c in tech.chunks}
+
+
+def test_pooled_connections_carry_server_side_timeouts(pooled):
+    import time
+
+    with pooled._pool.connection() as conn:
+        assert conn.execute("SHOW statement_timeout").fetchone()[0] == "300ms"
+        assert conn.execute("SHOW lock_timeout").fetchone()[0] == "1s"
+        started = time.perf_counter()
+        with pytest.raises(psycopg.errors.QueryCanceled):
+            conn.execute("SELECT pg_sleep(5)")
+        assert time.perf_counter() - started < 2
+    with pooled._pool.connection() as conn:  # the connection is reusable after the cancel
+        assert conn.execute("SELECT 1").fetchone()[0] == 1
+
+
+def test_warmup_touches_the_database_and_checks_the_index(pooled):
+    pooled.warmup()
+    assert pooled.known_domains()
+    assert pooled._meta_checked

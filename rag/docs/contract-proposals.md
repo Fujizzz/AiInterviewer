@@ -78,9 +78,9 @@ There is no rubric content in the index yet (BARS is pending), so this is a deci
 
 ```python
 CANDIDATE: f"{topic} candidate project claims"
-QUESTION:  f"{topic} {question_type} interview question examples"
-JOB:       f"{topic} role requirements"
-other:     f"{topic} {question_plan.information_goal}"      # TECHNICAL
+QUESTION: f"{topic} {question_type} interview question examples"
+JOB: f"{topic} role requirements"
+other: f"{topic} {question_plan.information_goal}"  # TECHNICAL
 ```
 
 These are 3-8 word keyword strings with boilerplate suffixes. On the 40-query draft gold set

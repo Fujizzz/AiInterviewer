@@ -71,3 +71,12 @@ def test_chunk_schema_requires_owner_for_candidate_chunks_only():
 def test_non_candidate_chunk_files_stay_unchanged():
     assert "candidate_id" not in _chunk().to_jsonl_dict()
     assert _chunk(namespace="candidate", candidate_id="c1").to_jsonl_dict()["candidate_id"] == "c1"
+
+
+def test_intent_normalises_whitespace_in_candidate_id_and_rejects_nul():
+    assert RetrievalIntent(query="q", candidate_id="  c1 ").candidate_id == "c1"
+    assert RetrievalIntent(query="q", candidate_id="   ").candidate_id is None
+    assert RetrievalIntent(query="q", candidate_id=None).candidate_id is None
+    for bad in ("c\x001", "\x00", " \x00 "):
+        with pytest.raises(ValueError, match="NUL"):
+            RetrievalIntent(query="q", candidate_id=bad)

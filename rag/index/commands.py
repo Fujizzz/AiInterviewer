@@ -33,9 +33,10 @@ def _pick_sources(args: argparse.Namespace) -> list[str]:
 
 
 def cmd_migrate(argv: list[str]) -> int:
-    from .db import migrate
+    from .db import describe_dsn, migrate
 
     argparse.ArgumentParser(prog="rag.cli migrate").parse_args(argv)
+    print(f"[migrate] target database: {describe_dsn()} (set RAG_DATABASE_URL or POSTGRES_*)")
     print(migrate())
     return 0
 
@@ -119,7 +120,7 @@ def cmd_embed(argv: list[str]) -> int:
 
 
 def cmd_index(argv: list[str]) -> int:
-    from .db import db_reachable
+    from .db import db_reachable, describe_dsn
     from .load import IndexError_, load_sources
 
     p = argparse.ArgumentParser(prog="rag.cli index")
@@ -127,6 +128,7 @@ def cmd_index(argv: list[str]) -> int:
     p.add_argument("--all", action="store_true")
     args = p.parse_args(argv)
     names = _pick_sources(args)
+    print(f"[index] target database: {describe_dsn()} (set RAG_DATABASE_URL or POSTGRES_*)")
     if not db_reachable():
         print("[index] Postgres is not reachable (is `docker compose up -d` running?)")
         return 2

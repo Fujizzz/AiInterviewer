@@ -139,7 +139,7 @@ async def test_domain_filter_off_without_a_vocabulary_and_topic_is_never_a_filte
 # ---------------------------------------------------------------- candidate isolation
 
 
-@pytest.mark.parametrize("missing", [None, "", "   "])
+@pytest.mark.parametrize("missing", [None, "", "   ", "\t\n", "\x00", " \x00 ", "cand-\x00A"])
 async def test_candidate_source_without_candidate_id_returns_nothing_and_skips_the_backend(missing):
     backend = FakeBackend()
     response = await RAGAdapter(backend).retrieve(make_request(S.CANDIDATE, candidate_id=missing))
@@ -189,6 +189,12 @@ async def test_candidate_chunks_never_leak_into_other_sources_or_unowned_into_ca
     unowned = FakeBackend(lambda i, r: make_result([make_passage("x", namespace="candidate")]))
     out = await RAGAdapter(unowned).retrieve(make_request(S.CANDIDATE, candidate_id="cand-A"))
     assert out.chunks == []
+
+
+async def test_candidate_id_whitespace_is_stripped_but_interior_content_is_kept():
+    backend = FakeBackend(lambda i, r: make_result([]))
+    await RAGAdapter(backend).retrieve(make_request(S.CANDIDATE, candidate_id="\t cand A \n"))
+    assert backend.calls[0][0].candidate_id == "cand A"
 
 
 async def test_candidate_id_is_only_forwarded_for_the_candidate_source():
@@ -440,6 +446,35 @@ def test_serialized_embedder_never_runs_two_encodes_at_once():
 
 
 # ---------------------------------------------------------------- settings / factory
+
+
+def test_statement_and_lock_timeouts_are_configurable_and_default_above_the_router_timeout():
+    default = RAGSettings()
+    assert default.statement_timeout_ms == 2500 and default.lock_timeout_ms == 1000
+    s = RAGSettings.from_env({"RAG_STATEMENT_TIMEOUT_MS": "1800", "RAG_LOCK_TIMEOUT_MS": "200"})
+    assert (s.statement_timeout_ms, s.lock_timeout_ms) == (1800, 200)
+    for bad in ({"RAG_STATEMENT_TIMEOUT_MS": "0"}, {"RAG_LOCK_TIMEOUT_MS": "-5"}):
+        with pytest.raises(ValueError):
+            RAGSettings.from_env(bad)
+
+
+def test_pool_connection_options_set_statement_and_lock_timeout():
+    pytest.importorskip("psycopg_pool")
+    from rag.retrieval.pool import PooledRetriever
+
+    kwargs = PooledRetriever.connection_kwargs(3.0, 2500, 1000)
+    assert kwargs["options"] == "-c statement_timeout=2500 -c lock_timeout=1000"
+    assert kwargs["connect_timeout"] == 3
+
+
+def test_dsn_ignores_a_generic_database_url():
+    from rag.index import config
+
+    other = "postgresql://backend:pw@prod-db:5432/app"
+    assert "prod-db" not in config.get_dsn({"DATABASE_URL": other})
+    assert config.get_dsn({"DATABASE_URL": other, "RAG_DATABASE_URL": "postgresql://r@h/x"}) == (
+        "postgresql://r@h/x"
+    )
 
 
 def test_settings_from_env():
