@@ -1,0 +1,231 @@
+# DRAFT -- needs human review.
+#
+# Retrieval gold set for the IntelliHire RAG index (P0 technical + question sources).
+# Relevance labels are RULES over the chunk corpus (source / URL / heading path / required
+# text regexes), written by reading the chunk files -- NOT by running the retriever, so the
+# evaluation is not circular. Each rule resolves to chunk_ids at eval time.
+#
+#   python -m rag.cli eval --review     # print the review table (id, #relevant, sample headings)
+#
+# Matcher keys (all given keys must match): source | url (regex) | heading (regex on
+# "H1 > H2 > ..." joined path, case-insens.) | text (list of regexes, ALL must match) | chunk_id.
+# category: conceptual | identifier | paraphrase | question.
+status: "draft — needs human review"
+queries:
+
+  # ---------------- conceptual ----------------
+  - id: g01
+    category: conceptual
+    query: "How does PagedAttention reduce KV cache fragmentation?"
+    relevant:
+      - {source: paper-pagedattention-vllm, text: ["fragmentation"], heading: "^(1\\. Introduction|3\\.1\\.|4\\.)"}
+  - id: g02
+    category: conceptual
+    query: "Explain MVCC in PostgreSQL"
+    relevant:
+      - {source: postgres-docs, heading: "^(Chapter 13\\. Concurrency Control|13\\.1\\. Introduction)$"}
+  - id: g03
+    category: conceptual
+    query: "Kafka exactly-once semantics"
+    relevant:
+      - {source: kafka-docs, heading: "Message Delivery Semantics|Using Transactions"}
+  - id: g04
+    category: conceptual
+    query: "FastAPI dependency injection"
+    relevant:
+      - {source: fastapi, heading: "^Dependencies( >|$)", url: "tutorial/dependencies/index"}
+      - {source: fastapi, heading: "^Classes as Dependencies"}
+  - id: g05
+    category: conceptual
+    query: "Redis persistence RDB vs AOF"
+    relevant:
+      - {source: redis-docs, url: "persistence", heading: "RDB (advantages|disadvantages)|AOF (advantages|disadvantages)|Snapshotting|Interactions between AOF and RDB"}
+  - id: g06
+    category: conceptual
+    query: "consistent hashing"
+    note: "Weak coverage in the corpus: only the sharding section of the primer and the Redis cluster page mention it."
+    relevant:
+      - {source: system-design-primer, heading: "Sharding", text: ["consistent hashing"]}
+      - {source: system-design-primer, heading: "key-value cache", text: ["consistent hashing"]}
+  - id: g07
+    category: conceptual
+    query: "ReAct prompting"
+    relevant:
+      - {source: paper-react, heading: "^(1 Introduction|2 ReAct)"}
+  - id: g08
+    category: conceptual
+    query: "CAP theorem availability versus consistency"
+    relevant:
+      - {source: system-design-primer, heading: "CAP theorem"}
+  - id: g09
+    category: conceptual
+    query: "How does LangGraph checkpointer persistence work?"
+    relevant:
+      - {source: langgraph, heading: "^(Why use checkpointers|Checkpointer libraries)"}
+      - {source: langgraph, heading: "Core concepts > Checkpoints"}
+  - id: g10
+    category: conceptual
+    query: "What is multi-head attention?"
+    relevant:
+      - {source: paper-attention-is-all-you-need, heading: "3\\.2\\.2 Multi-Head Attention"}
+  - id: g11
+    category: conceptual
+    query: "Shortest paths with Dijkstra's algorithm"
+    relevant:
+      - {source: cp-algorithms, heading: "^Dijkstra Algorithm( >|$)"}
+  - id: g12
+    category: conceptual
+    query: "Types of indexes in PostgreSQL B-tree GIN GiST BRIN"
+    relevant:
+      - {source: postgres-docs, heading: "11\\.2\\. Index Types"}
+  - id: g13
+    category: conceptual
+    query: "Weight decay regularization"
+    relevant:
+      - {source: d2l-en, heading: "^Weight Decay"}
+  - id: g14
+    category: conceptual
+    query: "How do Django database transactions and atomic blocks work?"
+    relevant:
+      - {source: django, heading: "^Database transactions > Managing database transactions"}
+
+  # ---------------- exact identifiers ----------------
+  - id: g15
+    category: identifier
+    query: "difference between select_related and prefetch_related"
+    relevant:
+      - {source: django, text: ["select_related", "prefetch_related"], heading: "QuerySet.*API|Database access optimization"}
+  - id: g16
+    category: identifier
+    query: "LoRA rank and alpha"
+    relevant:
+      - {source: paper-lora, heading: "4\\.1 Low-Rank-Parametrized Update Matrices"}
+      - {source: paper-lora, text: ["\\brank\\b", "\\\\alpha|alpha"], heading: "^(7|4)"}
+  - id: g17
+    category: identifier
+    query: "Kafka acks producer config"
+    relevant:
+      - {source: kafka-config-reference, heading: "Kafka Producer Config > acks$"}
+  - id: g18
+    category: identifier
+    query: "min.insync.replicas"
+    relevant:
+      - {source: kafka-config-reference, heading: "min\\.insync\\.replicas"}
+  - id: g19
+    category: identifier
+    query: "FastAPI Depends() with yield"
+    relevant:
+      - {source: fastapi, heading: "^Dependencies with yield"}
+  - id: g20
+    category: identifier
+    query: "torch.autograd backward computing gradients"
+    relevant:
+      - {source: pytorch-tutorials, heading: "^Automatic Differentiation with `torch\\.autograd`"}
+  - id: g21
+    category: identifier
+    query: "vLLM automatic prefix caching"
+    relevant:
+      - {source: vllm, heading: "^Automatic Prefix Caching"}
+  - id: g22
+    category: identifier
+    query: "Redis ZADD sorted sets"
+    relevant:
+      - {source: redis-docs, url: "data-types/sorted-sets\\.md", text: ["ZADD"]}
+  - id: g23
+    category: identifier
+    query: "transaction.atomic"
+    relevant:
+      - {source: django, heading: "^Database transactions > Managing database transactions > Controlling transactions explicitly"}
+  - id: g24
+    category: identifier
+    query: "KV-cache block table in vLLM"
+    relevant:
+      - {source: vllm, text: ["block table|block_table"]}
+      - {source: paper-pagedattention-vllm, text: ["block table"]}
+
+  # ---------------- paraphrases with little keyword overlap ----------------
+  - id: g25
+    category: paraphrase
+    query: "how does the database keep readers from blocking writers"
+    relevant:
+      - {source: postgres-docs, heading: "^(Chapter 13\\. Concurrency Control|13\\.1\\. Introduction)$"}
+  - id: g26
+    category: paraphrase
+    query: "technique that freezes pretrained weights and trains small low-dimensional adapter matrices"
+    relevant:
+      - {source: paper-lora, heading: "^(1 Introduction|4\\.1 Low-Rank)"}
+  - id: g27
+    category: paraphrase
+    query: "making an in-memory data store survive a restart"
+    relevant:
+      - {source: redis-docs, url: "persistence", heading: "^(RDB|AOF|Snapshotting|Append-only file)"}
+  - id: g28
+    category: paraphrase
+    query: "why do transformers need to be told the order of tokens"
+    relevant:
+      - {source: paper-attention-is-all-you-need, heading: "3\\.5 Positional Encoding"}
+  - id: g29
+    category: paraphrase
+    query: "agent that improves by writing down what went wrong in natural language"
+    relevant:
+      - {source: paper-reflexion, heading: "^(1 Introduction|3 Reflexion)"}
+  - id: g30
+    category: paraphrase
+    query: "language model that looks things up in an external document index before answering"
+    relevant:
+      - {source: paper-rag, heading: "^(1 Introduction|2\\.\\d)|Retrieval-Augmented Generation"}
+  - id: g31
+    category: paraphrase
+    query: "how to split data across many servers so that adding a node moves little data"
+    relevant:
+      - {source: system-design-primer, heading: "Sharding", text: ["consistent hashing"]}
+      - {source: redis-docs, heading: "Redis Cluster data sharding"}
+  - id: g32
+    category: paraphrase
+    query: "pause the graph run and wait for a human to approve before continuing"
+    relevant:
+      - {source: langgraph, text: ["interrupt"], heading: "[Hh]uman|[Ii]nterrupt"}
+  - id: g33
+    category: paraphrase
+    query: "randomly zeroing neurons during training to prevent overfitting"
+    relevant:
+      - {source: d2l-en, heading: "^Dropout"}
+
+  # ---------------- question namespace ----------------
+  - id: g34
+    category: question
+    query: "two pointers technique problem"
+    relevant:
+      - {source: tech-interview-handbook, heading: "Techniques > Two pointers"}
+      - {source: leetcode-dataset, text: ["two pointers?"]}
+  - id: g35
+    category: question
+    query: "Two Sum interview question"
+    relevant:
+      - {source: leetcode-dataset, heading: "^Two Sum$"}
+  - id: g36
+    category: question
+    query: "reverse a linked list"
+    relevant:
+      - {source: leetcode-dataset, heading: "^Reverse Linked List( II)?$"}
+  - id: g37
+    category: question
+    query: "merge overlapping intervals"
+    relevant:
+      - {source: leetcode-dataset, heading: "^Merge Intervals$"}
+  - id: g38
+    category: question
+    query: "most commonly asked behavioral interview questions"
+    relevant:
+      - {source: tech-interview-handbook, heading: "behavioral questions|behavioral interview questions"}
+  - id: g39
+    category: question
+    query: "sliding window technique for coding interviews"
+    relevant:
+      - {source: tech-interview-handbook, heading: "Techniques > Sliding window"}
+  - id: g40
+    category: question
+    query: "how to prepare for a system design interview"
+    relevant:
+      - {source: system-design-primer, heading: "System design interview|How to approach a system design interview"}
+      - {source: tech-interview-handbook, heading: "system design"}

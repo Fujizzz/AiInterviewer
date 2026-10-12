@@ -1,0 +1,35 @@
+# Off-topic / unanswerable queries for calibrating the retrieval confidence rule.
+# The corpus is software-engineering docs, papers and interview prep; nothing here should be
+# answerable from it, so a correct system reports LOW confidence ("no evidence") for all of them.
+# `in_domain_non_ascii` are the opposite: answerable queries written in Chinese. They are NOT part
+# of the negative set; they document that lexical search is ASCII-only (lexical_hit=False) while dense
+# retrieval still works.
+status: "draft — needs human review"
+negative:
+  - {id: n01, category: cooking,  query: "sourdough starter feeding schedule"}
+  - {id: n02, category: cooking,  query: "pizza"}              # NOTE: the corpus has a LeetCode problem "Pizza With 3n Slices", so a literal hit is legitimate
+  - {id: n03, category: cooking,  query: "how long to boil an egg for a runny yolk"}
+  - {id: n04, category: sports,   query: "who won the 2018 football world cup"}
+  - {id: n05, category: sports,   query: "marathon training plan for beginners"}
+  - {id: n06, category: sports,   query: "basketball three point shooting form"}
+  - {id: n07, category: travel,   query: "best time to visit Kyoto for cherry blossoms"}
+  - {id: n08, category: travel,   query: "cheap flights from Singapore to Bali"}
+  - {id: n09, category: travel,   query: "do I need a visa for Iceland"}
+  - {id: n10, category: gibberish, query: "???"}
+  - {id: n11, category: gibberish, query: "asdkjh qwoeiru zxmnb"}
+  - {id: n12, category: gibberish, query: "lorem ipsum dolor sit amet"}   # NOTE: some docs use lorem ipsum as filler text
+  - {id: n13, category: vague,    query: "how does it work"}
+  - {id: n14, category: vague,    query: "tell me more about that"}
+  - {id: n15, category: vague,    query: "what is the best one"}
+  - {id: n16, category: vague,    query: "explain this"}
+  - {id: n17, category: other,    query: "symptoms of the common cold and when to see a doctor"}
+  - {id: n18, category: other,    query: "history of the Roman Empire"}
+  - {id: n19, category: other,    query: "how to tune a acoustic guitar"}
+  - {id: n20, category: other,    query: "celebrity gossip this week"}
+  - {id: n21, category: other,    query: "knitting a scarf with cable stitch"}
+  - {id: n22, category: other,    query: "best budget smartphone camera"}
+in_domain_non_ascii:
+  - {id: z01, query: "PagedAttention 如何减少 KV cache 显存碎片"}
+  - {id: z02, query: "解释 PostgreSQL 的多版本并发控制"}
+  - {id: z03, query: "Redis 持久化 RDB 和 AOF 的区别"}
+  - {id: z04, query: "如何让数据库的读操作不阻塞写操作"}   # pure Chinese: no ASCII token at all, lexical_hit must be False

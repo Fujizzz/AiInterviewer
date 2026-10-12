@@ -1,0 +1,28 @@
+# IntelliHire RAG store: PostgreSQL 17 + pgvector.
+#   cp .env.example .env     # dev-only defaults, edit if needed
+#   docker compose up -d
+#   python -m rag.cli migrate && python -m rag.cli index --all
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    container_name: intellihire-pg
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-intellihire}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-intellihire_dev_only}
+      POSTGRES_DB: ${POSTGRES_DB:-intellihire}
+    ports:
+      # bound to loopback only; change POSTGRES_PORT if 5432 is taken locally
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - intellihire_pgdata:/var/lib/postgresql/data
+    shm_size: 256mb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+
+volumes:
+  intellihire_pgdata:
