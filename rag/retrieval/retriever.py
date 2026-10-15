@@ -59,6 +59,7 @@ class Retriever:
         confidence_rule: ConfidenceRule = DEFAULT_RULE,
         min_rerank_score: float | None = None,
         planner_overrides: dict[str, str] | None = None,
+        exact_dense: bool = True,
         check_model: bool = True,
         embed_kwargs: dict | None = None,
         connection: psycopg.Connection | None = None,
@@ -79,6 +80,13 @@ class Retriever:
         # session settings applied inside the dense transaction, e.g. {"enable_seqscan": "off"}
         # (tests / diagnostics only: forces the HNSW plan)
         self.planner_overrides = dict(planner_overrides or {})
+        # Dense search is EXACT by default: index scans are disabled inside the dense transaction.
+        # The HNSW index (m=16, ef_construction=64, built incrementally) lost recall as the corpus
+        # grew past ~60k rows (overlap@10 vs exact fell to 0.93, min 0.2 on short queries at
+        # ef_search=100) and the planner started choosing it. An exact scan costs ~90 ms at 64k
+        # rows.
+        # Ignored when `planner_overrides` is given (tests / diagnostics that force a plan).
+        self.exact_dense = exact_dense
         self.check_model = check_model
         self.embed_kwargs = embed_kwargs or {}
         # An injected connection (e.g. checked out of a pool by the RAGPort adapter) is borrowed:
@@ -148,7 +156,10 @@ class Retriever:
         sql = dense_sql(where)
         with self.conn.transaction():
             self._set_hnsw()
-            for k, v in self.planner_overrides.items():
+            overrides = self.planner_overrides
+            if not overrides and self.exact_dense:
+                overrides = {"enable_indexscan": "off", "enable_bitmapscan": "off"}
+            for k, v in overrides.items():
                 self.conn.execute("SELECT set_config(%s, %s, true)", (k, v))
             if explain:
                 return [r[0] for r in self.conn.execute("EXPLAIN " + sql, params)]

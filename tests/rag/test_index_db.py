@@ -716,11 +716,12 @@ def test_real_index_capitalised_words_do_not_create_lexical_hits():
     not _real_index_ready(), reason="real index not loaded (plan depends on table size/stats)"
 )
 def test_real_index_dense_plan_is_pinned_to_exact_search():
-    """At ~16k rows and hnsw.ef_search=100 (production setting, applied by the same code path as
-    retrieve()), the planner chooses an EXACT scan + sort for the role-default dense query, not the
-    HNSW
-    index. This pins that so a planner flip is visible instead of silently making retrieval
-    approximate."""
+    """Production dense search is EXACT: `Retriever(exact_dense=True)` (the default) disables index
+    scans inside the dense transaction, so the role-default dense query is a sequential scan + sort
+    at any corpus size (at ~64k rows the planner would otherwise choose the incrementally built
+    HNSW index, whose overlap@10 with the exact result fell to 0.93). Applied by the same code
+    path as retrieve(); this pins it so a regression is visible instead of silently making
+    retrieval approximate."""
     from rag.retrieval.retriever import plan_scan_type
 
     r = Retriever(dsn=BASE_DSN, check_model=False)
@@ -731,8 +732,8 @@ def test_real_index_dense_plan_is_pinned_to_exact_search():
         msg = (
             "Dense plan for {what} is now {got!r}, expected {want!r}. If this is 'hnsw', "
             "production dense search "
-            "has become APPROXIMATE (measured overlap@10 0.98 / overlap@50 0.95 vs exact at "
-            "ef_search=100, gold queries). "
+            "has become APPROXIMATE (measured overlap@10 0.93, min 0.2 vs exact at "
+            "ef_search=100 on 64k rows). "
             "That may be fine, but update README + BACKLOG + this test deliberately.\nPlan:\n{plan}"
         )
         for role, want in (("question_planner", "seqscan"), ("evaluator", "seqscan")):
