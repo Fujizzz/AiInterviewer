@@ -13,7 +13,7 @@ from evaluation.model_calls import EvaluationModelClient, EvaluationStageError, 
 from evaluation.validator import validate_evidence
 from shared.contracts import Competency
 
-EXTRACTION_VERSION = "extractor-1.1.0"
+EXTRACTION_VERSION = "extractor-1.2.0"
 
 
 class QuoteReference(EvaluationModel):
@@ -73,7 +73,7 @@ class EvidenceExtraction(EvaluationModel):
 class EvidenceExtractor:
     def __init__(self, llm: StructuredLLM, *, timeout_seconds: float = 30) -> None:
         self._client = EvaluationModelClient(llm, timeout_seconds=timeout_seconds)
-        self._prompt = load_prompt("evidence_extractor_v1")
+        self._prompt = load_prompt("evidence_extractor_v2")
 
     async def extract(self, context: EvaluationInput) -> tuple[EvidenceItem, ...]:
         if non_answer_status(context.answer.text) or is_bare_label(context.answer.text):

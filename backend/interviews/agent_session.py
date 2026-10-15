@@ -408,6 +408,7 @@ class AgentSession:
             if getattr(self.app.evaluation, "formal", None) is not None
             else None
         )
+        numeric = None
         if self.emit_event is not None:
             numeric = await build_final_report(
                 context, self.history, llm=None, formal_records=formal_records
@@ -457,8 +458,16 @@ class AgentSession:
                 raise
 
         async with self._stage("report_generation"):
-            report = await build_final_report(
-                context, self.history, llm=observe_report, formal_records=formal_records
+            # Formal reports are deterministic; the numeric event already built
+            # this exact report. Keep legacy narrative generation unchanged.
+            report = (
+                numeric
+                if formal_records is not None and numeric is not None
+                else (
+                    await build_final_report(
+                        context, self.history, llm=observe_report, formal_records=formal_records
+                    )
+                )
             )
         return {
             "type": "finished",

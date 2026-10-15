@@ -19,7 +19,7 @@ def test_inputs_are_frozen_copies_and_payloads_are_allowlisted(
     conversation = phase_two_input.conversation_payload()
     extraction = phase_two_input.extraction_payload()
     assert set(conversation) == {"question", "answer", "topic", "history"}
-    assert set(extraction) == {"question", "answer", "history", "existing_evidence"}
+    assert set(extraction) == {"question", "answer", "history"}
     assert set(conversation["topic"]) == {
         "project_id",
         "topic_key",
@@ -98,7 +98,8 @@ def test_index_is_bounded_compact_and_does_not_reintroduce_current_answer(
     assert [item.evidence_id for item in context.existing_evidence] == [
         f"e{i}" for i in range(5, 55)
     ]
-    assert set(context.extraction_payload()["existing_evidence"][0]) == {
+    assert "existing_evidence" not in context.extraction_payload()
+    assert set(context.existing_evidence[0].model_dump()) == {
         "evidence_id",
         "answer_id",
         "thread_id",

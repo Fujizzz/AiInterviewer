@@ -5,7 +5,7 @@ from app.providers.llm import StructuredLLM
 from evaluation.aggregation import AggregationInput, ScoredEvaluation
 from evaluation.aggregator import aggregate_scores
 from evaluation.analyzer import NON_ANSWER_STATUSES, ConversationAnalyzer, safe_analysis
-from evaluation.contracts import EvaluationResult
+from evaluation.contracts import EvaluationModel, EvaluationResult
 from evaluation.extractor import EvidenceExtractor
 from evaluation.inputs import EvaluationInput
 from evaluation.judge import RubricJudge, RubricJudgement
@@ -15,6 +15,18 @@ from evaluation.resolution import ResolutionHistory, ResolvedEvaluation
 from evaluation.resolver import EvidenceResolver
 from evaluation.rubric import RubricPack
 from shared.contracts import AnswerAnalysis
+
+
+class PreparedEvaluation(EvaluationModel):
+    """Process-local extraction bound to the exact frozen conversational input."""
+
+    context: EvaluationInput
+    result: EvaluationResult
+
+    def matches(self, context):
+        # Only Resolver consumes the evolving evidence ledger. Everything seen by
+        # Analyzer/Extractor, including topic and original history, must match.
+        return self.context == context.model_copy(update={"existing_evidence": ()})
 
 
 class EvaluationService:
@@ -44,6 +56,12 @@ class EvaluationService:
             timeout_seconds=judge_timeout_seconds,
         )
 
+    async def prepare(self, context, *, analysis=None):
+        frozen = EvaluationInput.model_validate(context.model_dump(exclude={"existing_evidence"}))
+        return PreparedEvaluation(
+            context=frozen, result=await self.evaluate(frozen, analysis=analysis)
+        )
+
     async def evaluate_scored(
         self,
         context: EvaluationInput,
@@ -57,6 +75,7 @@ class EvaluationService:
         reevaluation_reason: str | None = None,
         analysis: AnswerAnalysis | None = None,
         previous_judgement: RubricJudgement | None = None,
+        prepared: PreparedEvaluation | None = None,
     ) -> ScoredEvaluation:
         """Rejudge changed evidence groups and return a complete replayable score record.
 
@@ -64,7 +83,9 @@ class EvaluationService:
         the model. Prior snapshots remain immutable. A stage failure publishes no
         new evidence, resolution, assessment, score or topic completion.
         """
-        resolved = await self.evaluate_resolved(context, history=history, analysis=analysis)
+        resolved = await self.evaluate_resolved(
+            context, history=history, analysis=analysis, prepared=prepared
+        )
         if resolved.evaluation.status == "failed":
             return ScoredEvaluation(evaluation=resolved.evaluation)
         try:
@@ -115,13 +136,19 @@ class EvaluationService:
         *,
         history: ResolutionHistory | None = None,
         analysis: AnswerAnalysis | None = None,
+        prepared: PreparedEvaluation | None = None,
     ) -> ResolvedEvaluation:
         """Phase-three entry point; keep evaluate() as the extraction-only API.
 
         Pass the complete pre-answer history, including original candidate source
         snapshots. Failed resolution discards this call's analysis/evidence too.
         """
-        result = await self.evaluate(context, analysis=analysis)
+        if prepared is not None and prepared.matches(context):
+            result = EvaluationResult.model_validate(prepared.result.model_dump())
+        else:
+            # Pruned/imported history can differ from the original job snapshot.
+            # Never reuse extraction against different source text or identity.
+            result = await self.evaluate(context, analysis=analysis)
         if result.status == "failed":
             return ResolvedEvaluation(evaluation=result)
         try:

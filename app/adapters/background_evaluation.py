@@ -1,6 +1,7 @@
 """Legacy feedback drives the live interview; shadow scoring consumes saved jobs."""
 
 import asyncio
+from time import perf_counter
 
 from agents.domain.errors import InvalidAgentState, StateConflictError
 from agents.tracing import emit_trace
@@ -19,6 +20,9 @@ class BackgroundShadowEvaluationAdapter:
         self._workers = {}
         self._assessment_workers = {}
         self._wake_versions = {}
+        self._preparation_workers = {}
+        self._prepared = {}
+        self._preparation_locks = {}
 
     @property
     def repository(self):
@@ -54,6 +58,12 @@ class BackgroundShadowEvaluationAdapter:
     def start_background(self, interview_id):
         """Call after the source turn commits; exactly one worker per local interview."""
         self._wake_versions[interview_id] = self._wake_versions.get(interview_id, 0) + 1
+        if self.formal is not None:
+            preparer = self._preparation_workers.get(interview_id)
+            if preparer is None or preparer.done():
+                self._preparation_workers[interview_id] = asyncio.create_task(
+                    self._prepare_available(interview_id), name=f"extract-ahead:{interview_id}"
+                )
         worker = self._workers.get(interview_id)
         if self.formal is not None and (worker is None or worker.done()):
             worker = asyncio.create_task(self._run(interview_id), name=f"shadow:{interview_id}")
@@ -65,6 +75,38 @@ class BackgroundShadowEvaluationAdapter:
             )
             self._assessment_workers[interview_id] = assessment_worker
         return worker if worker is not None else assessment_worker
+
+    async def _prepare_available(self, interview_id):
+        """At most current + next extraction; ordered scoring alone publishes results."""
+        lock = self._preparation_locks.setdefault(interview_id, asyncio.Lock())
+        try:
+            async with lock:
+                while True:
+                    wake_version = self._wake_versions[interview_id]
+                    records = await self.repository.get_evaluation_records(interview_id)
+                    jobs = await self.repository.get_shadow_jobs(interview_id)
+                    done = {r.input.request_id for r in records}
+                    prepared = self._prepared.setdefault(interview_id, {})
+                    for job in jobs:
+                        key = job.request.request_id
+                        if not job.shadow_enabled or key in done or key in prepared:
+                            continue
+                        if len(prepared) >= 2:
+                            break
+                        inputs = shadow_input(job, records)
+                        prepared[key] = asyncio.create_task(
+                            self.formal.prepare(inputs, job.feedback), name=f"extract:{key}"
+                        )
+                    if wake_version == self._wake_versions[interview_id]:
+                        return
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            emit_trace(
+                "evaluation.preparation_unavailable",
+                interview_id=interview_id,
+                error_type=type(error).__name__,
+            )
 
     async def _run_assessment(self, interview_id):
         try:
@@ -127,7 +169,12 @@ class BackgroundShadowEvaluationAdapter:
                 inputs = shadow_input(job, records)
                 emit_trace("evaluation.shadow_started", request_id=job.request.request_id)
                 try:
-                    scored = await self.formal._score(context, inputs, records, job.feedback)
+                    await self._prepare_available(interview_id)
+                    task = self._prepared.get(interview_id, {}).get(job.request.request_id)
+                    prepared = await task if task is not None else None
+                    scored = await self.formal._score(
+                        context, inputs, records, job.feedback, prepared
+                    )
                 except Exception:
                     scored = ScoredEvaluation(
                         evaluation=EvaluationResult(
@@ -148,6 +195,7 @@ class BackgroundShadowEvaluationAdapter:
                     scored=scored,
                 )
                 await self.repository.append_shadow_record(job, record)
+                self._prepared.get(interview_id, {}).pop(job.request.request_id, None)
                 emit_trace(
                     "evaluation.shadow_completed",
                     request_id=job.request.request_id,
@@ -171,7 +219,9 @@ class BackgroundShadowEvaluationAdapter:
             )
 
     async def drain(self, interview_id, *, timeout_seconds=60):
+        started = perf_counter()
         self.start_background(interview_id)
+        emit_trace("evaluation.finalization_started", interview_id=interview_id)
         workers = {
             pool[interview_id]
             for pool in (self._workers, self._assessment_workers)
@@ -185,6 +235,7 @@ class BackgroundShadowEvaluationAdapter:
                 "evaluation.shadow_pending",
                 interview_id=interview_id,
                 reason_code="FINALIZATION_TIMEOUT",
+                seconds=round(perf_counter() - started, 3),
             )
             return False
         try:
@@ -201,14 +252,29 @@ class BackgroundShadowEvaluationAdapter:
             return False
         completed = {r.input.request_id for r in records}
         assessed = {r.request_id for r in assessments}
-        return all(
+        complete = all(
             (not j.shadow_enabled or j.request.request_id in completed)
             and (not j.assessment_requested or j.request.request_id in assessed)
             for j in jobs
         )
+        emit_trace(
+            "evaluation.finalization_completed",
+            interview_id=interview_id,
+            seconds=round(perf_counter() - started, 3),
+            complete=complete,
+            unscored_jobs=sum(
+                j.shadow_enabled and j.request.request_id not in completed for j in jobs
+            ),
+        )
+        return complete
 
     async def close(self):
-        workers = [*self._workers.values(), *self._assessment_workers.values()]
+        workers = [
+            *self._workers.values(),
+            *self._assessment_workers.values(),
+            *self._preparation_workers.values(),
+            *(task for prepared in self._prepared.values() for task in prepared.values()),
+        ]
         for worker in workers:
             if not worker.done():
                 worker.cancel()
@@ -216,3 +282,6 @@ class BackgroundShadowEvaluationAdapter:
         self._workers.clear()
         self._assessment_workers.clear()
         self._wake_versions.clear()
+        self._preparation_workers.clear()
+        self._prepared.clear()
+        self._preparation_locks.clear()

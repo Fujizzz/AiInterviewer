@@ -164,5 +164,5 @@ class EvaluationInput(EvaluationModel):
     def extraction_payload(self) -> dict:
         # Planner completion decisions and analysis labels cannot bias extraction.
         return self.model_dump(
-            mode="json", include={"question", "answer", "history", "existing_evidence"}
+            mode="json", include={"question", "answer", "history"}
         )

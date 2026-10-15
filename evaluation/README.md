@@ -484,3 +484,19 @@ judge 推理文本不进入公开解释。安全审查使用同一份持久化�
 `node --test backend/tests/evaluation-report.test.mjs backend/tests/agent-client.test.mjs backend/tests/interview-history.test.mjs`；
 Django 的 `interviews.tests.test_agent`、`interviews.tests.test_agent_safety` 覆盖终端/网页
 报告一致性、来源核对、持久化和历史 API 返回。
+
+## 报告等待时间优化（2026-10-12）
+
+后台评分采用有界提前提取：原回答提交后，最多准备当前轮和下一轮的分析/证据提取。
+`extractor-1.2.0` 只读取冻结的问题、回答、同线程问答历史和能力 taxonomy；不再读取
+随评分进度变化的 evidence index。重复、补充、撤回与矛盾仍由 Resolver 使用完整证据历史处理。
+原文校验、质量门槛与有序入库保持不变，不并行发布存在历史依赖的 Resolver/Judge 结果。
+准备结果绑定 request、interview、question、answer、topic 和问答历史，任一项变化就重新评估。
+准备失败按原失败路径保存，关闭连接取消准备任务，已提交的任务仍可恢复。
+
+准备任务及已完成待消费的结果合计最多两个，不随回答队列无限增加并发或内存。
+相同来源的准备结果只消费一次，不增加正常路径的模型调用次数。
+结束阶段新增 `evaluation.finalization_started/completed` 事件，记录 drain 时间、完成状态与
+未处理任务数。正式报告的数字事件和最终响应复用同一次确定性构建结果，legacy 叙述流程不变。
+安全审查继续覆盖每个对外响应。真实端到端耗时应结合 provider 与发布日志判断，不能仅用
+单次模型耗时替代最终报告等待时间。

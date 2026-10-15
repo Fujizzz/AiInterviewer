@@ -212,6 +212,7 @@ class ProgressTests(SafetyTestMixin, TransactionTestCase):
             finally:
                 await disconnect(comm)
 
+    @patch.dict("os.environ", {"EVALUATION_MODE": "legacy"})
     async def test_score_arrives_before_blocked_report(self):
         """Artificially block report text, requiring receipt of same deterministic score first;
         after release, full report and budget remain correct.
@@ -256,6 +257,30 @@ class ProgressTests(SafetyTestMixin, TransactionTestCase):
                 await comm.wait()
             finally:
                 release.set()
+                await disconnect(comm)
+
+    @patch.dict("os.environ", {"EVALUATION_MODE": "shadow"})
+    async def test_formal_report_is_built_once_and_numeric_event_matches(self):
+        llm = FixtureLLM()
+        with (
+            patch("interviews.agent_session.BackendLLM", return_value=llm),
+            patch("interviews.agent_session.build_final_report", wraps=build_final_report) as build,
+        ):
+            comm = await connect()
+            try:
+                rid = await send_command(comm, "start", resume_text=RESUME, max_questions=1)
+                first = (await collect_until(comm, "question", rid))[-1]
+                rid = await send_command(
+                    comm, "answer", answer_text=ANSWER, question_id=first["question"]["question_id"]
+                )
+                events = await collect_until(comm, "finished", rid)
+                numeric = next(e["assessment"] for e in events if e["type"] == "assessment")
+                final = events[-1]["result"]["final_report"]
+                self.assertEqual(build.await_count, 1)
+                self.assertEqual(numeric, {key: final[key] for key in numeric})
+                self.assertEqual(final["scoring_source"], "formal_evaluation")
+                self.assertNotIn(ReportNarrative, llm.calls)
+            finally:
                 await disconnect(comm)
 
     async def test_cancel_during_prepare(self):

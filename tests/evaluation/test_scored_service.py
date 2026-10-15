@@ -186,3 +186,71 @@ async def test_explicit_prior_evaluation_failure_blocks_completion_and_scores(
     assert not result.evaluation.analysis.thread_complete
     assert result.evaluation.score_snapshot.status == "evaluation_failed"
     assert result.evaluation.score_snapshot.overall_score is None
+
+
+async def test_prepared_scoring_matches_serial_and_does_not_repeat_model_calls(
+    phase_two_input, analysis_payload, extraction_payload
+):
+    from evaluation.inputs import EvidenceIndexEntry
+    from tests.evaluation.port_helpers import evaluation_output
+
+    calls = []
+    base = service_model(analysis_payload, extraction_payload)
+
+    def model(prompt, data, schema):
+        calls.append(schema.__name__)
+        if schema is GroupedJudgeDraft:
+            return evaluation_output(prompt, data, schema)
+        return base(prompt, data, schema)
+
+    service = EvaluationService(model)
+    serial = await score(service, phase_two_input)
+    calls.clear()
+    prepared = await service.prepare(phase_two_input)
+    updated = phase_two_input.model_copy(
+        update={
+            "existing_evidence": (
+                EvidenceIndexEntry(
+                    evidence_id="prior",
+                    answer_id="older",
+                    thread_id=phase_two_input.question.thread_id,
+                    project_id=phase_two_input.question.project_id,
+                    normalized_claim="previously extracted evidence",
+                ),
+            )
+        }
+    )
+    # Changing the score ledger cannot change the independent preparation key.
+    assert prepared.matches(updated)
+    pipelined = await score(service, phase_two_input, prepared=prepared)
+    assert pipelined == serial
+    assert calls == [
+        "ConversationAnalysis",
+        "EvidenceExtraction",
+        "ResolutionDraft",
+        "GroupedJudgeDraft",
+    ]
+
+
+async def test_prepared_result_cannot_be_reused_for_changed_source(
+    phase_two_input, analysis_payload, extraction_payload
+):
+    service = EvaluationService(service_model(analysis_payload, extraction_payload))
+    prepared = await service.prepare(phase_two_input)
+    for updates in (
+        {"request_id": "different-request"},
+        {"answer": phase_two_input.answer.model_copy(update={"text": "A different answer."})},
+        {"question": phase_two_input.question.model_copy(update={"text": "A different question?"})},
+        {"topic": None},
+    ):
+        assert not prepared.matches(phase_two_input.model_copy(update=updates))
+    failed = await service.evaluate_resolved(
+        phase_two_input.model_copy(
+            update={
+                "answer": phase_two_input.answer.model_copy(update={"text": "A different answer."})
+            }
+        ),
+        prepared=prepared,
+    )
+    assert failed.evaluation.status == "failed"
+    assert failed.evaluation.reason_codes == ("extractor_invalid_evidence",)

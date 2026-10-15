@@ -176,3 +176,75 @@ async def test_cli_candidate_input_allows_background_scoring_to_run():
     result = await app.run(RESUME, max_questions=2, read_answer=answer, write=lambda _: None)
     assert len(await repo.get_evaluation_records(result["interview_id"])) == 2
     assert all(worker.done() for worker in app.evaluation._workers.values())
+
+
+async def test_extraction_runs_ahead_with_bounded_work_and_ordered_publication(monkeypatch):
+    agent, repo, shadow = await prepared()
+    release, second_prepared = asyncio.Event(), asyncio.Event()
+    entered, scored = [], []
+    original_prepare, original_score = shadow.formal.prepare, shadow.formal._score
+
+    async def observe_prepare(inputs, feedback):
+        entered.append(inputs.request_id)
+        result = await original_prepare(inputs, feedback)
+        if inputs.request_id == "request-2":
+            second_prepared.set()
+        return result
+
+    async def blocked_score(context, inputs, records, feedback=None, prepared=None):
+        await release.wait()
+        scored.append(inputs.request_id)
+        return await original_score(context, inputs, records, feedback, prepared)
+
+    monkeypatch.setattr(shadow.formal, "prepare", observe_prepare)
+    monkeypatch.setattr(shadow.formal, "_score", blocked_score)
+    try:
+        first, _ = await commit(agent, repo, shadow, 1)
+        shadow.start_background(first.interview_id)
+        await commit(agent, repo, shadow, 2)
+        shadow.start_background(first.interview_id)
+        await asyncio.wait_for(second_prepared.wait(), 2)
+        await commit(agent, repo, shadow, 3)
+        await shadow._prepare_available(first.interview_id)
+        assert entered == ["request-1", "request-2"]
+        assert len(shadow._prepared[first.interview_id]) == 2
+        assert not await repo.get_evaluation_records(first.interview_id)
+        release.set()
+        assert await shadow.drain(first.interview_id, timeout_seconds=3)
+        assert entered == scored == ["request-1", "request-2", "request-3"]
+        records = await repo.get_evaluation_records(first.interview_id)
+        assert [r.input.request_id for r in records] == scored
+        assert all(r.scored.evaluation.status == "completed" for r in records)
+        assert not shadow._prepared[first.interview_id]
+    finally:
+        release.set()
+        await shadow.close()
+
+
+async def test_cancel_extraction_ahead_keeps_committed_jobs_for_resume(monkeypatch):
+    agent, repo, shadow = await prepared()
+    entered, cancelled = asyncio.Event(), asyncio.Event()
+    original = shadow.formal.prepare
+
+    async def blocked(*args):
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    monkeypatch.setattr(shadow.formal, "prepare", blocked)
+    first, _ = await commit(agent, repo, shadow, 1)
+    shadow.start_background(first.interview_id)
+    await asyncio.wait_for(entered.wait(), 1)
+    await shadow.close()
+    assert cancelled.is_set()
+    assert not shadow._prepared
+    assert not await repo.get_evaluation_records(first.interview_id)
+    assert len(await repo.get_shadow_jobs(first.interview_id)) == 1
+    monkeypatch.setattr(shadow.formal, "prepare", original)
+    try:
+        assert await shadow.drain(first.interview_id, timeout_seconds=2)
+        assert len(await repo.get_evaluation_records(first.interview_id)) == 1
+    finally:
+        await shadow.close()

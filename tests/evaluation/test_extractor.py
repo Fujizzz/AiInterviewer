@@ -32,7 +32,7 @@ async def test_atomic_claims_multispans_and_program_owned_identity(
         assert item.question_id == phase_two_input.question.question_id
         assert item.thread_id == phase_two_input.question.thread_id
         assert item.project_id == phase_two_input.question.project_id
-        assert item.extraction_version == "extractor-1.1.0"
+        assert item.extraction_version == "extractor-1.2.0"
         assert item.relation == "new" and not item.related_evidence_ids
         assert item.independence_group_id is None
 
