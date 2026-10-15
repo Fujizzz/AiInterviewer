@@ -27,23 +27,29 @@ docker compose -f rag/docker-compose.yml up -d
 
 ### 方式 A：用现成的数据库导出（推荐，几分钟）
 
-找 Member 2 要 `intellihire-rag.dump`（约 81 MB，不在 Git 里），然后：
+找 Member 2 要 `intellihire-rag.dump`（约 333 MB，不在 Git 里；2026-10 语料扩充后的版本，旧版 84 MB / 16,379 条已作废），然后：
 
 ```bash
 docker exec -i intellihire-pg pg_restore -U intellihire -d intellihire \
   --no-owner --no-privileges --clean --if-exists < intellihire-rag.dump
 
-# 检查：应输出 16379
+# 检查：应输出 64250
 docker exec intellihire-pg psql -U intellihire -d intellihire -Atc "select count(*) from chunks"
 ```
 
-### 方式 B：从数据源自己重建（约 1 小时，需联网）
+### 方式 B：从数据源自己重建（约 2 小时，需联网）
 
 ```bash
 uv run python -m rag.cli migrate              # 建表
 uv run python -m rag.cli all --priority P0    # 拉取 → 清洗 → 切块（几十分钟，原始数据约 300 MB）
-uv run python -m rag.cli embed --all          # bge-m3 向量化（M 系列 Mac 约 13 分钟；首次下载模型约 2.3 GB）
+uv run python -m rag.cli embed --all          # bge-m3 向量化（M 系列 Mac P0 约 13 分钟；首次下载模型约 2.3 GB）
 uv run python -m rag.cli index --all          # 导入数据库
+
+# 第一批语料扩充（前端/后端/DevOps/数据工程/经典 ML/安全，93 个来源，约 4.8 万条，embed 约 35 分钟）：
+# sources.yaml 里 priority 为 P1/P2 且 reference_only=false 的来源即是；按名字取子集，例如：
+uv run python -m rag.cli all --source kubernetes-website,wikipedia-security
+uv run python -m rag.cli embed --source kubernetes-website,wikipedia-security
+uv run python -m rag.cli index --source kubernetes-website,wikipedia-security
 ```
 
 两种方式都能用这条命令自测：
@@ -114,7 +120,7 @@ if rag is not None:
 
 | `RetrievalSource` | 状态 |
 |---|---|
-| `technical` | ✅ 13,068 条：vLLM、Transformers、LangGraph、LlamaIndex、PyTorch、d2l、FastAPI、Django、PostgreSQL、Redis、Kafka、System Design Primer、cp-algorithms、6 篇论文 |
+| `technical` | ✅ 60,939 条（113 个来源）。原有：vLLM、Transformers、LangGraph、LlamaIndex、PyTorch、d2l、FastAPI、Django、PostgreSQL、Redis、Kafka、System Design Primer、cp-algorithms、6 篇论文。2026-10 新增 93 个来源：前端（MDN、React、Vue、Angular、Next.js、TypeScript、webpack、Vite、Redux）、后端与数据库（Spring 全家、Python、Flask、Rails、.NET、Node、Express、Go、Rust、gRPC/protobuf、GraphQL、Azure 架构模式、RabbitMQ、OpenSearch、Cassandra、nginx）、DevOps（Kubernetes、Docker、Helm、Prometheus、OpenTelemetry、Istio、Argo CD、GitHub Actions、Ansible、OpenTofu、事故响应、计算机网络）、数据工程（Spark、Airflow、dbt、Flink、Iceberg、Delta、Parquet、Debezium、ClickHouse）、经典 ML 与统计（scikit-learn、XGBoost、pandas、statsmodels、OpenIntro、因果推断）、安全（OWASP 全系列、NIST 800-63、MITRE ATT&CK、密码学、TLS 1.3）、约 700 篇 Wikipedia 概念条目 |
 | `question` | ✅ 3,311 条：LeetCode 题库（带难度）、Tech Interview Handbook |
 | `candidate` | ⏳ 空：需要接入简历入库 |
 | `job` | ⏳ 空：等 SkillsFuture / MyCareersFuture 岗位数据 |
@@ -136,7 +142,7 @@ if rag is not None:
 ## 5. 给 Member 2 自己：怎么导出数据库
 
 ```bash
-# 导出（自定义压缩格式，约 81 MB）
+# 导出（自定义压缩格式，约 333 MB）
 docker exec intellihire-pg pg_dump -U intellihire -d intellihire \
   -Fc --no-owner --no-privileges > intellihire-rag.dump
 
@@ -147,6 +153,8 @@ docker exec -i intellihire-pg pg_restore -U intellihire -d restore_check \
 docker exec intellihire-pg psql -U intellihire -d restore_check -Atc "select count(*) from chunks"
 docker exec intellihire-pg dropdb -U intellihire restore_check
 ```
+
+**检索说明**：稠密检索现在默认走精确扫描（`Retriever(exact_dense=True)`，约 90 ms / 6.4 万行），不依赖 HNSW 索引；原因和细节见 `rag/README.md` 的 "Retrieval after the expansion"。恢复库后不需要为此做任何额外操作。
 
 **分发方式**：用组内私下渠道发送，比如网盘、Teams 或微信群文件。**不要**放进 Git，也不要上传到公开的 GitHub Release：库里有第三方文档内容，部分来源的许可不允许公开再分发。数据更新后要重新导出。
 

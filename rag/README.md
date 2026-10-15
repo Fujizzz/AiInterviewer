@@ -22,6 +22,7 @@ rag/
 │                       encoders.py + onnx_encoder.py (query-encoder backends), onnx_build.py (dev: build the
 │                       int8 artifact), encoder_commands.py (`rag.cli encoder ...`)
 ├── loaders/ + clean.py, chunking.py, profiles.py, htmlmd.py, cli.py   ingestion pipeline
+│                       (git, hf, arxiv, crawler, xlsx, wikipedia; git also parses STIX bundles)
 ├── eval/               gold-set evaluation, tuning, confidence study
 ├── data/               sources.yaml (registry), eval/*.yaml (gold sets), reports/*.md (small),
 │                       encoder_manifest.json + encoder_smoke.json (int8 artifact identity / reference vectors),
@@ -76,7 +77,8 @@ uv run python -m rag.cli index --all                  # idempotent upsert into P
 uv run python -m rag.cli search "How does PagedAttention reduce KV cache fragmentation?" --role question_planner
 ```
 
-Measured on an Apple-silicon laptop (numbers from the original runs, 22 P0 sources / 16,379 chunks):
+Measured on an Apple-silicon laptop (numbers from the original runs, 22 P0 sources / 16,379 chunks;
+the batch-1 expansion to 64,250 chunks is described under [Corpus](#corpus)):
 
 | Step | Time | Disk |
 |---|---|---|
@@ -86,7 +88,8 @@ Measured on an Apple-silicon laptop (numbers from the original runs, 22 P0 sourc
 | `index --all` (cold) | 33 s; re-run 4 s, 0 rows rewritten | Postgres ~330 MB (table 151 MB, HNSW 128 MB) |
 
 Skipping ingestion: the index can also be restored from a `pg_dump` of an already loaded database;
-nothing in Git contains the corpus.
+nothing in Git contains the corpus. After a `pg_restore` or a bulk load, rebuild the HNSW index with a
+large `maintenance_work_mem` (see Retrieval after the expansion) if you ever turn `exact_dense` off.
 
 Existing databases: `migrate` is additive. Migration 003 (candidate isolation) adds
 `chunks.candidate_id` and a CHECK constraint; the adapter refuses to start (clear error) until it is
@@ -124,6 +127,117 @@ keyword smoke test; other project technologies need their own sources imported. 
 .\.venv\Scripts\python.exe -m rag.cli embed --source paper-pagedattention-vllm --device cpu --batch-size 2 --no-fp16
 .\.venv\Scripts\python.exe -m rag.cli index --source paper-pagedattention-vllm
 ```
+
+## Corpus
+
+`data/sources.yaml` is the registry: every source records its licence, scope (include / exclude globs),
+clean profile and the reason it was ingested or skipped. Nothing from the corpus is committed.
+
+| namespace | before batch 1 | after batch 1 |
+|---|---|---|
+| `technical` | 13,068 chunks / 20 sources | **60,939 chunks / 113 sources** |
+| `question` | 3,311 | 3,311 (interview Q&A banks are deliberately not ingested, see below) |
+| total in the index | 16,379 | **64,250** |
+
+Batch 1 (2026-10, branch `feat/rag-corpus-expansion`) added 93 technical-documentation sources,
+47,871 chunks, for the topics candidates bring up in interviews:
+
+| domain | sources | chunks | tokens |
+|---|---|---|---|
+| web-frontend | 12 | 13,012 | 3.88M |
+| web-backend | 16 | 7,303 | 2.63M |
+| security | 12 | 6,920 | 1.97M |
+| devops | 16 | 6,740 | 1.90M |
+| data-engineering | 13 | 3,209 | 1.05M |
+| data-science | 9 | 2,938 | 1.10M |
+| ml-classic | 6 | 2,549 | 0.98M |
+| system-design | 2 | 2,239 | 0.66M |
+| databases | 3 | 1,359 | 0.45M |
+| networking | 2 | 690 | 0.40M |
+| message-queue | 1 | 545 | 0.14M |
+| operating-systems | 1 | 367 | 0.22M |
+
+Source families (names are the `sources.yaml` keys):
+
+* **Frontend**: `mdn-content` (whitelisted JS / CSS / HTTP / Web API / security / accessibility /
+  glossary pages), `react-dev`, `vuejs-docs`, `angular-docs`, `nextjs-docs`, `typescript-handbook`,
+  `webpack-docs`, `vite-docs`, `redux-docs`, `redux-toolkit-docs`, `web-dev`, `wikipedia-frontend`.
+* **Backend / databases**: `spring-framework-docs`, `spring-boot-docs`, `spring-security-docs`,
+  `spring-data-jpa-docs`, `hibernate-orm-docs`, `python-docs`, `flask-docs`, `rails-guides`,
+  `dotnet-docs`, `nodejs-learn`, `express-docs`, `go-docs`, `rust-book`, `kotlin-coroutines-docs`,
+  `grpc-docs`, `protobuf-docs`, `graphql-learn`, `azure-architecture-center` (cloud design patterns,
+  microservices, data guide), `rabbitmq-docs`, `opensearch-docs`, `cassandra-docs`, `nginx-docs`,
+  `redis-docs-patterns` (distributed locks), `wikipedia-distributed-systems`.
+* **DevOps / SRE / cloud**: `kubernetes-website`, `docker-docs`, `helm-docs`, `prometheus-docs`,
+  `grafana-docs`, `opentelemetry-docs`, `istio-docs`, `envoy-docs`, `argocd-docs`,
+  `argo-rollouts-docs`, `github-actions-docs`, `ansible-docs`, `opentofu-docs`,
+  `pagerduty-incident-response`, `networks-systems-approach`, `cnp3-networking`, `linux-insides`,
+  `wikipedia-devops-cloud`.
+* **Data engineering**: `spark-docs`, `airflow-docs`, `dbt-docs`, `flink-docs`, `iceberg-docs`,
+  `delta-lake-protocol`, `parquet-format`, `arrow-format`, `debezium-docs`, `duckdb-docs`,
+  `clickhouse-docs`, `data-engineering-cookbook`, `wikipedia-data-engineering`.
+* **Classic ML / data science**: `scikit-learn-docs`, `xgboost-docs`, `lightgbm-docs`,
+  `imbalanced-learn-docs`, `pandas-docs`, `statsmodels-docs`, `openintro-ims`,
+  `interpretable-ml-book`, `think-stats`, `think-bayes`, `causal-inference-brave-true`, `dowhy-docs`,
+  `prophet-docs`, `wikipedia-ml-statistics`, `wikipedia-statistics`.
+* **Security**: `owasp-cheatsheets`, `owasp-wstg`, `owasp-top10`, `owasp-asvs`, `owasp-community`,
+  `nist-sp800-63`, `pyca-cryptography`, `azure-security-docs` (STRIDE threat modeling, key
+  management), `illustrated-tls13`, `mitre-attack-enterprise` (721 technique / tactic documents
+  parsed from the STIX bundle), `wikipedia-security`.
+* The `wikipedia-*` sources are curated lists of ~700 concept articles (CC BY-SA 4.0, one revision
+  permalink per page). They exist because interview queries are often a bare term ("CAP theorem",
+  "k-means++") or a plain-language paraphrase, which an encyclopedia lead matches far better than
+  product documentation.
+
+Licence policy: ingest only what a non-commercial, privately shared coursework knowledge base may
+reuse. NC and SA licences are accepted (`clickhouse-docs`, `interpretable-ml-book`, `think-*`,
+`linux-insides` are NC; `ansible-docs` GPL-3.0, `grafana-docs` AGPL-3.0). No-derivatives (ND),
+proprietary / vendor documentation and unknown licences are `reference_only: true` and never
+chunked: `elastic-docs-content` (CC BY-NC-ND), `mysql-innodb-docs` (Oracle), `terraform-docs`
+(BUSL), `google-sre-book` and `bytebytego-system-design-101` (ND), `mongodb-docs` (no licence
+stated), `android-interview-questions` (unspecified), `hudi-docs` (user docs repo not located).
+OpenSearch, OpenTofu and PagerDuty's incident-response docs stand in for Elastic, Terraform and the
+SRE book. The interview Q&A banks (`front-end-interview-handbook`, `devops-exercises`,
+`data-science-interviews`, `ml-interviews-alirezadir`, `ml-interviews-book`) are also
+`reference_only` for now: questions are generated by an LLM grounded in the technical chunks.
+
+Ingest a subset (fetch -> clean -> chunk, then embed and index only those sources; the index step
+replaces exactly the rows of the named sources):
+
+```bash
+uv run python -m rag.cli all --source kubernetes-website,wikipedia-security
+uv run python -m rag.cli embed --source kubernetes-website,wikipedia-security
+uv run python -m rag.cli index --source kubernetes-website,wikipedia-security
+uv run python -m rag.residue kubernetes-website wikipedia-security   # markup-residue counts
+```
+
+New clean profiles for these sources live in `profiles.py` (`mdn`, `asciidoc`, `msdocs`, `jekyll`,
+`quarto`, `notebook`, plus Hugo / VitePress / MDX additions); `rag/loaders/stix.py` and
+`rag/loaders/wikipedia_loader.py` are the two new loaders. Embedding the batch took about 35
+minutes for 37k new chunks (17.6 chunks/s on MPS), indexing under a minute; the Postgres database
+is ~1.1 GB.
+
+Quality gates for the corpus: the end-to-end invariants in `tests/rag/test_chunks_e2e.py` (no raw
+HTML tags, balanced fences, permalinks that pin the version, no heading id suffixes), the residue
+scanner (`python -m rag.residue`), the unit tests in `tests/rag/test_corpus_expansion.py` and the
+licence rule in the same file (no ingestable source with ND / BUSL / unknown licence).
+
+### Retrieval after the expansion
+
+* **Dense search is exact by default** (`Retriever(exact_dense=True)`: index scans are disabled in the
+  dense transaction). At ~64k rows the planner flipped to the incrementally built HNSW index and its
+  recall fell (overlap@10 with the exact result 0.93, down to 0.2 on short queries at
+  `ef_search=100`, e.g. "Kafka exactly-once semantics" returned search-autocomplete pages). An exact
+  scan costs ~90 ms at this size. Revisit around 300k rows: rebuild the HNSW index in one pass
+  (`SET maintenance_work_mem='1GB'; REINDEX INDEX chunks_embedding_hnsw;`) and use
+  `hnsw.ef_search >= 400` (overlap@10 0.999 on the gold + dev queries).
+* **Gold eval (40 queries) moved down a little**, because the gold relevance marks are the old chunk
+  ids and new, equally relevant chunks count as misses. Hybrid, no rerank: Recall@10 0.664 -> 0.623,
+  MRR@10 0.672 -> 0.612, nDCG@10 0.595 -> 0.550, Hit@10 0.850 -> 0.825.
+* The confidence rule was not recalibrated. Four "negative" queries gained legitimate literal hits
+  in Think Bayes / Think Stats / Wikipedia (World Cup problem, marathon record, basketball exercise,
+  a common-cold example) and were replaced in `data/eval/negative_queries.yaml`; 16 of 22 negatives
+  are still flagged low (18 of 22 before).
 
 ## Environment variables
 
@@ -399,14 +513,24 @@ environment (no pgvector, no torch) runs them without errors.
 ## Known limitations
 
 * The documented index has technical (13,068) and question (3,311) chunks only,
+
+`tests/rag/test_corpus_expansion.py` covers the batch-1 cleaners (`mdn`, `asciidoc`, `msdocs`, `jekyll`,
+`quarto`, `notebook`, Hugo / VitePress / MDX additions), the STIX parser, the Wikipedia loader (with a
+faked API) and the registry licence rule; it needs only PyYAML, pydantic and (for the Wikipedia loader)
+`requests`. `tests/rag/test_chunks_e2e.py` runs its invariants over every `data/chunks/*.jsonl` that
+exists and skips otherwise.
+
+## Known limitations
+
+* Not wired into the application; the index has technical (60,939) and question (3,311) chunks only,
   no candidate, job or rubric data. `RetrievalSource` has no `RUBRIC`.
 * Query quality is the weakest link: `RAGRouter._query` builds terse strings
   (`"{topic} candidate project claims"`, `"{topic} {information_goal}"`) and paraphrase-style queries
   score nDCG@10 about 0.21 (0.208 hybrid, n=9). See `docs/contract-proposals.md`.
 * The 40-query gold set is a draft written from chunk metadata; hybrid's advantage over dense-only and
   rerank's advantage over hybrid are not statistically established. Rerank is therefore off by default.
-* Dense search is currently an exact scan (a side effect of `hnsw.ef_search=100` at 16k rows); the
-  plan may flip to approximate HNSW as the corpus grows. A regression test pins the current plan.
+* Dense search is an exact scan on purpose (`exact_dense=True`); the HNSW index exists but is not used
+  by the default retriever. A regression test pins the plan. See "Retrieval after the expansion".
 * The embedding model is serialized behind a lock (one encode at a time); throughput under heavy
   concurrency is bounded by one model instance. Per-process model: run N workers, N copies of bge-m3 in RAM
   (about 0.8 GB each with `onnx-int8`, more than 2 GB with torch).
