@@ -18,7 +18,7 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from ..retrieval.access import resolve_namespaces
+from ..retrieval.access import resolve_namespaces, scope_namespaces
 from ..retrieval.fusion import rrf_fuse
 from ..retrieval.intent import RetrievalIntent
 from ..retrieval.retriever import Retriever
@@ -78,7 +78,8 @@ def grid() -> list[Cfg]:
 
 def collect(gold: GoldSet, role: str, r: Retriever) -> dict[str, dict]:
     """Per query: dense [(id, score)], lexical components per tsvector config."""
-    namespaces = resolve_namespaces(role, None)
+    # no candidate_id here: the candidate namespace is dropped (fail closed), as in retrieve()
+    namespaces = scope_namespaces(resolve_namespaces(role, None), None)
     cache: dict[str, dict] = {}
     for q in gold.queries:
         intent = RetrievalIntent(query=q.query, k=10)
