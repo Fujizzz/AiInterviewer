@@ -1,7 +1,8 @@
 # RAG module
 
 Production retrieval layer for the interview Agent: knowledge ingestion, a Postgres + pgvector
-index, hybrid retrieval (dense bge-m3 + lexical, fused by RRF, optional cross-encoder rerank), role
+index, hybrid retrieval (dense bge-m3 + lexical, fused by RRF, optional cross-encoder rerank; the query
+encoder is torch or a torch-free int8 ONNX build for small servers), role
 based namespace access control, retrieval confidence signals, an offline evaluation harness, and
 `rag/adapter.py`, which exposes all of it as the Agent's `RAGPort`.
 
@@ -17,13 +18,18 @@ rag/
 ├── settings.py         RAG_* environment settings
 ├── retrieval/          retrieve(intent, role): sql, fusion, rerank, access (ACL + candidate scope),
 │                       confidence, pool.py (pooled backend), lazy.py (model singletons), format.py
-├── index/              schema.sql + migrations/, embed.py (bge-m3), load.py, db.py, config.py
+├── index/              schema.sql + migrations/, embed.py (bge-m3), load.py, db.py, config.py,
+│                       encoders.py + onnx_encoder.py (query-encoder backends), onnx_build.py (dev: build the
+│                       int8 artifact), encoder_commands.py (`rag.cli encoder ...`)
 ├── loaders/ + clean.py, chunking.py, profiles.py, htmlmd.py, cli.py   ingestion pipeline
 ├── eval/               gold-set evaluation, tuning, confidence study
-├── data/               sources.yaml (registry), eval/*.yaml (gold sets), reports/*.md (small)
+├── data/               sources.yaml (registry), eval/*.yaml (gold sets), reports/*.md (small),
+│                       encoder_manifest.json + encoder_smoke.json (int8 artifact identity / reference vectors),
+│                       models/ (gitignored: the built artifact)
 ├── docker-compose.yml  pgvector/pgvector:pg17 on 127.0.0.1:5432
 ├── .env.example        dev-only Postgres defaults (copy to rag/.env, which is gitignored)
 ├── requirements.txt    optional dependencies (NOT part of the root pyproject / uv.lock)
+├── requirements-serve.txt  serving only (onnx-int8 encoder, no torch); for the small server
 ├── BACKLOG.md          open work, including integration follow-ups
 └── docs/               pipeline-and-index.md (long design notes, Chinese), contract-proposals.md
 ```
@@ -46,6 +52,10 @@ The manifest pins `transformers<5`, `huggingface-hub<1` and `datasets<5`: transf
 `tokenizers>=0.23.1`, which conflicts with the root `completion-gate` extra (`tokenizers==0.22.2`).
 With these pins both extras install side by side (verified with `uv pip compile` on Python 3.11 and
 3.13, and by running the full suite in such an environment).
+
+A machine that only serves queries does not need any of that: `RAG_ENCODER=onnx-int8` +
+`rag/requirements-serve.txt` (numpy, onnxruntime, tokenizers, psycopg, psycopg-pool, pgvector, pydantic;
+no torch, transformers or sentence-transformers). See [Query encoder](#query-encoder-torch-or-onnx-int8).
 
 `rag/adapter.py`, `rag/settings.py` and `rag/retrieval/{lazy,access,intent,confidence,types}.py`
 import without the extra, so the adapter unit tests run everywhere. `create_rag_adapter()` raises
@@ -96,10 +106,87 @@ All optional. Unset means the default. Parsed by `RAGSettings.from_env()`.
 | `RAG_CONNECT_TIMEOUT_SECONDS` | `3.0` | Postgres connect timeout and the start-up wait in `create_rag_adapter()`. |
 | `RAG_STATEMENT_TIMEOUT_MS` | `2500` | Server-side `statement_timeout` on every pooled connection (a bit above the router's 2 s): the database cancels a runaway query itself and the connection returns to the pool. |
 | `RAG_LOCK_TIMEOUT_MS` | `1000` | Server-side `lock_timeout` on pooled connections. |
-| `RAG_DEVICE` | auto | `cpu`, `mps` or `cuda` for the models. |
+| `RAG_DEVICE` | auto | `cpu`, `mps` or `cuda` for the torch models (ignored by the ONNX encoder, which is CPU only). |
+| `RAG_ENCODER` | `torch` | Query-encoder backend: `torch` (sentence-transformers; also what embeds the corpus) or `onnx-int8` (onnxruntime + tokenizers, no torch). The corpus vectors are never re-embedded. |
+| `RAG_ENCODER_THREADS` | `2` | onnxruntime `intra_op_num_threads` of the ONNX encoder. |
+| `RAG_ENCODER_MODEL_DIR` | `rag/data/models/bge-m3-onnx-int8` | Directory with `model.onnx`, `model.onnx.data`, `tokenizer.json` (see below). |
+| `RAG_ENCODER_VERIFY` | `true` | Check size and sha256 of those files against `rag/data/encoder_manifest.json` at load (about 1-2 s). |
 | `RAG_FILTER_DIFFICULTY` | `true` | Map request difficulty to LeetCode tiers for `source=question`. |
 | `RAG_FILTER_COMPETENCY` | `false` | Pass `competency` as a (lenient) filter. Off because no chunk has a competency label yet. |
 | `RAG_DROP_LOW_CONFIDENCE` | `false` | Return no chunks when the retrieval is `low_confidence` instead of flagging them. |
+
+## Query encoder: torch or onnx-int8
+
+Retrieval needs one bge-m3 vector per query. Two interchangeable backends produce it (`RAG_ENCODER`):
+
+| | `torch` (default) | `onnx-int8` |
+|---|---|---|
+| runtime | sentence-transformers + torch | onnxruntime + tokenizers + numpy (no torch / transformers / sentence-transformers; `tests/rag/test_onnx_no_torch.py` checks this in a fresh interpreter) |
+| use | local development, and the only backend that embeds the corpus | serving on a small CPU box |
+| weights | `BAAI/bge-m3` fp16/fp32 | the same weights, dynamic int8 (per-channel QInt8), 587 MB on disk |
+| query semantics | no prefix, CLS pooling, L2 norm, 1024 tokens max | identical (pooling checked: `modules.json` = Transformer, Pooling(cls), Normalize; the fp32 ONNX export reproduces torch fp32 to cosine 1.0000) |
+
+`index_meta` still describes the torch vectors in the database. An `onnx-int8` encoder built from the same base
+model, revision, dim, max_seq_length and format is accepted for *queries*; any other model is refused, and a
+derived encoder can never define `index_meta` or embed the corpus. The encoder that produced a result is recorded
+in `RetrievalResult.encoder` and in every chunk's `metadata["encoder"]` (`"torch"` or `"onnx-int8/int8-pc"`).
+
+**Artifact.** The ONNX is the *official* export in the `onnx/` folder of `BAAI/bge-m3` at the same revision the
+index was built from (`5617a9f6...`, MIT licence). `python -m rag.cli encoder build-onnx` downloads it (fp32, 2.3 GB),
+runs `onnxruntime.quantization.quantize_dynamic` (about 30 s, 3.5 GB RAM peak), writes the weights as an external-data
+file and records everything in `rag/data/encoder_manifest.json` (committed: sha256 and size of every file, source
+revision, quantization settings). The build is deterministic (rebuilding gives the same sha256). The files are
+gitignored (`rag/data/models/`); a server gets them by copying, see
+[docs/TEAM_INTEGRATION.md](docs/TEAM_INTEGRATION.md) section 6 (it also lists what the deploy owner has to do).
+`python -m rag.cli encoder verify [--smoke]` checks a directory against the manifest; `--smoke` also loads the
+model and compares six query vectors with the committed torch reference (use it on the machine that will serve:
+it prints cosine, latency and peak RSS; on a serve-only install call `python -m rag.index.encoder_commands verify
+--smoke`, because `rag.cli` imports the ingestion pipeline). Do not quantize on the 2.3 GB server.
+
+**Measured** (Apple M5, arm64, 16 GB, Python 3.13, onnxruntime 1.23.2; local pg17 index of 16,379 chunks, rerank off;
+full tables, all variants and caveats in `data/reports/encoder-onnx-int8-20261015.md`):
+
+| | torch (fp16, MPS; today's numbers) | onnx-int8 `int8-pc` | delta (paired bootstrap 95% CI) |
+|---|---|---|---|
+| query vector cosine vs torch, 98 queries | 1 | mean 0.9888, min 0.9843, p5 0.9856 | |
+| main gold (40), hybrid nDCG@10 / R@10 / MRR@10 | 0.595 / 0.664 / 0.672 | 0.586 / 0.640 / 0.677 | -0.009 [-0.030, +0.007] / -0.024 [-0.062, +0.005] / +0.005 [-0.012, +0.024] |
+| main gold, dense-only nDCG@10 | 0.552 | 0.550 | -0.002 [-0.014, +0.010] |
+| identifier slice (10), hybrid nDCG@10 | 0.640 | 0.614 | -0.026 [-0.066, +0.006] |
+| top-10 overlap with the torch ranking | | 0.92 (gold), 0.92 (identifier) | |
+| confidence: gold high/medium/low | 27 / 13 / 0 | 25 / 15 / 0 | g18, g27: high to medium |
+| confidence: 22 negatives low/medium/high | 18 / 4 / 0 | 18 / 4 / 0 | none changed |
+| mean `max_dense` shift (gold) | | -0.006 (range -0.020 to +0.012) | thresholds unchanged |
+
+The int8 encoder is not distinguishable from torch on 40 draft queries (every CI includes 0) but it is not free: the
+only category that moves is paraphrase (n=9, nDCG 0.208 to 0.151), and the identifier slice drifts down. The two
+gold queries that lose `high` sit within 0.005 of the 0.62 cut-off; the direction is conservative, so the thresholds
+(0.52 / 0.62) were **not** retuned. 7 recipes were compared (per-tensor, per-channel, QUInt8, `reduce_range`, fp16
+embeddings, attention or last layers kept fp32). Their differences are all inside the CIs (about +-0.02), so `int8-pc`
+(smallest, fastest, QInt8 weights as onnxruntime recommends for x86) was kept; the only nominally better one,
+`int8-pc-noattn` (+0.010), costs 300 MB and 1.7x latency and flips a negative query from low to medium.
+
+| process (warm-up + 50 queries, fresh process, Apple arm64) | peak RSS | cold load | encode p50 / p95 |
+|---|---|---|---|
+| `onnx-int8`, adapter with DB pool, 2 threads | 0.78 GB | 1.0 s | 13 / 20 ms (encoder only); hybrid retrieve 78 / 208 ms (small tuned pg14 container), 150 / 349 ms (default pg17 container) |
+| `onnx-int8`, 1 thread | 0.78 GB | 0.7 s | 20 / 33 ms |
+| torch fp16 on MPS (default), adapter | 3.7 GB (transient while loading the fp32 `.bin`; 2.3 GB encoder only) | 9-12 s | 16 / 19 ms |
+| torch CPU fp32, encoder only | 2.05 GB | 7-8 s | 38 / 40 ms |
+
+Of the 0.78 GB, the XLM-R tokenizer alone is 0.39 GB (the `tokenizers` crate builds a large trie for the 250k-piece
+vocabulary) and the memory-mapped weights about 0.34 GB; the weights are clean page cache, so the kernel can drop them
+under pressure (the process still ran inside a 512 MB cgroup under emulation). Using `sentencepiece` for tokenization would
+save about 0.3 GB with identical ids on the 98 test queries, but it is not in the deploy lock and was not adopted.
+
+**x86 caveat.** All timings above are Apple arm64. The target server is x86_64 and was only exercised in a
+`linux/amd64` container under qemu emulation (colima on this Mac is arm64): there the serve install, warm-up, search,
+RSS (0.76-0.80 GB) and vector agreement (cosine 0.9886 vs torch, same as arm64) are valid, but latency (2 s per encode)
+is 100x pessimistic and meaningless. Dynamic int8 on x86 CPUs without VNNI can saturate u8s8 products in the AVX2 kernel;
+emulation could not tell, so run `encoder verify --smoke` on the server (cosine must be >= 0.97). `int8-pc-rr` (7-bit
+weights) is the fallback; it costs about 0.01 more nDCG than `int8-pc` here (-0.020 vs -0.009 against torch).
+
+Notes: dynamic quantization takes the activation scale from the whole batch, so a query's vector would depend on its
+neighbours; `OnnxQueryEncoder.encode` therefore runs one text per forward pass by default. Reranking needs torch and
+is not available with the torch-free install (`RAG_RERANK=true` is refused). Corpus embedding always uses torch.
 
 ## Wiring the adapter into the Agent
 
@@ -244,6 +331,12 @@ tests use a fake backend and need neither a database nor a model. The existing c
 (`tests/agent/contracts/test_rag_port_contract.py`) is not parametrised over implementations, so the
 same assertions are repeated for the adapter in `tests/rag/test_adapter.py`.
 
+Encoder tests: `test_encoder_selection.py` (settings, labels, factory errors), `test_onnx_encoder_units.py` (pooling,
+normalisation, padding, truncation, manifest checks on a tiny committed fixture model), `test_onnx_no_torch.py` (no
+torch-family import, fresh interpreter), `test_index_meta_compat.py` (accept / refuse rules), `test_onnx_real.py` (real
+artifact and index; skips without them). Each module `importorskip`s only what it uses, so the deploy workflow's locked
+environment (no pgvector, no torch) runs them without errors.
+
 ## Known limitations
 
 * Not wired into the application; the index has technical (13,068) and question (3,311) chunks only,
@@ -256,7 +349,8 @@ same assertions are repeated for the adapter in `tests/rag/test_adapter.py`.
 * Dense search is currently an exact scan (a side effect of `hnsw.ef_search=100` at 16k rows); the
   plan may flip to approximate HNSW as the corpus grows. A regression test pins the current plan.
 * The embedding model is serialized behind a lock (one encode at a time); throughput under heavy
-  concurrency is bounded by one model instance. Per-process model: run N workers, N copies of bge-m3 in RAM.
+  concurrency is bounded by one model instance. Per-process model: run N workers, N copies of bge-m3 in RAM
+  (about 0.8 GB each with `onnx-int8`, more than 2 GB with torch).
 * Lexical search is ASCII-only; Chinese queries are dense-only.
 * The long design notes, evaluation tables and per-source limitations are in
   `docs/pipeline-and-index.md`; open work is in `BACKLOG.md`.

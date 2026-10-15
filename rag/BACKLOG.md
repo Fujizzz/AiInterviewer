@@ -16,7 +16,9 @@ Carried over from the standalone `intellihire-data` repository (paths adapted: `
 - [ ] **Query rewriting for terse router queries** (`"{topic} {information_goal}"`): see
   `rag/docs/contract-proposals.md`. paraphrase nDCG@10 is ~0.21.
 - [ ] **Per-call latency budget vs the Agent's 2 s RAG timeout**: measured 230-470 ms warm on MPS (16k rows,
-  hybrid, no rerank); CPU-only hosts and rerank are untested. Run `await adapter.warmup()` at start-up.
+  hybrid, no rerank); rerank is untested on CPU. CPU-only with the int8 ONNX encoder on Apple arm64: encode
+  13 ms, hybrid retrieve 78-150 ms p50 (see the ONNX section below); x86 is still unmeasured. Run
+  `await adapter.warmup()` at start-up.
 - [ ] **Low-confidence handling is the caller's job today**: the Agent's `ContextBuilder` renders only
   `chunk_id/title/content`, so `low_confidence` chunks are shown to the question LLM like any other. Options:
   `RAG_DROP_LOW_CONFIDENCE=true` (adapter drops them) or a contract change (proposals doc).
@@ -25,6 +27,38 @@ Carried over from the standalone `intellihire-data` repository (paths adapted: `
 - [ ] **`RUBRIC` source** is not in `RetrievalSource`; the `evaluator` role (rubric+technical) is unreachable through RAGPort.
 - [ ] CI could run `tests/rag/test_index_db.py` and the adapter integration test with a `pgvector/pgvector:pg17`
   service container; today both skip when Postgres is absent.
+
+## ONNX int8 query encoder for the 2-vCPU / 3.5 GB server (2026-10-15)
+
+Done: `RAG_ENCODER=onnx-int8` (onnxruntime + tokenizers, no torch), build script and committed manifest,
+`index_meta` compatibility rules, `requirements-serve.txt`, tests, measurements
+(`data/reports/encoder-onnx-int8-20261015.md`), server section in `docs/TEAM_INTEGRATION.md`.
+Also fixed on the way: `rag.cli eval` (default, `--tune`, `--ident-study`) had crashed on `main` since the
+candidate-isolation change (`tune.collect` built a filter that still contained the candidate namespace).
+
+- [ ] **Deploy owner (Member 5): everything in `docs/TEAM_INTEGRATION.md` section 6.4**: add `psycopg-pool` and
+  `pgvector` to `deploy/requirements-linux.lock.txt`, `RAG_*` variables in `app.env`, copy the model directory,
+  2-4 GB swap, a pgvector-enabled Postgres, run `python -m rag.index.encoder_commands verify --smoke` on the server.
+  Nothing under `deploy/` or `.github/` was touched here.
+- [ ] **Measure on real x86.** Everything timed here is Apple arm64; the amd64 container ran under qemu (latency
+  100x pessimistic, only memory and cosine are meaningful). Needed: encode p50/p95 on the 2 vCPU box with the app
+  running, and whether the CPU has VNNI (without it u8s8 products can saturate; `--smoke` catches it, the fallback is
+  `build-onnx --variant int8-pc-rr`).
+- [ ] **Tokenizer memory.** `tokenizers` needs about 0.39 GB for the XLM-R vocabulary (half of the 0.78 GB process).
+  `sentencepiece` needs about 0.07 GB and gave identical ids on the 98 test queries, but it is not in the deploy lock;
+  adopt it (with a parity test over a larger query sample) only if the box gets tight.
+- [ ] **int8 quality on the weak categories.** Paraphrase hybrid nDCG 0.208 to 0.151 (n=9) and identifier slice
+  0.640 to 0.614 (n=10) are the visible losses; both CIs include 0. Re-check on the enlarged, human-reviewed gold set.
+  Thresholds 0.52 / 0.62 were not retuned (gold g18 and g27 move high to medium).
+- [ ] **Artifact distribution.** The int8 files are copied by hand (rsync/scp). Publishing them to a private bucket or
+  a private HF repo, and downloading with the sha256 from the manifest, would remove the manual step.
+- [ ] fp16 ONNX variant was not built (onnxruntime's CPU provider has no native fp16 kernels, it would be slower and
+  1.1 GB); revisit only for GPU hosts.
+- [ ] `python -m rag.cli` imports the whole ingestion pipeline (requests, tiktoken, datasets) at start-up, so serve-only
+  installs use `python -m rag.index.encoder_commands`. Make the `rag.cli` imports lazy.
+- [ ] Dev `docker-compose.yml` runs Postgres with default settings (`shared_buffers=128MB`): hybrid p50 was 150 ms
+  against 78 ms on a pg14 container with `shared_buffers=256MB` (different major version, not a controlled test).
+  Check whether the dev default should be raised.
 
 ## Data pipeline and index (carried over)
 
