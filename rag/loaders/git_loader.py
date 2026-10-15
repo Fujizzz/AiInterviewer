@@ -549,6 +549,26 @@ def fetch(source: Source, raw_dir: Path) -> FetchResult:
             errors.append(f"{rel}: read failed ({e})")
             continue
 
+        if path.suffix == ".json" and source.options.get("stix"):
+            from .stix import parse_bundle
+
+            try:
+                stix_docs = parse_bundle(raw_text)
+            except Exception as e:  # malformed bundle: report, keep going
+                errors.append(f"{rel}: STIX parse failed ({e})")
+                continue
+            for sd in stix_docs:
+                docs.append(
+                    RawDoc(
+                        path=f"{rel}#{sd.attack_id}",
+                        text=sd.text,
+                        doc_version=commit,
+                        source_url=sd.url or f"https://github.com/{owner}/{repo}/blob/{commit}/{rel}",
+                        title=sd.title,
+                    )
+                )
+            continue
+
         if path.suffix == ".ipynb":
             raw_text = _extract_ipynb_markdown(raw_text)
 

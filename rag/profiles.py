@@ -1601,6 +1601,16 @@ def profile_msdocs(text: str, path: str = "") -> str:
         seg = _MS_INCLUDE_RE.sub("", seg)
         seg = _MS_VIDEO_RE.sub("", seg)
         seg = _MS_ROW_RE.sub("", seg)
+        seg = re.sub(  # <ul><li>..</li></ul> inside pipe-table cells
+            r"^\|.*$",
+            lambda m: re.sub(
+                r"</?(?:ul|ol)>|</li>",
+                "",
+                re.sub(r"<li>", "\u2022 ", re.sub(r"<br\s*/?>", "; ", m.group(0))),
+            ),
+            seg,
+            flags=re.M,
+        )
         seg = _MS_CALLOUT_RE.sub(lambda m: "> **" + m.group(1).title() + ":**", seg)
         return seg
 

@@ -1052,9 +1052,10 @@ sources:
     refresh_cycle: quarterly
     domain: interview-prep
     related_technologies: [frontend, javascript, interview]
-    reference_only: false
+    reference_only: true
     verified: true
-    notes: "Repo existence confirmed; exact content subdir not tree-verified this session."
+    notes: >
+      Batch-1 scope decision (2026-10-15): interview Q&A banks are NOT ingested; the team will generate questions with an LLM grounded in the technical-doc chunks. Kept registered for a later batch.
 
   - name: android-interview-questions
     namespace: question
@@ -1207,9 +1208,10 @@ sources:
     refresh_cycle: quarterly
     domain: interview-prep
     related_technologies: [ml-interview, system-design, ml]
-    reference_only: false
+    reference_only: true
     verified: true
-    notes: "Repo existence confirmed via ls-remote."
+    notes: >
+      Batch-1 scope decision (2026-10-15): interview Q&A banks are NOT ingested; the team will generate questions with an LLM grounded in the technical-doc chunks. Kept registered for a later batch.
 
   - name: ml-interviews-book
     namespace: question
@@ -1223,9 +1225,10 @@ sources:
     refresh_cycle: quarterly
     domain: interview-prep
     related_technologies: [ml-interview, data-science]
-    reference_only: false
+    reference_only: true
     verified: true
-    notes: "Repo existence confirmed; path not tree-verified this session."
+    notes: >
+      Batch-1 scope decision (2026-10-15): interview Q&A banks are NOT ingested; the team will generate questions with an LLM grounded in the technical-doc chunks. Kept registered for a later batch.
 
   - name: data-science-interviews
     namespace: question
@@ -1239,9 +1242,10 @@ sources:
     refresh_cycle: quarterly
     domain: interview-prep
     related_technologies: [data-science, interview]
-    reference_only: false
+    reference_only: true
     verified: true
-    notes: "Repo existence confirmed."
+    notes: >
+      Batch-1 scope decision (2026-10-15): interview Q&A banks are NOT ingested; the team will generate questions with an LLM grounded in the technical-doc chunks. Kept registered for a later batch.
 
   - name: ragas-docs
     namespace: technical
@@ -1503,41 +1507,55 @@ sources:
     refresh_cycle: quarterly
     domain: devops
     related_technologies: [devops, interview, kubernetes, docker]
-    reference_only: false
+    reference_only: true
     verified: true
-    notes: "Repo existence confirmed."
+    notes: >
+      Batch-1 scope decision (2026-10-15): interview Q&A banks are NOT ingested; the team will generate questions with an LLM grounded in the technical-doc chunks. Kept registered for a later batch.
 
   - name: owasp-cheatsheets
     namespace: technical
-    priority: P2
+    priority: P1
     url: https://github.com/OWASP/CheatSheetSeries
     loader: git
-    path: cheatsheets
+    paths: ["cheatsheets/"]
+    include: ["cheatsheets/*.md"]
+    exclude:
+      - "cheatsheets/{AI_Powered_Advertising_Systems_Security,AML_Sanctions_Screening,Vulnerable_Dependency_Management}_Cheat_Sheet.md"
+    clean_profile: markdown
+    max_file_kb: 100
     license: CC-BY-SA-4.0
     auto_level: full
     trust_level: official
     refresh_cycle: quarterly
     domain: security
-    related_technologies: [security, web-security, owasp]
+    related_technologies: [security, web-security, owasp, authentication, session-management, cryptography, ssrf, csrf, xss]
     reference_only: false
     verified: true
-    notes: "Repo existence confirmed; cheatsheets/ is the documented convention, not tree-verified this session."
+    notes: "Tree-verified: 139 cheat sheets (authentication, session management, OAuth2/JWT, CSRF, XSS, SSRF, SQL injection prevention, secrets management, threat modeling, zero trust, TLS, cryptographic storage, REST/GraphQL/Docker/Kubernetes security...)."
 
   - name: owasp-wstg
     namespace: technical
-    priority: P2
+    priority: P1
     url: https://github.com/OWASP/wstg
     loader: git
-    path: document
+    paths: ["document/2-Introduction/", "document/3-The_OWASP_Testing_Framework/", "document/4-Web_Application_Security_Testing/"]
+    include:
+      - "document/2-Introduction/*.md"
+      - "document/3-The_OWASP_Testing_Framework/*.md"
+      - "document/4-Web_Application_Security_Testing/**/*.md"
+    exclude:
+      - "document/**/README.md"
+      - "document/4-Web_Application_Security_Testing/13-WebAssembly_Testing/**"
+    max_file_kb: 100
     license: CC-BY-SA-4.0
     auto_level: full
     trust_level: official
     refresh_cycle: quarterly
     domain: security
-    related_technologies: [security, pentesting, owasp]
+    related_technologies: [security, pentesting, owasp, web-security, testing]
     reference_only: false
     verified: true
-    notes: "Repo existence confirmed; path not tree-verified this session."
+    notes: "Tree-verified. Web Security Testing Guide test cases (information gathering, configuration, identity/authn/authz/session, injection, crypto, business logic, client-side, API testing). Foreword, appendix, reporting and per-chapter README indexes excluded."
 
   - name: mitre-cti
     namespace: technical
@@ -1551,13 +1569,10 @@ sources:
     refresh_cycle: quarterly
     domain: security
     related_technologies: [mitre-attack, threat-intel, stix]
-    reference_only: false
+    reference_only: true
     verified: true
     notes: >
-      Content is STIX 2.x JSON, not markdown/rst — the git_loader as specified
-      (*.md/*.mdx/*.rst/*.ipynb) will find nothing here. A dedicated STIX JSON
-      parser is needed before this source can actually produce chunks; flagged
-      for the team, not implemented in this task.
+      Superseded by mitre-attack-enterprise (STIX parser in rag/loaders/stix.py, source mitre-attack/attack-stix-data). Not ingested from mitre/cti to avoid duplicates.
 
   - name: zephyr-docs
     namespace: technical
@@ -2876,6 +2891,344 @@ sources:
     reference_only: false
     verified: true
     notes: "Prophet docs: additive decomposition (trend, seasonality, holidays), changepoints, uncertainty, outliers, cross-validation diagnostics."
+
+  - name: owasp-top10
+    namespace: technical
+    priority: P1
+    url: https://github.com/OWASP/Top10
+    loader: git
+    paths: ["2025/docs/en/"]
+    include: ["2025/docs/en/{A,0x}*.md"]
+    exclude: ["2025/docs/en/{0x01,0x00_2025-notice}*.md"]
+    max_file_kb: 100
+    license: "CC-BY-SA-4.0 (repository LICENSE; OWASP site content statement)"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: security
+    related_technologies: [security, owasp, top10, broken-access-control, injection, cryptographic-failures]
+    reference_only: false
+    verified: true
+    notes: "OWASP Top 10:2025 (A01 Broken Access Control ... A10 Mishandling of Exceptional Conditions) + introduction."
+
+  - name: owasp-asvs
+    namespace: technical
+    priority: P1
+    url: https://github.com/OWASP/ASVS
+    loader: git
+    paths: ["5.0/en/"]
+    include: ["5.0/en/{0x03,0x1,0x2}*.md"]
+    exclude: ["5.0/en/0x9[0-9]-*.md"]
+    max_file_kb: 150
+    license: CC-BY-SA-4.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: security
+    related_technologies: [security, owasp, asvs, authentication, jwt, oauth, session-management, cryptography]
+    reference_only: false
+    verified: true
+    notes: "ASVS 5.0 requirement chapters: encoding/sanitization, validation, web frontend, API, file handling, authentication, session management, authorization, self-contained tokens (JWT), OAuth/OIDC, cryptography, secure communication, configuration, data protection, secure coding, logging."
+
+  - name: owasp-community
+    namespace: technical
+    priority: P1
+    url: https://github.com/OWASP/www-community
+    loader: git
+    paths: ["pages/attacks/", "pages/vulnerabilities/", "pages/controls/", "pages/Threat_Modeling*.md", "pages/Threat_Modeling/"]
+    include:
+      - "pages/attacks/{Server_Side_Request_Forgery,Cross-Site_Request_Forgery_(CSRF),csrf,Cross-site-Scripting-(XSS),DOM_Based_XSS,SQL_Injection,Blind_SQL_Injection,Command_Injection,Path_Traversal,XML_External_Entity_(XXE)_Processing,Clickjacking,Session_hijacking_attack,Session_fixation,Credential_stuffing,Brute_force_attack,Denial_of_Service,Cache_Poisoning,Man-in-the-middle_attack,Code_Injection,Open_redirect,Insecure_Deserialization,Unrestricted_File_Upload,Format_string_attack,Buffer_overflow_attack,Race_Conditions,Replay_Attack,Subdomain_Takeover,HTTP_Response_Splitting,LDAP_Injection,XPATH_Injection,Mass_Assignment,Cross_Site_Scripting_Flaw}.md"
+      - "pages/controls/{Content_Security_Policy,Least_Privilege_Principle,Blocking_Brute_Force_Attacks,Certificate_and_Public_Key_Pinning,Cross_Origin_Resource_Policy}.md"
+      - "pages/{Threat_Modeling,Threat_Modeling_Process,Application_Threat_Modeling,Defense_in_depth,Fail_securely,Least_privilege,Principle_of_least_privilege,Security_by_Design_Principles,Session_Management_Cheat_Sheet,Access_Control,Broken_Access_Control,Insecure_Direct_Object_Reference}.md"
+      - "pages/vulnerabilities/{Insecure_Transport,Insecure_Direct_Object_Reference,Improper_Data_Validation,Business_logic_vulnerability,Deserialization_of_untrusted_data,Race_condition,Unsafe_Mobile_Code,Insecure_Randomness,Password_Plaintext_Storage,Use_of_Hard-coded_Password}.md"
+      - "pages/Threat_Modeling/**"
+    options:
+      frontmatter_title: true
+    max_file_kb: 80
+    license: "CC-BY-SA-4.0 (owasp.org content statement: all site content is CC BY-SA 4.0 unless otherwise specified; the repository has no LICENSE file)"
+    auto_level: full
+    trust_level: community
+    refresh_cycle: yearly
+    domain: security
+    related_technologies: [security, owasp, ssrf, csrf, xss, threat-modeling, least-privilege]
+    reference_only: false
+    verified: true
+    notes: "OWASP Community wiki: whitelist of attack, vulnerability and control pages (SSRF, CSRF, XSS, SQLi, XXE, path traversal, session attacks, CSP) and threat-modeling / design-principle pages. Event, chapter and project listings excluded."
+
+  - name: nist-sp800-63
+    namespace: technical
+    priority: P1
+    url: https://github.com/usnistgov/800-63-3
+    loader: git
+    paths: ["sp800-63-3/", "sp800-63a/", "sp800-63b/", "sp800-63c/"]
+    include:
+      - "sp800-63-3/*.md"
+      - "sp800-63b/{sec4_aal,sec5_authenticators,sec6_lifecycle,sec7_session,sec8_security,appA_memorized}.md"
+      - "sp800-63a/{sec4_Enrollment,sec5_Proofing,sec4_ial,sec5_requirements}.md"
+      - "sp800-63c/*.md"
+    exclude: ["**/{README,cover,errata,references,index}.md", "**/*sec3_definitions.md"]
+    clean_profile: jekyll
+    options:
+      frontmatter_title: true
+    max_file_kb: 150
+    license: "Public domain (US Government work, NIST SP 800-63-3)"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: security
+    related_technologies: [authentication, authenticator-assurance-levels, federation, session-management, passwords, mfa]
+    reference_only: false
+    verified: true
+    notes: "NIST Digital Identity Guidelines (SP 800-63-3 / 63B authenticator assurance levels, authenticator lifecycle, session management, 63C federation assertions). US Government work, public domain. Glossary/definitions and cover pages excluded."
+
+  - name: pyca-cryptography
+    namespace: technical
+    priority: P1
+    url: https://github.com/pyca/cryptography
+    loader: git
+    paths: ["docs/hazmat/primitives/", "docs/fernet.rst", "docs/random-numbers.rst", "docs/hazmat/"]
+    include:
+      - "docs/hazmat/primitives/{symmetric-encryption,cryptographic-hashes,key-derivation-functions,aead,padding,constant-time,keywrap,twofactor}.rst"
+      - "docs/hazmat/primitives/asymmetric/{rsa,dh,ec,ed25519,x25519,dsa,serialization}.rst"
+      - "docs/hazmat/primitives/mac/*.rst"
+      - "docs/{fernet,random-numbers,faq}.rst"
+      - "docs/hazmat/{primitives/asymmetric/index,primitives/index}.rst"
+    exclude: ["docs/hazmat/primitives/asymmetric/{cloudhsm,mldsa,mlkem}.rst"]
+    options:
+      exts: [".rst"]
+    clean_profile: rst
+    max_file_kb: 150
+    license: "Apache-2.0 OR BSD-3-Clause"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: security
+    related_technologies: [cryptography, aes, rsa, hashing, kdf, aead, digital-signatures, key-exchange]
+    reference_only: false
+    verified: true
+    notes: "pyca/cryptography documentation as an open crypto-basics source: symmetric encryption and modes, AEAD, hashing, MACs, KDFs, RSA/ECDSA/Ed25519/X25519/DH, padding, constant-time comparison, Fernet, random numbers."
+
+  - name: azure-security-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/MicrosoftDocs/azure-docs
+    loader: git
+    paths: ["articles/security/develop/", "articles/security/fundamentals/"]
+    include:
+      - "articles/security/develop/{secure-design,secure-develop,secure-deploy,secure-dev-overview}.md"
+      - "articles/security/develop/threat-modeling-tool{,-feature-overview,-getting-started,-threats,-mitigations,-authentication,-authorization,-input-validation,-session-management,-cryptography,-sensitive-data,-communication-security,-configuration-management,-exception-management,-auditing-and-logging}.md"
+      - "articles/security/fundamentals/{encryption-overview,encryption-atrest,encryption-models,key-management,identity-management-best-practices,data-encryption-best-practices,network-best-practices,certificate-pinning,incident-response-overview,end-to-end,database-security-checklist,operational-best-practices}.md"
+    clean_profile: msdocs
+    options:
+      frontmatter_title: true
+    max_file_kb: 150
+    license: "CC-BY-4.0 (documentation); MIT (code samples)"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: security
+    related_technologies: [threat-modeling, stride, security-design, encryption-at-rest, key-management, zero-trust]
+    reference_only: false
+    verified: true
+    notes: "Vendor-neutral security-engineering pages from Microsoft Learn: SDL secure design/develop/deploy, STRIDE threat-modeling tool threat categories and mitigations, encryption at rest/in transit and key-management concepts, identity best practices."
+
+  - name: illustrated-tls13
+    namespace: technical
+    priority: P1
+    url: https://github.com/syncsynchalt/illustrated-tls13
+    loader: git
+    paths: ["site/index.htm[l]"]
+    include: ["site/index.html"]
+    options:
+      exts: [".html"]
+    clean_profile: html
+    max_file_kb: 600
+    license: MIT
+    auto_level: full
+    trust_level: community
+    refresh_cycle: yearly
+    domain: security
+    related_technologies: [tls, tls13, handshake, key-exchange, certificates, hkdf]
+    reference_only: false
+    verified: true
+    notes: "The Illustrated TLS 1.3 Connection: every byte of a TLS 1.3 handshake explained (ClientHello, key shares, HKDF key schedule, certificate verification, Finished)."
+
+  - name: mitre-attack-enterprise
+    namespace: technical
+    priority: P1
+    url: https://github.com/mitre-attack/attack-stix-data
+    loader: git
+    paths: ["enterprise-attack/enterprise-attack.jso[n]"]
+    include: ["enterprise-attack/enterprise-attack.json"]
+    options:
+      exts: [".json"]
+      stix: true
+    max_file_kb: 80000
+    license: "MITRE ATT&CK Terms of Use (royalty-free licence to use ATT&CK content, copyright MITRE; attribution required)"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: security
+    related_technologies: [mitre-attack, tactics, techniques, threat-intel, detection, stix]
+    reference_only: false
+    verified: true
+    notes: "ATT&CK Enterprise STIX bundle parsed by rag/loaders/stix.py: one document per technique / sub-technique / tactic (name, tactics, platforms, data sources, description, detection). Groups, software, campaigns, relationships and revoked/deprecated objects are skipped; `(Citation: ...)` markers removed."
+
+  - name: redis-docs-patterns
+    namespace: technical
+    priority: P1
+    url: https://github.com/redis/docs
+    loader: git
+    paths: ["content/develop/clients/patterns/", "content/develop/reference/"]
+    include:
+      - "content/develop/clients/patterns/**"
+      - "content/develop/reference/{client-side-caching,clients,eviction}/**"
+      - "content/develop/reference/{client-side-caching,clients,sentinel-clients}.md"
+    exclude: ["content/develop/clients/patterns/**/_index.md"]
+    clean_profile: hugo
+    options:
+      frontmatter_title: true
+    max_file_kb: 100
+    license: "CC-BY-SA-4.0 (Redis documentation)"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: databases
+    related_technologies: [redis, distributed-locks, redlock, caching, client-side-caching, eviction]
+    reference_only: false
+    verified: true
+    notes: "Complements redis-docs: distributed locks (Redlock), bulk loading, indexing patterns, client-side caching, key eviction policies, client handling. Found via code search; paths verified with gh api."
+
+  - name: cassandra-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/apache/cassandra
+    loader: git
+    paths: ["doc/modules/cassandra/pages/architecture/", "doc/modules/cassandra/pages/developing/data-modeling/", "doc/modules/cassandra/pages/overview/", "doc/modules/cassandra/pages/managing/operating/"]
+    include:
+      - "doc/modules/cassandra/pages/architecture/{dynamo,guarantees,overview,storage-engine,messaging,streaming}.adoc"
+      - "doc/modules/cassandra/pages/developing/data-modeling/**"
+      - "doc/modules/cassandra/pages/overview/**"
+      - "doc/modules/cassandra/pages/managing/operating/{repair,read_repair,hints,bloom_filters,compression,backups,topo_changes,compaction/overview}.adoc"
+    exclude: ["doc/**/index.adoc"]
+    options:
+      exts: [".adoc"]
+    clean_profile: asciidoc
+    max_file_kb: 200
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: databases
+    related_technologies: [cassandra, nosql, dynamo, consistency-levels, lsm-tree, data-modeling, gossip]
+    reference_only: false
+    verified: true
+    notes: "Tree-verified. Dynamo-style architecture (ring, gossip, replication, tunable consistency), storage engine (commit log, memtable, SSTables, compaction), query-driven data modeling, repair/hints/read repair."
+
+  - name: web-dev
+    namespace: technical
+    priority: P1
+    url: https://github.com/GoogleChrome/web.dev
+    loader: git
+    paths: ["src/site/content/en/metrics/", "src/site/content/en/learn/css/", "src/site/content/en/learn/pwa/", "src/site/content/en/learn/accessibility/", "src/site/content/en/learn/forms/"]
+    include:
+      - "src/site/content/en/metrics/**"
+      - "src/site/content/en/learn/{css,pwa,accessibility,forms}/**"
+    exclude:
+      - "src/site/content/en/metrics/{tbt,tti,fid}/**"
+      - "src/site/content/en/learn/pwa/{conclusion,experimental}/**"
+      - "src/site/content/en/learn/css/conclusion/**"
+    clean_profile: jekyll
+    options:
+      frontmatter_title: true
+    max_file_kb: 100
+    license: "CC-BY-3.0 (content; code samples Apache-2.0)"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: web-frontend
+    related_technologies: [web-vitals, lcp, cls, inp, css, flexbox, grid, pwa, service-workers, accessibility]
+    reference_only: false
+    verified: true
+    notes: "web.dev (repository archived 2024-03, content still current for these topics): Core Web Vitals and performance metrics, Learn CSS (box model, cascade, specificity, flexbox, grid, layout), Learn PWA (service workers, caching, installation), Learn Accessibility, Learn Forms. LICENSE: CC BY 3.0 content, Apache-2.0 code."
+
+  - name: linux-insides
+    namespace: technical
+    priority: P2
+    url: https://github.com/0xAX/linux-insides
+    loader: git
+    paths: ["SysCall/", "Interrupts/", "Timers/", "SyncPrim/", "MM/", "Concepts/", "Cgroups/"]
+    include: ["{SysCall,Interrupts,Timers,SyncPrim,MM,Concepts,Cgroups}/linux-*.md"]
+    max_file_kb: 150
+    license: "CC-BY-NC-SA-4.0 (README; non-commercial use only)"
+    auto_level: full
+    trust_level: community
+    refresh_cycle: yearly
+    domain: operating-systems
+    related_technologies: [linux, kernel, system-calls, interrupts, memory-management, synchronization, cgroups]
+    reference_only: false
+    verified: true
+    notes: "Linux kernel internals walkthroughs, restricted to the conceptual parts: system calls, interrupts, timers, synchronization primitives (spinlocks, mutexes, semaphores, RCU), memory management, per-cpu, cgroups. Booting/initialization and data-structure source dives excluded."
+
+  - name: elastic-docs-content
+    namespace: technical
+    priority: P2
+    url: https://github.com/elastic/docs-content
+    loader: manual
+    license: "CC-BY-NC-ND-4.0 (repository LICENSE) - no derivatives; reference_only"
+    auto_level: manual
+    trust_level: reference_only
+    refresh_cycle: yearly
+    domain: databases
+    related_technologies: [elasticsearch, lucene, search]
+    reference_only: true
+    verified: true
+    notes: "Elastic's documentation repository is CC BY-NC-ND 4.0. Chunking counts as a derivative, so it is metadata-only. OpenSearch documentation (Apache-2.0) is ingested instead as opensearch-docs."
+
+  - name: mongodb-docs
+    namespace: technical
+    priority: P2
+    url: https://github.com/mongodb/docs
+    loader: manual
+    license: "Unknown - the repository has no LICENSE file and its README states no content licence; skipped per the unknown-licence rule"
+    auto_level: manual
+    trust_level: reference_only
+    refresh_cycle: yearly
+    domain: databases
+    related_technologies: [mongodb, nosql, document-database]
+    reference_only: true
+    verified: true
+    notes: "Not ingested: licence not stated in the repo. Revisit if MongoDB confirms CC BY-NC-SA for the manual. Content is also Snooty reST (heavy include:: composition)."
+
+  - name: mysql-innodb-docs
+    namespace: technical
+    priority: P2
+    url: https://dev.mysql.com/doc/refman/8.4/en/innodb-storage-engine.html
+    loader: manual
+    license: "Oracle proprietary documentation (MySQL Reference Manual terms) - reference_only"
+    auto_level: manual
+    trust_level: reference_only
+    refresh_cycle: yearly
+    domain: databases
+    related_technologies: [mysql, innodb, mvcc, locking]
+    reference_only: true
+    verified: true
+    notes: "Oracle's MySQL manual licence restricts redistribution/derivatives; not ingested. InnoDB-like concepts (MVCC, locking, B-tree indexes, WAL) are covered by postgres-docs, clickhouse-docs and cassandra-docs."
+
+  - name: hudi-docs
+    namespace: technical
+    priority: P2
+    url: https://github.com/apache/hudi
+    loader: manual
+    license: Apache-2.0
+    auto_level: manual
+    trust_level: reference_only
+    refresh_cycle: yearly
+    domain: data-engineering
+    related_technologies: [hudi, lakehouse, table-format]
+    reference_only: true
+    verified: true
+    notes: "Apache Hudi's user documentation lives in a separate website repository that was not located in this batch; the main repo only has RFC design docs. Iceberg spec and Delta protocol cover the table-format concepts."
 
   # ============================================================
   # reference_only = true
