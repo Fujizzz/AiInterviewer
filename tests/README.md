@@ -7,6 +7,8 @@
 - `app/`: terminal MVP, provider and resume parsing tests.
 - `evaluation/`: Evaluation-owned contracts, rubrics, analyzer/extractor, deterministic IDs,
   model deadlines and failure recovery through the existing Planner/feedback path.
+- `rag/`: retrieval layer and RAGPort adapter tests; adapter/candidate-isolation tests need no DB or
+  model, DB and model tests skip when Postgres / the optional `rag/requirements.txt` stack is absent.
 - `security/`: current behavior contracts, provenance permissions, guarded execution, model transport and the single CLI.
 
 `security/test_behavior.py` covers the primary behavior-boundary contract, deterministic permits,
