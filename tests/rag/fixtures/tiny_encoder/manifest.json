@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "encoder": "onnx-int8",
+  "variant": "tiny-fixture",
+  "base_model": "BAAI/bge-m3",
+  "base_revision": "fixture",
+  "dim": 8,
+  "max_seq_length": 6,
+  "format_version": 1,
+  "graph": {
+    "pad_id": 1
+  },
+  "artifact": {
+    "dir": "tiny_encoder",
+    "files": {
+      "model.onnx": {
+        "sha256": "d9b42be17ab4a3999cff1b3b0b50bc786877a26e0b384077fe112dfe46e29242",
+        "bytes": 855
+      },
+      "tokenizer.json": {
+        "sha256": "bb6434dda2689850308f047c865b49da5931b1b63fab4adfa7cdc1aa0dceafcc",
+        "bytes": 1344
+      }
+    }
+  }
+}
