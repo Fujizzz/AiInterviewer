@@ -22,6 +22,9 @@ VALID_CLEAN_PROFILES = {
     "mdn",
     "asciidoc",
     "msdocs",
+    "jekyll",
+    "quarto",
+    "notebook",
 }
 VALID_TRUST_LEVELS = {"official", "curated", "community", "reference_only"}
 

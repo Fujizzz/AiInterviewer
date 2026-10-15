@@ -494,7 +494,21 @@ def profile_hugo(text: str) -> str:
     text = re.sub(
         r"\{\{%\s*redis-cli\b[^%]*%\}\}(.*?)\{\{%\s*/redis-cli\s*%\}\}", _example, text, flags=re.S
     )
-    text = re.sub(r"\{\{<\s*(?:note|warning|tip)\s*>\}\}", "**Note:** ", text)
+    # kubernetes/website shortcodes: keep the visible text instead of deleting the whole tag
+    text = re.sub(r"\{\{<\s*glossary_tooltip\b[^>]*?\btext=\"([^\"]+)\"[^>]*>\}\}", r"\1", text)
+    text = re.sub(
+        r"\{\{<\s*feature-state\b[^>]*?\bfeature_gate_name=\"([^\"]+)\"[^>]*?\bstate=\"([^\"]+)\"[^>]*>\}\}",
+        r"**Feature state:** \1 (\2)",
+        text,
+    )
+    text = re.sub(
+        r"\{\{<\s*feature-state\b[^>]*?\bstate=\"([^\"]+)\"[^>]*>\}\}",
+        r"**Feature state:** \1",
+        text,
+    )
+    text = re.sub(r"\{\{[<%]\s*tab\b[^>%]*?\bname=\"([^\"]+)\"[^>%]*[>%]\}\}", r"**\1**\n", text)
+    text = re.sub(r"\{\{<\s*(?:caution|warning)\s*>\}\}", "**Warning:** ", text)
+    text = re.sub(r"\{\{<\s*(?:note|tip)\s*>\}\}", "**Note:** ", text)
     text = re.sub(
         r"\{\{<\s*(?:image|command-group|university-links|relref|ref)\b[^>]*>\}\}", "", text
     )
@@ -748,6 +762,8 @@ def _rst_inline(text: str) -> str:
                 shown = shown.lstrip("~").split(".")[-1]
             shown = shown.lstrip("!")
         shown = re.sub(r"\s+", " ", shown).strip()
+        if role == "math":
+            return f"${shown}$"
         if role in _CODEY_ROLES:
             return f"`{shown}`"
         return shown
@@ -1317,6 +1333,8 @@ def _adoc_inline(t: str) -> str:
         lambda m: f"[{m.group(2) or m.group(1)}]({m.group(1)})",
         t,
     )
+    t = re.sub(r"\[\[[\w:.-]+\]\]", "", t)  # inline anchors
+    t = re.sub(r"`\+([^+`\n]+)\+`", r"`\1`", t)  # `+literal+`
     t = re.sub(r"<<([^,>]+),([^>]+)>>", r"\2", t)
     t = re.sub(r"<<([^>]+)>>", lambda m: m.group(1).replace("-", " ").replace("_", " "), t)
     t = re.sub(r"\bfootnote:\[[^\]]*\]", "", t)
@@ -1478,7 +1496,9 @@ def adoc_to_markdown(text: str) -> str:
                 out.append("")
                 for ri, row in enumerate(rows):
                     row = row + [""] * (ncols - len(row))
-                    out.append("| " + " | ".join(c.replace("|", "\\|") for c in row) + " |")
+                    out.append(
+                        "| " + " | ".join(_adoc_inline(c).replace("|", "\\|") for c in row) + " |"
+                    )
                     if ri == 0:
                         out.append("|" + " --- |" * ncols)
                 out.append("")
@@ -1562,7 +1582,7 @@ _MS_ROW_RE = re.compile(
 _MS_VIDEO_RE = re.compile(r"^>[ \t]*\[!VIDEO\b[^\n]*$", re.M)
 
 
-def profile_msdocs(text: str) -> str:
+def profile_msdocs(text: str, path: str = "") -> str:
     fm = re.match(r"\A---\s*\n(.*?)\n---\s*\n", text, re.S)
     title = ""
     if fm:
@@ -1587,9 +1607,168 @@ def profile_msdocs(text: str) -> str:
     text = _outside_fences(text, _prose)
     text = profile_markdown(text)
     text = strip_relative_links_and_images(text)
+    if not title and path.endswith("-content.md"):
+        # pattern pages are `x.yml` wrappers that include `x-content.md`: the title lives in the yml
+        stem = path.rsplit("/", 1)[-1][: -len("-content.md")].replace("-", " ")
+        title = stem.title() + (" pattern" if "/patterns/" in path else "")
     if title and not re.search(r"^#\s", text, re.M):
         text = f"# {title}\n\n{text.lstrip()}"
     return text
+
+
+# ---------------------------------------------------------------------------
+# jekyll  (OpenSearch, Apache Spark docs: Liquid tags + kramdown attribute lists)
+# ---------------------------------------------------------------------------
+
+_LIQ_HIGHLIGHT_RE = re.compile(r"\{%-?\s*highlight\s+([\w+#-]*)[^%]*-?%\}", re.I)
+_LIQ_ENDHIGHLIGHT_RE = re.compile(r"\{%-?\s*endhighlight\s*-?%\}", re.I)
+_LIQ_BLOCK_DROP_RE = re.compile(
+    r"\{%-?\s*(comment|raw)\s*-?%\}(.*?)\{%-?\s*end\1\s*-?%\}", re.S | re.I
+)
+_LIQ_TAG_RE = re.compile(r"\{%-?.*?-?%\}", re.S)
+_LIQ_VAR_RE = re.compile(r"\{\{\s*[^{}\n]*?\s*\}\}")
+_KRAMDOWN_ATTR_LINE_RE = re.compile(r"^[ \t]*\{:\s*[^}\n]*\}[ \t]*$\n?", re.M)
+_KRAMDOWN_CALLOUT_RE = re.compile(
+    r"^(?P<body>[^\n]+)\n\{:\s*\.(?P<kind>note|warning|tip|important)\s*\}", re.M
+)
+
+
+_GH_NAMES = {
+    "prodname_actions": "GitHub Actions",
+    "prodname_dotcom": "GitHub",
+    "prodname_github": "GitHub",
+    "github": "GitHub",
+    "prodname_ghe_server": "GitHub Enterprise Server",
+    "prodname_ghe_cloud": "GitHub Enterprise Cloud",
+    "prodname_copilot": "GitHub Copilot",
+    "prodname_actions_runner_controller": "Actions Runner Controller",
+    "prodname_container_registry": "GitHub Container Registry",
+    "prodname_registry": "GitHub Packages",
+    "prodname_pages": "GitHub Pages",
+    "prodname_codeql": "CodeQL",
+    "prodname_dependabot": "Dependabot",
+    "prodname_code_scanning": "code scanning",
+    "prodname_secret_scanning": "secret scanning",
+    "prodname_marketplace": "GitHub Marketplace",
+    "prodname_vscode": "Visual Studio Code",
+    "prodname_cli": "GitHub CLI",
+    "prodname_dependabot_alerts": "Dependabot alerts",
+    "prodname_github_app": "GitHub App",
+    "prodname_oauth_app": "OAuth app",
+    "prodname_actions_runner": "GitHub Actions runner",
+}
+_GH_DATA_RE = re.compile(r"\{%-?\s*data\s+variables\.[\w.]*?\.(\w+)\s*-?%\}")
+_GH_ADMON_RE = re.compile(r"\{%-?\s*(note|warning|tip|important|danger|caution)\s*-?%\}", re.I)
+
+
+def _liquid_github_names(seg: str) -> str:
+    seg = _GH_DATA_RE.sub(lambda m: _GH_NAMES.get(m.group(1), m.group(1).replace("_", " ")), seg)
+    return _GH_ADMON_RE.sub(lambda m: f"**{m.group(1).title()}:** ", seg)
+
+
+def profile_jekyll(text: str) -> str:
+    def _liq(seg: str) -> str:
+        def _raw(m: re.Match) -> str:
+            return m.group(2) if m.group(1).lower() == "raw" else ""
+
+        seg = _LIQ_BLOCK_DROP_RE.sub(_raw, seg)
+        seg = _KRAMDOWN_CALLOUT_RE.sub(
+            lambda m: f"**{m.group('kind').title()}:** {m.group('body')}", seg
+        )
+        seg = _KRAMDOWN_ATTR_LINE_RE.sub("", seg)
+        return seg
+
+    text = re.sub(r"\{%-?\s*highlight\s+([\w+#-]*)[^%]*-?%\}", lambda m: f"```{m.group(1)}", text)
+    text = _LIQ_ENDHIGHLIGHT_RE.sub("```", text)
+    text = _outside_fences(text, _liq)
+    text = _outside_fences(text, _liquid_github_names)
+    text = _outside_fences(text, lambda s: _LIQ_VAR_RE.sub("", _LIQ_TAG_RE.sub("", s)))
+    return profile_markdown(text)
+
+
+# ---------------------------------------------------------------------------
+# quarto  (Quarto / R Markdown books: OpenIntro IMS, Interpretable ML)
+# ---------------------------------------------------------------------------
+
+_QMD_CODE_CHUNK_RE = re.compile(r"^```\{[^}\n]*\}[^\n]*\n.*?^```[ \t]*$\n?", re.M | re.S)
+_QMD_DIV_OPEN_RE = re.compile(r"^(:{3,})[ \t]*\{([^}\n]*)\}[ \t]*$")
+_QMD_DIV_PLAIN_RE = re.compile(r"^:{3,}[ \t]*([A-Za-z][\w-]*)[ \t]*$")
+_QMD_DIV_CLOSE_RE = re.compile(r"^:{3,}[ \t]*$")
+_QMD_LABELS = {
+    "callout-note": "Note",
+    "callout-tip": "Tip",
+    "callout-warning": "Warning",
+    "callout-important": "Important",
+    "callout-caution": "Caution",
+    "workedexample": "Worked example",
+    "guidedpractice": "Guided practice",
+    "important": "Important",
+    "data": "Data",
+    "chapterintro": "",
+    "pronunciation": "",
+    "tip": "Tip",
+    "exercises": "",
+    "onebox": "",
+    "caution": "Caution",
+    "content-box": "",
+}
+
+
+def _qmd_divs(text: str) -> str:
+    out: list[str] = []
+    for ln in text.split("\n"):
+        m = _QMD_DIV_OPEN_RE.match(ln)
+        if m:
+            attrs = m.group(2)
+            cls = re.findall(r"\.([\w-]+)", attrs)
+            title = re.search(r'title="([^"]*)"', attrs)
+            label = next((_QMD_LABELS[c] for c in cls if c in _QMD_LABELS), "")
+            if title:
+                label = title.group(1)
+            if label:
+                out.extend(["", f"**{label}:**"])
+            continue
+        if _QMD_DIV_PLAIN_RE.match(ln) or _QMD_DIV_CLOSE_RE.match(ln):
+            continue
+        out.append(ln)
+    return "\n".join(out)
+
+
+def profile_quarto(text: str) -> str:
+    text = re.sub(r"\A---\s*\n.*?\n---[ \t]*\n", "", text, count=1, flags=re.S)
+    text = _QMD_CODE_CHUNK_RE.sub("", text)
+    text = _outside_fences(text, _qmd_divs)
+    text = _outside_fences(
+        text,
+        lambda s: re.sub(
+            r"\\(?:index|vspace|clearpage|pagebreak|newpage|noindent|hfill)\b(?:\{[^}]*\})?",
+            "",
+            re.sub(
+                r"`r [^`\n]*`",
+                "",
+                re.sub(
+                    r"@(fig|tbl|eq|sec|lst|exr)-[\w-]+",
+                    lambda m: {"fig": "the figure", "tbl": "the table", "eq": "the equation"}.get(
+                        m.group(1), "the section"
+                    ),
+                    re.sub(r"\[-?@[\w:-]+(?:;\s*@[\w:-]+)*\]", "", s),
+                ),
+            ),
+        ),
+    )
+    text = _outside_fences(
+        text,
+        lambda s: re.sub(
+            r"\{[^{}\n]*(?:#fig-|#tbl-|#sec-|\.unnumbered|\.unlisted)[^{}\n]*\}", "", s
+        ),
+    )
+    return profile_markdown(text)
+
+
+def profile_notebook(text: str) -> str:
+    """Jupyter-book style notebooks (markdown + code cells joined by the git loader): markdown
+    cleanup plus relative image / link removal."""
+    return strip_relative_links_and_images(profile_markdown(text))
 
 
 PROFILES = {
@@ -1600,7 +1779,10 @@ PROFILES = {
     "hugo": lambda text, path="", options=None: profile_hugo(text),
     "html": profile_html,
     "asciidoc": lambda text, path="", options=None: profile_asciidoc(text),
-    "msdocs": lambda text, path="", options=None: profile_msdocs(text),
+    "msdocs": lambda text, path="", options=None: profile_msdocs(text, path),
+    "jekyll": lambda text, path="", options=None: profile_jekyll(text),
+    "quarto": lambda text, path="", options=None: profile_quarto(text),
+    "notebook": lambda text, path="", options=None: profile_notebook(text),
     "mdn": lambda text, path="", options=None: profile_mdn(text),
 }
 

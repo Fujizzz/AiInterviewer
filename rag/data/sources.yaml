@@ -1077,80 +1077,123 @@ sources:
     priority: P1
     url: https://github.com/pandas-dev/pandas
     loader: git
-    path: doc/source
+    paths: ["doc/source/user_guide/"]
+    include: ["doc/source/user_guide/{10min,basics,dsintro,indexing,advanced,groupby,merging,reshaping,missing_data,categorical,duplicates,window,timeseries,timedeltas,enhancingperf,scale,gotchas,text,boolean,integer_na,user_defined_functions,pyarrow}.rst"]
+    options:
+      exts: [".rst"]
+    clean_profile: rst
+    max_file_kb: 300
     license: BSD-3-Clause
     auto_level: full
     trust_level: official
     refresh_cycle: quarterly
     domain: data-science
-    related_technologies: [pandas, python, data-analysis]
+    related_technologies: [pandas, python, dataframe, groupby, merge, time-series, missing-data]
     reference_only: false
     verified: true
-    notes: "Task referred to this repo as 'pandas'; actual org/repo is pandas-dev/pandas (confirmed via ls-remote). Path doc/source is the known convention, not tree-verified this session."
+    notes: "Tree-verified. User guide: data structures, indexing, groupby (split-apply-combine), merge/join, reshape, missing data, categoricals, window functions, time series, performance (enhancing performance, scaling to large data), gotchas. io / visualization / cookbook / style / sparse excluded."
 
   - name: statsmodels-docs
     namespace: technical
     priority: P1
     url: https://github.com/statsmodels/statsmodels
     loader: git
-    path: docs/source
+    paths: ["docs/source/"]
+    include: ["docs/source/{regression,glm,rlm,anova,tsa,vector_ar,statespace,stats,discretemod,mixed_linear,gee,gam,duration,multivariate,imputation,diagnostic,contingency_tables,nonparametric,gmm,missing,pitfalls,endog_exog,gettingstarted,treatment,distributions,miscmodels,faq}.rst"]
+    options:
+      exts: [".rst"]
+    clean_profile: rst
+    max_file_kb: 200
     license: BSD-3-Clause
     auto_level: full
     trust_level: official
     refresh_cycle: quarterly
     domain: data-science
-    related_technologies: [statsmodels, statistics, python]
+    related_technologies: [statsmodels, regression, hypothesis-testing, time-series, arima, glm]
     reference_only: false
     verified: true
-    notes: "Repo existence confirmed; path not tree-verified this session."
+    notes: "Tree-verified. Regression/GLM/robust linear models, ANOVA, time-series analysis (ARIMA, state space, VAR), statistical tests and diagnostics, discrete choice, mixed models, GEE, survival, imputation, nonparametrics."
 
   - name: spark-docs
     namespace: technical
     priority: P1
     url: https://github.com/apache/spark
     loader: git
-    path: docs
+    paths: ["docs/"]
+    include:
+      - "docs/{rdd-programming-guide,cluster-overview,job-scheduling,tuning,hardware-provisioning,spark-connect-overview,quick-start,monitoring,sql-programming-guide,sql-getting-started,sql-performance-tuning,structured-streaming-programming-guide,structured-streaming-kafka-integration,ml-pipeline,ml-tuning,ml-guide,running-on-kubernetes,running-on-yarn,spark-standalone}.md"
+      - "docs/sql-data-sources-{parquet,load-save-functions,json,orc,jdbc,avro,hive-tables,generic-options}.md"
+      - "docs/sql-performance-tuning.md"
+      - "docs/sql-ref-{null-semantics,datatypes}.md"
+    clean_profile: jekyll
+    options:
+      frontmatter_title: true
+    max_file_kb: 200
     license: Apache-2.0
     auto_level: full
     trust_level: official
     refresh_cycle: quarterly
     domain: data-engineering
-    related_technologies: [spark, big-data, scala]
+    related_technologies: [spark, rdd, dataframe, shuffle, structured-streaming, catalyst, partitioning]
     reference_only: false
     verified: true
-    notes: "Repo existence confirmed; docs/ is the well-known convention (jekyll site), not tree-verified this session."
+    notes: "Tree-verified (gh api, 2026-10-15). Programming guides (RDD, SQL/DataFrame, Structured Streaming), cluster overview, job scheduling, tuning, SQL performance tuning (AQE, skew join, broadcast), data sources, deployment modes. MLlib per-algorithm guides, migration guides, per-version configuration tables excluded. Jekyll `include_example` blocks (code lives in separate files) are dropped."
 
   - name: airflow-docs
     namespace: technical
     priority: P1
     url: https://github.com/apache/airflow
     loader: git
-    path: docs
+    paths: ["airflow-core/docs/core-concepts/", "airflow-core/docs/authoring-and-scheduling/", "airflow-core/docs/administration-and-deployment/", "airflow-core/docs/best-practices.rst", "airflow-core/docs/faq.rst", "airflow-core/docs/howto/"]
+    include:
+      - "airflow-core/docs/core-concepts/{overview,dags,tasks,operators,sensors,xcoms,variables,params,taskflow,dag-run,backfill,message-queues}.rst"
+      - "airflow-core/docs/core-concepts/executor/**"
+      - "airflow-core/docs/authoring-and-scheduling/**"
+      - "airflow-core/docs/administration-and-deployment/{scheduler,dagfile-processing,production-deployment,pools,priority-weight,cluster-policies,dag-serialization,lineage,logging-monitoring/**}.rst"
+      - "airflow-core/docs/{best-practices,faq}.rst"
+    exclude:
+      - "airflow-core/docs/**/index.rst"
+    options:
+      exts: [".rst"]
+    clean_profile: rst
+    max_file_kb: 200
     license: Apache-2.0
     auto_level: full
     trust_level: official
     refresh_cycle: quarterly
     domain: data-engineering
-    related_technologies: [airflow, orchestration, python]
+    related_technologies: [airflow, orchestration, dag, scheduler, idempotency, backfill, xcom]
     reference_only: false
     verified: true
-    notes: "Repo existence confirmed; docs/ is a large multi-package tree (docs/apache-airflow etc.), not tree-verified in full this session."
+    notes: "Tree-verified. Core concepts (DAGs, tasks, operators, sensors, XComs, executors, backfill), authoring/scheduling (timetables, assets, dynamic task mapping), scheduler and production deployment, best practices. Provider/operator reference, CLI and configuration references excluded."
 
   - name: dbt-docs
     namespace: technical
     priority: P1
     url: https://github.com/dbt-labs/docs.getdbt.com
     loader: git
-    path: website/docs
+    paths: ["website/docs/best-practices/", "website/docs/docs/build/", "website/docs/docs/introduction.md", "website/docs/terms/", "website/docs/docs/deploy/"]
+    include:
+      - "website/docs/best-practices/{how-we-structure,how-we-handle-cdc,how-we-handle-real-time-data,how-we-style,materializations}/**"
+      - "website/docs/best-practices/{idempotence,best-practice-workflows,dont-nest-your-curlies}.md"
+      - "website/docs/docs/build/{models,sql-models,snapshots,seeds,sources,data-tests,incremental-models,incremental-models-overview,incremental-strategy,incremental-microbatch,materializations,jinja-macros,packages,project-variables,hooks-operations,exposures,groups,tests,custom-schemas,environment-variables,metrics,sl-getting-started,about-metricflow,semantic-models}.md"
+      - "website/docs/docs/introduction.md"
+      - "website/docs/docs/deploy/{deployments,deploy-environments,job-scheduler,continuous-integration,ci-jobs}.md"
+    exclude:
+      - "website/docs/best-practices/how-we-mesh/**"
+    clean_profile: markdown
+    options:
+      frontmatter_title: true
+    max_file_kb: 150
     license: Apache-2.0
     auto_level: full
     trust_level: official
     refresh_cycle: quarterly
     domain: data-engineering
-    related_technologies: [dbt, analytics-engineering, sql]
+    related_technologies: [dbt, elt, data-modeling, staging-marts, incremental-models, snapshots, scd, testing]
     reference_only: false
     verified: true
-    notes: "Repo existence confirmed; path website/docs is the known Docusaurus convention, not tree-verified this session."
+    notes: "Tree-verified. dbt build concepts (models, materializations, incremental strategies, snapshots = SCD type 2, tests, sources, macros), the analytics-engineering best-practice guides (staging/intermediate/marts project structure, CDC, idempotence) and deployment concepts. Adapter/cloud-product pages and reference (config/command pages) excluded."
 
   - name: ml-interviews-alirezadir
     namespace: question
@@ -1377,35 +1420,76 @@ sources:
   # ============================================================
   - name: kubernetes-website
     namespace: technical
-    priority: P2
+    priority: P1
     url: https://github.com/kubernetes/website
     loader: git
-    path: content/en/docs
+    paths: ["content/en/docs/concepts/", "content/en/docs/tasks/run-application/", "content/en/docs/tasks/configure-pod-container/", "content/en/docs/tutorials/kubernetes-basics/", "content/en/docs/setup/best-practices/"]
+    include:
+      - "content/en/docs/concepts/{overview,architecture,workloads,scheduling-eviction,services-networking,storage,configuration,security,policy,containers,cluster-administration}/**"
+      - "content/en/docs/concepts/extend-kubernetes/{operator,_index}.md"
+      - "content/en/docs/tasks/run-application/{horizontal-pod-autoscale,run-stateless-application-deployment,scale-stateful-set}.md"
+      - "content/en/docs/tasks/configure-pod-container/{configure-liveness-readiness-startup-probes,assign-memory-resource,assign-cpu-resource,quality-service-pod,security-context,configure-persistent-volume-storage}.md"
+      - "content/en/docs/tutorials/kubernetes-basics/**"
+      - "content/en/docs/setup/best-practices/**"
+    exclude:
+      - "content/en/docs/concepts/cluster-administration/{system-metrics,system-logs,kubelet-credential-provider,coordinated-leader-election,compatibility-version,flow-control}.md"
+      - "content/en/docs/concepts/containers/{container-lifecycle-hooks,runtime-class}.md"
+      - "content/en/docs/concepts/workloads/{compositepodgroup-api,podgroup-api,workload-api}/**"
+      - "content/en/docs/concepts/scheduling-eviction/{gang-scheduling,podgroup-scheduling,workload-aware-preemption,node-declared-features,topology-aware-scheduling}.md"
+      - "content/en/docs/concepts/services-networking/windows-networking.md"
+      - "content/en/docs/concepts/security/{hardening-guide,linux-kernel-security-constraints}/**"
+      - "content/en/docs/concepts/storage/windows-storage.md"
+      - "content/en/docs/concepts/windows/**"
+    clean_profile: hugo
+    options:
+      frontmatter_title: true
+    max_file_kb: 100
     license: CC-BY-4.0
     auto_level: full
     trust_level: official
     refresh_cycle: quarterly
     domain: devops
-    related_technologies: [kubernetes, containers, devops]
+    related_technologies: [kubernetes, containers, scheduling, networking, autoscaling, workloads, security]
     reference_only: false
     verified: true
-    notes: "Repo existence confirmed; path is the well-known convention, not tree-verified this session."
+    notes: >
+      Tree-verified (gh api, 2026-10-15). Concepts (architecture, workloads, scheduling and
+      eviction, services and networking, storage, configuration, security, policy, containers,
+      cluster administration), selected run-application / pod-configuration tasks,
+      kubernetes-basics tutorial and setup best practices. Section _index pages, reference
+      (API/CLI/kubeadm), contribute, most tasks/tutorials and Windows pages are excluded.
+      Hugo shortcodes: glossary_tooltip, feature-state and tab labels are resolved to text.
 
   - name: docker-docs
     namespace: technical
-    priority: P2
+    priority: P1
     url: https://github.com/docker/docs
     loader: git
-    path: content
-    license: "Apache-2.0 (code samples); docs text license varies, verify before redistribution"
+    paths: ["content/manuals/build/", "content/manuals/engine/", "content/manuals/compose/", "content/get-started/"]
+    include:
+      - "content/manuals/build/{concepts,building,cache,buildkit,builders,exporters,metadata}/**"
+      - "content/manuals/build/{checks,ci}.md"
+      - "content/manuals/engine/{network,storage,containers,security,logging}/**"
+      - "content/manuals/engine/{daemon,swarm}/**"
+      - "content/manuals/compose/{intro,how-tos,gettingstarted}/**"
+      - "content/get-started/docker-concepts/**"
+    exclude:
+      - "content/manuals/engine/swarm/{swarm-tutorial,secrets,configs}/**"
+      - "content/manuals/engine/daemon/{troubleshoot,proxy,remote-access,systemd,live-restore}.md"
+      - "content/manuals/build/**/{ci,cloud}/**"
+    clean_profile: hugo
+    options:
+      frontmatter_title: true
+    max_file_kb: 100
+    license: "Apache-2.0 (repository LICENSE)"
     auto_level: full
     trust_level: official
     refresh_cycle: quarterly
     domain: devops
-    related_technologies: [docker, containers]
+    related_technologies: [docker, containers, images, buildkit, compose, networking, namespaces, cgroups]
     reference_only: false
     verified: true
-    notes: "Repo existence confirmed; path not tree-verified this session."
+    notes: "Tree-verified. Docker concepts (images, layers, containers, volumes, networking), Build (multi-stage, cache, BuildKit), Engine (networking, storage, security, daemon), Compose how-tos, get-started docker-concepts. CLI reference, Desktop, Hub, Scout, subscription pages excluded."
 
   - name: devops-exercises
     namespace: question
@@ -1919,6 +2003,879 @@ sources:
     reference_only: false
     verified: true
     notes: "Tree-verified. graphql.org/learn: queries, schema, execution, pagination, caching, performance, security, authorization, federation, best practices."
+
+  - name: azure-architecture-center
+    namespace: technical
+    priority: P1
+    url: https://github.com/MicrosoftDocs/architecture-center
+    loader: git
+    paths: ["docs/patterns/", "docs/guide/architecture-styles/", "docs/guide/design-principles/", "docs/best-practices/", "docs/antipatterns/", "docs/microservices/", "docs/data-guide/relational-data/", "docs/data-guide/technology-choices/", "docs/high-availability/"]
+    include:
+      - "docs/patterns/*.md"
+      - "docs/guide/architecture-styles/**"
+      - "docs/guide/design-principles/**"
+      - "docs/best-practices/*.md"
+      - "docs/antipatterns/**"
+      - "docs/microservices/{design,model}/**"
+      - "docs/data-guide/{relational-data,technology-choices}/**"
+      - "docs/high-availability/**"
+    exclude:
+      - "docs/patterns/index.md"
+      - "docs/best-practices/index-best-practices.md"
+      - "docs/**/index.md"
+      - "docs/**/toc.yml"
+    clean_profile: msdocs
+    options:
+      frontmatter_title: true
+    max_file_kb: 100
+    license: "CC-BY-4.0 (documentation); MIT (code samples)"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: system-design
+    related_technologies: [microservices, design-patterns, saga, cqrs, circuit-breaker, caching, event-sourcing, eventual-consistency]
+    reference_only: false
+    verified: true
+    notes: >
+      Tree-verified (gh api, 2026-10-15). Cloud design patterns (retry, circuit breaker, saga,
+      CQRS, event sourcing, sharding, cache-aside, bulkhead, sidecar...), architecture styles,
+      design principles, best practices (API design, caching, partitioning, transient faults),
+      performance antipatterns, microservices design/model and data technology choices.
+      Pattern pages whose body lives in `*-content.md` includes (`*.yml` wrappers) are covered
+      through the content file. Vendor-specific reference architectures and example scenarios
+      are excluded. Docs licence: CC BY 4.0 (LICENSE).
+
+  - name: rabbitmq-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/rabbitmq/rabbitmq-website
+    loader: git
+    paths: ["docs/"]
+    include:
+      - "docs/{exchanges,queues,consumers,confirms,reliability,dlx,ttl,consumer-prefetch,consumer-priority,publishers,semantics,clustering,flow-control,heartbeats,lazy-queues,classic-queues,streams,stream,amqp-concepts,vhosts,priority,persistence-conf,quorum-queues,direct-reply-to,networking,memory,disk-alarms,alarms,monitoring,production-checklist,access-control,authentication,ssl,policies,parameters,federation,shovel,partitions,connections,channels,cmq,maintenance,upgrade,troubleshooting}.md"
+      - "docs/quorum-queues/**"
+      - "docs/streams.md"
+    max_file_kb: 100
+    options:
+      frontmatter_title: true
+    license: "Apache-2.0 (repository); docs content under the same terms (LICENSE)"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: message-queue
+    related_technologies: [rabbitmq, amqp, message-queue, quorum-queues, dead-letter, acknowledgements]
+    reference_only: false
+    verified: true
+    notes: "Tree-verified. Whitelist of conceptual pages: exchanges/queues, consumer acknowledgements and prefetch, publisher confirms, reliability, DLX, TTL, clustering, quorum queues, streams, flow control, production checklist. CLI/HTTP API reference, installers and plugin pages excluded."
+
+  - name: opensearch-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/opensearch-project/documentation-website
+    loader: git
+    paths: ["_getting-started/", "_query-dsl/", "_aggregations/", "_analyzers/", "_im-plugin/", "_mappings/", "_search-plugins/", "_tuning-your-cluster/"]
+    include:
+      - "_getting-started/{intro,concepts,search-data,ingest-data}.md"
+      - "_query-dsl/{index,query-filter-context,term-vs-full-text,minimum-should-match,fuzziness}.md"
+      - "_query-dsl/{compound,full-text,term}/{index,bool,boosting,function-score,match,match-phrase,multi-match,term,terms,range}.md"
+      - "_aggregations/{index,bucket/index,metric/index,pipeline/index}.md"
+      - "_analyzers/{index,tokenizers/index,token-filters/index,normalizers}.md"
+      - "_mappings/**"
+      - "_tuning-your-cluster/**"
+      - "_search-plugins/{knn,vector-search,keyword-search,hybrid-search,searching-data}/index.md"
+      - "_search-plugins/{keyword-search,searching-data}/**"
+      - "_im-plugin/{index,index-rollups/index,ism/index}.md"
+    exclude:
+      - "_mappings/supported-field-types/*/**"
+    clean_profile: jekyll
+    options:
+      frontmatter_title: true
+    max_file_kb: 100
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: databases
+    related_technologies: [opensearch, elasticsearch, lucene, inverted-index, search, aggregations]
+    reference_only: false
+    verified: true
+    notes: >
+      OpenSearch is used instead of Elastic's docs (elastic/docs-content is CC BY-NC-ND 4.0,
+      listed as reference_only below). Covers the Lucene/Elasticsearch concepts that carry
+      over: inverted index/analysis, query DSL (bool, full-text vs term), mappings, aggregations,
+      shard/replica cluster tuning, k-NN/hybrid search. Jekyll Liquid tags and kramdown
+      attribute lists are handled by the `jekyll` profile.
+
+  - name: nginx-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/nginx/documentation
+    loader: git
+    paths: ["content/nginx/admin-guide/"]
+    include:
+      - "content/nginx/admin-guide/{web-server,load-balancer,content-cache,security-controls,high-availability}/**"
+      - "content/nginx/admin-guide/basic-functionality/{managing-configuration-files,runtime-control}.md"
+      - "content/nginx/admin-guide/monitoring/**"
+    exclude:
+      - "content/nginx/admin-guide/**/_index.md"
+      - "content/nginx/admin-guide/load-balancer/dynamic-configuration-api.md"
+    clean_profile: hugo
+    options:
+      frontmatter_title: true
+    max_file_kb: 100
+    license: "BSD-2-Clause"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: devops
+    related_technologies: [nginx, reverse-proxy, load-balancing, tls, caching, rate-limiting]
+    reference_only: false
+    verified: true
+    notes: "Tree-verified. NGINX admin guide: web server and reverse proxy, HTTP/TCP load balancing and health checks, content caching, security controls (TLS termination, auth, access control), high availability, monitoring. Plus-only product pages (NIM, Amplify, NGF...) excluded."
+
+  - name: helm-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/helm/helm-www
+    loader: git
+    paths: ["docs/"]
+    include: ["docs/{intro,topics,chart_best_practices,chart_template_guide,howto}/**", "docs/overview.md"]
+    exclude: ["docs/topics/{kubernetes_distros,kubernetes_apis,version_skew,release_checklist,provenance}.md", "docs/chart_template_guide/{debugging,appendix}.md", "docs/intro/CheatSheet.mdx"]
+    max_file_kb: 80
+    options:
+      frontmatter_title: true
+    license: "MIT (repository)"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: devops
+    related_technologies: [helm, kubernetes, charts, templating, release-management]
+    reference_only: false
+    verified: true
+    notes: "Tree-verified: helm/helm-www docs (English). Chart concepts, template guide, best practices, charts hooks/tests. CLI reference (docs/helm) and changelog excluded."
+
+  - name: prometheus-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/prometheus/docs
+    loader: git
+    paths: ["docs/"]
+    include:
+      - "docs/{concepts,introduction,instrumenting,practices,operating,guides,visualization}/**"
+      - "docs/prometheus/latest/{querying,configuration}/**"
+      - "docs/alerting/**"
+    exclude:
+      - "docs/instrumenting/{clientlibs,exporters,writing_clientlibs,exposition_formats}.md"
+      - "docs/instrumenting/exporters/**"
+      - "docs/prometheus/latest/configuration/{configuration,https,recording_rules,unit_testing_rules}.md"
+      - "docs/operating/{security,integrations}.md"
+    max_file_kb: 80
+    options:
+      frontmatter_title: true
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: devops
+    related_technologies: [prometheus, monitoring, promql, alerting, metrics, histograms]
+    reference_only: false
+    verified: true
+    notes: "Tree-verified: prometheus/docs. Data model, metric types, jobs and instances, instrumentation and alerting best practices, histograms, PromQL (querying basics, operators, functions), alerting rules and Alertmanager, federation. Client-library and exporter catalogues excluded."
+
+  - name: opentelemetry-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/open-telemetry/opentelemetry.io
+    loader: git
+    paths: ["content/en/docs/concepts/", "content/en/docs/collector/", "content/en/docs/what-is-opentelemetry.md", "content/en/docs/zero-code/"]
+    include:
+      - "content/en/docs/concepts/**"
+      - "content/en/docs/what-is-opentelemetry.md"
+      - "content/en/docs/collector/{architecture,deployment,scaling,resiliency,transforming-telemetry,management,configuration}.md"
+      - "content/en/docs/collector/{deployment,architecture}/**"
+    exclude:
+      - "content/en/docs/**/_index.md"
+      - "content/en/docs/concepts/{glossary,distributions}.md"
+    clean_profile: hugo
+    options:
+      frontmatter_title: true
+    max_file_kb: 80
+    license: CC-BY-4.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: devops
+    related_technologies: [opentelemetry, tracing, observability, metrics, logs, context-propagation, sampling]
+    reference_only: false
+    verified: true
+    notes: "Tree-verified. Concepts (observability primer, signals: traces/metrics/logs, context propagation, sampling, semantic conventions), what-is-OTel and Collector architecture/deployment. Language SDK guides, demo, contributing excluded."
+
+  - name: istio-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/istio/istio.io
+    loader: git
+    paths: ["content/en/docs/concepts/", "content/en/docs/ambient/overview/", "content/en/docs/ambient/architecture/", "content/en/docs/overview/", "content/en/docs/ops/best-practices/"]
+    include:
+      - "content/en/docs/{concepts,overview}/**"
+      - "content/en/docs/ambient/{overview,architecture}/**"
+      - "content/en/docs/ops/best-practices/**"
+    exclude: ["content/en/docs/**/_index.md"]
+    clean_profile: hugo
+    options:
+      frontmatter_title: true
+    max_file_kb: 80
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: devops
+    related_technologies: [istio, service-mesh, envoy, mtls, sidecar, traffic-management]
+    reference_only: false
+    verified: true
+    notes: "Tree-verified. Istio concepts: traffic management (virtual services, destination rules, circuit breaking), security (mTLS, authz policy), observability, extensibility, plus ambient-mesh overview/architecture and ops best practices."
+
+  - name: envoy-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/envoyproxy/envoy
+    loader: git
+    paths: ["docs/root/intro/"]
+    include: ["docs/root/intro/arch_overview/**", "docs/root/intro/{what_is_envoy,deployment_types}.rst"]
+    exclude: ["docs/root/intro/arch_overview/**/*.inc"]
+    options:
+      exts: [".rst"]
+    clean_profile: rst
+    max_file_kb: 80
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: devops
+    related_technologies: [envoy, proxy, load-balancing, service-mesh, circuit-breaking]
+    reference_only: false
+    verified: true
+    notes: "Tree-verified: Envoy architecture overview (listeners, filters, cluster manager, load balancing, health checking, outlier detection, circuit breaking). Configuration reference excluded."
+
+  - name: github-actions-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/github/docs
+    loader: git
+    paths: ["content/actions/concepts/", "content/actions/get-started/", "content/actions/how-tos/write-workflows/", "content/actions/how-tos/secure-your-work/", "content/actions/how-tos/manage-runners/", "content/actions/reference/workflows-and-actions/", "content/actions/reference/security/"]
+    include:
+      - "content/actions/concepts/**"
+      - "content/actions/get-started/**"
+      - "content/actions/how-tos/write-workflows/**"
+      - "content/actions/how-tos/secure-your-work/**"
+      - "content/actions/reference/workflows-and-actions/{workflow-syntax,events-that-trigger-workflows,contexts,expressions}.md"
+      - "content/actions/reference/security/**"
+    exclude:
+      - "content/actions/**/index.md"
+      - "content/actions/concepts/{billing-and-usage,about-actions-policies,metrics}.md"
+      - "content/actions/concepts/runners/{actions-runner-controller,runner-scale-sets,support-for-arc,larger-runners,private-networking}.md"
+      - "content/actions/get-started/{actions-vs-apps,continuous-integration}.md"
+    clean_profile: jekyll
+    options:
+      frontmatter_title: true
+    max_file_kb: 100
+    license: "CC-BY-4.0 (documentation content); MIT (code)"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: devops
+    related_technologies: [github-actions, ci-cd, workflows, runners, oidc, secrets]
+    reference_only: false
+    verified: true
+    notes: "Tree-verified. GitHub Actions concepts (workflows, jobs, runners, caching, artifacts, environments, concurrency), workflow syntax/events/contexts/expressions, security hardening (secrets, GITHUB_TOKEN, OIDC, script injection). Liquid `{% data variables.* %}` names resolved to product names."
+
+  - name: argocd-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/argoproj/argo-cd
+    loader: git
+    paths: ["docs/"]
+    include:
+      - "docs/{understand_the_basics,core_concepts,index,faq,security_considerations}.md"
+      - "docs/operator-manual/{architecture,high_availability,disaster_recovery,rbac,declarative-setup,upgrading/overview,security,notifications}.md"
+      - "docs/operator-manual/{applicationset,notifications}/{index,Generators,Generators-List,Generators-Cluster,Generators-Git,Generators-Matrix}.md"
+      - "docs/user-guide/{auto_sync,sync-options,sync-waves,resource_hooks,best_practices,diffing,compare-options,app_deletion,application-specification,tracking_strategies,helm,kustomize,projects,private-repositories,ci_automation,selective_sync,orphaned-resources,rollback,secret-management,multiple_sources,gitops,app-of-apps,health,application-set}.md"
+    exclude:
+      - "docs/operator-manual/**/*.yaml"
+    max_file_kb: 100
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: devops
+    related_technologies: [argocd, gitops, kubernetes, continuous-delivery, sync, applicationset]
+    reference_only: false
+    verified: true
+    notes: "Tree-verified (names listed; missing files are simply not matched). GitOps concepts, architecture, sync policies/waves/hooks, health, RBAC, HA/DR, secret management, app-of-apps/ApplicationSet. Per-command CLI reference, developer-guide and proposals excluded."
+
+  - name: ansible-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/ansible/ansible-documentation
+    loader: git
+    paths: ["docs/docsite/rst/getting_started/", "docs/docsite/rst/playbook_guide/", "docs/docsite/rst/inventory_guide/", "docs/docsite/rst/vault_guide/", "docs/docsite/rst/tips_tricks/"]
+    include:
+      - "docs/docsite/rst/getting_started/{basic_concepts,introduction,get_started_ansible,get_started_inventory,get_started_playbook}.rst"
+      - "docs/docsite/rst/playbook_guide/{playbooks,playbooks_intro,playbooks_handlers,playbooks_error_handling,playbooks_conditionals,playbooks_loops,playbooks_variables,playbooks_roles,playbooks_reuse,playbooks_reuse_roles,playbooks_strategies,playbooks_async,playbooks_blocks,playbooks_delegation,playbooks_checkmode,playbooks_templating,playbooks_vault,playbooks_tags,playbooks_privilege_escalation,playbooks_execution,playbooks_lookups}.rst"
+      - "docs/docsite/rst/inventory_guide/{intro_inventory,intro_dynamic_inventory,intro_patterns,connection_details}.rst"
+      - "docs/docsite/rst/vault_guide/vault.rst"
+      - "docs/docsite/rst/tips_tricks/*.rst"
+    options:
+      exts: [".rst"]
+    clean_profile: rst
+    max_file_kb: 150
+    license: "GPL-3.0 (repository LICENSE; docs text covered by the same terms)"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: devops
+    related_technologies: [ansible, configuration-management, playbooks, idempotency, inventory]
+    reference_only: false
+    verified: true
+    notes: "Tree-verified directories. Basic concepts, playbook guide (handlers, idempotence/check mode, error handling, roles, strategies), inventory, vault, tips. Module/plugin reference, developer guide, porting guides excluded. Licence is GPL-3.0 (copyleft; acceptable for private coursework use)."
+
+  - name: opentofu-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/opentofu/opentofu
+    loader: git
+    paths: ["website/docs/intro/", "website/docs/language/", "website/docs/cli/"]
+    include:
+      - "website/docs/intro/{core-workflow,use-cases,index}.mdx"
+      - "website/docs/language/{state,modules,resources,expressions,meta-arguments,providers,values,data-sources,import,settings,syntax,files,ephemerality,checks}/**"
+      - "website/docs/language/index.mdx"
+      - "website/docs/cli/{workspaces,state,commands/plan,commands/apply,commands/init,commands/import}/**"
+      - "website/docs/cli/commands/{plan,apply,init,import,refresh}.mdx"
+    exclude:
+      - "website/docs/language/state/examples/**"
+      - "website/docs/language/**/*-test*"
+    max_file_kb: 100
+    options:
+      frontmatter_title: true
+    license: "MPL-2.0 (repository LICENSE; website docs under the same terms)"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: devops
+    related_technologies: [opentofu, terraform, infrastructure-as-code, state, modules, drift]
+    reference_only: false
+    verified: true
+    notes: "OpenTofu substitutes for HashiCorp Terraform docs (BUSL; see terraform-docs reference_only). Core workflow, state/backends/locking/encryption, modules, resources and lifecycle, meta-arguments, providers, import, workspaces, plan/apply."
+
+  - name: pagerduty-incident-response
+    namespace: technical
+    priority: P1
+    url: https://github.com/PagerDuty/incident-response-docs
+    loader: git
+    paths: ["docs/"]
+    include: ["docs/{before,during,after,oncall,training}/**", "docs/about.md"]
+    exclude: ["docs/training/{slides,index}*", "docs/after/post_mortem_template.md"]
+    options:
+      frontmatter_title: true
+    max_file_kb: 100
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: devops
+    related_technologies: [incident-response, postmortem, on-call, sre, severity-levels, blameless]
+    reference_only: false
+    verified: true
+    notes: "PagerDuty's open incident-response documentation: incident roles (commander, scribe), severity levels, communication, on-call etiquette, blameless post-mortems. Substitutes for the Google SRE book (CC BY-NC-ND, reference_only)."
+
+  - name: networks-systems-approach
+    namespace: technical
+    priority: P1
+    url: https://github.com/SystemsApproach/book
+    loader: git
+    paths: ["foundation/", "direct/", "internetworking/", "e2e/", "congestion/", "data/", "applications/", "foundation.rst", "direct.rst", "internetworking.rst", "e2e.rst", "congestion.rst", "data.rst", "applications.rst"]
+    include:
+      - "{foundation,direct,internetworking,e2e,congestion,data,applications}/*.rst"
+      - "{foundation,direct,internetworking,e2e,congestion,data,applications}.rst"
+    exclude: ["**/index.rst", "**/exercises.rst", "**/further.rst", "**/problem*.rst", "**/summary.rst"]
+    options:
+      exts: [".rst"]
+    clean_profile: rst
+    max_file_kb: 200
+    license: "CC-BY-4.0 (repository LICENSE; README notes that translations/derivatives are by arrangement)"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: networking
+    related_technologies: [tcp, ip, routing, dns, http, congestion-control, ethernet, bgp, tls]
+    reference_only: false
+    verified: true
+    notes: "Computer Networks: A Systems Approach (Peterson & Davie). Layering, links/Ethernet/switching, IP/routing/BGP, transport (TCP), congestion control, data/security, applications (HTTP, DNS, CDN)."
+
+  - name: cnp3-networking
+    namespace: technical
+    priority: P1
+    url: https://github.com/obonaventure/cnp3
+    loader: git
+    paths: ["book-2nd/principles/", "book-2nd/protocols/"]
+    include:
+      - "book-2nd/principles/{reliability,transport,naming,sharing,security,referencemodels,linkstate,dv}.rst"
+      - "book-2nd/protocols/{tcp,udp,tls,dns,dnssec,http,rpc,ssh,bgp,ipv6,transport-service,congestion}.rst"
+    options:
+      exts: [".rst"]
+    clean_profile: rst
+    max_file_kb: 200
+    license: "CC-BY-SA-3.0 (README: all files licensed under CC BY-SA 3.0)"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: networking
+    related_technologies: [tcp, tls, dns, http, bgp, ssh, reliability]
+    reference_only: false
+    verified: true
+    notes: "Computer Networking: Principles, Protocols and Practice (Bonaventure), 2nd edition. Principles chapters plus the TCP/UDP/TLS/DNS/HTTP/BGP protocol chapters; exercises, slides and MCQs excluded."
+
+  - name: flink-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/apache/flink
+    loader: git
+    paths: ["docs/content/docs/concepts/", "docs/content/docs/learn-flink/", "docs/content/docs/dev/datastream/event-time/", "docs/content/docs/dev/datastream/fault-tolerance/", "docs/content/docs/dev/datastream/operators/windows.md", "docs/content/docs/dev/datastream/execution_mode.md", "docs/content/docs/ops/state/"]
+    include:
+      - "docs/content/docs/concepts/**"
+      - "docs/content/docs/learn-flink/**"
+      - "docs/content/docs/dev/datastream/event-time/**"
+      - "docs/content/docs/dev/datastream/fault-tolerance/**"
+      - "docs/content/docs/dev/datastream/{operators/windows,execution_mode}.md"
+      - "docs/content/docs/ops/state/{state_backends,checkpoints,savepoints,large_state_tuning}.md"
+    exclude:
+      - "docs/content/docs/**/_index.md"
+      - "docs/content/docs/concepts/glossary.md"
+    clean_profile: hugo
+    options:
+      frontmatter_title: true
+    max_file_kb: 150
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: data-engineering
+    related_technologies: [flink, stream-processing, event-time, watermarks, checkpointing, exactly-once, state]
+    reference_only: false
+    verified: true
+    notes: "Tree-verified. Concepts (stateful stream processing, time/watermarks, architecture), Learn Flink, event-time/watermarks, fault tolerance (checkpointing, state), windows, state backends/savepoints."
+
+  - name: iceberg-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/apache/iceberg
+    loader: git
+    paths: ["docs/docs/", "format/"]
+    include:
+      - "docs/docs/{index,evolution,branching,maintenance,performance,reliability,partitioning,schemas,configuration,metrics-reporting}.md"
+      - "format/{spec,puffin-spec,view-spec}.md"
+    max_file_kb: 250
+    options:
+      frontmatter_title: true
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: data-engineering
+    related_technologies: [iceberg, table-format, lakehouse, snapshots, schema-evolution, partition-evolution]
+    reference_only: false
+    verified: true
+    notes: "Tree-verified. Table spec (snapshots, manifests, metadata layout, partition/schema evolution, row-level deletes) and the user docs on evolution, branching/tagging, maintenance, performance, reliability. Engine integration pages (Spark/Flink/Hive/AWS...) excluded."
+
+  - name: delta-lake-protocol
+    namespace: technical
+    priority: P1
+    url: https://github.com/delta-io/delta
+    loader: git
+    paths: ["PROTOCOL.md"]
+    include: ["PROTOCOL.md"]
+    max_file_kb: 300
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: data-engineering
+    related_technologies: [delta-lake, transaction-log, acid, lakehouse, optimistic-concurrency]
+    reference_only: false
+    verified: true
+    notes: "Delta Lake transaction log protocol: actions, checkpoints, optimistic concurrency, isolation, deletion vectors."
+
+  - name: parquet-format
+    namespace: technical
+    priority: P1
+    url: https://github.com/apache/parquet-format
+    loader: git
+    paths: ["README.md", "Encodings.md", "LogicalTypes.md", "BloomFilter.md", "PageIndex.md", "Compression.md", "Encryption.md"]
+    include: ["{README,Encodings,LogicalTypes,BloomFilter,PageIndex,Compression}.md"]
+    max_file_kb: 150
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: data-engineering
+    related_technologies: [parquet, columnar, encodings, predicate-pushdown, row-groups, bloom-filter]
+    reference_only: false
+    verified: true
+    notes: "Parquet format specification: file layout (row groups, column chunks, pages), encodings (dictionary, RLE, delta), compression, logical types, page index and Bloom filters (predicate pushdown)."
+
+  - name: arrow-format
+    namespace: technical
+    priority: P1
+    url: https://github.com/apache/arrow
+    loader: git
+    paths: ["docs/source/format/"]
+    include: ["docs/source/format/{Intro,Columnar,Glossary,IPC,Flight,CDataInterface,Guidelines}.rst"]
+    options:
+      exts: [".rst"]
+    clean_profile: rst
+    max_file_kb: 200
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: data-engineering
+    related_technologies: [arrow, columnar, zero-copy, ipc, flight]
+    reference_only: false
+    verified: true
+    notes: "Arrow columnar format specification: intro, physical memory layout, IPC, Flight RPC, C data interface."
+
+  - name: debezium-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/debezium/debezium
+    loader: git
+    paths: ["documentation/modules/ROOT/pages/connectors/", "documentation/modules/ROOT/pages/transformations/", "documentation/modules/ROOT/pages/*.adoc"]
+    include:
+      - "documentation/modules/ROOT/pages/{architecture,features}.adoc"
+      - "documentation/modules/ROOT/pages/connectors/{postgresql,mysql}.adoc"
+      - "documentation/modules/ROOT/pages/transformations/{outbox-event-router,event-flattening}.adoc"
+    options:
+      exts: [".adoc"]
+    clean_profile: asciidoc
+    max_file_kb: 400
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: data-engineering
+    related_technologies: [debezium, cdc, change-data-capture, kafka-connect, outbox-pattern, wal]
+    reference_only: false
+    verified: true
+    notes: "Debezium architecture and features, PostgreSQL (logical decoding/WAL) and MySQL (binlog) connector behaviour, outbox event router and event flattening SMTs."
+
+  - name: duckdb-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/duckdb/duckdb-web
+    loader: git
+    paths: ["docs/current/guides/performance/", "docs/current/internals/", "docs/current/data/parquet/", "docs/current/sql/introduction.md"]
+    include:
+      - "docs/current/guides/performance/**"
+      - "docs/current/internals/{overview,vector,storage,pivot}.md"
+      - "docs/current/data/parquet/{overview,tips,metadata,encryption}.md"
+      - "docs/current/sql/introduction.md"
+    options:
+      frontmatter_title: true
+    max_file_kb: 100
+    license: "MIT (repository)"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: data-engineering
+    related_technologies: [duckdb, olap, columnar, vectorized-execution, parquet]
+    reference_only: false
+    verified: true
+    notes: "Tree-verified. Performance guides, internals (vectorised execution, storage format), Parquet usage tips. SQL function reference, clients and extensions excluded."
+
+  - name: clickhouse-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/ClickHouse/clickhouse-docs
+    loader: git
+    paths: ["docs/concepts/", "docs/data-modeling/", "docs/best-practices/", "docs/data-compression/", "docs/materialized-view/"]
+    include:
+      - "docs/concepts/{olap,why-clickhouse-is-so-fast}.{md,mdx}"
+      - "docs/data-modeling/{schema-design,denormalization,backfilling}.md"
+      - "docs/best-practices/*.{md,mdx}"
+      - "docs/data-compression/**"
+      - "docs/materialized-view/**"
+    exclude:
+      - "docs/**/index.md"
+      - "docs/best-practices/_snippets/**"
+    options:
+      frontmatter_title: true
+    max_file_kb: 100
+    license: "CC-BY-NC-SA-4.0 (repository LICENSE; non-commercial use only, share-alike)"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: data-engineering
+    related_technologies: [clickhouse, olap, columnar, mergetree, materialized-views, denormalization]
+    reference_only: false
+    verified: true
+    notes: "NC-SA licensed; acceptable for the privately shared coursework knowledge base only. OLAP vs OLTP, why columnar engines are fast, schema design/denormalisation, MergeTree primary keys and partitioning, data skipping indices, materialized views, compression."
+
+  - name: data-engineering-cookbook
+    namespace: technical
+    priority: P1
+    url: https://github.com/andkret/Cookbook
+    loader: git
+    paths: ["sections/"]
+    include: ["sections/{02,03,05,06}-*.md"]
+    max_file_kb: 400
+    license: Apache-2.0
+    auto_level: full
+    trust_level: community
+    refresh_cycle: yearly
+    domain: data-engineering
+    related_technologies: [data-engineering, data-warehouse, data-lake, etl, elt, batch, streaming]
+    reference_only: false
+    verified: true
+    notes: "Community handbook (sections 02-06): basic and advanced skills (data warehouse vs data lake, ETL/ELT, batch vs streaming, lambda/kappa, CDC), case studies, cloud best practices. The interview-question and book-list sections (08-09) and data-source lists are excluded."
+
+  - name: scikit-learn-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/scikit-learn/scikit-learn
+    loader: git
+    paths: ["doc/modules/", "doc/common_pitfalls.rst", "doc/model_selection.rst", "doc/computing/", "doc/inspection.rst", "doc/faq.rst", "doc/getting_started.rst", "doc/data_transforms.rst", "doc/model_persistence.rst"]
+    include:
+      - "doc/modules/*.rst"
+      - "doc/{common_pitfalls,model_selection,inspection,data_transforms,model_persistence,faq}.rst"
+      - "doc/computing/{scaling_strategies,computational_performance}.rst"
+    exclude:
+      - "doc/modules/{array_api,df_output_transform,glm_data}.rst"
+      - "doc/modules/glm_data/**"
+    options:
+      exts: [".rst"]
+    clean_profile: rst
+    max_file_kb: 300
+    license: BSD-3-Clause
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: ml-classic
+    related_technologies: [scikit-learn, random-forest, gradient-boosting, svm, clustering, pca, cross-validation, metrics]
+    reference_only: false
+    verified: true
+    notes: >
+      Tree-verified (gh api, 2026-10-15). The User Guide modules: linear models, SVM, trees,
+      ensembles (bagging/RF/boosting), clustering, decomposition (PCA), model evaluation and
+      metrics, cross-validation, model selection, preprocessing, feature selection, imputation,
+      calibration, outlier/novelty detection, manifold, mixture, GP, neighbors, naive Bayes,
+      pipelines, inspection, common pitfalls (data leakage). API reference, examples gallery,
+      developer docs and release notes are excluded.
+
+  - name: xgboost-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/dmlc/xgboost
+    loader: git
+    paths: ["doc/tutorials/", "doc/faq.rst", "doc/prediction.rst", "doc/treemethod.rst", "doc/parameter.rst"]
+    include:
+      - "doc/tutorials/{model,param_tuning,dart,monotonic,categorical,learning_to_rank,intercept,rf,aft_survival_analysis,saving_model,external_memory}.rst"
+      - "doc/{faq,prediction,treemethod}.rst"
+    options:
+      exts: [".rst"]
+    clean_profile: rst
+    max_file_kb: 200
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: ml-classic
+    related_technologies: [xgboost, gradient-boosting, regularization, tree-methods, hyperparameter-tuning]
+    reference_only: false
+    verified: true
+    notes: "Tree-verified. Introduction to boosted trees (objective, regularisation, additive training), parameter tuning (bias-variance, overfitting, imbalance), DART, monotonic constraints, categorical data, learning to rank, tree methods, FAQ."
+
+  - name: lightgbm-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/microsoft/LightGBM
+    loader: git
+    paths: ["docs/"]
+    include: ["docs/{Features,Parameters-Tuning,Advanced-Topics,FAQ,Experiments,Parallel-Learning-Guide,Quick-Start}.rst"]
+    options:
+      exts: [".rst"]
+    clean_profile: rst
+    max_file_kb: 200
+    license: MIT
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: ml-classic
+    related_technologies: [lightgbm, gradient-boosting, histogram-algorithm, goss, efb, leaf-wise-growth]
+    reference_only: false
+    verified: true
+    notes: "Tree-verified. Features (histogram-based splits, leaf-wise growth, GOSS, EFB, categorical handling, distributed learning), parameter tuning, advanced topics, FAQ."
+
+  - name: imbalanced-learn-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/scikit-learn-contrib/imbalanced-learn
+    loader: git
+    paths: ["doc/"]
+    include: ["doc/{introduction,over_sampling,under_sampling,combine,ensemble,metrics,common_pitfalls,model_selection,miscellaneous}.rst"]
+    options:
+      exts: [".rst"]
+    clean_profile: rst
+    max_file_kb: 200
+    license: MIT
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: ml-classic
+    related_technologies: [imbalanced-learn, smote, class-imbalance, resampling, precision-recall]
+    reference_only: false
+    verified: true
+    notes: "Tree-verified. Class-imbalance user guide: over-sampling (SMOTE, ADASYN), under-sampling, combination, ensemble methods, metrics, common pitfalls."
+
+  - name: openintro-ims
+    namespace: technical
+    priority: P1
+    url: https://github.com/OpenIntroStat/ims
+    loader: git
+    paths: ["*.qmd"]
+    include: ["{introduction-to-data,data-hello,data-design,exploratory-data-analysis,explore-categorical,explore-numerical,regression-modeling,model-slr,model-mlr,model-logistic,foundations-of-inference,foundations-randomization,foundations-bootstrapping,foundations-mathematical,foundations-errors,inferential-modeling,inference-one-prop,inference-two-props,inference-tables,inference-one-mean,inference-paired-means,inference-two-means,inference-many-means,inf-model-slr,inf-model-mlr,inf-model-logistic,statistical-inference}.qmd"]
+    options:
+      exts: [".qmd"]
+    clean_profile: quarto
+    max_file_kb: 400
+    license: "CC-BY-SA-3.0 (OpenIntro licence, https://www.openintro.org/license/; see repository LICENSE.md)"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: data-science
+    related_technologies: [statistics, hypothesis-testing, confidence-intervals, regression, bootstrapping, p-value]
+    reference_only: false
+    verified: true
+    notes: "Introduction to Modern Statistics (Çetinkaya-Rundel & Hardin), Quarto source. Data design/sampling, EDA, regression modelling, randomisation/bootstrap/mathematical inference, tests for proportions/means/tables, SLR/MLR/logistic inference. R code chunks are dropped (prose and equations kept); exercises, applications chapters and solutions excluded. Used instead of OpenIntro Statistics (LaTeX-only source)."
+
+  - name: interpretable-ml-book
+    namespace: technical
+    priority: P1
+    url: https://github.com/christophm/interpretable-ml-book
+    loader: git
+    paths: ["manuscript/"]
+    include: ["manuscript/{interpretability,goals,overview,data,limo,logistic,extend-lm,tree,rules,rulefit,pdp,ice,ale,interaction,feature-importance,permutation-importance,lime,shap,shapley,anchors,counterfactual,adversarial,influential,global,local-surrogate,scope-of-interpretability,evaluation,human-friendly,pixel-attribution,cnn-features,neural-networks,decomposition,lofo,ceteris-paribus,proto,other-methods,taxonomy-of-interpretability-methods,gam,pfi}.qmd"]
+    options:
+      exts: [".qmd"]
+    clean_profile: quarto
+    max_file_kb: 300
+    license: "CC-BY-NC-SA-4.0 (rendered book; MIT for the code that builds it) - non-commercial use only"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: ml-classic
+    related_technologies: [interpretability, shap, lime, partial-dependence, feature-importance, explainability]
+    reference_only: false
+    verified: true
+    notes: "Interpretable Machine Learning (Molnar), Quarto manuscript. Interpretable models, model-agnostic methods (PDP, ICE, ALE, permutation importance, LIME, SHAP, anchors, counterfactuals), evaluation of interpretability. R chunks dropped."
+
+  - name: think-stats
+    namespace: technical
+    priority: P1
+    url: https://github.com/AllenDowney/ThinkStats
+    loader: git
+    paths: ["nb/"]
+    include: ["nb/chap*.ipynb"]
+    clean_profile: notebook
+    max_file_kb: 400
+    license: "MIT (repository code); book text CC-BY-NC-SA-4.0"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: data-science
+    related_technologies: [statistics, distributions, hypothesis-testing, estimation, correlation, regression]
+    reference_only: false
+    verified: true
+    notes: "Think Stats 3e chapters (Jupyter notebooks): distributions, estimation, hypothesis testing, correlation, regression, survival analysis, simulation-based inference."
+
+  - name: think-bayes
+    namespace: technical
+    priority: P1
+    url: https://github.com/AllenDowney/ThinkBayes2
+    loader: git
+    paths: ["notebooks/"]
+    include: ["notebooks/chap*.ipynb"]
+    clean_profile: notebook
+    max_file_kb: 400
+    license: "MIT (repository code); book text CC-BY-NC-SA-4.0"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: data-science
+    related_technologies: [bayes-theorem, bayesian-inference, priors, posterior, mcmc]
+    reference_only: false
+    verified: true
+    notes: "Think Bayes 2e chapters (Jupyter notebooks): Bayes theorem, priors/posteriors, conjugate updates, estimation, hypothesis comparison, MCMC, Bayesian regression."
+
+  - name: causal-inference-brave-true
+    namespace: technical
+    priority: P1
+    url: https://github.com/matheusfacure/python-causality-handbook
+    loader: git
+    paths: ["causal-inference-for-the-brave-and-true/"]
+    include: ["causal-inference-for-the-brave-and-true/{0,1,2}*.ipynb"]
+    clean_profile: notebook
+    max_file_kb: 600
+    license: "MIT (repository LICENSE)"
+    auto_level: full
+    trust_level: community
+    refresh_cycle: yearly
+    domain: data-science
+    related_technologies: [causal-inference, ab-testing, diff-in-diff, propensity-score, instrumental-variables, regression-discontinuity]
+    reference_only: false
+    verified: true
+    notes: "Causal Inference for the Brave and True: randomised experiments, graphical causal models, regression, IV, matching, propensity scores, doubly robust, difference-in-differences, panel data, synthetic control, RDD, heterogeneous effects/meta-learners."
+
+  - name: dowhy-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/py-why/dowhy
+    loader: git
+    paths: ["docs/source/user_guide/"]
+    include: ["docs/source/user_guide/**/*.rst"]
+    exclude: ["docs/source/user_guide/index.rst", "docs/source/user_guide/modeling_gcm/**"]
+    options:
+      exts: [".rst"]
+    clean_profile: rst
+    max_file_kb: 150
+    license: MIT
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: data-science
+    related_technologies: [dowhy, causal-inference, do-calculus, backdoor, confounding, refutation]
+    reference_only: false
+    verified: true
+    notes: "DoWhy user guide: modeling causal relations (causal graphs, assumptions), identification (backdoor, frontdoor, IV), estimation, refuting causal estimates."
+
+  - name: prophet-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/facebook/prophet
+    loader: git
+    paths: ["docs/_docs/"]
+    include: ["docs/_docs/{quick_start,seasonality,_holiday_effects,_and_regressors,trend_changepoints,uncertainty_intervals,outliers,non-daily_data,holiday_effects,multiplicative_seasonality,saturating_forecasts,diagnostics,handling_shocks,additional_topics}.md", "docs/_docs/seasonality*.md"]
+    options:
+      frontmatter_title: true
+    max_file_kb: 100
+    license: MIT
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: data-science
+    related_technologies: [prophet, forecasting, time-series, seasonality, changepoints, holidays]
+    reference_only: false
+    verified: true
+    notes: "Prophet docs: additive decomposition (trend, seasonality, holidays), changepoints, uncertainty, outliers, cross-validation diagnostics."
 
   # ============================================================
   # reference_only = true
