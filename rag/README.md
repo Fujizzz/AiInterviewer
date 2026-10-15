@@ -110,7 +110,7 @@ All optional. Unset means the default. Parsed by `RAGSettings.from_env()`.
 | `RAG_ENCODER` | `torch` | Query-encoder backend: `torch` (sentence-transformers; also what embeds the corpus) or `onnx-int8` (onnxruntime + tokenizers, no torch). The corpus vectors are never re-embedded. |
 | `RAG_ENCODER_THREADS` | `2` | onnxruntime `intra_op_num_threads` of the ONNX encoder. |
 | `RAG_ENCODER_MODEL_DIR` | `rag/data/models/bge-m3-onnx-int8` | Directory with `model.onnx`, `model.onnx.data`, `tokenizer.json` (see below). |
-| `RAG_ENCODER_VERIFY` | `true` | Check size and sha256 of those files against `rag/data/encoder_manifest.json` at load (about 1-2 s). |
+| `RAG_ENCODER_VERIFY` | `true` | Check size and sha256 of those files against `rag/data/encoder_manifest.json` at load (about 1-2 s). `false` only checks sizes: a corrupted file of the right size would pass silently. |
 | `RAG_FILTER_DIFFICULTY` | `true` | Map request difficulty to LeetCode tiers for `source=question`. |
 | `RAG_FILTER_COMPETENCY` | `false` | Pass `competency` as a (lenient) filter. Off because no chunk has a competency label yet. |
 | `RAG_DROP_LOW_CONFIDENCE` | `false` | Return no chunks when the retrieval is `low_confidence` instead of flagging them. |
@@ -123,13 +123,15 @@ Retrieval needs one bge-m3 vector per query. Two interchangeable backends produc
 |---|---|---|
 | runtime | sentence-transformers + torch | onnxruntime + tokenizers + numpy (no torch / transformers / sentence-transformers; `tests/rag/test_onnx_no_torch.py` checks this in a fresh interpreter) |
 | use | local development, and the only backend that embeds the corpus | serving on a small CPU box |
-| weights | `BAAI/bge-m3` fp16/fp32 | the same weights, dynamic int8 (per-channel QInt8), 587 MB on disk |
+| weights | `BAAI/bge-m3` fp16/fp32 | the same weights, dynamic int8 (`uint8-pc`: per-channel QUInt8 weights, uint8 activations), 587 MB on disk |
 | query semantics | no prefix, CLS pooling, L2 norm, 1024 tokens max | identical (pooling checked: `modules.json` = Transformer, Pooling(cls), Normalize; the fp32 ONNX export reproduces torch fp32 to cosine 1.0000) |
 
 `index_meta` still describes the torch vectors in the database. An `onnx-int8` encoder built from the same base
 model, revision, dim, max_seq_length and format is accepted for *queries*; any other model is refused, and a
 derived encoder can never define `index_meta` or embed the corpus. The encoder that produced a result is recorded
-in `RetrievalResult.encoder` and in every chunk's `metadata["encoder"]` (`"torch"` or `"onnx-int8/int8-pc"`).
+in `RetrievalResult.encoder` and in every chunk's `metadata["encoder"]` (`"torch"` or `"onnx-int8/uint8-pc"`).
+If the model files are missing or corrupt, `create_rag_adapter()` / `warmup()` / the first `retrieve()` raise
+`RAGUnavailableError` (also when the model is loaded lazily because `warmup()` was skipped).
 
 **Artifact.** The ONNX is the *official* export in the `onnx/` folder of `BAAI/bge-m3` at the same revision the
 index was built from (`5617a9f6...`, MIT licence). `python -m rag.cli encoder build-onnx` downloads it (fp32, 2.3 GB),
@@ -138,39 +140,58 @@ file and records everything in `rag/data/encoder_manifest.json` (committed: sha2
 revision, quantization settings). The build is deterministic (rebuilding gives the same sha256). The files are
 gitignored (`rag/data/models/`); a server gets them by copying, see
 [docs/TEAM_INTEGRATION.md](docs/TEAM_INTEGRATION.md) section 6 (it also lists what the deploy owner has to do).
-`python -m rag.cli encoder verify [--smoke]` checks a directory against the manifest; `--smoke` also loads the
-model and compares six query vectors with the committed torch reference (use it on the machine that will serve:
-it prints cosine, latency and peak RSS; on a serve-only install call `python -m rag.index.encoder_commands verify
---smoke`, because `rag.cli` imports the ingestion pipeline). Do not quantize on the 2.3 GB server.
+`encoder verify [--smoke]` checks a directory against the manifest (`--dir`, else `$RAG_ENCODER_MODEL_DIR`, else
+the default under `rag/data/models/`); `--smoke` also loads the model and compares six query vectors with the
+committed torch reference (use it on the machine that will serve: it prints cosine, latency and peak RSS). On a
+serve-only install call `python -m rag.index.encoder_commands verify --smoke`, because `rag.cli` imports the
+ingestion pipeline. Do not quantize on the 2.3 GB server. `RAG_ENCODER_VERIFY=false` skips the sha256 and only
+checks file sizes, so a same-size corrupted file would load silently: keep it `true` unless start-up time matters.
+
+**Which recipe.** Seven recipes were built (per-tensor, per-channel, QInt8 vs QUInt8, `reduce_range`, fp16 embeddings,
+attention or last layers kept fp32; table in the report). `uint8-pc` is the default because (a) its u8u8 matmuls avoid
+the u8s8 `VPMADDUBSW` saturation path: onnxruntime's quantization docs ("When and why do I need to try U8U8?") say
+that on AVX2/AVX512 machines without VNNI the u8s8 kernel can saturate, and that `reduce_range` or U8U8 are the
+remedies (no such issue with VNNI or Arm; dynamic quantization has uint8 activations, so s8s8 is not an option), (b) it kept paraphrase and identifier queries closest to torch of the per-channel recipes, and
+(c) it has the same size and speed as `int8-pc`. Fallbacks if `verify --smoke` fails on the server CPU: `int8-pt`, then
+`int8-pc-rr` (7-bit weights, measurably worse: nDCG -0.020 [-0.043, -0.004]). **u8u8 latency on x86 is unmeasured**
+(no x86 hardware here; the amd64 container was emulated). Caveat on the choice: 7 recipes were compared on the same 40
+draft queries, so the winner is partly selected by noise; its numbers are optimistic, not a held-out estimate.
+`int8-pc` (the first default) was dropped after review showed it lost most on paraphrase queries.
 
 **Measured** (Apple M5, arm64, 16 GB, Python 3.13, onnxruntime 1.23.2; local pg17 index of 16,379 chunks, rerank off;
-full tables, all variants and caveats in `data/reports/encoder-onnx-int8-20261015.md`):
+full tables and all variants in `data/reports/encoder-onnx-int8-20261015.md`). Deltas are int8 minus torch, paired
+bootstrap 95% CI, and "p" is the exact sign-flip permutation test:
 
-| | torch (fp16, MPS; today's numbers) | onnx-int8 `int8-pc` | delta (paired bootstrap 95% CI) |
+| | torch (fp16, MPS; today's numbers) | `uint8-pc` | delta (CI) |
 |---|---|---|---|
-| query vector cosine vs torch, 98 queries | 1 | mean 0.9888, min 0.9843, p5 0.9856 | |
-| main gold (40), hybrid nDCG@10 / R@10 / MRR@10 | 0.595 / 0.664 / 0.672 | 0.586 / 0.640 / 0.677 | -0.009 [-0.030, +0.007] / -0.024 [-0.062, +0.005] / +0.005 [-0.012, +0.024] |
-| main gold, dense-only nDCG@10 | 0.552 | 0.550 | -0.002 [-0.014, +0.010] |
-| identifier slice (10), hybrid nDCG@10 | 0.640 | 0.614 | -0.026 [-0.066, +0.006] |
-| top-10 overlap with the torch ranking | | 0.92 (gold), 0.92 (identifier) | |
-| confidence: gold high/medium/low | 27 / 13 / 0 | 25 / 15 / 0 | g18, g27: high to medium |
+| query vector cosine vs torch, 98 queries | 1 | mean 0.9889, min 0.9834, p5 0.9860 | |
+| main gold (40), hybrid nDCG@10 / R@10 / MRR@10 | 0.595 / 0.664 / 0.672 | 0.594 / 0.665 / 0.676 | -0.001 [-0.026, +0.018] / +0.001 [-0.008, +0.011] / +0.004 [-0.033, +0.040] |
+| main gold, dense-only nDCG@10 | 0.552 | 0.551 | -0.001 [-0.027, +0.021] |
+| paraphrase queries (n=9), hybrid nDCG@10 | 0.208 | 0.224 | +0.017 [-0.012, +0.064], p=1.0 (3 of 9 changed) |
+| identifier slice (10), hybrid nDCG@10 | 0.640 | 0.623 | -0.017 [-0.036, -0.003], p=0.062 (5 of 10 changed) |
+| top-10 overlap with the torch ranking | | 0.92 (gold), 0.91 (identifier) | |
+| confidence: gold high/medium/low | 27 / 13 / 0 | 26 / 14 / 0 | g18 high to medium |
 | confidence: 22 negatives low/medium/high | 18 / 4 / 0 | 18 / 4 / 0 | none changed |
-| mean `max_dense` shift (gold) | | -0.006 (range -0.020 to +0.012) | thresholds unchanged |
+| mean `max_dense` shift (gold) | | -0.005 (range -0.022 to +0.012) | thresholds unchanged |
 
-The int8 encoder is not distinguishable from torch on 40 draft queries (every CI includes 0) but it is not free: the
-only category that moves is paraphrase (n=9, nDCG 0.208 to 0.151), and the identifier slice drifts down. The two
-gold queries that lose `high` sit within 0.005 of the 0.62 cut-off; the direction is conservative, so the thresholds
-(0.52 / 0.62) were **not** retuned. 7 recipes were compared (per-tensor, per-channel, QUInt8, `reduce_range`, fp16
-embeddings, attention or last layers kept fp32). Their differences are all inside the CIs (about +-0.02), so `int8-pc`
-(smallest, fastest, QInt8 weights as onnxruntime recommends for x86) was kept; the only nominally better one,
-`int8-pc-noattn` (+0.010), costs 300 MB and 1.7x latency and flips a negative query from low to medium.
+Honest reading: overall and paraphrase are indistinguishable from torch, but the identifier slice loses 0.017 nDCG
+hybrid (CI excludes 0, exact p=0.062) and 0.023 dense-only (CI excludes 0, exact p=0.047); n=10 and 7 recipes were
+tried, so this is a likely small real loss on identifier queries, not a settled one. For the earlier default `int8-pc` the
+paraphrase loss was hybrid -0.057 [-0.131, -0.003] and dense -0.018 [-0.047, -0.001] (both CIs exclude 0), but it comes
+from 3 of 9 queries and the exact permutation test gives p=0.25 for both. With n=9 and 10, treat all of these as
+hints. The one gold query that loses `high` sits 0.005 below the 0.62 cut-off, in the conservative direction; the
+thresholds (0.52 / 0.62) were **not** retuned.
 
 | process (warm-up + 50 queries, fresh process, Apple arm64) | peak RSS | cold load | encode p50 / p95 |
 |---|---|---|---|
-| `onnx-int8`, adapter with DB pool, 2 threads | 0.78 GB | 1.0 s | 13 / 20 ms (encoder only); hybrid retrieve 78 / 208 ms (small tuned pg14 container), 150 / 349 ms (default pg17 container) |
-| `onnx-int8`, 1 thread | 0.78 GB | 0.7 s | 20 / 33 ms |
-| torch fp16 on MPS (default), adapter | 3.7 GB (transient while loading the fp32 `.bin`; 2.3 GB encoder only) | 9-12 s | 16 / 19 ms |
-| torch CPU fp32, encoder only | 2.05 GB | 7-8 s | 38 / 40 ms |
+| `onnx-int8`, adapter with DB pool, 2 threads | 0.78 GB | 0.7 s | 12 / 18 ms (encoder only); hybrid retrieve 154 / 325 ms (default pg17 container), 78 / 208 ms (small tuned pg14 container) |
+| `onnx-int8`, 1 thread | 0.78 GB | 0.6 s | 20 / 33 ms |
+| torch fp16 on MPS (dev default), adapter | 2.3-3.8 GB peak (see below), 2.1 GB steady | 7-12 s | 15 / 17 ms |
+| torch CPU fp32, encoder only | 2.05 GB | 6-8 s | 42 / 44 ms |
+
+The torch MPS peak is a transient while the fp32 `.bin` is loaded and cast to fp16, and it varies: `encoder rss torch`
+(`ru_maxrss` of a fresh process) gave 2.33 GB once and 3.73-3.77 GB in six later runs here, and a reviewer measured
+2.4 GB; the steady state is 2.1 GB in every run.
 
 Of the 0.78 GB, the XLM-R tokenizer alone is 0.39 GB (the `tokenizers` crate builds a large trie for the 250k-piece
 vocabulary) and the memory-mapped weights about 0.34 GB; the weights are clean page cache, so the kernel can drop them
@@ -179,10 +200,9 @@ save about 0.3 GB with identical ids on the 98 test queries, but it is not in th
 
 **x86 caveat.** All timings above are Apple arm64. The target server is x86_64 and was only exercised in a
 `linux/amd64` container under qemu emulation (colima on this Mac is arm64): there the serve install, warm-up, search,
-RSS (0.76-0.80 GB) and vector agreement (cosine 0.9886 vs torch, same as arm64) are valid, but latency (2 s per encode)
-is 100x pessimistic and meaningless. Dynamic int8 on x86 CPUs without VNNI can saturate u8s8 products in the AVX2 kernel;
-emulation could not tell, so run `encoder verify --smoke` on the server (cosine must be >= 0.97). `int8-pc-rr` (7-bit
-weights) is the fallback; it costs about 0.01 more nDCG than `int8-pc` here (-0.020 vs -0.009 against torch).
+RSS (0.76-0.80 GB) and vector agreement (same cosine as arm64) are valid, but latency (2 s per encode) is 100x
+pessimistic and meaningless, and it cannot show how the real AVX2/VNNI kernels behave. Run `encoder verify --smoke` on
+the server (cosine must be >= 0.97).
 
 Notes: dynamic quantization takes the activation scale from the whole batch, so a query's vector would depend on its
 neighbours; `OnnxQueryEncoder.encode` therefore runs one text per forward pass by default. Reranking needs torch and

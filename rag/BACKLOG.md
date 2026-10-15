@@ -38,18 +38,21 @@ candidate-isolation change (`tune.collect` built a filter that still contained t
 
 - [ ] **Deploy owner (Member 5): everything in `docs/TEAM_INTEGRATION.md` section 6.4**: add `psycopg-pool` and
   `pgvector` to `deploy/requirements-linux.lock.txt`, `RAG_*` variables in `app.env`, copy the model directory,
-  2-4 GB swap, a pgvector-enabled Postgres, run `python -m rag.index.encoder_commands verify --smoke` on the server.
+  confirm the 4 GB swap that is already enabled (no second swapfile), a pgvector-enabled Postgres, run `python -m rag.index.encoder_commands verify --smoke` on the server.
   Nothing under `deploy/` or `.github/` was touched here.
 - [ ] **Measure on real x86.** Everything timed here is Apple arm64; the amd64 container ran under qemu (latency
   100x pessimistic, only memory and cosine are meaningful). Needed: encode p50/p95 on the 2 vCPU box with the app
-  running, and whether the CPU has VNNI (without it u8s8 products can saturate; `--smoke` catches it, the fallback is
-  `build-onnx --variant int8-pc-rr`).
+  running. The default `uint8-pc` is u8u8, whose x86 latency is **unmeasured**. Without VNNI the u8s8 recipes can
+  saturate; `--smoke` checks accuracy on the server CPU. Fallbacks: `build-onnx --variant int8-pt`, last resort
+  `int8-pc-rr` (nDCG -0.020).
 - [ ] **Tokenizer memory.** `tokenizers` needs about 0.39 GB for the XLM-R vocabulary (half of the 0.78 GB process).
   `sentencepiece` needs about 0.07 GB and gave identical ids on the 98 test queries, but it is not in the deploy lock;
   adopt it (with a parity test over a larger query sample) only if the box gets tight.
-- [ ] **int8 quality on the weak categories.** Paraphrase hybrid nDCG 0.208 to 0.151 (n=9) and identifier slice
-  0.640 to 0.614 (n=10) are the visible losses; both CIs include 0. Re-check on the enlarged, human-reviewed gold set.
-  Thresholds 0.52 / 0.62 were not retuned (gold g18 and g27 move high to medium).
+- [ ] **int8 quality on the weak categories.** For the default `uint8-pc`: paraphrase hybrid nDCG +0.017
+  [-0.012, +0.064] (p=1.0, n=9), identifier slice 0.640 to 0.623 (-0.017 [-0.036, -0.003], exact p=0.062, n=10). The
+  first default `int8-pc` had paraphrase -0.057 [-0.131, -0.003] (p=0.25: two queries drive it). 7 recipes were picked
+  on the same 40 draft queries, so the winner's numbers are optimistic. Re-check on the enlarged, human-reviewed gold
+  set. Thresholds 0.52 / 0.62 were not retuned (gold g18 moves high to medium).
 - [ ] **Artifact distribution.** The int8 files are copied by hand (rsync/scp). Publishing them to a private bucket or
   a private HF repo, and downloading with the sha256 from the manifest, would remove the manual step.
 - [ ] fp16 ONNX variant was not built (onnxruntime's CPU provider has no native fp16 kernels, it would be slower and
