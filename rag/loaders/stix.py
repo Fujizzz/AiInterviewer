@@ -42,8 +42,23 @@ def _external(obj: dict) -> tuple[str, str]:
     return "", ""
 
 
-def parse_bundle(raw: str | dict) -> list[StixDoc]:
+def bundle_major_version(raw: str | dict) -> str | None:
+    """`v17` for an ATT&CK collection with x_mitre_version 17.1 (None if absent)."""
     bundle = json.loads(raw) if isinstance(raw, str) else raw
+    for o in bundle.get("objects", []):
+        if o.get("type") == "x-mitre-collection" and o.get("x_mitre_version"):
+            m = re.match(r"(\d+)", str(o["x_mitre_version"]))
+            if m:
+                return f"v{m.group(1)}"
+    return None
+
+
+def parse_bundle(raw: str | dict) -> list[StixDoc]:
+    """Documents for every non-revoked technique / sub-technique / tactic. When the bundle carries
+    its ATT&CK version, URLs point at the versioned site (attack.mitre.org/versions/vNN/...), so
+    they are immutable permalinks."""
+    bundle = json.loads(raw) if isinstance(raw, str) else raw
+    major = bundle_major_version(bundle)
     objs = bundle.get("objects", [])
     docs: list[StixDoc] = []
     for o in objs:
@@ -55,6 +70,10 @@ def parse_bundle(raw: str | dict) -> list[StixDoc]:
         attack_id, url = _external(o)
         if not attack_id or not o.get("name"):
             continue
+        if major and url.startswith("https://attack.mitre.org/"):
+            url = url.replace(
+                "https://attack.mitre.org/", f"https://attack.mitre.org/versions/{major}/", 1
+            )
         desc = _clean(o.get("description", ""))
         if not desc:
             continue

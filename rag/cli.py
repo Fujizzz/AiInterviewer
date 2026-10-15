@@ -27,7 +27,14 @@ from pydantic import ValidationError
 
 from . import chunking
 from .clean import clean_markdown, count_fences, dedupe_chunks, junk_category
-from .loaders import arxiv_loader, crawler_loader, git_loader, hf_loader, xlsx_loader
+from .loaders import (
+    arxiv_loader,
+    crawler_loader,
+    git_loader,
+    hf_loader,
+    wikipedia_loader,
+    xlsx_loader,
+)
 from .loaders.base import FetchResult, RawDoc, stub_fetch
 from .profiles import apply_profile
 from .registry import Source, filter_sources, load_registry, validate_registry
@@ -57,6 +64,7 @@ LOADER_MODULES = {
     "arxiv": arxiv_loader,
     "crawler": crawler_loader,
     "xlsx": xlsx_loader,
+    "wikipedia": wikipedia_loader,
 }
 
 SOURCE_TYPE_BY_LOADER = {
@@ -66,6 +74,7 @@ SOURCE_TYPE_BY_LOADER = {
     "crawler": SourceType.CRAWL,
     "manual": SourceType.MANUAL,
     "xlsx": SourceType.DATASET,
+    "wikipedia": SourceType.CRAWL,
 }
 
 
@@ -96,7 +105,7 @@ def do_clean(source: Source, fetched: FetchResult) -> FetchResult:
     cleaned_docs: list[RawDoc] = []
     fence_mismatches: list[str] = []
     for doc in fetched.docs:
-        if source.loader in ("git", "crawler"):
+        if source.loader in ("git", "crawler", "wikipedia"):
             pre = apply_profile(
                 doc.text, source.clean_profile, path=doc.path, options=source.options
             )

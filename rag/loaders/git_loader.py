@@ -550,10 +550,11 @@ def fetch(source: Source, raw_dir: Path) -> FetchResult:
             continue
 
         if path.suffix == ".json" and source.options.get("stix"):
-            from .stix import parse_bundle
+            from .stix import bundle_major_version, parse_bundle
 
             try:
                 stix_docs = parse_bundle(raw_text)
+                stix_version = bundle_major_version(raw_text)
             except Exception as e:  # malformed bundle: report, keep going
                 errors.append(f"{rel}: STIX parse failed ({e})")
                 continue
@@ -562,8 +563,9 @@ def fetch(source: Source, raw_dir: Path) -> FetchResult:
                     RawDoc(
                         path=f"{rel}#{sd.attack_id}",
                         text=sd.text,
-                        doc_version=commit,
-                        source_url=sd.url or f"https://github.com/{owner}/{repo}/blob/{commit}/{rel}",
+                        doc_version=stix_version or commit,
+                        source_url=sd.url
+                        or f"https://github.com/{owner}/{repo}/blob/{commit}/{rel}",
                         title=sd.title,
                     )
                 )

@@ -14,6 +14,7 @@ into plain markdown:
 from __future__ import annotations
 
 import re
+import textwrap
 from collections.abc import Callable
 
 from .htmlmd import convert_embedded_html, html_to_markdown
@@ -160,16 +161,32 @@ def _resolve_slash_blocks(text: str) -> str:
 # Self-closing MDX figure components with long (often multi-line) props:
 #   <Diagram name="x" height={250} alt="A tree graph ..." />   <Illustration .../>   <Image .../>
 _JSX_FIGURE_RE = re.compile(
-    r"^[ \t]*<(?:Diagram|Illustration|Image|Img|Video|Gif|Figure)\b((?:[^>]|=>)*?)/?>[ \t]*$",
-    re.M | re.S,
+    r"<(?:Diagram|Illustration|Image|Img|Video|Gif|Figure|Lightbox)\b"
+    r"((?:[^>\"']|\"[^\"]*\"|'[^']*'|=>)*?)/?>",
 )
-_JSX_ALT_RE = re.compile(r"\balt=(?:\"([^\"]*)\"|'([^']*)')")
+_JSX_ALT_RE = re.compile(r"\b(?:alt|title)=(?:\"([^\"]*)\"|'([^']*)')")
+_HTML_HEADING_RE = re.compile(r"^[ \t]*<h([1-6])\b[^>]*>(.*?)</h\1>[ \t]*$", re.M | re.I)
+_TABLE_ROW_HTML_RE = re.compile(r"^[^\n]*\|[^\n]*$", re.M)
+
+
+def _table_cell_html(seg: str) -> str:
+    """`<ul><li>..</li></ul>` / `<br>` inside pipe-table rows -> plain text separators."""
+
+    def _row(m: re.Match) -> str:
+        r = m.group(0)
+        if "<" not in r:
+            return r
+        r = re.sub(r"<br\s*/?>", "; ", r, flags=re.I)
+        r = re.sub(r"<li>", "\u2022 ", r, flags=re.I)
+        return re.sub(r"</?(?:ul|ol)>|</li>", "", r, flags=re.I)
+
+    return _TABLE_ROW_HTML_RE.sub(_row, seg)
 
 
 def _jsx_figure(m: re.Match) -> str:
     a = _JSX_ALT_RE.search(m.group(1))
     alt = ((a.group(1) or a.group(2)) if a else "").strip()
-    return f"*[figure: {alt}]*" if len(alt) > 12 else ""
+    return f"*[figure: {alt}]*\n\n" if len(alt) > 12 else ""
 
 
 _VITEPRESS_OPEN_RE = re.compile(
@@ -178,8 +195,119 @@ _VITEPRESS_OPEN_RE = re.compile(
 _VITEPRESS_GROUP_RE = re.compile(r"^:::[ \t]*code-group[^\n]*\n?", re.M)
 
 
+_DOCS_CALLOUT_RE = re.compile(r"<docs-callout\b[^>]*?\btitle=\"([^\"]*)\"[^>]*>", re.S)
+_DOCS_TITLED_RE = re.compile(
+    r"<docs-(?:step|card|tab|decorative-header|code-example)\b[^>]*?\b(?:title|label)=\"([^\"]*)\"[^>]*?/?>",
+    re.S,
+)
+_DOCS_ANY_RE = re.compile(r"</?docs-[\w-]+\b[^>]*?/?>", re.S)
+_KT_TAB_RE = re.compile(r"<tab\b[^>]*?\btitle=\"([^\"]*)\"[^>]*>", re.S)
+_KT_BLOCK_RE = re.compile(
+    r"<(note|tip|warning|tldr|deflist|def|primary-label|secondary-label)\b([^>]*)>", re.S
+)
+_KT_DROP_RE = re.compile(
+    r"</?(?:tabs|tab|picture|deflist|def|tldr|primary-label|secondary-label)\b[^>]*?/?>", re.S
+)
+_VUE_DEMO_RE = re.compile(r"<div\b[^>]*\bclass=\"demo[^\"]*\"[^>]*>.*?</div>", re.S)
+_TABLE_LEFTOVER_RE = re.compile(r"</?(?:table|thead|tbody|tfoot|tr)\b[^>]*>", re.I)
+_CELL_OPEN_RE = re.compile(r"<t[dh]\b[^>]*>", re.I)
+_CELL_CLOSE_RE = re.compile(r"</t[dh]>", re.I)
+
+
+_INLINE_CODE_PARK_RE = re.compile(r"(`+)(?!`)(.+?)(?<!`)\1(?!`)")
+
+
+def _park_inline_code(fn: Callable[[str], str]) -> Callable[[str], str]:
+    """Wraps a prose transform so that `<tags>` inside inline code spans are never touched."""
+
+    def _wrapped(seg: str) -> str:
+        spans: list[str] = []
+
+        def _park(m: re.Match) -> str:
+            spans.append(m.group(0))
+            return f"\x01IC{len(spans) - 1}\x01"
+
+        out = fn(_INLINE_CODE_PARK_RE.sub(_park, seg))
+        return re.sub(r"\x01IC(\d+)\x01", lambda m: spans[int(m.group(1))], out)
+
+    return _wrapped
+
+
+def _strip_demo_divs(seg: str) -> str:
+    """Removes `<div class="demo ...">...</div>` (rendered live examples, nested divs counted)."""
+    out: list[str] = []
+    pos = 0
+    open_rx = re.compile(r"<div\b[^>]*\bclass=\"demo[^\"]*\"[^>]*>", re.I)
+    tag_rx = re.compile(r"<(/?)div\b[^>]*>", re.I)
+    while True:
+        m = open_rx.search(seg, pos)
+        if not m:
+            out.append(seg[pos:])
+            break
+        out.append(seg[pos : m.start()])
+        depth, end = 1, m.end()
+        for t in tag_rx.finditer(seg, m.end()):
+            depth += -1 if t.group(1) else 1
+            if depth == 0:
+                end = t.end()
+                break
+        else:
+            end = len(seg)
+        pos = end
+    return "".join(out)
+
+
+def _custom_components(seg: str) -> str:
+    """Angular `<docs-*>`, Writerside (Kotlin) `<tabs>/<tab>/<note>`, `<picture>`, VitePress demo
+    divs, and table tags left over when a table spans code fences."""
+    seg = _strip_demo_divs(seg)
+    seg = _DOCS_CALLOUT_RE.sub(lambda m: f"**{m.group(1)}:**\n", seg)
+    seg = _DOCS_TITLED_RE.sub(lambda m: f"**{m.group(1)}**\n", seg)
+    seg = _DOCS_ANY_RE.sub("", seg)
+    seg = _KT_TAB_RE.sub(lambda m: f"**{m.group(1)}**\n", seg)
+    seg = _KT_BLOCK_RE.sub(
+        lambda m: (
+            "**" + m.group(1).title() + ":** " if m.group(1) in ("note", "tip", "warning") else ""
+        ),
+        seg,
+    )
+    seg = _KT_DROP_RE.sub("", seg)
+    seg = re.sub(r"</(?:note|tip|warning)>", "", seg)
+    seg = _TABLE_LEFTOVER_RE.sub("", seg)
+    seg = _CELL_CLOSE_RE.sub("\n", _CELL_OPEN_RE.sub("\n\n", seg))
+    seg = re.sub(r"</?(?:ul|ol)\b[^>]*>", "\n", seg)  # list tags glued to a prose line
+    seg = re.sub(r"[ \t]*<li\b[^>]*>[ \t]*", "\n- ", seg)
+    return re.sub(r"</li>", "", seg)
+
+
+_ONELINE_FENCE_RE = re.compile(r"^([ \t]*)```([^`\n]+?)```[ \t]*$", re.M)
+
+
+_JSX_COMMENT_RE = re.compile(r"[ \t]*\{/\*.*?\*/\}", re.S)
+
+
 def profile_markdown(text: str) -> str:
+    # ```argocd repo add ...``` on one line is inline code, not a fence (it would flip fence parity)
+    text = _ONELINE_FENCE_RE.sub(lambda m: f"{m.group(1)}`{m.group(2).strip()}`", text)
+    text = _outside_fences(text, lambda s: _JSX_COMMENT_RE.sub("", s))  # `## Props {/*props*/}`
     text = _outside_fences(text, lambda s: _JSX_FIGURE_RE.sub(_jsx_figure, s))
+    text = _outside_fences(text, _strip_demo_divs)  # VitePress live demos (duplicates of the code)
+    text = _outside_fences(
+        text,
+        _park_inline_code(
+            lambda s: _DOCS_ANY_RE.sub(
+                "",
+                _DOCS_CALLOUT_RE.sub(
+                    lambda m: f"**{m.group(1)}:**\n",
+                    _DOCS_TITLED_RE.sub(lambda m: f"**{m.group(1)}**\n", s),
+                ),
+            )
+        ),
+    )
+    text = _outside_fences(
+        text,
+        _park_inline_code(lambda s: _table_cell_html(_HTML_HEADING_RE.sub(r"**\2**", s))),
+    )  # <h3>Bad</h3> -> bold line; <ul><li> in table cells -> bullets
     # VitePress containers: `::: tip Title` ... `:::`  (and `::: code-group`)
     text = _outside_fences(
         text,
@@ -203,8 +331,10 @@ def profile_markdown(text: str) -> str:
     )
     text = _outside_fences(
         text,
-        lambda s: _HF_WRAPPER_RE.sub(
-            "", _SUMMARY_RE.sub(lambda m: "**" + m.group(1).strip() + "**", s)
+        _park_inline_code(
+            lambda s: _HF_WRAPPER_RE.sub(
+                "", _SUMMARY_RE.sub(lambda m: "**" + m.group(1).strip() + "**", s)
+            )
         ),
     )
     text = _resolve_slash_blocks(
@@ -218,6 +348,7 @@ def profile_markdown(text: str) -> str:
         text, lambda s: _IMG_ATTR_RE.sub("", s)
     )  # `![](x.png){ align="center" width="60%" }`
     text = convert_embedded_html(text)  # <div><img>, <table>, <figure> fragments
+    text = _outside_fences(text, _park_inline_code(_custom_components))
     return _EMPTY_FENCE_RE.sub("", text)
 
 
@@ -655,6 +786,10 @@ _DROP_DIRECTIVES = {
     "customcalloutitem",
     "customimagehistory",
     "cardinfo",
+    "graphviz",
+    "tikz",
+    "plot",
+    "jupyter-execute",
     "toctree-expanded",
     "autosummary",
     "glossary-todo",
@@ -1178,12 +1313,31 @@ def profile_html(text: str, path: str = "", options: dict | None = None) -> str:
     apache/kafka-site): converted as a whole document. A title heading derived from
     the file name (+ optional `options.title_prefix`) is prepended when the
     converted text has no leading heading."""
+    meta = re.match(r"\s*<!--\{(.*?)\}-->", text, re.S)  # golang/website: <!--{ "Title": "..." }-->
+    page_title = ""
+    if meta:
+        tm = re.search(r'"Title":\s*"([^"]+)"', meta.group(1))
+        page_title = tm.group(1).strip() if tm else ""
+        text = text[meta.end() :]
+    # golang/website templates: {{raw `...`}} wraps a verbatim code sample; other actions are noise
+    text = re.sub(
+        r"\{\{raw `(.*?)`\}\}",
+        lambda m: "\n```\n" + textwrap.dedent(m.group(1)).strip("\n") + "\n```\n",
+        text,
+        flags=re.S,
+    )
+    text = re.sub(r"\{\{(?:code|play|image|pkg|link|ref)\b[^}]*\}\}", "", text)
+    if path.endswith((".md", ".mdx")):  # markdown pages in an html-profile source
+        body = profile_markdown(text)
+        if page_title and not re.match(r"\s*#{1,2}\s", body):
+            body = f"# {page_title}\n\n{body.lstrip()}"
+        return body
     if not text.lstrip().startswith("<"):
         return convert_embedded_html(text)
     md, _ = html_to_markdown(text)
     if not re.match(r"\s*#{1,2}\s", md):
         raw_stem = re.sub(r"\.html?$", "", path.rsplit("/", 1)[-1])
-        title = ((options or {}).get("titles") or {}).get(raw_stem)
+        title = page_title or ((options or {}).get("titles") or {}).get(raw_stem)
         if not title:
             stem = raw_stem.replace("_", " ").replace("-", " ").strip().title()
             title = f"{(options or {}).get('title_prefix', '')}{stem}"
@@ -1238,7 +1392,7 @@ def _mdn_macro(m: re.Match) -> str:
     if not args:
         return ""
     if name == "htmlelement":
-        return f"`<{args[0]}>`"
+        return args[1] if len(args) >= 2 and args[1] else f"`<{args[0]}>`"
     if name == "glossary" and len(args) >= 2:
         return args[1]
     if name in ("domxref", "jsxref", "cssxref", "httpheader", "event", "domeventxref"):
@@ -1276,9 +1430,16 @@ def profile_mdn(text: str) -> str:
             title = tm.group(1).strip().strip("\"'")
         text = text[fm.end() :]
     text = re.sub(r"<!--.*?-->", "", text, flags=re.S)
+    text = re.sub(  # inline MathML: keep the TeX annotation
+        r"<math\b[^>]*>.*?<annotation encoding=\"TeX\">(.*?)</annotation>.*?</math>",
+        lambda m: f"${m.group(1).strip()}$",
+        text,
+        flags=re.S,
+    )
 
     def _prose(seg: str) -> str:
         seg = _MDN_MACRO_RE.sub(_mdn_macro, seg)
+        seg = re.sub(r"``([^`\n]+)``", r"`\1`", seg)  # macro that was already in backticks
         seg = _MDN_CALLOUT_RE.sub(lambda m: "> **" + m.group(1).title() + ":**", seg)
         return seg
 
@@ -1342,8 +1503,12 @@ def _adoc_inline(t: str) -> str:
     t = re.sub(r"\b(?:kbd|btn|menu):\[([^\]]*)\]", r"`\1`", t)
     t = re.sub(r"(?<![\w*])\*([^*\s][^*\n]*?)\*(?![\w*])", r"**\1**", t)
     t = re.sub(r"\+\+\+?([^+\n]+?)\+\+\+?", r"`\1`", t)
-    t = re.sub(r"(?<![\w{])\{[a-z][\w.-]*\}", "", t)  # unresolved attribute references
-    return t
+    # unresolved attribute references `{spring-boot-version}`; literal `{id}` in code spans stays
+    parts = re.split(r"(`[^`\n]*`)", t)
+    parts = [
+        p if p.startswith("`") else re.sub(r"(?<![\w{])\{[a-z][\w.-]*\}", "", p) for p in parts
+    ]
+    return "".join(parts)
 
 
 def adoc_to_markdown(text: str) -> str:
@@ -1815,6 +1980,10 @@ def inject_frontmatter_title(text: str) -> str:
     first = next((ln for ln in body.split("\n") if ln.strip()), "")
     if not title or re.match(r"#{1,2}\s", first):
         return text
+    if "<" in title and not title.startswith("`"):
+        title = (
+            f"`{title}`"  # `<Fragment> (<>...</>)`: tag-shaped titles must survive the JSX stripper
+        )
     return text[: fm.end()] + f"# {title}\n\n" + body
 
 

@@ -23,12 +23,29 @@
 #                    Directory excludes (`dir/**`) are also pushed into the git sparse-checkout
 #                    so excluded blobs are never downloaded.
 #   max_file_kb      skip individual source files larger than this (generated pages)
-#   clean_profile    markdown|rst|d2l|mintlify|hugo|html - source-specific markup conversion
-#                    applied before the generic cleaner (see rag/profiles.py)
-#   options          loader-specific: git {py_gallery, exts}, hf {files, dedupe_against},
+#   clean_profile    markdown|rst|d2l|mintlify|hugo|html|mdn|asciidoc|msdocs|jekyll|quarto|notebook
+#                    source-specific markup conversion applied before the generic cleaner
+#                    (see rag/profiles.py). mdn = mdn/content macros; asciidoc = Spring/Debezium/
+#                    Cassandra Antora pages; msdocs = Microsoft Learn markdown; jekyll = Liquid +
+#                    kramdown (OpenSearch, Spark, GitHub docs); quarto = Quarto/R Markdown books
+#                    (R chunks dropped); notebook = Jupyter-book style notebooks.
+#   options          loader-specific: git {py_gallery, exts, code_include_base, stix,
+#                    frontmatter_title}, hf {files, dedupe_against},
 #                    crawler {crawl: prefix/start_urls/allow/deny/main_selectors/...},
-#                    xlsx {parser, glob}
-#   reference_only   true => loader must refuse to chunk full text (metadata only)
+#                    xlsx {parser, glob}.
+#                    git `exts` lists the file extensions to read (default md/mdx/rst/ipynb;
+#                    e.g. [".adoc"], [".qmd"], [".html"]). git `stix: true` parses a STIX 2.x
+#                    bundle (.json) into one document per ATT&CK technique/tactic.
+#                    git `frontmatter_title: true` prepends the YAML-frontmatter title as an H1
+#                    (sites that keep the page title only in frontmatter).
+#                    NOTE: a `paths:` entry that is a single file must end in md/mdx/rst/txt/
+#                    ipynb/py or contain a glob character (e.g. `x.jso[n]`) - anything else is
+#                    treated as a directory by the sparse checkout.
+#   reference_only   true => loader must refuse to chunk full text (metadata only).
+#                    Used for: licences with a no-derivatives clause (CC BY-NC-ND), proprietary or
+#                    BUSL documentation, unknown licences, and sources deliberately deferred
+#                    (interview Q&A banks in the corpus-expansion batch 1). NC and SA licences are
+#                    acceptable for the privately shared coursework knowledge base.
 #   verified         whether the repo/dataset/paper identity was confirmed to
 #                    exist via `git ls-remote` / HF API / arXiv API during
 #                    registry construction (2026-10-02). false = could not be
@@ -1048,7 +1065,7 @@ sources:
     path: .
     license: MIT
     auto_level: full
-    trust_level: community
+    trust_level: reference_only
     refresh_cycle: quarterly
     domain: interview-prep
     related_technologies: [frontend, javascript, interview]
@@ -1065,13 +1082,15 @@ sources:
     path: .
     license: "Unspecified on repo (treat as all-rights-reserved until confirmed; do not redistribute)"
     auto_level: full
-    trust_level: community
+    trust_level: reference_only
     refresh_cycle: quarterly
     domain: interview-prep
     related_technologies: [android, kotlin, java, interview]
-    reference_only: false
+    reference_only: true
     verified: true
-    notes: "Repo existence confirmed; README.md is the entire content (single-file Q&A list), not tree-verified in depth."
+    notes: >
+      Licence unspecified on the repository: skipped under the unknown-licence rule (listed in
+      the corpus-expansion report). Also a Q&A bank, which is out of scope for batch 1.
 
   - name: pandas-docs
     namespace: technical
@@ -1204,7 +1223,7 @@ sources:
     path: src
     license: "Unspecified (community notes repo; treat as reference/curated, confirm license before redistribution)"
     auto_level: full
-    trust_level: community
+    trust_level: reference_only
     refresh_cycle: quarterly
     domain: interview-prep
     related_technologies: [ml-interview, system-design, ml]
@@ -1221,7 +1240,7 @@ sources:
     path: contents
     license: "All rights reserved by author (book excerpt repo) — treat as reference_only-leaning community source, confirm before full ingestion"
     auto_level: full
-    trust_level: community
+    trust_level: reference_only
     refresh_cycle: quarterly
     domain: interview-prep
     related_technologies: [ml-interview, data-science]
@@ -1238,7 +1257,7 @@ sources:
     path: .
     license: CC-BY-4.0
     auto_level: full
-    trust_level: community
+    trust_level: reference_only
     refresh_cycle: quarterly
     domain: interview-prep
     related_technologies: [data-science, interview]
@@ -1503,7 +1522,7 @@ sources:
     path: .
     license: "Unspecified — treat as reference/curated, confirm before redistribution"
     auto_level: full
-    trust_level: community
+    trust_level: reference_only
     refresh_cycle: quarterly
     domain: devops
     related_technologies: [devops, interview, kubernetes, docker]
@@ -1565,7 +1584,7 @@ sources:
     path: enterprise-attack
     license: "MITRE ATT&CK Terms of Use (free to use with attribution)"
     auto_level: full
-    trust_level: official
+    trust_level: reference_only
     refresh_cycle: quarterly
     domain: security
     related_technologies: [mitre-attack, threat-intel, stix]
@@ -2594,6 +2613,7 @@ sources:
       - "docs/current/internals/{overview,vector,storage,pivot}.md"
       - "docs/current/data/parquet/{overview,tips,metadata,encryption}.md"
       - "docs/current/sql/introduction.md"
+    clean_profile: jekyll
     options:
       frontmatter_title: true
     max_file_kb: 100
@@ -2942,6 +2962,7 @@ sources:
       - "pages/{Threat_Modeling,Threat_Modeling_Process,Application_Threat_Modeling,Defense_in_depth,Fail_securely,Least_privilege,Principle_of_least_privilege,Security_by_Design_Principles,Session_Management_Cheat_Sheet,Access_Control,Broken_Access_Control,Insecure_Direct_Object_Reference}.md"
       - "pages/vulnerabilities/{Insecure_Transport,Insecure_Direct_Object_Reference,Improper_Data_Validation,Business_logic_vulnerability,Deserialization_of_untrusted_data,Race_condition,Unsafe_Mobile_Code,Insecure_Randomness,Password_Plaintext_Storage,Use_of_Hard-coded_Password}.md"
       - "pages/Threat_Modeling/**"
+    clean_profile: jekyll
     options:
       frontmatter_title: true
     max_file_kb: 80
@@ -3159,6 +3180,7 @@ sources:
     loader: git
     paths: ["SysCall/", "Interrupts/", "Timers/", "SyncPrim/", "MM/", "Concepts/", "Cgroups/"]
     include: ["{SysCall,Interrupts,Timers,SyncPrim,MM,Concepts,Cgroups}/linux-*.md"]
+    exclude: ["Interrupts/linux-interrupts-6.md"]
     max_file_kb: 150
     license: "CC-BY-NC-SA-4.0 (README; non-commercial use only)"
     auto_level: full
@@ -3229,6 +3251,1048 @@ sources:
     reference_only: true
     verified: true
     notes: "Apache Hudi's user documentation lives in a separate website repository that was not located in this batch; the main repo only has RFC design docs. Iceberg spec and Delta protocol cover the table-format concepts."
+
+  - name: angular-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/angular/angular
+    loader: git
+    paths: ["adev/src/content/guide/", "adev/src/content/introduction/"]
+    include:
+      - "adev/src/content/guide/{components,templates,signals,di,directives,routing,forms,http,performance}/**"
+      - "adev/src/content/guide/{hydration,incremental-hydration,ssr,security,zoneless,image-optimization}.md"
+      - "adev/src/content/guide/testing/{overview,services,components-basics,components-scenarios}.md"
+      - "adev/src/content/introduction/essentials/**"
+    exclude:
+      - "adev/src/content/guide/**/BUILD.bazel"
+      - "adev/src/content/guide/{forms,http,routing}/{migration,legacy}*"
+    options:
+      frontmatter_title: true
+    max_file_kb: 80
+    license: MIT
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: web-frontend
+    related_technologies: [angular, signals, dependency-injection, rxjs, change-detection, ssr, hydration]
+    reference_only: false
+    verified: true
+    notes: "Tree-verified (adev/src/content). Components, templates, signals, dependency injection, directives, routing, forms, HttpClient, performance, SSR/hydration, security, zoneless change detection, testing overview. API reference, tutorials, CLI and tooling excluded. The `<docs-code>` / `<docs-callout>` MDX-like components are handled by the generic tag stripper."
+
+  - name: flask-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/pallets/flask
+    loader: git
+    paths: ["docs/"]
+    include:
+      - "docs/{quickstart,appcontext,reqcontext,lifecycle,blueprints,config,errorhandling,templating,testing,views,extensions,design,patterns,deploying,web-security,async-await,logging,signals,server,debugging}.rst"
+      - "docs/{patterns,deploying}/*.rst"
+    exclude: ["docs/{patterns,deploying}/index.rst", "docs/patterns/{mongoengine,favicon,fabric,distribute}.rst"]
+    options:
+      exts: [".rst"]
+    clean_profile: rst
+    max_file_kb: 100
+    license: BSD-3-Clause
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: web-backend
+    related_technologies: [flask, python, wsgi, werkzeug, request-context, blueprints]
+    reference_only: false
+    verified: true
+    notes: "Tree-verified: Flask docs: application and request contexts, lifecycle, blueprints, configuration, error handling, testing, patterns (app factories, caching, async), deployment (WSGI servers), web security."
+
+  - name: rails-guides
+    namespace: technical
+    priority: P1
+    url: https://github.com/rails/rails
+    loader: git
+    paths: ["guides/source/"]
+    include:
+      - "guides/source/{active_record_basics,active_record_migrations,active_record_validations,active_record_callbacks,active_record_querying,active_record_associations,association_basics,active_record_multiple_databases,caching_with_rails,security,routing,action_controller_overview,layouts_and_rendering,active_job_basics,action_mailer_basics,configuring,testing,threading_and_code_execution,autoloading_and_reloading_constants,getting_started,rails_application_templates,engines,asset_pipeline,active_storage_overview,action_cable_overview,api_app,performance_testing,debugging_rails_applications,active_support_core_extensions}.md"
+    max_file_kb: 200
+    license: "MIT (code); Rails guides are licensed CC BY-SA 4.0 (guides/source/documents / site footer)"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: web-backend
+    related_technologies: [rails, ruby, active-record, mvc, orm, caching, n+1]
+    reference_only: false
+    verified: true
+    notes: "Tree-verified (guides/source). Active Record (migrations, validations, callbacks, querying, associations), caching, security, routing, controllers, Active Job, configuration, testing, threading/autoloading, API-only apps. Release notes excluded."
+
+  - name: dotnet-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/dotnet/docs
+    loader: git
+    paths: ["docs/standard/garbage-collection/", "docs/standard/threading/", "docs/csharp/asynchronous-programming/", "docs/standard/asynchronous-programming-patterns/", "docs/core/extensions/", "docs/standard/parallel-programming/"]
+    include:
+      - "docs/standard/garbage-collection/{fundamentals,background-gc,large-object-heap,unmanaged,implementing-dispose,latency,induced}.md"
+      - "docs/standard/threading/{managed-threading-best-practices,threads-and-threading,synchronizing-data-for-multithreading,overview-of-synchronization-primitives,thread-synchronization}.md"
+      - "docs/csharp/asynchronous-programming/{index,task-asynchronous-programming-model,async-scenarios,async-return-types}.md"
+      - "docs/core/extensions/{dependency-injection,dependency-injection-guidelines,dependency-injection-overview,logging,configuration,options,generic-host,httpclient-factory,caching}.md"
+      - "docs/standard/automatic-memory-management.md"
+    clean_profile: msdocs
+    options:
+      frontmatter_title: true
+    max_file_kb: 100
+    license: "CC-BY-4.0 (documentation); MIT (code samples)"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: web-backend
+    related_technologies: [dotnet, csharp, garbage-collection, async-await, dependency-injection, threading]
+    reference_only: false
+    verified: true
+    notes: ".NET runtime concepts: generational GC, LOH, Dispose pattern, threading and synchronization, task-based async (async/await), dependency injection, logging/options/hosting. Language reference and API docs excluded."
+
+  - name: spring-data-jpa-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/spring-projects/spring-data-jpa
+    loader: git
+    paths: ["src/main/antora/modules/ROOT/pages/"]
+    include:
+      - "src/main/antora/modules/ROOT/pages/jpa/{query-methods,transactions,locking,entity-persistence,specifications,faq,getting-started}.adoc"
+      - "src/main/antora/modules/ROOT/pages/repositories/**"
+      - "src/main/antora/modules/ROOT/pages/auditing.adoc"
+    exclude: ["src/main/antora/modules/ROOT/pages/**/index.adoc"]
+    options:
+      exts: [".adoc"]
+    clean_profile: asciidoc
+    max_file_kb: 100
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: web-backend
+    related_technologies: [spring-data, jpa, hibernate, repositories, transactions, locking, n+1]
+    reference_only: false
+    verified: true
+    notes: "Spring Data JPA: repository abstraction, derived query methods, @Query, transactions, optimistic/pessimistic locking, specifications, auditing, entity persistence (persist vs merge)."
+
+  - name: hibernate-orm-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/hibernate/hibernate-orm
+    loader: git
+    paths: ["documentation/src/main/asciidoc/introduction/", "documentation/src/main/asciidoc/userguide/chapters/caching/", "documentation/src/main/asciidoc/userguide/chapters/locking/", "documentation/src/main/asciidoc/userguide/chapters/fetching/", "documentation/src/main/asciidoc/userguide/chapters/flushing/", "documentation/src/main/asciidoc/userguide/chapters/pc/", "documentation/src/main/asciidoc/userguide/chapters/transactions/"]
+    include:
+      - "documentation/src/main/asciidoc/introduction/{Interacting,Mapping,Querying,Tuning,Advanced,Entities,Configuration}.adoc"
+      - "documentation/src/main/asciidoc/userguide/chapters/{caching,locking,fetching,flushing,pc,transactions}/**/*.adoc"
+    exclude: ["documentation/**/index.adoc"]
+    options:
+      exts: [".adoc"]
+    clean_profile: asciidoc
+    max_file_kb: 200
+    license: "Apache-2.0 (repository LICENSE; documentation under the same terms)"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: web-backend
+    related_technologies: [hibernate, jpa, orm, lazy-loading, n+1, second-level-cache, optimistic-locking]
+    reference_only: false
+    verified: true
+    notes: "Hibernate ORM introduction guide (mapping, querying, tuning, fetching strategies and the N+1 problem, caching, locking) plus user-guide chapters on persistence context, flushing, transactions, fetching, caching and locking."
+
+  - name: kotlin-coroutines-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/Kotlin/kotlinx.coroutines
+    loader: git
+    paths: ["docs/topics/"]
+    include: ["docs/topics/{coroutines-guide,coroutines-basics,coroutines-cancellation,composing-suspending-functions,coroutine-context-and-dispatchers,coroutines-flow,coroutines-flow-operators,channels,exception-handling,shared-mutable-state-and-concurrency,select-expression}.md"]
+    options:
+      frontmatter_title: true
+    max_file_kb: 100
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: web-backend
+    related_technologies: [kotlin, coroutines, structured-concurrency, flow, channels, dispatchers]
+    reference_only: false
+    verified: true
+    notes: "kotlinx.coroutines guide: suspending functions, structured concurrency, cancellation, dispatchers/context, Flow, channels, exception handling, shared mutable state."
+
+  - name: argo-rollouts-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/argoproj/argo-rollouts
+    loader: git
+    paths: ["docs/concepts.md", "docs/architecture.md", "docs/best-practices.md", "docs/FAQ.md", "docs/features/"]
+    include:
+      - "docs/{concepts,architecture,best-practices,FAQ}.md"
+      - "docs/features/{bluegreen,analysis,experiment,rollback,specification,hpa-support}.md"
+      - "docs/features/canary/**"
+      - "docs/features/traffic-management/{index,istio,nginx,smi}.md"
+    exclude: ["docs/features/canary/*.png"]
+    options:
+      frontmatter_title: true
+    max_file_kb: 100
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: devops
+    related_technologies: [argo-rollouts, canary, blue-green, progressive-delivery, rollback, traffic-management]
+    reference_only: false
+    verified: true
+    notes: "Progressive delivery: canary and blue-green strategies, analysis/automated rollback, traffic management with Istio/NGINX, experiments."
+
+  - name: grafana-docs
+    namespace: technical
+    priority: P2
+    url: https://github.com/grafana/grafana
+    loader: git
+    paths: ["docs/sources/fundamentals/", "docs/sources/alerting/fundamentals/", "docs/sources/introduction/"]
+    include:
+      - "docs/sources/fundamentals/{timeseries,timeseries-dimensions,intro-histograms,exemplars,dashboards-overview}/**"
+      - "docs/sources/alerting/fundamentals/**"
+    exclude: ["docs/sources/**/_index.md", "docs/sources/**/glossary/**"]
+    clean_profile: hugo
+    options:
+      frontmatter_title: true
+    max_file_kb: 80
+    license: "AGPL-3.0 (repository LICENSE; documentation under the same terms; copyleft, acceptable for private coursework use)"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: devops
+    related_technologies: [grafana, observability, dashboards, alerting, histograms, time-series]
+    reference_only: false
+    verified: true
+    notes: "Grafana fundamentals (time series, dimensions/cardinality, histograms, exemplars, dashboards) and alerting fundamentals (alert rules, notification policies, contact points, silences)."
+
+  - name: wikipedia-distributed-systems
+    namespace: technical
+    priority: P1
+    url: https://en.wikipedia.org/
+    loader: wikipedia
+    options:
+      titles:
+        - "CAP theorem"
+        - "PACELC design principle"
+        - "Eventual consistency"
+        - "ACID"
+        - "Isolation (database systems)"
+        - "Multiversion concurrency control"
+        - "Snapshot isolation"
+        - "Serializability"
+        - "Two-phase commit protocol"
+        - "Three-phase commit protocol"
+        - "Paxos (computer science)"
+        - "Raft (algorithm)"
+        - "Consensus (computer science)"
+        - "Consistent hashing"
+        - "Gossip protocol"
+        - "Vector clock"
+        - "Lamport timestamp"
+        - "Conflict-free replicated data type"
+        - "Quorum (distributed computing)"
+        - "Leader election"
+        - "Distributed lock manager"
+        - "Idempotence"
+        - "Circuit breaker design pattern"
+        - "Rate limiting"
+        - "Token bucket"
+        - "Leaky bucket"
+        - "Load balancing (computing)"
+        - "Reverse proxy"
+        - "Content delivery network"
+        - "Cache stampede"
+        - "Cache (computing)"
+        - "Cache replacement policies"
+        - "Memoization"
+        - "Database index"
+        - "B-tree"
+        - "B+ tree"
+        - "Log-structured merge-tree"
+        - "Bloom filter"
+        - "Skip list"
+        - "Hash table"
+        - "Shard (database architecture)"
+        - "Database normalization"
+        - "Denormalization"
+        - "Database transaction"
+        - "Optimistic concurrency control"
+        - "Write-ahead logging"
+        - "Replication (computing)"
+        - "Failover"
+        - "High availability"
+        - "Fault tolerance"
+        - "Microservices"
+        - "Service-oriented architecture"
+        - "Service mesh"
+        - "Representational state transfer"
+        - "GraphQL"
+        - "GRPC"
+        - "Remote procedure call"
+        - "WebSocket"
+        - "Server-sent events"
+        - "Message queue"
+        - "Publish–subscribe pattern"
+        - "Dependency injection"
+        - "Inversion of control"
+        - "Object–relational mapping"
+        - "Deadlock (computer science)"
+        - "Race condition"
+        - "Mutual exclusion"
+        - "Semaphore (programming)"
+        - "Thread pool"
+        - "Event loop"
+        - "Asynchronous I/O"
+        - "Coroutine"
+        - "Garbage collection (computer science)"
+        - "Reference counting"
+        - "Memory leak"
+        - "Global interpreter lock"
+        - "Actor model"
+        - "Reactive programming"
+        - "Event-driven architecture"
+        - "Event sourcing"
+        - "Command–query separation"
+        - "Domain-driven design"
+        - "Hexagonal architecture (software)"
+        - "Monolithic application"
+        - "Distributed computing"
+        - "Scalability"
+        - "Latency (engineering)"
+        - "Throughput"
+        - "Amdahl's law"
+        - "Back-of-the-envelope calculation"
+        - "Thundering herd problem"
+        - "Dead letter queue"
+        - "Backpressure"
+        - "Long polling"
+        - "Webhook"
+        - "API gateway"
+        - "Idempotent"
+        - "NoSQL"
+        - "Relational database"
+        - "Document-oriented database"
+        - "Key–value database"
+        - "Wide-column store"
+        - "Graph database"
+        - "Time series database"
+        - "Vector database"
+        - "Full-text search"
+        - "Inverted index"
+        - "Apache Lucene"
+        - "Elasticsearch"
+        - "PostgreSQL"
+        - "MySQL"
+        - "MongoDB"
+        - "Redis"
+        - "Apache Cassandra"
+        - "Apache Kafka"
+        - "RabbitMQ"
+        - "Memcached"
+        - "SQLite"
+        - "Optimistic locking"
+        - "Database lock"
+        - "Lock (computer science)"
+        - "Strong consistency"
+        - "Sequential consistency"
+        - "Linearizability"
+        - "Causal consistency"
+        - "Byzantine fault"
+        - "Split-brain (computing)"
+        - "Heartbeat (computing)"
+        - "Exponential backoff"
+        - "Retry"
+        - "Timeout (computing)"
+        - "Bulkhead (software)"
+        - "Strangler fig pattern"
+        - "Saga pattern"
+        - "Sidecar pattern"
+        - "Twelve-factor app"
+        - "Stateless protocol"
+        - "Session (computer science)"
+        - "Cookie"
+        - "Hypertext Transfer Protocol"
+        - "HTTP/2"
+        - "HTTP/3"
+        - "QUIC"
+        - "Domain Name System"
+        - "Transmission Control Protocol"
+        - "User Datagram Protocol"
+        - "TCP congestion control"
+        - "Network address translation"
+        - "Proxy server"
+        - "Reverse DNS lookup"
+      max_words: 6000
+    license: "CC-BY-SA-4.0 (Wikipedia text; per-page revision permalinks in source_url)"
+    auto_level: full
+    trust_level: community
+    refresh_cycle: yearly
+    domain: system-design
+    related_technologies: [wikipedia, concepts]
+    reference_only: false
+    verified: true
+    notes: "Distributed systems, databases and backend concepts: curated list of 150 encyclopedia articles (lead + body, boilerplate sections dropped). Complements the product documentation with plain-language definitions that match bare-term and paraphrased queries (CAP theorem, k-means++, Simpson's paradox, infrastructure as code...). Fetched with the MediaWiki Action API; one chunk set per article revision."
+
+  - name: wikipedia-frontend
+    namespace: technical
+    priority: P1
+    url: https://en.wikipedia.org/
+    loader: wikipedia
+    options:
+      titles:
+        - "Document Object Model"
+        - "Same-origin policy"
+        - "Cross-origin resource sharing"
+        - "Web worker"
+        - "Service worker"
+        - "Progressive web app"
+        - "Single-page application"
+        - "Server-side scripting"
+        - "Isomorphic JavaScript"
+        - "React (software)"
+        - "Redux (JavaScript library)"
+        - "Vue.js"
+        - "Angular (web framework)"
+        - "Svelte"
+        - "TypeScript"
+        - "JavaScript"
+        - "WebAssembly"
+        - "Responsive web design"
+        - "CSS Flexible Box Layout"
+        - "CSS grid layout"
+        - "CSS"
+        - "Web accessibility"
+        - "WAI-ARIA"
+        - "Web performance"
+        - "Content Security Policy"
+        - "HTTP cookie"
+        - "JSON Web Token"
+        - "OAuth"
+        - "OpenID"
+        - "Single sign-on"
+        - "Web storage"
+        - "Lazy loading"
+        - "Minification (programming)"
+        - "Webpack"
+        - "Babel (transpiler)"
+        - "Node.js"
+        - "Event-driven programming"
+        - "Callback (computer programming)"
+        - "Futures and promises"
+        - "Async/await"
+        - "Closure (computer programming)"
+        - "Hoisting"
+        - "Prototype-based programming"
+        - "Event bubbling"
+        - "Debouncing"
+        - "Throttling (software)"
+        - "Critical rendering path"
+        - "Browser engine"
+        - "Rendering (computer graphics)"
+        - "Cumulative layout shift"
+        - "JSX (JavaScript)"
+        - "Virtual DOM"
+        - "Web component"
+        - "Shadow DOM"
+        - "Content negotiation"
+        - "Cross-site request forgery"
+        - "Cross-site scripting"
+        - "Document type declaration"
+        - "Semantic HTML"
+        - "Search engine optimization"
+        - "IndexedDB"
+        - "WebRTC"
+        - "Progressive enhancement"
+        - "Graceful degradation"
+        - "Mobile-first design"
+        - "Internationalization and localization"
+        - "CSS-in-JS"
+        - "Sass (style sheet language)"
+        - "Tailwind CSS"
+        - "Bootstrap (front-end framework)"
+        - "jQuery"
+        - "Model–view–controller"
+        - "Model–view–viewmodel"
+        - "Flux (software architecture)"
+        - "State management"
+      max_words: 6000
+    license: "CC-BY-SA-4.0 (Wikipedia text; per-page revision permalinks in source_url)"
+    auto_level: full
+    trust_level: community
+    refresh_cycle: yearly
+    domain: web-frontend
+    related_technologies: [wikipedia, concepts]
+    reference_only: false
+    verified: true
+    notes: "Frontend and web platform concepts: curated list of 75 encyclopedia articles (lead + body, boilerplate sections dropped). Complements the product documentation with plain-language definitions that match bare-term and paraphrased queries (CAP theorem, k-means++, Simpson's paradox, infrastructure as code...). Fetched with the MediaWiki Action API; one chunk set per article revision."
+
+  - name: wikipedia-devops-cloud
+    namespace: technical
+    priority: P1
+    url: https://en.wikipedia.org/
+    loader: wikipedia
+    options:
+      titles:
+        - "DevOps"
+        - "Site reliability engineering"
+        - "Infrastructure as code"
+        - "Continuous integration"
+        - "Continuous delivery"
+        - "Continuous deployment"
+        - "GitOps"
+        - "Blue–green deployment"
+        - "Canary release"
+        - "Feature toggle"
+        - "Rolling release"
+        - "Chaos engineering"
+        - "OS-level virtualization"
+        - "Docker (software)"
+        - "Kubernetes"
+        - "Linux namespaces"
+        - "Cgroups"
+        - "Service-level agreement"
+        - "Service-level objective"
+        - "Service-level indicator"
+        - "Observability (software)"
+        - "Distributed tracing"
+        - "Application performance management"
+        - "Postmortem documentation"
+        - "Incident management"
+        - "Immutable infrastructure"
+        - "Configuration management"
+        - "Ansible (software)"
+        - "Terraform (software)"
+        - "Prometheus (software)"
+        - "Grafana"
+        - "OpenTelemetry"
+        - "Cloud computing"
+        - "Serverless computing"
+        - "Function as a service"
+        - "Multitenancy"
+        - "Infrastructure as a service"
+        - "Platform as a service"
+        - "Software as a service"
+        - "Autoscaling"
+        - "Virtual private cloud"
+        - "Amazon Web Services"
+        - "Microsoft Azure"
+        - "Google Cloud Platform"
+        - "Hypervisor"
+        - "Virtual machine"
+        - "Container orchestration"
+        - "Helm (package manager)"
+        - "Argo CD"
+        - "Jenkins (software)"
+        - "GitHub Actions"
+        - "Git"
+        - "Version control"
+        - "Trunk-based development"
+        - "Mean time between failures"
+        - "Mean time to recovery"
+        - "Error budget"
+        - "On-call"
+        - "Toil (site reliability engineering)"
+        - "Load testing"
+        - "Capacity planning"
+        - "Disaster recovery"
+        - "Business continuity planning"
+        - "Recovery point objective"
+        - "Recovery time objective"
+        - "Backup"
+        - "Redundancy (engineering)"
+        - "Single point of failure"
+        - "Edge computing"
+        - "Zero-downtime deployment"
+        - "Reverse proxy"
+        - "Nginx"
+        - "Envoy (software)"
+        - "Istio"
+        - "Linux"
+        - "Systemd"
+        - "Bash (Unix shell)"
+        - "Cron"
+        - "Secure Shell"
+        - "Package manager"
+        - "Semantic versioning"
+        - "Software release life cycle"
+        - "Technical debt"
+        - "Log management"
+        - "Syslog"
+        - "Elastic Stack"
+      max_words: 6000
+    license: "CC-BY-SA-4.0 (Wikipedia text; per-page revision permalinks in source_url)"
+    auto_level: full
+    trust_level: community
+    refresh_cycle: yearly
+    domain: devops
+    related_technologies: [wikipedia, concepts]
+    reference_only: false
+    verified: true
+    notes: "DevOps, SRE and cloud concepts: curated list of 86 encyclopedia articles (lead + body, boilerplate sections dropped). Complements the product documentation with plain-language definitions that match bare-term and paraphrased queries (CAP theorem, k-means++, Simpson's paradox, infrastructure as code...). Fetched with the MediaWiki Action API; one chunk set per article revision."
+
+  - name: wikipedia-data-engineering
+    namespace: technical
+    priority: P1
+    url: https://en.wikipedia.org/
+    loader: wikipedia
+    options:
+      titles:
+        - "Data engineering"
+        - "Data pipeline"
+        - "Extract, transform, load"
+        - "Change data capture"
+        - "Data warehouse"
+        - "Data lake"
+        - "Data lakehouse"
+        - "Data mart"
+        - "Online analytical processing"
+        - "Online transaction processing"
+        - "Star schema"
+        - "Snowflake schema"
+        - "Dimensional modeling"
+        - "Slowly changing dimension"
+        - "Data vault modeling"
+        - "Data mesh"
+        - "Data governance"
+        - "Master data management"
+        - "Data quality"
+        - "Data lineage"
+        - "Batch processing"
+        - "Stream processing"
+        - "Complex event processing"
+        - "Lambda architecture"
+        - "Kappa architecture"
+        - "MapReduce"
+        - "Apache Hadoop"
+        - "Apache Spark"
+        - "Apache Flink"
+        - "Apache Kafka"
+        - "Apache Parquet"
+        - "Apache Avro"
+        - "Apache ORC"
+        - "Apache Arrow"
+        - "Apache Iceberg"
+        - "Apache Airflow"
+        - "Apache Hive"
+        - "Presto (SQL query engine)"
+        - "Column-oriented DBMS"
+        - "Row-oriented DBMS"
+        - "Data partitioning"
+        - "Data skew"
+        - "Directed acyclic graph"
+        - "Workflow management system"
+        - "Data orchestration"
+        - "Data catalog"
+        - "Metadata"
+        - "Schema evolution"
+        - "Data serialization"
+        - "Protocol Buffers"
+        - "JSON"
+        - "Comma-separated values"
+        - "Data compression"
+        - "Delta encoding"
+        - "Run-length encoding"
+        - "Dictionary coder"
+        - "Data cleansing"
+        - "Data transformation"
+        - "Data integration"
+        - "Data virtualization"
+        - "Business intelligence"
+        - "Dashboard (business)"
+        - "Key performance indicator"
+        - "Cohort analysis"
+        - "Customer retention"
+        - "Churn rate"
+        - "Conversion funnel"
+        - "Product analytics"
+        - "Web analytics"
+        - "Event data"
+        - "SQL"
+        - "Window function (SQL)"
+        - "Common table expression"
+        - "Join (SQL)"
+        - "Materialized view"
+        - "Stored procedure"
+        - "Database trigger"
+        - "Query optimization"
+        - "Query plan"
+        - "Cost-based optimizer"
+        - "Hash join"
+        - "Sort-merge join"
+        - "Broadcast variable"
+        - "Data locality"
+        - "Idempotence"
+      max_words: 6000
+    license: "CC-BY-SA-4.0 (Wikipedia text; per-page revision permalinks in source_url)"
+    auto_level: full
+    trust_level: community
+    refresh_cycle: yearly
+    domain: data-engineering
+    related_technologies: [wikipedia, concepts]
+    reference_only: false
+    verified: true
+    notes: "Data engineering and analytics concepts: curated list of 85 encyclopedia articles (lead + body, boilerplate sections dropped). Complements the product documentation with plain-language definitions that match bare-term and paraphrased queries (CAP theorem, k-means++, Simpson's paradox, infrastructure as code...). Fetched with the MediaWiki Action API; one chunk set per article revision."
+
+  - name: wikipedia-ml-statistics
+    namespace: technical
+    priority: P1
+    url: https://en.wikipedia.org/
+    loader: wikipedia
+    options:
+      titles:
+        - "Machine learning"
+        - "Supervised learning"
+        - "Unsupervised learning"
+        - "Semi-supervised learning"
+        - "Overfitting"
+        - "Bias–variance tradeoff"
+        - "Regularization (mathematics)"
+        - "Lasso (statistics)"
+        - "Ridge regression"
+        - "Elastic net regularization"
+        - "Linear regression"
+        - "Logistic regression"
+        - "Decision tree learning"
+        - "Random forest"
+        - "Gradient boosting"
+        - "AdaBoost"
+        - "Bootstrap aggregating"
+        - "Support vector machine"
+        - "Kernel method"
+        - "Naive Bayes classifier"
+        - "K-nearest neighbors algorithm"
+        - "K-means clustering"
+        - "K-means++"
+        - "DBSCAN"
+        - "Hierarchical clustering"
+        - "Mixture model"
+        - "Principal component analysis"
+        - "Singular value decomposition"
+        - "T-distributed stochastic neighbor embedding"
+        - "Linear discriminant analysis"
+        - "Cross-validation (statistics)"
+        - "Confusion matrix"
+        - "Receiver operating characteristic"
+        - "Precision and recall"
+        - "F-score"
+        - "Hyperparameter optimization"
+        - "Feature engineering"
+        - "Feature selection"
+        - "One-hot"
+        - "Curse of dimensionality"
+        - "Oversampling and undersampling in data analysis"
+        - "Synthetic minority oversampling technique"
+        - "Data leakage"
+        - "Ensemble learning"
+        - "Isolation forest"
+        - "Anomaly detection"
+        - "Local outlier factor"
+        - "Recommender system"
+        - "Collaborative filtering"
+        - "Matrix factorization (recommender systems)"
+        - "Expectation–maximization algorithm"
+        - "Maximum likelihood estimation"
+        - "Gradient descent"
+        - "Stochastic gradient descent"
+        - "Learning curve (machine learning)"
+        - "Concept drift"
+        - "Calibration (statistics)"
+        - "A/B testing"
+        - "Statistical classification"
+        - "Cluster analysis"
+        - "Dimensionality reduction"
+        - "Loss function"
+        - "Mean squared error"
+        - "Cosine similarity"
+        - "Decision boundary"
+        - "Early stopping"
+        - "Dropout (neural networks)"
+        - "Batch normalization"
+        - "Backpropagation"
+        - "Artificial neural network"
+        - "Convolutional neural network"
+        - "Recurrent neural network"
+        - "Long short-term memory"
+        - "Transformer (deep learning architecture)"
+        - "Word embedding"
+        - "Training, validation, and test data sets"
+        - "Underfitting"
+        - "Occam's razor"
+        - "No free lunch theorem"
+        - "Information gain (decision tree)"
+        - "Gini coefficient"
+        - "Entropy (information theory)"
+        - "Kullback–Leibler divergence"
+        - "Mutual information"
+        - "SHAP (explainable AI)"
+        - "Partial dependence plot"
+        - "Permutation importance"
+        - "Imbalanced data"
+        - "Time series"
+        - "Autoregressive integrated moving average"
+        - "Exponential smoothing"
+        - "Seasonality"
+        - "Stationary process"
+        - "Forecasting"
+        - "Autocorrelation"
+        - "Hidden Markov model"
+        - "Markov chain"
+        - "Bayesian network"
+        - "Gaussian process"
+        - "Active learning (machine learning)"
+        - "Transfer learning"
+        - "Online machine learning"
+        - "Reinforcement learning"
+      max_words: 6000
+    license: "CC-BY-SA-4.0 (Wikipedia text; per-page revision permalinks in source_url)"
+    auto_level: full
+    trust_level: community
+    refresh_cycle: yearly
+    domain: ml-classic
+    related_technologies: [wikipedia, concepts]
+    reference_only: false
+    verified: true
+    notes: "Machine learning and statistics concepts: curated list of 103 encyclopedia articles (lead + body, boilerplate sections dropped). Complements the product documentation with plain-language definitions that match bare-term and paraphrased queries (CAP theorem, k-means++, Simpson's paradox, infrastructure as code...). Fetched with the MediaWiki Action API; one chunk set per article revision."
+
+  - name: wikipedia-statistics
+    namespace: technical
+    priority: P1
+    url: https://en.wikipedia.org/
+    loader: wikipedia
+    options:
+      titles:
+        - "Statistical hypothesis test"
+        - "P-value"
+        - "Student's t-test"
+        - "Chi-squared test"
+        - "Analysis of variance"
+        - "Multiple comparisons problem"
+        - "Bonferroni correction"
+        - "False discovery rate"
+        - "Type I and type II errors"
+        - "Statistical power"
+        - "Confidence interval"
+        - "Central limit theorem"
+        - "Law of large numbers"
+        - "Bayes' theorem"
+        - "Bayesian inference"
+        - "Frequentist inference"
+        - "Prior probability"
+        - "Posterior probability"
+        - "Simpson's paradox"
+        - "Confounding"
+        - "Correlation does not imply causation"
+        - "Causal inference"
+        - "Propensity score matching"
+        - "Difference in differences"
+        - "Instrumental variables estimation"
+        - "Regression discontinuity design"
+        - "Randomized controlled trial"
+        - "Selection bias"
+        - "Survivorship bias"
+        - "Berkson's paradox"
+        - "Regression analysis"
+        - "Heteroscedasticity"
+        - "Multicollinearity"
+        - "Bootstrapping (statistics)"
+        - "Resampling (statistics)"
+        - "Sampling bias"
+        - "Effect size"
+        - "Statistical significance"
+        - "Likelihood function"
+        - "Normal distribution"
+        - "Poisson distribution"
+        - "Binomial distribution"
+        - "Exponential distribution"
+        - "Power law"
+        - "Pareto principle"
+        - "Variance"
+        - "Standard deviation"
+        - "Median"
+        - "Outlier"
+        - "Skewness"
+        - "Kurtosis"
+        - "Correlation"
+        - "Pearson correlation coefficient"
+        - "Spearman's rank correlation coefficient"
+        - "Covariance"
+        - "Sampling (statistics)"
+        - "Stratified sampling"
+        - "Data analysis"
+        - "Exploratory data analysis"
+        - "Descriptive statistics"
+        - "Inferential statistics"
+        - "Missing data"
+        - "Imputation (statistics)"
+        - "Mann–Whitney U test"
+        - "Kolmogorov–Smirnov test"
+        - "Shapiro–Wilk test"
+        - "Fisher's exact test"
+        - "Sequential analysis"
+        - "Multi-armed bandit"
+        - "Bayesian A/B testing"
+        - "Statistical model"
+        - "Generalized linear model"
+        - "Logit"
+        - "Odds ratio"
+        - "Relative risk"
+        - "Survival analysis"
+        - "Kaplan–Meier estimator"
+        - "Cox proportional hazards model"
+        - "Granger causality"
+        - "Counterfactual (causal inference)"
+        - "Directed acyclic graph"
+        - "Do-calculus"
+        - "Randomization"
+        - "Placebo"
+        - "Blinded experiment"
+        - "Longitudinal study"
+        - "Cohort study"
+        - "Cross-sectional study"
+        - "Data dredging"
+        - "Replication crisis"
+        - "Goodhart's law"
+        - "Overfitting"
+      max_words: 6000
+    license: "CC-BY-SA-4.0 (Wikipedia text; per-page revision permalinks in source_url)"
+    auto_level: full
+    trust_level: community
+    refresh_cycle: yearly
+    domain: data-science
+    related_technologies: [wikipedia, concepts]
+    reference_only: false
+    verified: true
+    notes: "Statistics and data science concepts: curated list of 92 encyclopedia articles (lead + body, boilerplate sections dropped). Complements the product documentation with plain-language definitions that match bare-term and paraphrased queries (CAP theorem, k-means++, Simpson's paradox, infrastructure as code...). Fetched with the MediaWiki Action API; one chunk set per article revision."
+
+  - name: wikipedia-security
+    namespace: technical
+    priority: P1
+    url: https://en.wikipedia.org/
+    loader: wikipedia
+    options:
+      titles:
+        - "Information security"
+        - "CIA triad"
+        - "Cross-site scripting"
+        - "Cross-site request forgery"
+        - "SQL injection"
+        - "Server-side request forgery"
+        - "XML external entity attack"
+        - "Insecure direct object reference"
+        - "Clickjacking"
+        - "Man-in-the-middle attack"
+        - "Denial-of-service attack"
+        - "Buffer overflow"
+        - "Arbitrary code execution"
+        - "Privilege escalation"
+        - "Principle of least privilege"
+        - "Defense in depth (computing)"
+        - "Zero trust security model"
+        - "Threat model"
+        - "STRIDE (security)"
+        - "Attack surface"
+        - "Public-key cryptography"
+        - "Symmetric-key algorithm"
+        - "Advanced Encryption Standard"
+        - "RSA (cryptosystem)"
+        - "Elliptic-curve cryptography"
+        - "Diffie–Hellman key exchange"
+        - "Digital signature"
+        - "Cryptographic hash function"
+        - "Message authentication code"
+        - "HMAC"
+        - "Transport Layer Security"
+        - "Public key certificate"
+        - "Certificate authority"
+        - "Forward secrecy"
+        - "Key derivation function"
+        - "Bcrypt"
+        - "Salt (cryptography)"
+        - "Password"
+        - "Multi-factor authentication"
+        - "Security Assertion Markup Language"
+        - "Kerberos (protocol)"
+        - "Role-based access control"
+        - "Attribute-based access control"
+        - "Access-control list"
+        - "Web application firewall"
+        - "Intrusion detection system"
+        - "Security information and event management"
+        - "Penetration test"
+        - "Vulnerability (computing)"
+        - "Common Vulnerabilities and Exposures"
+        - "Common Vulnerability Scoring System"
+        - "MITRE ATT&CK"
+        - "Zero-day vulnerability"
+        - "Supply chain attack"
+        - "Ransomware"
+        - "Phishing"
+        - "HTTP Strict Transport Security"
+        - "Subresource Integrity"
+        - "Domain Name System Security Extensions"
+        - "Hardware security module"
+        - "Key management"
+        - "Secret sharing"
+        - "Authentication"
+        - "Authorization"
+        - "Access control"
+        - "Session fixation"
+        - "Session hijacking"
+        - "Insecure deserialization"
+        - "Path traversal"
+        - "Command injection"
+        - "Race condition"
+        - "Rainbow table"
+        - "Brute-force attack"
+        - "Credential stuffing"
+        - "Social engineering (security)"
+        - "Security through obscurity"
+        - "Kerckhoffs's principle"
+        - "Shift-left testing"
+        - "DevSecOps"
+        - "Static application security testing"
+        - "Dynamic application security testing"
+        - "Software composition analysis"
+        - "Fuzzing"
+        - "Sandbox (computer security)"
+        - "Secure by design"
+        - "Data masking"
+        - "Tokenization (data security)"
+        - "Homomorphic encryption"
+        - "One-time pad"
+        - "Block cipher mode of operation"
+        - "Initialization vector"
+        - "Nonce"
+        - "Authenticated encryption"
+        - "Timing attack"
+        - "Side-channel attack"
+        - "Cryptographic nonce"
+        - "Pretty Good Privacy"
+        - "Public key infrastructure"
+        - "Let's Encrypt"
+        - "Secure Shell"
+        - "IPsec"
+        - "Virtual private network"
+        - "WireGuard"
+        - "Firewall (computing)"
+        - "Network segmentation"
+        - "Bastion host"
+        - "Honeypot (computing)"
+        - "OWASP"
+        - "Open Worldwide Application Security Project"
+        - "Secrets management"
+        - "Hashicorp Vault"
+      max_words: 6000
+    license: "CC-BY-SA-4.0 (Wikipedia text; per-page revision permalinks in source_url)"
+    auto_level: full
+    trust_level: community
+    refresh_cycle: yearly
+    domain: security
+    related_technologies: [wikipedia, concepts]
+    reference_only: false
+    verified: true
+    notes: "Security and cryptography concepts: curated list of 111 encyclopedia articles (lead + body, boilerplate sections dropped). Complements the product documentation with plain-language definitions that match bare-term and paraphrased queries (CAP theorem, k-means++, Simpson's paradox, infrastructure as code...). Fetched with the MediaWiki Action API; one chunk set per article revision."
 
   # ============================================================
   # reference_only = true

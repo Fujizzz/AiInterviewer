@@ -9,7 +9,7 @@ from typing import Any
 import yaml
 
 VALID_NAMESPACES = {"candidate", "job", "technical", "rubric", "question", "test"}
-VALID_LOADERS = {"git", "hf", "arxiv", "crawler", "manual", "xlsx"}
+VALID_LOADERS = {"git", "hf", "arxiv", "crawler", "manual", "xlsx", "wikipedia"}
 VALID_PRIORITIES = {"P0", "P1", "P2"}
 VALID_AUTO_LEVELS = {"full", "semi", "manual"}
 VALID_CLEAN_PROFILES = {

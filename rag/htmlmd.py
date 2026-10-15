@@ -791,6 +791,12 @@ def convert_embedded_html(text: str, keep_links: bool = False, markdown_cells: b
             tag = m.group(1).lower()
             start = m.start() + (len(m.group(0)) - len(m.group(0).lstrip()))
             end = _find_matching_close(seg, tag, start)
+            if end == -1 and tag == "table":
+                # source markup with unbalanced nested <table> opens (protobuf json.md): take the
+                # last </table> after the opener as the end instead of leaving raw HTML
+                last = seg.rfind("</table>", start)
+                if last != -1:
+                    end = last + len("</table>")
             if end == -1:
                 pieces.append(seg[pos : m.end()])
                 pos = m.end()
