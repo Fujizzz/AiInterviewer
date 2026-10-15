@@ -8,10 +8,12 @@ borrows a pooled connection for the duration of the call:
 * connections: psycopg_pool.ConnectionPool (autocommit, pgvector registered, bounded size). When
   the pool is exhausted callers wait at most `pool_timeout`, then PoolTimeout is raised, which the
   router records as a failed source instead of piling up unbounded work.
-* models: LazySingleton (loaded once, on first use or in `warmup()`); `encode` is serialized.
+* models: LazySingleton (loaded once, on first use or in `warmup()`); `encode` is serialized. The
+  query encoder is `torch` (sentence-transformers) or `onnx-int8` (onnxruntime, no torch).
 * the embedding-identity check (index_meta vs the loaded model) runs once, not per call.
 
-Requires the rag extra (psycopg_pool, psycopg, pgvector, sentence-transformers, numpy).
+Requires psycopg_pool, psycopg, pgvector, numpy and the chosen encoder's runtime
+(sentence-transformers, or onnxruntime + tokenizers).
 """
 
 from __future__ import annotations
@@ -24,10 +26,18 @@ from .intent import RetrievalIntent
 from .lazy import LazySingleton, SerializedEmbedder, SerializedReranker
 
 
-def _build_embedder(device: str | None) -> Any:
-    from ..index.embed import Embedder
+def _build_embedder(
+    device: str | None,
+    encoder: str = "torch",
+    threads: int = 2,
+    model_dir: str | None = None,
+    verify: bool = True,
+) -> Any:
+    from ..index.encoders import build_query_encoder
 
-    return Embedder(device=device)
+    return build_query_encoder(
+        encoder, device=device, threads=threads, model_dir=model_dir, verify=verify
+    )
 
 
 def _build_reranker(device: str | None) -> Any:
@@ -49,11 +59,19 @@ class PooledRetriever:
         lock_timeout_ms: int = 1000,
         device: str | None = None,
         rerank_available: bool = False,
+        encoder: str = "torch",
+        encoder_threads: int = 2,
+        encoder_model_dir: str | None = None,
+        encoder_verify: bool = True,
     ) -> None:
         from psycopg_pool import ConnectionPool
 
         self._dsn = dsn
-        self._embedder_loader: LazySingleton[Any] = LazySingleton(lambda: _build_embedder(device))
+        self._embedder_loader: LazySingleton[Any] = LazySingleton(
+            lambda: _build_embedder(
+                device, encoder, encoder_threads, encoder_model_dir, encoder_verify
+            )
+        )
         self._reranker_loader: LazySingleton[Any] = LazySingleton(lambda: _build_reranker(device))
         self._embedder = SerializedEmbedder(self._embedder_loader)
         self._reranker = SerializedReranker(self._reranker_loader)

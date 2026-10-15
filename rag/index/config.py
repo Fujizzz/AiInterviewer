@@ -12,6 +12,11 @@ DATA_DIR = MODULE_ROOT / "data"
 CHUNKS_DIR = DATA_DIR / "chunks"
 EMBEDDINGS_DIR = DATA_DIR / "embeddings"
 SOURCES_YAML = DATA_DIR / "sources.yaml"
+# Local model artifacts (ONNX int8 query encoder); gitignored.
+MODELS_DIR = DATA_DIR / "models"
+# Committed: identity + sha256 of the artifact, and torch reference vectors for a self-check.
+ENCODER_MANIFEST = DATA_DIR / "encoder_manifest.json"
+ENCODER_SMOKE = DATA_DIR / "encoder_smoke.json"
 SCHEMA_SQL = Path(__file__).resolve().parent / "schema.sql"
 MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
 

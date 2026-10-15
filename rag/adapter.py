@@ -237,6 +237,7 @@ class RAGAdapter:
                 "max_dense": result.max_dense,
                 "max_rerank": result.max_rerank,
                 "lexical_hit": result.lexical_hit,
+                "encoder": result.encoder,
                 **({"candidate_id": passage.candidate_id} if passage.candidate_id else {}),
             },
         )
@@ -264,7 +265,8 @@ class RAGAdapter:
 def create_rag_adapter(
     settings: RAGSettings | None = None, *, warmup: bool = False, **overrides: Any
 ) -> RAGAdapter:
-    """Build the production adapter (pooled Postgres + bge-m3), or raise RAGUnavailableError.
+    """Build the production adapter (pooled Postgres + bge-m3 query encoder), or raise
+    RAGUnavailableError. The query encoder is RAG_ENCODER: `torch` or the torch-free `onnx-int8`.
 
     `settings` defaults to `RAGSettings.from_env()`. With `warmup=True` the embedding model is
     loaded and the index verified before returning (blocking; takes seconds on a cold start);
@@ -273,15 +275,24 @@ def create_rag_adapter(
     import importlib.util
 
     settings = settings or RAGSettings.from_env()
-    missing = [
-        m
-        for m in ("psycopg", "psycopg_pool", "pgvector", "numpy", "sentence_transformers")
-        if importlib.util.find_spec(m) is None
-    ]
+    onnx_encoder = settings.encoder == "onnx-int8"
+    required = ["psycopg", "psycopg_pool", "pgvector", "numpy"]
+    required += ["onnxruntime", "tokenizers"] if onnx_encoder else ["sentence_transformers"]
+    missing = [m for m in required if importlib.util.find_spec(m) is None]
     if missing:
+        manifest = "rag/requirements-serve.txt" if onnx_encoder else "rag/requirements.txt"
         raise RAGUnavailableError(
             f"retrieval dependencies missing: {', '.join(missing)}. "
-            "Install the optional extra: uv pip install -r rag/requirements.txt"
+            f"Install the optional extra: uv pip install -r {manifest}"
+        )
+    if (
+        onnx_encoder
+        and settings.rerank
+        and importlib.util.find_spec("sentence_transformers") is None
+    ):
+        raise RAGUnavailableError(
+            "RAG_RERANK=true needs torch + sentence-transformers (the cross-encoder), which the "
+            "torch-free onnx-int8 serve install does not have: set RAG_RERANK=false"
         )
 
     from .index import config
@@ -298,6 +309,10 @@ def create_rag_adapter(
         lock_timeout_ms=settings.lock_timeout_ms,
         device=settings.device,
         rerank_available=settings.rerank,
+        encoder=settings.encoder,
+        encoder_threads=settings.encoder_threads,
+        encoder_model_dir=settings.encoder_model_dir,
+        encoder_verify=settings.encoder_verify,
     )
     try:
         backend.open(wait_timeout=settings.connect_timeout_seconds)

@@ -13,6 +13,12 @@ import psycopg
 
 from ..index.db import connect
 from ..index.embed import Embedder, build_embedding_text
+from ..index.encoders import (
+    ENCODER_TORCH,
+    build_query_encoder,
+    encoder_label,
+    encoder_settings_from_env,
+)
 from ..index.load import check_index_meta
 from .access import CANDIDATE_NAMESPACE, resolve_namespaces, scope_namespaces
 from .confidence import DEFAULT_RULE, ConfidenceRule, RetrievalResult, assess
@@ -97,7 +103,11 @@ class Retriever:
     @property
     def embedder(self):
         if self._embedder is None:
-            self._embedder = Embedder(**self.embed_kwargs)
+            kind, kwargs = encoder_settings_from_env()
+            if kind == ENCODER_TORCH:
+                self._embedder = Embedder(**self.embed_kwargs)
+            else:
+                self._embedder = build_query_encoder(kind, **kwargs)
         return self._embedder
 
     @property
@@ -290,6 +300,11 @@ class Retriever:
             lexical_hit=lexical_hit,
             confidence=level,
             reasons=reasons,
+            encoder=(
+                encoder_label(getattr(self._embedder, "meta", None))
+                if max_dense is not None
+                else None
+            ),
         )
 
     @staticmethod
