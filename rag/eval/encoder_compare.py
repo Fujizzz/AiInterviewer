@@ -133,6 +133,23 @@ def run_pass(
     return out
 
 
+def sign_flip_p(diffs: list[float]) -> float:
+    """Exact two-sided sign-flip permutation p-value for mean(diffs) == 0 (zeros are ignored)."""
+    nz = [d for d in diffs if abs(d) > 1e-12]
+    if not nz:
+        return 1.0
+    k = len(nz)
+    if k > 22:
+        raise ValueError("too many non-zero differences for the exact test")
+    obs = abs(sum(nz))
+    hits = 0
+    for mask in range(1 << k):
+        total = sum(d if (mask >> i) & 1 else -d for i, d in enumerate(nz))
+        if abs(total) >= obs - 1e-12:
+            hits += 1
+    return hits / (1 << k)
+
+
 def _metrics(run: dict[str, dict], gold: GoldSet, rel: dict[str, set[str]], mode: str):
     cat = {q.id: q.category for q in gold.queries}
     per_q = {qid: evaluate_ranking(run[qid][mode]["ranked"], rel[qid]) for qid in run}
@@ -160,7 +177,17 @@ def compare_pass(
                 )
                 for k in ("ndcg@10", "recall@10", "mrr@10")
             }
+            cats: dict[str, dict] = {}
+            for cat in sorted({q.category for q in golds[set_name].queries}):
+                ids = [q.id for q in golds[set_name].queries if q.category == cat]
+                a = {q: m_new["per_query"][q]["ndcg@10"] for q in ids}
+                b = {q: m_ref["per_query"][q]["ndcg@10"] for q in ids}
+                d = paired_bootstrap(a, b)
+                d["p_perm"] = sign_flip_p([a[q] - b[q] for q in ids])
+                d["n_changed"] = sum(abs(a[q] - b[q]) > 1e-12 for q in ids)
+                cats[cat] = d
             rep["metrics"][f"{set_name}/{mode}"] = {
+                "category_ndcg_delta": cats,
                 "ref": m_ref["summary"],
                 "new": m_new["summary"],
                 "ref_by_category": m_ref["by_category"],
@@ -361,7 +388,7 @@ def _fmt_delta(d: dict) -> str:
     return f"{d['mean_diff']:+.3f} [{d['lo']:+.3f}, {d['hi']:+.3f}]"
 
 
-def render_markdown(report: dict) -> str:
+def render_markdown(report: dict, sizes_mb: dict[str, float] | None = None) -> str:
     """Tables for the committed report (numbers only; the narrative is written by hand)."""
     from ..index.onnx_build import variant_dir
 
@@ -375,8 +402,11 @@ def render_markdown(report: dict) -> str:
         "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for v in variants:
-        files = json.loads((variant_dir(v) / "manifest.json").read_text())["artifact"]["files"]
-        mb = sum(f["bytes"] for f in files.values()) / 1e6
+        if sizes_mb and v in sizes_mb:
+            mb = sizes_mb[v]
+        else:
+            manifest = json.loads((variant_dir(v) / "manifest.json").read_text())
+            mb = sum(f["bytes"] for f in manifest["artifact"]["files"].values()) / 1e6
         c = report["vectors"][v]["ALL"]
         r = report["retrieval"][v]
         h, dn = r["metrics"]["gold/hybrid"], r["metrics"]["gold/dense"]

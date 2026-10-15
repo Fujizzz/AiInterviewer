@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "encoder": "onnx-int8",
-  "variant": "int8-pc",
+  "variant": "uint8-pc",
   "base_model": "BAAI/bge-m3",
   "base_revision": "5617a9f61b028005a4858fdac845db406aefb181",
   "license": "MIT (BAAI/bge-m3 and its ONNX export)",
@@ -30,14 +30,14 @@
     }
   },
   "quantization": {
-    "name": "int8-pc",
-    "weight_type": "qint8",
+    "name": "uint8-pc",
+    "weight_type": "quint8",
     "per_channel": true,
     "reduce_range": false,
     "op_types": "ORT default (MatMul, Gather)",
     "exclude_patterns": [],
     "embeddings": "ort",
-    "note": "QInt8, per-channel weights",
+    "note": "QUInt8, per-channel",
     "tool": "onnxruntime.quantization.quantize_dynamic",
     "activation_type": "uint8 (DynamicQuantizeLinear, computed per call)"
   },
@@ -53,11 +53,11 @@
     "dir": "bge-m3-onnx-int8",
     "files": {
       "model.onnx": {
-        "sha256": "494e5d071b328ccff4836b9f3ceed4144d36944896a48575bba1c6abbdf7a01a",
-        "bytes": 2226384
+        "sha256": "1dd0d81c2c3bff7050e8665769fba3df114bae0c19e9186c598b4d25443c8fa8",
+        "bytes": 2343518
       },
       "model.onnx.data": {
-        "sha256": "e2cd25b5dd81c0ec6e06a805ea8a4c72634eacb656a7f4cdee6e9dbc062daae8",
+        "sha256": "dd50edd46a988159f220ba7b285593c47b8226c997f61141f3bdd664c1d26dd5",
         "bytes": 567669760
       },
       "tokenizer.json": {

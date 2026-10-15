@@ -106,7 +106,10 @@ VARIANTS: dict[str, QuantVariant] = {
         ),
     )
 }
-DEFAULT_VARIANT = "int8-pc"  # revisited by the measurements in rag/data/reports/
+# uint8-pc: u8u8 matmuls avoid the u8s8 VPMADDUBSW saturation path of AVX2 CPUs without VNNI, and it
+# kept paraphrase / identifier queries best (rag/data/reports/encoder-onnx-int8-20261015.md).
+# Fallbacks if `encoder verify --smoke` fails on the server CPU: int8-pt, then int8-pc-rr.
+DEFAULT_VARIANT = "uint8-pc"
 
 
 def variant_dir(name: str) -> Path:
