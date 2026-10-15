@@ -138,8 +138,24 @@ def strip_style_script(text: str) -> str:
     return _guarded_strip(_STYLE_SCRIPT_RE, text, "<style>/<script> block")
 
 
+_INLINE_CODE_RE = re.compile(r"(`+)(?!`)(.+?)(?<!`)\1(?!`)")
+
+
 def strip_mdx_jsx(text: str, source_name: str = "") -> str:
     text = _MDX_IMPORT_EXPORT_RE.sub("", text)
+    # `<Transition>` inside an inline code span is documentation, not a JSX tag
+    spans: list[str] = []
+
+    def _park(m: re.Match) -> str:
+        spans.append(m.group(0))
+        return f"\x01IC{len(spans) - 1}\x01"
+
+    text = _INLINE_CODE_RE.sub(_park, text)
+    text = _strip_mdx_jsx_tags(text, source_name)
+    return re.sub(r"\x01IC(\d+)\x01", lambda m: spans[int(m.group(1))], text)
+
+
+def _strip_mdx_jsx_tags(text: str, source_name: str = "") -> str:
     text = _JSX_SELF_CLOSING_RE.sub("", text)
 
     def _sub(m: re.Match) -> str:

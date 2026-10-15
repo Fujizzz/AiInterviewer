@@ -791,80 +791,190 @@ sources:
     priority: P1
     url: https://github.com/mdn/content
     loader: git
-    path: files/en-us
-    license: CC-BY-SA-2.5
+    # Tree-verified (gh api, 2026-10-15): files/en-us/{web,learn_web_development,glossary}.
+    # Only guides / concepts are ingested; the per-element / per-property / per-method
+    # reference (thousands of near-identical pages) is excluded except for a short whitelist.
+    paths:
+      - "files/en-us/web/javascript/"
+      - "files/en-us/web/css/"
+      - "files/en-us/web/http/"
+      - "files/en-us/web/api/"
+      - "files/en-us/web/performance/"
+      - "files/en-us/web/accessibility/"
+      - "files/en-us/web/security/"
+      - "files/en-us/web/progressive_web_apps/"
+      - "files/en-us/web/web_components/"
+      - "files/en-us/learn_web_development/extensions/"
+      - "files/en-us/learn_web_development/core/scripting/"
+      - "files/en-us/learn_web_development/core/frameworks_libraries/"
+      - "files/en-us/glossary/"
+    include:
+      - "files/en-us/web/javascript/guide/**"
+      - "files/en-us/web/javascript/reference/{execution_model,classes,iteration_protocols,strict_mode,template_literals,functions}/**"
+      - "files/en-us/web/javascript/reference/global_objects/{promise,proxy,reflect,symbol,map,set,weakmap,weakref,json,object,function,array,asyncfunction,generator,asyncgenerator,structuredclone}/index.md"
+      - "files/en-us/web/javascript/reference/global_objects/promise/*/index.md"
+      - "files/en-us/web/javascript/reference/global_objects/array/{map,filter,reduce,foreach,flat,flatmap,sort,from,includes}/index.md"
+      - "files/en-us/web/javascript/reference/operators/{this,typeof,optional_chaining,nullish_coalescing,spread_syntax,destructuring,await,new,instanceof,delete,async_function,yield}/index.md"
+      - "files/en-us/web/javascript/reference/statements/{async_function,let,const,var,try...catch,class,import,export,for-await...of}/index.md"
+      - "files/en-us/web/css/guides/{box_model,box_sizing,cascade,cascading_variables,flexible_box_layout,grid_layout,positioned_layout,selectors,display,media_queries,containment,animations,transitions,transforms,overflow,values_and_units}/**"
+      - "files/en-us/web/css/how_to/layout_cookbook/**"
+      - "files/en-us/web/http/guides/**"
+      - "files/en-us/web/http/reference/{methods,status}/**"
+      - "files/en-us/web/http/reference/headers/{cache-control,etag,if-none-match,if-modified-since,last-modified,vary,expires,age,content-security-policy,access-control-allow-origin,access-control-allow-credentials,access-control-allow-headers,access-control-allow-methods,set-cookie,cookie,authorization,www-authenticate,strict-transport-security,x-frame-options,x-content-type-options,referrer-policy,permissions-policy,content-type,content-encoding,accept,connection,keep-alive,upgrade,retry-after,forwarded,x-forwarded-for,range,location,origin,host,transfer-encoding}/index.md"
+      - "files/en-us/web/api/{service_worker_api,fetch_api,websockets_api,websocket,server-sent_events,eventsource,web_workers_api,intersection_observer_api,indexeddb_api,web_storage_api,streams_api,web_crypto_api,push_api,broadcast_channel_api,history_api,resize_observer_api,mutationobserver,abortcontroller,performance_api,document_object_model,cache_api,web_components,shadow_dom,custom_elements,intersection_observer}/**"
+      - "files/en-us/web/api/{webrtc_api,notifications_api,payment_request_api,web_animations_api,canvas_api,webgl_api,webauthn_api,credential_management_api,screen_wake_lock_api}/index.md"
+      - "files/en-us/web/api/event_target/addeventlistener/index.md"
+      - "files/en-us/web/api/{window/requestanimationframe,window/requestidlecallback,window/queuemicrotask,window/settimeout,window/fetch}/index.md"
+      - "files/en-us/web/web_components/**"
+      - "files/en-us/web/performance/**"
+      - "files/en-us/web/accessibility/{index.md,guides/**,aria/index.md,aria/guides/**}"
+      - "files/en-us/web/security/**"
+      - "files/en-us/web/progressive_web_apps/{index.md,guides/**}"
+      - "files/en-us/learn_web_development/extensions/{async_js,client-side_apis,client-side_tools,performance,testing,advanced_javascript_objects,server-side/first_steps}/**"
+      - "files/en-us/learn_web_development/core/scripting/**"
+      - "files/en-us/learn_web_development/core/frameworks_libraries/**"
+      - "files/en-us/glossary/**"
+    exclude:
+      - "files/en-us/**/_*.md"
+      - "files/en-us/**/test_your_skills*/**"
+      - "files/en-us/**/*assessment*/**"
+      - "files/en-us/**/*_assessment*/**"
+      - "files/en-us/web/http/guides/{browser_detection_using_the_user_agent,user-agent_reduction,client_hints,iframe_credentialless,network_error_logging}/**"
+      - "files/en-us/web/javascript/guide/{internationalization,typed_arrays}/**"
+    max_file_kb: 60
+    clean_profile: mdn
+    license: "CC-BY-SA-2.5 (MDN prose; code examples are CC0-1.0)"
     auto_level: full
     trust_level: official
-    refresh_cycle: monthly
+    refresh_cycle: quarterly
     domain: web-frontend
-    related_technologies: [html, css, javascript, web-apis]
+    related_technologies: [html, css, javascript, web-apis, http, web-performance, accessibility]
     reference_only: false
     verified: true
-    notes: "Confirmed files/en-us (14683 md files)."
+    notes: >
+      Whitelisted subset of mdn/content (14.7k pages): JS guide + language-reference concepts,
+      CSS layout/cascade guides, HTTP guides/methods/status + a header whitelist, selected Web
+      API families (guides and top-level interface pages only), performance, accessibility,
+      web security (attacks, defenses, authentication, threat modeling), PWA, Learn-web-dev
+      extensions and the glossary. Per-property/per-element/per-method reference is excluded.
+      MDN macros ({{domxref}}, {{jsxref}}, {{EmbedInteractiveExample}}...) are resolved by
+      the `mdn` clean profile.
 
   - name: react-dev
     namespace: technical
     priority: P1
     url: https://github.com/reactjs/react.dev
     loader: git
-    path: src/content
+    paths: ["src/content/learn/", "src/content/reference/"]
+    include:
+      - "src/content/learn/**"
+      - "src/content/reference/{react,react-dom,rsc,rules,react-compiler}/**"
+    exclude:
+      - "src/content/learn/{rsc-sandbox-test,installation,setup,editor-setup,react-developer-tools,creating-a-react-app,build-a-react-app-from-scratch,add-react-to-an-existing-project}.md"
+      - "src/content/reference/{dev-tools,eslint-plugin-react-hooks}/**"
+    options:
+      frontmatter_title: true
+    max_file_kb: 80
     license: CC-BY-4.0
     auto_level: full
     trust_level: official
     refresh_cycle: monthly
     domain: web-frontend
-    related_technologies: [react, javascript, frontend]
+    related_technologies: [react, javascript, hooks, frontend]
     reference_only: false
     verified: true
-    notes: "Confirmed src/content (225 md files)."
+    notes: >
+      Tree-verified (gh api, 2026-10-15). Learn guides + hook/API reference + rules of React.
+      Blog, community, errors, warnings, versions and tooling-setup pages are excluded.
+      Docs content is CC BY 4.0 (LICENSE-DOCS.md).
 
   - name: vuejs-docs
     namespace: technical
     priority: P1
     url: https://github.com/vuejs/docs
     loader: git
-    path: src
-    license: CC-BY-4.0
+    paths: ["src/guide/", "src/api/", "src/tutorial/", "src/style-guide/", "src/about/faq.md"]
+    include:
+      - "src/guide/**"
+      - "src/api/{reactivity-core,reactivity-advanced,reactivity-utilities,composition-api-lifecycle,composition-api-setup,composition-api-dependency-injection,built-in-directives,built-in-components,application,general,options-state}.md"
+      - "src/style-guide/**"
+      - "src/about/faq.md"
+    exclude:
+      - "src/guide/quick-start.md"
+    options:
+      frontmatter_title: true
+    max_file_kb: 80
+    license: "CC-BY-4.0 (repository content except images)"
     auto_level: full
     trust_level: official
     refresh_cycle: monthly
     domain: web-frontend
-    related_technologies: [vue, javascript, frontend]
+    related_technologies: [vue, javascript, reactivity, frontend]
     reference_only: false
     verified: true
-    notes: "Confirmed src/guide, src/api, src/tutorial subdirs exist; path set to src to cover all."
+    notes: >
+      Tree-verified. Guide (essentials, components, reusability, scaling-up, best practices,
+      TypeScript, extras incl. reactivity-in-depth and rendering mechanism), selected API pages
+      and the style guide. Examples, partners, sponsor, translations, error-reference excluded.
 
   - name: nextjs-docs
     namespace: technical
     priority: P1
     url: https://github.com/vercel/next.js
     loader: git
-    path: docs
+    paths: ["docs/01-app/01-getting-started/", "docs/01-app/02-guides/", "docs/03-architecture/"]
+    include:
+      - "docs/01-app/01-getting-started/**"
+      - "docs/01-app/02-guides/**"
+      - "docs/03-architecture/**"
+    exclude:
+      - "docs/01-app/02-guides/{ai-agents,mcp,videos,migrating,upgrading,testing,analytics,ppr-platform-guide,sass,tailwind-v3-css,css-in-js,custom-webpack,adopting-partial-prefetching,migrating-to-cache-components}/**"
+      - "docs/01-app/02-guides/{ai-agents,mcp,videos,sass,tailwind-v3-css,css-in-js,custom-webpack,adopting-partial-prefetching,migrating-to-cache-components,ppr-platform-guide}.mdx"
+      - "docs/03-architecture/{accessibility,supported-browsers,nextjs-compiler}.mdx"
+    options:
+      frontmatter_title: true
+    max_file_kb: 80
     license: MIT
     auto_level: full
     trust_level: official
     refresh_cycle: monthly
     domain: web-frontend
-    related_technologies: [nextjs, react, ssr]
+    related_technologies: [nextjs, react, ssr, caching]
     reference_only: false
     verified: true
-    notes: "Confirmed docs/01-app (289) + docs/02-pages (265) md files on canary branch."
+    notes: >
+      Tree-verified. App Router getting-started + guides (rendering, caching, streaming, auth,
+      data security) + architecture. api-reference (hundreds of per-option pages), pages router,
+      community and version-migration guides excluded. MDX tab/switcher components handled by
+      the generic JSX stripper.
 
   - name: typescript-handbook
     namespace: technical
     priority: P1
     url: https://github.com/microsoft/TypeScript-Website
     loader: git
-    path: packages/documentation
+    paths: ["packages/documentation/copy/en/"]
+    include:
+      - "packages/documentation/copy/en/{handbook-v2,reference,get-started,project-config,modules-reference,javascript}/**"
+    exclude:
+      - "packages/documentation/copy/en/handbook-v1/**"
+      - "packages/documentation/copy/en/release-notes/**"
+      - "packages/documentation/copy/en/**/*Release*"
+    options:
+      frontmatter_title: true
+    max_file_kb: 80
     license: CC-BY-4.0
     auto_level: full
     trust_level: official
     refresh_cycle: quarterly
     domain: web-frontend
-    related_technologies: [typescript, javascript]
+    related_technologies: [typescript, javascript, type-system, generics]
     reference_only: false
     verified: true
-    notes: "Confirmed packages/documentation (133 md files) is the handbook content."
+    notes: >
+      Tree-verified: packages/documentation/copy/en. Handbook v2 (everyday types, narrowing,
+      generics, classes, modules), reference pages (utility types, decorators, declaration
+      merging, mixins...), tsconfig / modules reference. Release notes and handbook v1 excluded.
 
   - name: swift-book
     namespace: technical
@@ -1428,6 +1538,387 @@ sources:
     reference_only: false
     verified: true
     notes: "Repo existence confirmed; path not tree-verified this session."
+
+  - name: webpack-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/webpack/webpack.js.org
+    loader: git
+    paths: ["src/content/concepts/", "src/content/guides/", "src/content/configuration/", "src/content/comparison.mdx", "src/content/glossary.mdx"]
+    include:
+      - "src/content/{concepts,guides}/**"
+      - "src/content/configuration/{index,mode,optimization,output,devtool,resolve,cache,module,entry-context,target,externals,performance}.mdx"
+      - "src/content/{comparison,glossary}.mdx"
+    exclude:
+      - "src/content/guides/{installation,getting-started,contributing}.mdx"
+    options:
+      frontmatter_title: true
+    max_file_kb: 80
+    license: CC-BY-4.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: web-frontend
+    related_technologies: [webpack, bundler, code-splitting, tree-shaking]
+    reference_only: false
+    verified: true
+    notes: "Tree-verified. Concepts, guides (code splitting, tree shaking, caching, HMR, lazy loading) and key configuration pages. Blog, API, loaders and plugins reference excluded."
+
+  - name: vite-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/vitejs/vite
+    loader: git
+    paths: ["docs/guide/", "docs/config/"]
+    include:
+      - "docs/guide/**"
+      - "docs/config/{index,shared-options,build-options,server-options}.md"
+    exclude:
+      - "docs/guide/{api-environment-frameworks,api-environment-instances,api-environment-plugins,api-environment-runtimes,migration,troubleshooting}.md"
+      - "docs/guide/*.yaml"
+    max_file_kb: 80
+    license: MIT
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: web-frontend
+    related_technologies: [vite, bundler, esm, hmr]
+    reference_only: false
+    verified: true
+    notes: "Tree-verified. Guide (why Vite, dependency pre-bundling, HMR, SSR, build, env) plus core config pages. Blog, releases, changes excluded."
+
+  - name: redux-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/reduxjs/redux
+    loader: git
+    paths: ["docs/"]
+    include:
+      - "docs/{introduction,understanding,usage,style-guide,faq}/**"
+      - "docs/FAQ.md"
+      - "docs/tutorials/essentials/**"
+    exclude:
+      - "docs/introduction/{installation,examples}.md"
+      - "docs/usage/migrating*"
+      - "docs/usage/MigratingToRedux.md"
+      - "docs/usage/UsageWithTypescript.md"
+    max_file_kb: 80
+    license: MIT
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: web-frontend
+    related_technologies: [redux, state-management, react, middleware]
+    reference_only: false
+    verified: true
+    notes: "Tree-verified. Core concepts, data flow, middleware, style guide, FAQ and the Essentials tutorial. API reference and community pages excluded."
+
+  - name: redux-toolkit-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/reduxjs/redux-toolkit
+    loader: git
+    paths: ["docs/"]
+    include:
+      - "docs/{introduction,usage}/**"
+      - "docs/rtk-query/{overview,usage}/**"
+      - "docs/rtk-query/comparison.mdx"
+    exclude:
+      - "docs/usage/migrating-*"
+    max_file_kb: 80
+    license: MIT
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: web-frontend
+    related_technologies: [redux-toolkit, rtk-query, state-management, caching]
+    reference_only: false
+    verified: true
+    notes: "Tree-verified. Introduction + usage + RTK Query overview and usage guides. API reference excluded."
+
+  - name: spring-framework-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/spring-projects/spring-framework
+    loader: git
+    paths: ["framework-docs/modules/ROOT/pages/"]
+    include:
+      - "framework-docs/modules/ROOT/pages/**"
+    exclude:
+      - "framework-docs/modules/ROOT/pages/{languages,rsocket,appendix,page-layout}/**"
+      - "framework-docs/modules/ROOT/pages/{languages,rsocket,appendix,page-layout}.adoc"
+      - "framework-docs/modules/ROOT/pages/testing/**"
+      - "framework-docs/modules/ROOT/pages/web/webmvc-test.adoc"
+      - "framework-docs/modules/ROOT/pages/web/webflux-webclient/**"
+      - "framework-docs/modules/ROOT/pages/integration/{jmx,email,observability}/**"
+      - "framework-docs/modules/ROOT/pages/integration/{jmx,email,observability}.adoc"
+    options:
+      exts: [".adoc"]
+    clean_profile: asciidoc
+    max_file_kb: 120
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: web-backend
+    related_technologies: [spring, java, dependency-injection, aop, transactions, spring-mvc, webflux]
+    reference_only: false
+    verified: true
+    notes: >
+      Tree-verified (gh api, 2026-10-15). Reference documentation (Antora AsciiDoc): IoC
+      container, AOP, data access/transactions, Spring MVC / WebFlux, integration (cache,
+      scheduling, REST clients, messaging). Kotlin/Groovy language support, RSocket, testing
+      and JMX/email pages excluded. `include::` / `include-code::` lines are dropped by the
+      asciidoc profile (code samples that live in separate source files are therefore absent).
+
+  - name: spring-boot-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/spring-projects/spring-boot
+    loader: git
+    paths: ["documentation/spring-boot-docs/src/docs/antora/modules/reference/pages/"]
+    include:
+      - "documentation/spring-boot-docs/src/docs/antora/modules/reference/pages/**"
+    exclude:
+      - "documentation/spring-boot-docs/src/docs/antora/modules/reference/pages/{packaging,testing}/**"
+      - "documentation/spring-boot-docs/src/docs/antora/modules/reference/pages/index.adoc"
+    options:
+      exts: [".adoc"]
+    clean_profile: asciidoc
+    max_file_kb: 120
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: web-backend
+    related_technologies: [spring-boot, java, auto-configuration, actuator, microservices]
+    reference_only: false
+    verified: true
+    notes: "Tree-verified. Reference pages: using (auto-configuration, structure), features, web, data, io (caching, messaging), messaging, actuator, security. Packaging (native images, containers) and testing excluded."
+
+  - name: spring-security-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/spring-projects/spring-security
+    loader: git
+    paths: ["docs/modules/ROOT/pages/"]
+    include:
+      - "docs/modules/ROOT/pages/{index,features,getting-started,prerequisites,whats-new}.adoc"
+      - "docs/modules/ROOT/pages/servlet/{architecture,authentication,authorization,oauth2,exploits,configuration,saml2,test}/**"
+      - "docs/modules/ROOT/pages/servlet/{architecture,authentication,authorization,oauth2,exploits,configuration}.adoc"
+      - "docs/modules/ROOT/pages/features/**"
+      - "docs/modules/ROOT/pages/reactive/{oauth2,exploits}/**"
+    exclude:
+      - "docs/modules/ROOT/pages/{index,whats-new,prerequisites}.adoc"
+      - "docs/modules/ROOT/pages/servlet/test/**"
+      - "docs/modules/ROOT/pages/servlet/saml2/**"
+    options:
+      exts: [".adoc"]
+    clean_profile: asciidoc
+    max_file_kb: 120
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: security
+    related_technologies: [spring-security, oauth2, jwt, authentication, authorization, csrf]
+    reference_only: false
+    verified: true
+    notes: "Tree-verified. Servlet architecture, authentication (passwords, sessions, passkeys), authorization (RBAC, method security), OAuth2 (client, login, resource server/JWT), exploit protections (CSRF, headers, HTTP firewall). Reactive stack mostly excluded."
+
+  - name: python-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/python/cpython
+    loader: git
+    paths: ["Doc/reference/", "Doc/howto/", "Doc/faq/", "Doc/library/", "Doc/tutorial/", "Doc/glossary.rst"]
+    include:
+      - "Doc/reference/{datamodel,executionmodel,import,compound_stmts,expressions}.rst"
+      - "Doc/howto/{descriptor,functional,sorting,logging,logging-cookbook,mro,a-conceptual-overview-of-asyncio,free-threading-python,enum,annotations,regex,sockets,unicode}.rst"
+      - "Doc/faq/{programming,design,library,general,extending}.rst"
+      - "Doc/glossary.rst"
+      - "Doc/tutorial/{classes,errors,modules,datastructures,controlflow,stdlib,stdlib2}.rst"
+      - "Doc/library/{asyncio,asyncio-task,asyncio-eventloop,asyncio-stream,asyncio-sync,asyncio-queue,asyncio-dev,asyncio-subprocess,asyncio-future,asyncio-runner,asyncio-exceptions,asyncio-platforms,asyncio-protocol}.rst"
+      - "Doc/library/{threading,multiprocessing,multiprocessing.shared_memory,concurrent.futures,concurrent,queue,contextvars,sched,subprocess,gc,weakref,functools,itertools,collections,contextlib,dataclasses,typing,abc,heapq,bisect,copy,pickle,json,logging,logging.config,logging.handlers,unittest,unittest.mock,tracemalloc,profile,timeit,socket,ssl,select,selectors,http.server,urllib.request,sqlite3,hashlib,hmac,secrets,enum,inspect,dis,graphlib}.rst"
+    options:
+      exts: [".rst"]
+    clean_profile: rst
+    max_file_kb: 400
+    license: "PSF License / Zero-Clause BSD for docs examples (permissive)"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: web-backend
+    related_technologies: [python, asyncio, concurrency, gil, data-model, threading, multiprocessing]
+    reference_only: false
+    verified: true
+    notes: >
+      Tree-verified (gh api, 2026-10-15). Language reference (data model, execution model,
+      import, statements), HOWTOs (descriptors, logging, asyncio overview, free-threading),
+      FAQs, glossary, tutorial chapters and a whitelist of concurrency / data-structure /
+      typing / testing / networking library modules. C-API, whatsnew, deprecations, tools and
+      the rest of the stdlib reference are excluded. Sphinx domain directives (`.. function::`,
+      `.. class::`, `.. method::`) are handled by the rst profile.
+
+  - name: nodejs-learn
+    namespace: technical
+    priority: P1
+    url: https://github.com/nodejs/learn
+    loader: git
+    paths: ["pages/"]
+    include: ["pages/**"]
+    exclude:
+      - "pages/{userland-migrations,typescript,test-runner}/**"
+      - "pages/index.md"
+    max_file_kb: 80
+    license: MIT
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: web-backend
+    related_technologies: [nodejs, event-loop, javascript, asynchronous, streams]
+    reference_only: false
+    verified: true
+    notes: "Tree-verified (gh api 2026-10-15): nodejs/learn pages (successor of nodejs.dev learn content): event loop, timers, nextTick, blocking vs non-blocking, event emitter, modules, diagnostics, http, concurrency models. LICENSE: MIT."
+
+  - name: express-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/expressjs/expressjs.com
+    loader: git
+    paths: ["src/content/docs/en/5x/"]
+    include: ["src/content/docs/en/5x/{guide,advanced}/**"]
+    exclude: ["src/content/docs/en/5x/guide/overriding-express-api.mdx"]
+    options:
+      frontmatter_title: true
+    max_file_kb: 80
+    license: CC-BY-4.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: web-backend
+    related_technologies: [express, nodejs, middleware, routing]
+    reference_only: false
+    verified: true
+    notes: "Tree-verified. Express 5 guide + advanced topics (routing, middleware, error handling, proxies, security best practices, performance, health checks). English only; API reference excluded."
+
+  - name: rust-book
+    namespace: technical
+    priority: P1
+    url: https://github.com/rust-lang/book
+    loader: git
+    paths: ["src/"]
+    include: ["src/ch*.md", "src/appendix-0[0-3]*.md"]
+    exclude: ["src/appendix-06-translation.md", "src/ch00-00-introduction.md", "src/ch01-01-installation.md"]
+    max_file_kb: 120
+    license: "MIT OR Apache-2.0"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: web-backend
+    related_technologies: [rust, ownership, borrowing, lifetimes, concurrency, traits]
+    reference_only: false
+    verified: true
+    notes: "Tree-verified: The Rust Programming Language (src/ch*.md): ownership, borrowing, lifetimes, traits, smart pointers, fearless concurrency, async. Dual-licensed MIT/Apache-2.0 (LICENSE-MIT, LICENSE-APACHE)."
+
+  - name: go-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/golang/website
+    loader: git
+    paths: ["_content/doc/", "_content/ref/"]
+    include:
+      - "_content/doc/{effective_go,gc-guide,faq,go_faq,fuzz,pgo,diagnostics,comment,code}.{md,html}"
+      - "_content/doc/{database,modules}/**"
+      - "_content/doc/articles/{race_detector,wiki,laws_of_reflection}.{md,html}"
+      - "_content/ref/mem.md"
+    exclude:
+      - "_content/doc/modules/{release-workflow,publishing,managing-source,major-version}.md"
+    options:
+      frontmatter_title: true
+      exts: [".md", ".html"]
+    clean_profile: html
+    max_file_kb: 200
+    license: "BSD-3-Clause (code); documentation CC-BY-4.0 (https://go.dev/copyright)"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: web-backend
+    related_technologies: [go, goroutines, channels, memory-model, gc, concurrency]
+    reference_only: false
+    verified: true
+    notes: "golang/website _content: Effective Go, the Go memory model, GC guide, FAQ, database/sql guides, modules guides, race detector. Blog, release notes, tour and contributor docs excluded."
+
+  - name: grpc-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/grpc/grpc.io
+    loader: git
+    paths: ["content/en/docs/what-is-grpc/", "content/en/docs/guides/", "content/en/docs/languages/python/basics.md"]
+    include:
+      - "content/en/docs/what-is-grpc/**"
+      - "content/en/docs/guides/**"
+    exclude:
+      - "content/en/docs/guides/{custom-backend-metrics,opentelemetry-metrics,benchmarking}.md"
+    clean_profile: hugo
+    options:
+      frontmatter_title: true
+    max_file_kb: 80
+    license: "CC-BY-4.0 (content), Apache-2.0 (code samples)"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: web-backend
+    related_technologies: [grpc, protobuf, rpc, streaming, deadlines]
+    reference_only: false
+    verified: true
+    notes: "Tree-verified. Core concepts (unary/streaming RPC, deadlines, cancellation), FAQ and guides (auth, errors, status codes, metadata, interceptors, keepalive, retry, health checking, load balancing)."
+
+  - name: protobuf-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/protocolbuffers/protocolbuffers.github.io
+    loader: git
+    paths: ["content/programming-guides/", "content/overview.md", "content/best-practices/", "content/design-decisions/"]
+    include:
+      - "content/programming-guides/**"
+      - "content/overview.md"
+      - "content/best-practices/**"
+      - "content/design-decisions/**"
+    exclude:
+      - "content/programming-guides/{addons,deserialize-debug,symbol_visibility}.md"
+    clean_profile: hugo
+    options:
+      frontmatter_title: true
+    max_file_kb: 80
+    license: "CC-BY-4.0 (content per site footer); repository LICENSE is BSD-3-Clause"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: web-backend
+    related_technologies: [protobuf, serialization, schema-evolution, grpc]
+    reference_only: false
+    verified: true
+    notes: "Tree-verified. Language guide (proto3/editions), encoding, field presence, style, best practices (schema evolution) and design decisions. Repo LICENSE file is BSD-3-Clause; docs content licence CC BY 4.0 as stated on protobuf.dev."
+
+  - name: graphql-learn
+    namespace: technical
+    priority: P1
+    url: https://github.com/graphql/graphql.github.io
+    loader: git
+    paths: ["src/pages/learn/"]
+    include: ["src/pages/learn/*.mdx"]
+    exclude: ["src/pages/learn/index.mdx", "src/pages/learn/governance-*.mdx"]
+    max_file_kb: 80
+    license: "MIT (repository) ; site content CC-BY-4.0"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: web-backend
+    related_technologies: [graphql, api, schema, resolvers, n+1]
+    reference_only: false
+    verified: true
+    notes: "Tree-verified. graphql.org/learn: queries, schema, execution, pagination, caching, performance, security, authorization, federation, best practices."
 
   # ============================================================
   # reference_only = true

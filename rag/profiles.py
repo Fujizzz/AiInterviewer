@@ -7,6 +7,7 @@ into plain markdown:
   d2l       d2lbook markdown: keep the PyTorch tab only, drop d2lbook roles
   mintlify  Mintlify/Starlight MDX: `:::python`/`:::js` blocks, Tabs/Accordion/Aside
   hugo      Hugo shortcodes ({{< >}}/{{% %}}) + embedded HTML tables (Kafka)
+  mdn       mdn/content: {{macros}} resolved, frontmatter title -> H1, empty sections dropped
   html      raw HTML pages (crawler output is already converted; fragments only)
 """
 
@@ -156,7 +157,39 @@ def _resolve_slash_blocks(text: str) -> str:
     return "\n".join(out)
 
 
+# Self-closing MDX figure components with long (often multi-line) props:
+#   <Diagram name="x" height={250} alt="A tree graph ..." />   <Illustration .../>   <Image .../>
+_JSX_FIGURE_RE = re.compile(
+    r"^[ \t]*<(?:Diagram|Illustration|Image|Img|Video|Gif|Figure)\b((?:[^>]|=>)*?)/?>[ \t]*$",
+    re.M | re.S,
+)
+_JSX_ALT_RE = re.compile(r"\balt=(?:\"([^\"]*)\"|'([^']*)')")
+
+
+def _jsx_figure(m: re.Match) -> str:
+    a = _JSX_ALT_RE.search(m.group(1))
+    alt = ((a.group(1) or a.group(2)) if a else "").strip()
+    return f"*[figure: {alt}]*" if len(alt) > 12 else ""
+
+
+_VITEPRESS_OPEN_RE = re.compile(
+    r"^:::[ \t]+(tip|info|warning|danger|note|caution|important|details)\b[ \t]*", re.M
+)
+_VITEPRESS_GROUP_RE = re.compile(r"^:::[ \t]*code-group[^\n]*\n?", re.M)
+
+
 def profile_markdown(text: str) -> str:
+    text = _outside_fences(text, lambda s: _JSX_FIGURE_RE.sub(_jsx_figure, s))
+    # VitePress containers: `::: tip Title` ... `:::`  (and `::: code-group`)
+    text = _outside_fences(
+        text,
+        lambda s: _VITEPRESS_OPEN_RE.sub(
+            r":::\1 ",
+            _VITEPRESS_GROUP_RE.sub(
+                "", re.sub(r"^[ \t]*:{3,}(?=[ \t]*(?:\w|$))", ":::", s, flags=re.M)
+            ),
+        ),
+    )
     text = _outside_fences(text, lambda s: _LANG_SWITCHER_RE.sub("", s))
     text = _SNIPPET_MARKER_RE.sub("", text)  # pymdownx `--8<-- [start:x]` / `[end:x]` markers
     text = _outside_fences(
@@ -1142,6 +1175,423 @@ def profile_html(text: str, path: str = "", options: dict | None = None) -> str:
     return md
 
 
+# ---------------------------------------------------------------------------
+# mdn  (mdn/content: markdown + {{macros}} + frontmatter title, no H1 in the body)
+# ---------------------------------------------------------------------------
+
+_MDN_FM_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.S)
+_MDN_MACRO_RE = re.compile(
+    r"\{\{\s*([A-Za-z_][\w:-]*)\s*(?:\(((?:[^()]|\([^()]*\))*)\))?\s*\}\}", re.S
+)
+_MDN_STR_ARG_RE = re.compile(r"""\s*(?:"([^"]*)"|'([^']*)'|([^,\s]+))\s*(?:,|$)""")
+# macro name (lower case) -> index of the argument that is the visible text (-1 = last one)
+_MDN_NAME_MACROS = {
+    "domxref",
+    "jsxref",
+    "cssxref",
+    "httpheader",
+    "httpmethod",
+    "httpstatus",
+    "glossary",
+    "event",
+    "svgelement",
+    "svgattr",
+    "htmlattrxref",
+    "domeventxref",
+    "htmlelement",
+    "cssinfo",
+    "webextapiref",
+    "jsapixref",
+}
+_MDN_SECTION_DROP = {"specifications", "browser compatibility", "see also", "try it"}
+_MDN_FENCE_INFO_RE = re.compile(r"^([ \t]*(?:```|~~~))([\w+#.-]*)[^\n]*$", re.M)
+_MDN_CALLOUT_RE = re.compile(r"^>\s*\[!(NOTE|WARNING|CALLOUT|TIP|IMPORTANT|CAUTION)\][ \t]*$", re.M)
+
+
+def _mdn_macro(m: re.Match) -> str:
+    name = m.group(1).lower()
+    if name == "rfc":
+        nums = re.findall(r"\d+", m.group(2) or "")
+        return f"RFC {nums[0]}" if nums else ""
+    if name not in _MDN_NAME_MACROS:
+        return ""
+    args = [
+        next(g for g in a.groups() if g is not None)
+        for a in _MDN_STR_ARG_RE.finditer(m.group(2) or "")
+    ]
+    if not args:
+        return ""
+    if name == "htmlelement":
+        return f"`<{args[0]}>`"
+    if name == "glossary" and len(args) >= 2:
+        return args[1]
+    if name in ("domxref", "jsxref", "cssxref", "httpheader", "event", "domeventxref"):
+        return args[1] if len(args) >= 2 and args[1] and not args[1].startswith("#") else args[0]
+    return args[0]
+
+
+def _mdn_drop_sections(text: str) -> str:
+    """Removes whole sections whose heading is in _MDN_SECTION_DROP (link lists, empty
+    macro-only sections), up to the next heading of the same or a higher level."""
+    out: list[str] = []
+    skip_level = 0
+    for ln in text.split("\n"):
+        m = re.match(r"^(#{1,6})[ \t]+(.*?)[ \t]*$", ln)
+        if m:
+            level = len(m.group(1))
+            if skip_level and level <= skip_level:
+                skip_level = 0
+            if not skip_level and re.sub(r"\W+", " ", m.group(2)).strip().lower() in (
+                _MDN_SECTION_DROP
+            ):
+                skip_level = level
+                continue
+        if not skip_level:
+            out.append(ln)
+    return "\n".join(out)
+
+
+def profile_mdn(text: str) -> str:
+    title = ""
+    fm = _MDN_FM_RE.match(text)
+    if fm:
+        tm = re.search(r"^title:\s*(.+?)\s*$", fm.group(1), re.M)
+        if tm:
+            title = tm.group(1).strip().strip("\"'")
+        text = text[fm.end() :]
+    text = re.sub(r"<!--.*?-->", "", text, flags=re.S)
+
+    def _prose(seg: str) -> str:
+        seg = _MDN_MACRO_RE.sub(_mdn_macro, seg)
+        seg = _MDN_CALLOUT_RE.sub(lambda m: "> **" + m.group(1).title() + ":**", seg)
+        return seg
+
+    text = _outside_fences(text, _prose)
+    text = _MDN_FENCE_INFO_RE.sub(lambda m: m.group(1) + m.group(2), text)
+    text = profile_markdown(text)
+    text = strip_relative_links_and_images(text)
+    text = _outside_fences(text, _mdn_drop_sections)
+    if title and not re.match(r"\s*#\s", text):
+        text = f"# {title}\n\n{text.lstrip()}"
+    return text
+
+
+# ---------------------------------------------------------------------------
+# asciidoc  (Spring Framework / Spring Boot / Debezium ... Antora pages)
+# ---------------------------------------------------------------------------
+
+_ADOC_ADMON = {
+    "NOTE": "Note",
+    "TIP": "Tip",
+    "IMPORTANT": "Important",
+    "WARNING": "Warning",
+    "CAUTION": "Caution",
+}
+_ADOC_ADMON_LINE_RE = re.compile(r"^(NOTE|TIP|IMPORTANT|WARNING|CAUTION):[ \t]+(.*)$")
+_ADOC_HEADING_RE = re.compile(r"^(={1,6})[ \t]+(\S.*?)(?:[ \t]+=+)?$")
+_ADOC_ATTR_RE = re.compile(r"^:[\w!-]+!?:.*$")
+_ADOC_DELIM_RE = re.compile(r"^(-{4,}|\.{4,}|={4,}|\*{4,}|_{4,}|\+{4,}|/{4,}|--)$")
+_ADOC_BLOCKATTR_RE = re.compile(r"^\[([^\]]*)\]$")
+_ADOC_LISTITEM_RE = re.compile(r"^([ \t]*)(\*{1,5}|-|\.{1,5})[ \t]+(\S.*)$")
+_ADOC_DESC_RE = re.compile(r"^([^\s:|`][^:|`]*?)(:{2,4})(?:[ \t]+(.*))?$")
+_ADOC_CODE_STYLES = {"source", "listing", "literal"}
+
+
+def _adoc_inline(t: str) -> str:
+    t = re.sub(
+        r"\bimage:+[^\s\[]+\[([^\]]*)\]",
+        lambda m: f"*[figure: {m.group(1)}]*" if len(m.group(1)) > 12 else "",
+        t,
+    )
+    t = re.sub(
+        r"\b(?:link|xref):+([^\s\[]+)\[([^\]]*)\]",
+        lambda m: (
+            (m.group(2) or m.group(1))
+            if not m.group(1).startswith(("http", "mailto"))
+            else (f"[{m.group(2) or m.group(1)}]({m.group(1)})")
+        ),
+        t,
+    )
+    t = re.sub(
+        r"(?<![\w/\"'(])(https?://[^\s\[\]<>]+)\[([^\]]*)\]",
+        lambda m: f"[{m.group(2) or m.group(1)}]({m.group(1)})",
+        t,
+    )
+    t = re.sub(r"<<([^,>]+),([^>]+)>>", r"\2", t)
+    t = re.sub(r"<<([^>]+)>>", lambda m: m.group(1).replace("-", " ").replace("_", " "), t)
+    t = re.sub(r"\bfootnote:\[[^\]]*\]", "", t)
+    t = re.sub(r"\[\.[\w. -]+\]#([^#\n]+)#", r"\1", t)  # [.small]#text# role spans
+    t = re.sub(r"\b(?:kbd|btn|menu):\[([^\]]*)\]", r"`\1`", t)
+    t = re.sub(r"(?<![\w*])\*([^*\s][^*\n]*?)\*(?![\w*])", r"**\1**", t)
+    t = re.sub(r"\+\+\+?([^+\n]+?)\+\+\+?", r"`\1`", t)
+    t = re.sub(r"(?<![\w{])\{[a-z][\w.-]*\}", "", t)  # unresolved attribute references
+    return t
+
+
+def adoc_to_markdown(text: str) -> str:
+    lines = text.replace("\r\n", "\n").split("\n")
+    out: list[str] = []
+    i, n = 0, len(lines)
+    pending_style = ""  # last [style,lang] block attribute line
+    pending_title = ""
+    pending_cols = 0
+    while i < n:
+        ln = lines[i]
+        s = ln.rstrip()
+        st = s.strip()
+        # comments
+        if st.startswith("////"):
+            i += 1
+            while i < n and not lines[i].strip().startswith("////"):
+                i += 1
+            i += 1
+            continue
+        if st.startswith("//") and not st.startswith("///"):
+            i += 1
+            continue
+        # conditionals / includes / toc / anchors
+        if re.match(r"^(ifn?def|ifeval|endif)::", st) or re.match(
+            r"^(include|include-code|toc|include-partial)::", st
+        ):
+            i += 1
+            continue
+        if (
+            re.match(r"^\[\[[^\]]+\]\]$", st)
+            or re.match(r"^\[#[^\]]+\]$", st)
+            or st in ("[discrete]", "[%collapsible]")
+        ):
+            i += 1
+            continue
+        if _ADOC_ATTR_RE.match(st):
+            i += 1
+            continue
+        if re.match(r"^image::[^\[]+\[([^\]]*)\]", st):
+            alt = re.match(r"^image::[^\[]+\[([^\]]*)\]", st).group(1).split(",")[0]
+            if len(alt) > 12:
+                out.append(f"*[figure: {alt}]*")
+            i += 1
+            continue
+        m = _ADOC_BLOCKATTR_RE.match(st)
+        if m and not st.startswith("[["):
+            attrs = m.group(1)
+            style = attrs.split(",")[0].strip().lower()
+            cm = re.search(r'cols="?([^",\]]+(?:,[^",\]]+)*)"?', attrs)
+            if cm and "cols=" in attrs:
+                spec = cm.group(1)
+                mm = re.match(r"^(\d+)\*", spec)
+                pending_cols = (
+                    int(mm.group(1)) if mm else len([c for c in spec.split(",") if c.strip()])
+                )
+            if re.match(r"^(source|listing|literal)\b", style) or style.startswith(","):
+                parts = [p.strip() for p in attrs.split(",")]
+                lang = (
+                    parts[1]
+                    if len(parts) > 1 and parts[0].lower() == "source"
+                    else (parts[0].lstrip(",") if parts and parts[0].startswith(",") else "")
+                )
+                pending_style = "code:" + re.sub(r"[^\w+#.-]", "", lang or "")
+            elif style.upper() in _ADOC_ADMON:
+                pending_style = "admon:" + _ADOC_ADMON[style.upper()]
+            elif style in ("quote", "verse", "sidebar", "example", "abstract"):
+                pending_style = "plain"
+            elif style.startswith("%") or style in ("tabs", "cols") or "=" in attrs:
+                pass
+            else:
+                pending_style = pending_style
+            i += 1
+            continue
+        # block title
+        if re.match(r"^\.[A-Za-z0-9][^.\n]*$", st) and not re.match(r"^\.{1,5}[ \t]", s):
+            pending_title = st[1:].strip()
+            i += 1
+            continue
+        # delimited blocks
+        if _ADOC_DELIM_RE.match(st) and st != "--" or st == "--":
+            delim = st
+            j = i + 1
+            body: list[str] = []
+            while j < n and lines[j].strip() != delim:
+                body.append(lines[j])
+                j += 1
+            i = j + 1
+            kind = pending_style
+            pending_style = ""
+            is_code = delim.startswith(("----", "....")) or kind.startswith("code:")
+            if delim.startswith("++++") or delim.startswith("////"):
+                continue
+            if pending_title:
+                out.extend(["", f"**{pending_title}**", ""])
+                pending_title = ""
+            if is_code:
+                lang = kind.split(":", 1)[1] if kind.startswith("code:") else ""
+                out.extend(["", f"```{lang}"] + [b.rstrip() for b in body] + ["```", ""])
+            else:
+                inner = adoc_to_markdown("\n".join(body))
+                if kind.startswith("admon:"):
+                    out.extend(
+                        [
+                            "",
+                            f"**{kind.split(':', 1)[1]}:** "
+                            + inner.strip().replace("\n\n", "\n\n"),
+                            "",
+                        ]
+                    )
+                else:
+                    out.extend(["", inner.strip(), ""])
+            continue
+        # table
+        if st.startswith("|==="):
+            j = i + 1
+            body = []
+            while j < n and not lines[j].strip().startswith("|==="):
+                body.append(lines[j])
+                j += 1
+            i = j + 1
+            cells: list[str] = []
+            first_row_cells = 0
+            seen_blank_after_first = False
+            for b in body:
+                bs = b.rstrip()
+                if not bs.strip():
+                    if cells and first_row_cells == 0:
+                        first_row_cells = len(cells)
+                    continue
+                if bs.lstrip().startswith("|"):
+                    parts = bs.lstrip()[1:].split(" |") if bs.count("|") > 1 else [bs.lstrip()[1:]]
+                    for p in parts:
+                        cells.append(p.strip().lstrip("|").strip())
+                    if (
+                        first_row_cells == 0
+                        and len(bs.split("|")) > 2
+                        and not seen_blank_after_first
+                    ):
+                        first_row_cells = len(cells)
+                elif cells:
+                    cells[-1] = (cells[-1] + " " + bs.strip()).strip()
+            ncols = pending_cols or first_row_cells or 1
+            pending_cols = 0
+            if cells:
+                rows = [cells[k : k + ncols] for k in range(0, len(cells), ncols)]
+                if pending_title:
+                    out.extend(["", f"**{pending_title}**"])
+                    pending_title = ""
+                out.append("")
+                for ri, row in enumerate(rows):
+                    row = row + [""] * (ncols - len(row))
+                    out.append("| " + " | ".join(c.replace("|", "\\|") for c in row) + " |")
+                    if ri == 0:
+                        out.append("|" + " --- |" * ncols)
+                out.append("")
+            continue
+        # headings
+        m = _ADOC_HEADING_RE.match(st)
+        if m:
+            out.extend(["", "#" * len(m.group(1)) + " " + _adoc_inline(m.group(2)), ""])
+            pending_style = ""
+            i += 1
+            continue
+        # admonition paragraph
+        m = _ADOC_ADMON_LINE_RE.match(st)
+        if m:
+            out.append(f"**{_ADOC_ADMON[m.group(1)]}:** {_adoc_inline(m.group(2))}")
+            i += 1
+            continue
+        # literal paragraph under a code style
+        if pending_style.startswith("code:") and st:
+            j = i
+            body = []
+            while j < n and lines[j].strip():
+                body.append(lines[j])
+                j += 1
+            lang = pending_style.split(":", 1)[1]
+            out.extend(["", f"```{lang}"] + [b.rstrip() for b in body] + ["```", ""])
+            pending_style = ""
+            i = j
+            continue
+        if pending_style.startswith("admon:") and st:
+            out.append(f"**{pending_style.split(':', 1)[1]}:** " + _adoc_inline(st))
+            pending_style = ""
+            i += 1
+            continue
+        # lists
+        m = _ADOC_LISTITEM_RE.match(s)
+        if m:
+            marker, body_t = m.group(2), m.group(3)
+            depth = len(marker) - 1 if marker != "-" else 0
+            if marker.startswith("."):
+                out.append("   " * depth + "1. " + _adoc_inline(body_t))
+            else:
+                out.append("  " * depth + "- " + _adoc_inline(body_t))
+            i += 1
+            continue
+        if st == "+":  # list continuation
+            i += 1
+            continue
+        m = _ADOC_DESC_RE.match(st)
+        if m and not st.startswith(("http", "|")) and len(m.group(1)) < 80:
+            term, rest = m.group(1).strip(), (m.group(3) or "").strip()
+            out.append(f"- **{_adoc_inline(term)}**" + (f": {_adoc_inline(rest)}" if rest else ""))
+            i += 1
+            continue
+        if pending_title and st:
+            out.extend(["", f"**{pending_title}**", ""])
+            pending_title = ""
+        out.append(_adoc_inline(s))
+        i += 1
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(out)).strip("\n") + "\n"
+
+
+def profile_asciidoc(text: str) -> str:
+    return profile_markdown(adoc_to_markdown(text))
+
+
+# ---------------------------------------------------------------------------
+# msdocs  (Microsoft Learn markdown: `> [!NOTE]`, `:::image:::`, `[!INCLUDE]`, yml-driven pages)
+# ---------------------------------------------------------------------------
+
+_MS_IMAGE_RE = re.compile(r":::image\b([^\n]*?)(?::::)?[ \t]*$", re.M)
+_MS_ALT_RE = re.compile(r'alt-text="([^"]*)"')
+_MS_CALLOUT_RE = re.compile(
+    r"^>[ \t]*\[!(NOTE|TIP|WARNING|IMPORTANT|CAUTION|ERROR|WARNING)\][ \t]*$", re.M
+)
+_MS_INCLUDE_RE = re.compile(r"^[ \t]*(?:>[ \t]*)?\[!INCLUDE\b[^\n]*$", re.M)
+_MS_ROW_RE = re.compile(
+    r"^[ \t]*:::(?:row|column|column-end|row-end|zone|zone-end)\b[^\n]*$",
+    re.M,
+)
+_MS_VIDEO_RE = re.compile(r"^>[ \t]*\[!VIDEO\b[^\n]*$", re.M)
+
+
+def profile_msdocs(text: str) -> str:
+    fm = re.match(r"\A---\s*\n(.*?)\n---\s*\n", text, re.S)
+    title = ""
+    if fm:
+        tm = re.search(r"^title:\s*(.+?)\s*$", fm.group(1), re.M)
+        if tm:
+            title = tm.group(1).strip().strip("\"'")
+        text = text[fm.end() :]
+
+    def _img(m: re.Match) -> str:
+        a = _MS_ALT_RE.search(m.group(1))
+        alt = a.group(1).strip() if a else ""
+        return f"*[figure: {alt}]*" if len(alt) > 12 else ""
+
+    def _prose(seg: str) -> str:
+        seg = _MS_IMAGE_RE.sub(_img, seg)
+        seg = _MS_INCLUDE_RE.sub("", seg)
+        seg = _MS_VIDEO_RE.sub("", seg)
+        seg = _MS_ROW_RE.sub("", seg)
+        seg = _MS_CALLOUT_RE.sub(lambda m: "> **" + m.group(1).title() + ":**", seg)
+        return seg
+
+    text = _outside_fences(text, _prose)
+    text = profile_markdown(text)
+    text = strip_relative_links_and_images(text)
+    if title and not re.search(r"^#\s", text, re.M):
+        text = f"# {title}\n\n{text.lstrip()}"
+    return text
+
+
 PROFILES = {
     "markdown": lambda text, path="", options=None: profile_markdown(text),
     "rst": lambda text, path="", options=None: profile_rst(text, path),
@@ -1149,7 +1599,31 @@ PROFILES = {
     "mintlify": lambda text, path="", options=None: profile_mintlify(profile_markdown(text)),
     "hugo": lambda text, path="", options=None: profile_hugo(text),
     "html": profile_html,
+    "asciidoc": lambda text, path="", options=None: profile_asciidoc(text),
+    "msdocs": lambda text, path="", options=None: profile_msdocs(text),
+    "mdn": lambda text, path="", options=None: profile_mdn(text),
 }
+
+
+_FM_TITLE_RE = re.compile(r"\A---\s*\n(.*?)\n---[ \t]*\n", re.S)
+
+
+def inject_frontmatter_title(text: str) -> str:
+    """Opt-in (`options.frontmatter_title: true`): the generic cleaner drops YAML frontmatter, which
+    loses the page title for docs sites that keep it only there (Next.js, Hugo, Astro...). Prepends
+    `# <title>` when the body has no H1/H2 before its first prose."""
+    fm = _FM_TITLE_RE.match(text)
+    if not fm:
+        return text
+    tm = re.search(r"^title:[ \t]*(.+?)[ \t]*$", fm.group(1), re.M)
+    if not tm:
+        return text
+    title = tm.group(1).strip().strip("\"'")
+    body = text[fm.end() :]
+    first = next((ln for ln in body.split("\n") if ln.strip()), "")
+    if not title or re.match(r"#{1,2}\s", first):
+        return text
+    return text[: fm.end()] + f"# {title}\n\n" + body
 
 
 def apply_profile(
@@ -1158,4 +1632,6 @@ def apply_profile(
     fn = PROFILES.get(profile)
     if fn is None:
         raise ValueError(f"unknown clean_profile {profile!r}")
+    if (options or {}).get("frontmatter_title"):
+        text = inject_frontmatter_title(text)
     return fn(text, path, options)
