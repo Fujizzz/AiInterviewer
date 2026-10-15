@@ -153,3 +153,21 @@ def test_rerank_is_refused_on_a_torch_free_install(monkeypatch):
     _find_spec_without(monkeypatch, "sentence_transformers")
     with pytest.raises(RAGUnavailableError, match="RAG_RERANK"):
         create_rag_adapter(RAGSettings(encoder="onnx-int8", rerank=True))
+
+
+def test_a_missing_model_is_a_rag_unavailable_error_not_a_raw_encoder_error():
+    """With warmup=False the model loads lazily on the first retrieve(); that failure must reach
+    RAGRouter as RAGUnavailableError like every other 'cannot use the retrieval layer' case."""
+    import asyncio
+
+    from rag.adapter import RAGAdapter
+    from rag.index.encoders import EncoderUnavailableError
+
+    def boom(*args, **kwargs):
+        raise EncoderUnavailableError("ONNX encoder file missing: /nowhere/model.onnx")
+
+    adapter = RAGAdapter(FakeBackend(boom), on_warmup=boom)
+    with pytest.raises(RAGUnavailableError, match="query encoder unavailable.*model.onnx"):
+        asyncio.run(adapter.retrieve(make_request()))
+    with pytest.raises(RAGUnavailableError, match="query encoder unavailable"):
+        asyncio.run(adapter.warmup())

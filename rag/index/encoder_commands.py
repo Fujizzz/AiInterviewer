@@ -33,8 +33,13 @@ def cmd_encoder(argv: list[str]) -> int:
         help="rewrite the committed rag/data/encoder_manifest.json from this build",
     )
 
-    v = sub.add_parser("verify", help="check an artifact directory against the committed manifest")
-    v.add_argument("--dir", type=Path, default=None)
+    v = sub.add_parser("verify", help="check an artifact directory against the manifest")
+    v.add_argument(
+        "--dir",
+        type=Path,
+        default=None,
+        help="default: $RAG_ENCODER_MODEL_DIR, else rag/data/models/...",
+    )
     v.add_argument("--no-sha", action="store_true", help="size check only")
     v.add_argument(
         "--smoke",
@@ -102,15 +107,15 @@ def _verify(a: argparse.Namespace) -> int:
         SMOKE_MIN_MEAN,
         EncoderUnavailableError,
         OnnxQueryEncoder,
-        default_model_dir,
         load_manifest,
+        resolve_model_dir,
         smoke_check,
         verify_artifact,
     )
 
     try:
         manifest = load_manifest()
-        d = a.dir or default_model_dir(manifest)
+        d = resolve_model_dir(a.dir, manifest)
         verify_artifact(d, manifest, check_sha=not a.no_sha)
     except EncoderUnavailableError as error:
         print(f"[encoder] FAIL: {error}")

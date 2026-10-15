@@ -21,8 +21,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import threading
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -30,7 +31,7 @@ from typing import Any
 import numpy as np
 
 from . import config
-from .encoders import ENCODER_ONNX_INT8
+from .encoders import ENCODER_ONNX_INT8, EncoderUnavailableError
 
 MANIFEST_SCHEMA_VERSION = 1
 MODEL_FILE = "model.onnx"  # graph only; the weights live in DATA_FILE (memory-mapped by ORT)
@@ -42,10 +43,6 @@ DEFAULT_THREADS = 2
 # taken from the whole batch (padding included), so a padded batch would shift every vector in it
 # by ~1e-2 cosine and make a query's vector depend on its neighbours. Queries arrive one at a time.
 DEFAULT_BATCH = 1
-
-
-class EncoderUnavailableError(RuntimeError):
-    """The ONNX artifact is missing, corrupt or inconsistent with the manifest."""
 
 
 @dataclass(frozen=True)
@@ -120,6 +117,17 @@ def default_model_dir(manifest: EncoderManifest) -> Path:
     return config.MODELS_DIR / manifest.default_dir_name
 
 
+def resolve_model_dir(
+    explicit: str | Path | None, manifest: EncoderManifest, env: Mapping[str, str] | None = None
+) -> Path:
+    """Where the artifact lives: explicit argument (--dir), else RAG_ENCODER_MODEL_DIR, else the
+    gitignored default under rag/data/models/. The encoder and every encoder command use this."""
+    if explicit:
+        return Path(explicit)
+    configured = ((os.environ if env is None else env).get("RAG_ENCODER_MODEL_DIR") or "").strip()
+    return Path(configured) if configured else default_model_dir(manifest)
+
+
 def verify_artifact(model_dir: Path, manifest: EncoderManifest, check_sha: bool = True) -> None:
     """Raise EncoderUnavailableError unless every manifest file is present with the right size
     (and sha256 when `check_sha`; about 1-2 s for the 570 MB model)."""
@@ -127,9 +135,10 @@ def verify_artifact(model_dir: Path, manifest: EncoderManifest, check_sha: bool 
         path = model_dir / name
         if not path.is_file():
             raise EncoderUnavailableError(
-                f"ONNX encoder file missing: {path}. Build it with "
-                "`python -m rag.cli encoder build-onnx` on a dev machine and copy the directory to "
-                "the server (see rag/docs/TEAM_INTEGRATION.md), or set RAG_ENCODER_MODEL_DIR."
+                f"ONNX encoder file missing: {path} (model directory {model_dir}; it comes from "
+                "--dir, else RAG_ENCODER_MODEL_DIR, else the default under rag/data/models/). "
+                "Build the artifact with `python -m rag.cli encoder build-onnx` on a dev machine "
+                "and copy it to the server, see rag/docs/TEAM_INTEGRATION.md."
             )
         if path.stat().st_size != int(info["bytes"]):
             raise EncoderUnavailableError(
@@ -240,7 +249,7 @@ class OnnxQueryEncoder:
         if threads < 1:
             raise ValueError("threads must be >= 1")
         self.manifest = manifest or load_manifest()
-        self.model_dir = Path(model_dir) if model_dir else default_model_dir(self.manifest)
+        self.model_dir = resolve_model_dir(model_dir, self.manifest)
         verify_artifact(self.model_dir, self.manifest, check_sha=verify)
         self.threads = threads
         self.dim = self.manifest.dim

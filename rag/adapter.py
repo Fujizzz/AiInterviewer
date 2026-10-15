@@ -33,6 +33,7 @@ from shared.contracts import (
     RetrievedChunk,
 )
 
+from .index.encoders import EncoderUnavailableError
 from .retrieval.access import ROLE_NAMESPACES
 from .retrieval.confidence import RetrievalResult
 from .retrieval.intent import Filters, RetrievalIntent
@@ -114,16 +115,22 @@ class RAGAdapter:
         intent = self._build_intent(request)
         if intent is None:  # nothing to ask, or no candidate scope: answer "no results"
             return self._response(request, [], started)
-        result = await asyncio.to_thread(
-            self._backend.retrieve, intent, self._role, mode=self._mode, rerank=self._rerank
-        )
+        try:
+            result = await asyncio.to_thread(
+                self._backend.retrieve, intent, self._role, mode=self._mode, rerank=self._rerank
+            )
+        except EncoderUnavailableError as error:  # lazy model load without warmup()
+            raise RAGUnavailableError(f"query encoder unavailable: {error}") from error
         return self._response(request, self._to_chunks(request, result), started)
 
     # -- lifecycle --------------------------------------------------------
     async def warmup(self) -> None:
         """Load models and verify the index (call once at start-up, before serving)."""
         if self._on_warmup is not None:
-            await asyncio.to_thread(self._on_warmup)
+            try:
+                await asyncio.to_thread(self._on_warmup)
+            except EncoderUnavailableError as error:
+                raise RAGUnavailableError(f"query encoder unavailable: {error}") from error
 
     def close(self) -> None:
         """Release pooled connections (synchronous; safe to call more than once)."""

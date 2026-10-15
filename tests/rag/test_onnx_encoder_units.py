@@ -238,3 +238,52 @@ def test_smoke_reference_roundtrip_and_check(encoder, tmp_path):
         {q: -encoder.encode([q])[0] for q in queries}, tmp_path / "neg.json"
     )
     assert OE.smoke_check(encoder, other, repeats=1)["mean"] < -0.99
+
+
+# ------------------------------------------------------------------ model directory resolution
+
+
+def test_resolve_model_dir_prefers_dir_then_env_then_default():
+    m = load_manifest(FIXTURE / "manifest.json")
+    env = {"RAG_ENCODER_MODEL_DIR": "/srv/models/x"}
+    assert OE.resolve_model_dir("/explicit", m, env) == Path("/explicit")
+    assert OE.resolve_model_dir(None, m, env) == Path("/srv/models/x")
+    assert OE.resolve_model_dir(None, m, {"RAG_ENCODER_MODEL_DIR": "  "}) == OE.default_model_dir(m)
+    assert OE.resolve_model_dir(None, m, {}) == OE.default_model_dir(m)
+
+
+def test_verify_command_honours_rag_encoder_model_dir(monkeypatch, capsys):
+    """Regression: `encoder verify` used to look only at --dir / the repo default, so on a server
+    (where the model lives in RAG_ENCODER_MODEL_DIR) it failed with 'file missing'."""
+    from rag.index.encoder_commands import cmd_encoder
+
+    monkeypatch.setattr(OE, "load_manifest", lambda: load_manifest(FIXTURE / "manifest.json"))
+    monkeypatch.setenv("RAG_ENCODER_MODEL_DIR", str(FIXTURE))
+    assert cmd_encoder(["verify"]) == 0
+    assert str(FIXTURE) in capsys.readouterr().out
+
+    # --dir wins over the environment
+    monkeypatch.setenv("RAG_ENCODER_MODEL_DIR", "/nonexistent")
+    assert cmd_encoder(["verify", "--dir", str(FIXTURE)]) == 0
+    capsys.readouterr()
+
+    # nothing configured and nothing at the default: a failure that names every source of the path
+    assert cmd_encoder(["verify"]) == 3
+    out = capsys.readouterr().out
+    assert "/nonexistent" in out and "RAG_ENCODER_MODEL_DIR" in out and "--dir" in out
+
+
+def test_verify_smoke_runs_on_the_env_directory(monkeypatch, capsys, tmp_path):
+    pytest.importorskip("onnxruntime")
+    pytest.importorskip("tokenizers")
+    from rag.index.encoder_commands import cmd_encoder
+
+    enc = OE.OnnxQueryEncoder(FIXTURE, manifest=load_manifest(FIXTURE / "manifest.json"), threads=1)
+    ref = OE.write_smoke_reference(
+        {"hello world": enc.encode(["hello world"])[0]}, tmp_path / "s.json"
+    )
+    monkeypatch.setattr(OE, "load_manifest", lambda: load_manifest(FIXTURE / "manifest.json"))
+    monkeypatch.setattr(OE.config, "ENCODER_SMOKE", ref)
+    monkeypatch.setenv("RAG_ENCODER_MODEL_DIR", str(FIXTURE))
+    assert cmd_encoder(["verify", "--smoke", "--threads", "1"]) == 0
+    assert "smoke: cosine" in capsys.readouterr().out

@@ -29,6 +29,10 @@ ENCODER_CHOICES = (ENCODER_TORCH, ENCODER_ONNX_INT8)
 DERIVED_ENCODERS = frozenset({ENCODER_ONNX_INT8})
 
 
+class EncoderUnavailableError(RuntimeError):
+    """The ONNX artifact is missing, corrupt or inconsistent with the manifest."""
+
+
 def normalize_encoder(value: str | None) -> str:
     name = (value or ENCODER_TORCH).strip().lower().replace("_", "-")
     if name not in ENCODER_CHOICES:
