@@ -1,0 +1,27 @@
+# Chinese and mixed Chinese/English queries used ONLY to compare query encoders (cosine agreement and
+# confidence shifts, see rag/eval/encoder_compare.py). They carry no relevance labels.
+# `in_domain`: answerable from the corpus; `off_topic`: should be low confidence.
+status: "draft — encoder comparison only, no relevance labels"
+queries:
+  - {id: m01, group: in_domain, query: "PagedAttention 如何减少 KV cache 显存碎片"}
+  - {id: m02, group: in_domain, query: "解释 PostgreSQL 的 MVCC 多版本并发控制"}
+  - {id: m03, group: in_domain, query: "Kafka 如何实现 exactly-once 语义"}
+  - {id: m04, group: in_domain, query: "Redis 持久化 RDB 和 AOF 的区别"}
+  - {id: m05, group: in_domain, query: "Django 中 select_related 和 prefetch_related 有什么不同"}
+  - {id: m06, group: in_domain, query: "FastAPI 的依赖注入是怎么工作的"}
+  - {id: m07, group: in_domain, query: "LangGraph 如何管理 agent 的状态"}
+  - {id: m08, group: in_domain, query: "二分查找的时间复杂度和边界条件"}
+  - {id: m09, group: in_domain, query: "如何设计一个高可用的短链接系统"}
+  - {id: m10, group: in_domain, query: "Transformer 里 self-attention 的计算过程"}
+  - {id: m11, group: in_domain, query: "什么是 KV cache，为什么推理要用它"}
+  - {id: m12, group: in_domain, query: "数据库事务的隔离级别有哪些"}
+  - {id: m13, group: in_domain, query: "PyTorch autograd 怎么做反向传播"}
+  - {id: m14, group: in_domain, query: "面试里怎么讲 system design 的 trade-off"}
+  - {id: m15, group: in_domain, query: "vLLM 的 continuous batching 是什么"}
+  - {id: m16, group: in_domain, query: "asyncio.gather 和 TaskGroup 的区别"}
+  - {id: m17, group: off_topic, query: "北京周末天气怎么样"}
+  - {id: m18, group: off_topic, query: "红烧肉的做法"}
+  - {id: m19, group: off_topic, query: "推荐一部好看的科幻电影"}
+  - {id: m20, group: off_topic, query: "新加坡到东京的机票多少钱"}
+  - {id: m21, group: off_topic, query: "最近哪支球队赢了比赛 football 排名"}
+  - {id: m22, group: off_topic, query: "如何学吉他 acoustic 和弦入门"}

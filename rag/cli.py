@@ -527,19 +527,29 @@ Index / retrieval commands (each has its own --help):
   index     idempotently load chunks + vectors into Postgres
   search    run one retrieval, e.g.  search "kv cache" --role question_planner
   eval      retrieval evaluation / tuning against the gold sets
+  encoder   ONNX int8 query encoder: build-onnx (dev machine) | verify (any machine)
 """
 
 
 def _dispatch_index_commands(argv: list[str]) -> int | None:
     """migrate | embed | index | search | eval live in rag.index / rag.retrieval / rag.eval
     (lazy imports: the fetch/clean/chunk pipeline must not need torch or psycopg)."""
-    if not argv or argv[0] not in ("migrate", "embed", "index", "search", "eval"):
+    if not argv or argv[0] not in (
+        "migrate",
+        "embed",
+        "index",
+        "search",
+        "eval",
+        "encoder",
+    ):
         return None
     cmd, rest = argv[0], argv[1:]
     if cmd in ("migrate", "embed", "index"):
         from .index import commands as m
     elif cmd == "search":
         from .retrieval import commands as m
+    elif cmd == "encoder":
+        from .index import encoder_commands as m
     else:
         from .eval import commands as m
     return getattr(m, f"cmd_{cmd}")(rest)

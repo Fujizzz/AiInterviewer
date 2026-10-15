@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "encoder": "onnx-int8",
+  "variant": "int8-pc",
+  "base_model": "BAAI/bge-m3",
+  "base_revision": "5617a9f61b028005a4858fdac845db406aefb181",
+  "license": "MIT (BAAI/bge-m3 and its ONNX export)",
+  "dim": 1024,
+  "max_seq_length": 1024,
+  "format_version": 1,
+  "pooling": "cls",
+  "normalize": true,
+  "source": {
+    "repo": "BAAI/bge-m3",
+    "revision": "5617a9f61b028005a4858fdac845db406aefb181",
+    "path": "onnx/model.onnx + model.onnx_data (fp32, official export, opset 11)",
+    "files": {
+      "model.onnx": {
+        "sha256": "f84251230831afb359ab26d9fd37d5936d4d9bb5d1d5410e66442f630f24435b",
+        "bytes": 724923
+      },
+      "model.onnx_data": {
+        "sha256": "1eebfb28493f67bba03ce0ef64bfdc7fc5a3bd9d7493f818bb1d78cd798416b4",
+        "bytes": 2266820608
+      },
+      "tokenizer.json": {
+        "sha256": "6710678b12670bc442b99edc952c4d996ae309a7020c1fa0096dd245c2faf790",
+        "bytes": 17082821
+      }
+    }
+  },
+  "quantization": {
+    "name": "int8-pc",
+    "weight_type": "qint8",
+    "per_channel": true,
+    "reduce_range": false,
+    "op_types": "ORT default (MatMul, Gather)",
+    "exclude_patterns": [],
+    "embeddings": "ort",
+    "note": "QInt8, per-channel weights",
+    "tool": "onnxruntime.quantization.quantize_dynamic",
+    "activation_type": "uint8 (DynamicQuantizeLinear, computed per call)"
+  },
+  "graph": {
+    "inputs": [
+      "input_ids",
+      "attention_mask"
+    ],
+    "hidden_output": "token_embeddings",
+    "pad_id": 1
+  },
+  "artifact": {
+    "dir": "bge-m3-onnx-int8",
+    "files": {
+      "model.onnx": {
+        "sha256": "494e5d071b328ccff4836b9f3ceed4144d36944896a48575bba1c6abbdf7a01a",
+        "bytes": 2226384
+      },
+      "model.onnx.data": {
+        "sha256": "e2cd25b5dd81c0ec6e06a805ea8a4c72634eacb656a7f4cdee6e9dbc062daae8",
+        "bytes": 567669760
+      },
+      "tokenizer.json": {
+        "sha256": "6710678b12670bc442b99edc952c4d996ae309a7020c1fa0096dd245c2faf790",
+        "bytes": 17082821
+      }
+    }
+  },
+  "build": {
+    "onnxruntime": "1.23.2",
+    "onnx": "1.23.2",
+    "platform": "Darwin arm64"
+  }
+}
