@@ -1,6 +1,6 @@
 """Small provider contract; durable plans keep the full accepted objectives."""
 
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -11,12 +11,21 @@ from shared.contracts.planning import PlanProposal, TopicAllocation, TopicPrefer
 class PlannerChoice(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
-    topic_key: str = Field(min_length=1)
+    topic_key: str = Field(min_length=1, description="Exact key from eligible_topics only")
     relative_weight: float = Field(default=1, gt=0, le=100)
     depth: Literal["brief", "standard", "deep"] = "standard"
-    objective_change: Literal["preserve", "replace"] = "preserve"
-    objective: str | None = Field(default=None, min_length=3, max_length=400)
-    completion_criteria: str | None = Field(default=None, min_length=3, max_length=400)
+    objective_change: Literal["preserve", "replace"] = Field(
+        default="preserve",
+        description="Preserve an existing eligible goal; use replace for a new or changed goal",
+    )
+    objective: str | None = Field(
+        default=None, min_length=3, max_length=400,
+        description="Required non-null declarative objective for every new or replaced goal",
+    )
+    completion_criteria: str | None = Field(
+        default=None, min_length=3, max_length=400,
+        description="Required non-null completion criteria for every new or replaced goal",
+    )
 
     @field_validator("objective", "completion_criteria")
     @classmethod
@@ -29,7 +38,18 @@ class CompactPlanProposal(BaseModel):
 
     base_plan_version: int = Field(ge=0)
     topics: list[PlannerChoice] = Field(max_length=100)
+    revisit_projects: dict[str, Annotated[str, Field(min_length=3, max_length=300)]] = Field(
+        default_factory=dict,
+        max_length=100,
+        description="Map a left project ID to its critical unresolved gap; normally empty",
+    )
     reason: str = Field(min_length=3, max_length=300)
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def bounded_reason(cls, value):
+        """A verbose explanation must not invalidate otherwise usable agenda preferences."""
+        return value.strip()[:300] if isinstance(value, str) else value
 
     def expand(self, context, eligible):
         """Resolve ownership and preserved text locally, before budget compilation."""
@@ -58,5 +78,6 @@ class CompactPlanProposal(BaseModel):
                 )
             )
         return PlanProposal(
-            base_plan_version=self.base_plan_version, topics=topics, reason=self.reason
+            base_plan_version=self.base_plan_version, topics=topics, reason=self.reason,
+            revisit_projects=self.revisit_projects,
         )

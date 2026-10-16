@@ -334,6 +334,7 @@ class DjangoInterviewRepository:
                 saved.state.state_version = version + 1
                 saved.pending_evaluation = None
                 saved.pending_shadow_job = None
+                saved.pending_introduction_answer = None
                 saved.processed_feedback_ids = list(stored.processed_feedback_ids)
                 # Replay/identity validation and the receipt insert share the same CAS transaction
                 # as the answer and next action. Any subsequent failure rolls everything back.
@@ -358,7 +359,27 @@ class DjangoInterviewRepository:
                         ).payload
                     )
                 shadow_job = validate_shadow_job(request, stored, shadow_question)
-                if request.feedback_request_id is not None:
+                from agents.question.introduction import validate_introduction_commit
+
+                validate_introduction_commit(request, stored)
+                if request.unscored_answer is not None:
+                    source = request.unscored_answer
+                    if request.feedback_request_id in stored.processed_feedback_ids:
+                        raise StateConflictError("Introduction has already been committed")
+                    answer = AgentAnswer.objects.get(
+                        id=source.answer_id,
+                        text=source.text,
+                        request_id=request.feedback_request_id,
+                        request__interview_id=self.interview_id,
+                        request__status="running",
+                        question_id=source.question_id,
+                        question__interview_id=self.interview_id,
+                        committed_state_version__isnull=True,
+                    )
+                    answer.unscored_reason = "self_introduction"
+                    answer.committed_state_version = version + 1
+                    answer.save(update_fields=["unscored_reason", "committed_state_version"])
+                elif request.feedback_request_id is not None:
                     feedback = self.pending_feedback
                     if feedback is None or feedback.request_id != request.feedback_request_id:
                         raise InvalidAgentState("Commit lacks the matching evaluated answer")

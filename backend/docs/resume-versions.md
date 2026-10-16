@@ -10,13 +10,20 @@
 | GET | `/api/resume-versions/` | 分页查询本人版本元数据，正文与文件不出现在列表 |
 | GET | `/api/resume-versions/{id}/` | 查询元数据、text 和 can_interview |
 | POST | `/api/resume-versions/{id}/parse/` | uploaded PDF 显式解析；可选 JSON mode=traditional/advanced，默认 traditional，返回 NDJSON |
+| POST | `/api/resume-versions/{id}/prepare-interview/` | 空请求体，为旧版本补齐面试结构或重试失败解析；已就绪时直接复用 |
 | POST | `/api/resume-versions/{id}/current/` | 将 ready 版本设为唯一当前版本 |
 | GET | `/api/resume-versions/{id}/download/` | 私有下载原 PDF；文本版本没有 PDF |
 | DELETE | `/api/resume-versions/{id}/` | 删除未被面试/编辑稿引用且非解析中的版本，成功返回 204 |
 
 每次创建产生新 UUID，内容不提供 PATCH/PUT；当前选择不改写历史版本。客户端必须显式选择版本启动面试，后端不会隐式使用 current。文件上限沿用 10 MiB，PDF 上传只检查输入大小与 PDF 标识，实际结构、页面及视觉校对由原解析管线验证。
 
-PDF 初始状态为 uploaded；显式解析进入 parsing，收到 result 并成功保存文本后为 ready，收到 error 为 failed，已开始的流取消为 interrupted。文本版本直接 ready。HTTP 200 不表示解析成功，前端必须消费终态事件并可查询详情确认状态。ready 表示文本可供面试输入，不表示已完成 Agent 结构化候选人资料提取；后者仍由 prepare/start 完成。
+PDF 初始状态为 uploaded；显式解析进入 parsing，成功保存文本后为 ready，收到 error 为 failed，文本提取期间取消为 interrupted。文本版本直接 ready。`status=ready` 只表示文本可用；能否面试以列表及详情的 `can_interview` 为准。
+
+文字上传、PDF 提取完成、保存编辑版后，后端立即调用原有 `parse_resume_profile`，将与 Agent 相同的 `CandidateProfile`（项目、技能、claims、metrics、source_refs、source_coverage）和姓名保存到该版本的 `interview_profile`。解析等待移到上传/保存阶段；同版本后续面试直接读取数据库，无需再次调用简历解析模型。PDF 流先发送 `stage=interview_profile` 进度，完成后再发送最终 result。
+
+`interview_profile_status` 独立记录 pending/processing/ready/failed/interrupted，失败码为 `interview_profile_error`。语义解析失败不会丢失已保存文本；上传/编辑仍返回 201，PDF result 仍表示文本成功，前端根据 `can_interview=false` 提示重试。旧版本默认 pending，通过版本菜单“准备面试资料 / 重试”补处理，不在面试启动时解析。重试成功返回 200，正在处理返回 409，模型失败返回 503；进程异常退出留下的 processing 超过 10 分钟可显式重试。升级解析契约时递增 `INTERVIEW_PROFILE_VERSION` 并显式重建旧缓存。
+
+并发准备使用数据库条件更新认领任务，不在模型请求期间持有事务锁。缓存包含正文 SHA-256 和解析版本，面试前校验二者及结构合法性；每场面试重新绑定 candidate_id，项目与证据标识保留。列表不返回完整解析结构或加载 PDF 内容。
 
 解析沿用 `PDF_TASK_EXECUTION` 和资源限额，默认传统提取；advanced 显式启用视觉校对，不增加回退或隐式重试。版本元数据 extraction_mode 记录选定模式；未解析或旧记录留空。失败版本不能再次 parse，可显式重新上传形成新版本。进程崩溃或流尚未开始就断开可能留下 parsing；该状态不能被当成成功或自动重放。
 
@@ -36,7 +43,7 @@ PDF 初始状态为 uploaded；显式解析进入 parsing，收到 result 并成
 }
 ```
 
-其他参数和默认值保持不变。后端在收费调用前校验登录归属和 ready 状态，将版本文本交给现有安全网关、解析器与 Agent。版本不可用返回 `resume_unavailable`，不运行 Agent。prepare/start 的请求预留事务再次核对版本，保存引用和实际输入快照；初始化后的 context 保存实际候选人资料，避免重复维护第二份结构化状态。后续上传或 current 切换不影响面试。旧文本输入保持原存储行为，不自动创建版本。
+其他参数和默认值保持不变。后端在收费调用前校验登录归属、文本状态和已保存的面试结构，将文本交给现有安全网关，Agent 直接读取版本结构。版本或结构不可用返回 `resume_unavailable`，不启动临时解析。prepare/start 的请求预留事务再次核对版本，保存引用和实际输入快照；初始化后的 context 保存本场使用的候选人资料。后续上传或 current 切换不影响面试。旧文本输入和 CLI 保留原解析流程，不自动创建版本。
 
 ## 历史与处理状态
 
@@ -71,11 +78,11 @@ PDF 通过一个“上传简历”入口选择文件，选中后一次保存原�
 账号身份、权限、密码等字段拒绝写入；姓名/邮箱只保存到本人用户表，不发送验证邮件或改变登录方式。
 写操作需 session 与 CSRF，响应禁止私有缓存，日志只记录用户 ID 和修改字段名。
 
-`/agent/` 和 HTML 别名同样要求登录。面试页仅选择 ready 版本，不再上传、编辑或显式提取 PDF。
+`/agent/` 和 HTML 别名同样要求登录。面试页仅选择 `can_interview=true` 的版本，不再上传、编辑或显式提取 PDF。
 初次加载本人全部分页元数据后，优先选择 URL 中 resume_version_id，未指定时选择后端 current。
 URL 指定版本不可用、无 current 或无 ready 时要求用户明确选择或前往个人中心维护，不静默选择其他版本。
 刷新列表保留原选择；版本不可用时明确要求重选。个人中心的“使用此版本面试”链接传递 UUID，
-面试 start 发送 resume_version_id，不发送客户端正文；原有岗位/预算、后端语义解析与评分保持不变。
+面试 start 发送 resume_version_id，不发送客户端正文；岗位/预算与评分保持不变，简历语义解析提前到上传/保存时。
 密码修改与岗位列表 UI 不在个人中心此次改动范围；推荐槽位先提供规则提取建议，用户保存后才作为确认值。
 
 `interviews.tests.test_resume_page` 使用真实 Django 会话/模板验证页面保护及转义。

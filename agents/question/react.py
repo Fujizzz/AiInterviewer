@@ -14,7 +14,10 @@ from pydantic_core import PydanticCustomError
 from agents.config import AgentSettings
 from agents.domain.models import InterviewContext, InterviewHistoryEntry
 from agents.model_calls import (
+    QualityCallBudget,
+    QualityCallBudgetExhausted,
     QuestionCallBudget,
+    quality_call_budget,
     question_call_budget,
     run_model_call,
     validation_issues,
@@ -34,7 +37,7 @@ from agents.question.quality import (
 )
 from agents.question.validator import QuestionValidator
 from agents.tracing import emit_trace
-from shared.contracts import PlannedQuestion
+from shared.contracts import PlannedQuestion, RetrievedChunk
 
 _REPAIR_INSTRUCTIONS = {
     "PLAN_TOPIC_FINISHED": "The agenda closed this topic. Choose the next available topic.",
@@ -178,6 +181,7 @@ class ReactQuestionAgent:
         interview: InterviewContext,
         previous_questions: Sequence[PlannedQuestion] = (),
         autonomous: bool = False,
+        retrieved_evidence: Sequence[RetrievedChunk] = (),
     ) -> QuestionAgentResult:
         result = QuestionAgentResult()
         started = perf_counter()
@@ -187,6 +191,14 @@ class ReactQuestionAgent:
             + 2 * (self._settings.retries.llm_generation_retries + 1)
         )
         budget_token = question_call_budget.set(budget)
+        quality_token = None
+        if (
+            self._settings.question_agent.quality_mode == "relaxed"
+            and quality_call_budget.get() is None
+        ):
+            quality_token = quality_call_budget.set(
+                QualityCallBudget(self._settings.question_agent.max_quality_calls)
+            )
         emit_trace(
             "react.started",
             question_id=question_plan.question_id,
@@ -202,6 +214,7 @@ class ReactQuestionAgent:
                     result,
                     autonomous,
                     deadline,
+                    retrieved_evidence,
                 )
         except TimeoutError:
             result.stop_reason = "TIMEOUT"
@@ -217,6 +230,8 @@ class ReactQuestionAgent:
         finally:
             result.model_calls = budget.used
             question_call_budget.reset(budget_token)
+            if quality_token is not None:
+                quality_call_budget.reset(quality_token)
             result.elapsed_seconds = perf_counter() - started
             emit_trace(
                 "react.finished",
@@ -236,6 +251,7 @@ class ReactQuestionAgent:
         result: QuestionAgentResult,
         autonomous: bool = False,
         deadline: float | None = None,
+        retrieved_evidence: Sequence[RetrievedChunk] = (),
     ) -> None:
         limits = self._settings.question_agent
         observations: list[dict[str, Any]] = []
@@ -267,6 +283,26 @@ class ReactQuestionAgent:
         # Each iteration either spends a tool call, spends a repair, or terminates.
         max_steps = limits.max_tool_calls + self._settings.retries.llm_generation_retries + 1
         for _ in range(max_steps):
+            quality_budget = quality_call_budget.get()
+            if quality_budget and quality_budget.used >= quality_budget.limit:
+                result.stop_reason = "QUALITY_CALL_LIMIT"
+                return
+            if (
+                quality_budget
+                and quality_budget.recovery_reserve
+                and quality_budget.has_rejected_draft
+                and quality_budget.limit - quality_budget.used <= quality_budget.recovery_reserve
+                and self._has_recovery_cache(interview, locked_intent or plan)
+            ):
+                result.stop_reason = "QUALITY_RESERVED_FOR_RECOVERY"
+                emit_trace(
+                    "question.quality_reserved",
+                    question_id=plan.question_id,
+                    used=quality_budget.used,
+                    limit=quality_budget.limit,
+                    remaining=quality_budget.limit - quality_budget.used,
+                )
+                return
             payload = {
                 "question_plan": plan.model_dump(mode="json"),
                 "context": context,
@@ -277,7 +313,7 @@ class ReactQuestionAgent:
                     "consecutive_probes": interview.state.consecutive_probes,
                 },
                 "latest_turn": (
-                    self._history_entry(interview.question_history[-1])
+                    self._history_entry(interview.question_history[-1], interview)
                     if interview.question_history
                     else None
                 ),
@@ -309,18 +345,41 @@ class ReactQuestionAgent:
                     "Return final with intent_id and text only (selection=null). Keep the same "
                     "primary information target. A route/target change requires request_retarget."
                 )
+            if retrieved_evidence:
+                payload["question_purpose"] = "technical_knowledge"
+                payload["retrieved_evidence"] = [
+                    {
+                        "source_id": f"knowledge:{chunk.chunk_id}",
+                        "source_kind": "technical_reference",
+                        "title": chunk.title,
+                        "text": chunk.content,
+                    }
+                    for chunk in retrieved_evidence
+                ]
+                # The preceding answer belongs to the practice question; its gaps
+                # must not replace this turn's fixed knowledge target.
+                payload["followup_brief"] = None
+            if limits.quality_mode == "relaxed":
+                from agents.question.compact import writing_payload
+
+                payload = writing_payload(payload, interview, self._settings)
+            prompt_name = (
+                "question_react_relaxed_v1"
+                if limits.quality_mode == "relaxed"
+                else self.prompt_name
+            )
             emit_trace(
                 "react.input",
                 question_id=plan.question_id,
                 step=len(result.steps) + 1,
-                prompt_name=self.prompt_name,
+                prompt_name=prompt_name,
                 payload=payload,
             )
             try:
                 result.model_calls += 1
                 decision = await run_model_call(
-                    lambda payload=payload: self._llm.generate_structured(
-                        prompt_name=self.prompt_name,
+                    lambda payload=payload, prompt_name=prompt_name: self._llm.generate_structured(
+                        prompt_name=prompt_name,
                         payload=payload,
                         response_model=QuestionAgentDecision,
                     ),
@@ -336,9 +395,13 @@ class ReactQuestionAgent:
                 raise
             except Exception as error:
                 from agents.domain.errors import ProviderUnavailable
+                from agents.model_calls import safe_error_details
 
                 if isinstance(error, ProviderUnavailable):
                     raise
+                if safe_error_details(error)["category"] in {"timeout", "connection"}:
+                    result.stop_reason = "GENERATION_UNAVAILABLE"
+                    return
                 repair_errors = [f"INVALID_DECISION:{type(error).__name__}"]
                 issues = (
                     validation_issues(error, QuestionAgentDecision)
@@ -418,6 +481,7 @@ class ReactQuestionAgent:
                                     step=review_calls,
                                     deadline=deadline,
                                     review_feedback=review_feedback,
+                                    retrieved_evidence=retrieved_evidence,
                                 )
                             except TimeoutError:
                                 raise
@@ -426,6 +490,27 @@ class ReactQuestionAgent:
 
                                 if isinstance(error, ProviderUnavailable):
                                     raise
+                                if limits.quality_mode == "relaxed":
+                                    if quality_budget:
+                                        quality_budget.has_rejected_draft = True
+                                    # Review failures do not prove a bad candidate answer or
+                                    # draft. Stop here; the controller uses a separate fallback.
+                                    result.stop_reason = (
+                                        "QUALITY_CALL_LIMIT"
+                                        if isinstance(error, QualityCallBudgetExhausted)
+                                        else "QUALITY_UNAVAILABLE"
+                                    )
+                                    result.steps.append({"action": "final", "status": "UNREVIEWED"})
+                                    emit_trace(
+                                        "question.quality",
+                                        question_id=plan.question_id,
+                                        status=result.stop_reason,
+                                        issues=[],
+                                        retrying=False,
+                                        review_errors=getattr(error, "errors", []),
+                                        error_type=type(error).__name__,
+                                    )
+                                    return
                                 retrying = repairs < self._settings.retries.llm_generation_retries
                                 schema_errors = (
                                     validation_issues(error, QuestionQualityReview)
@@ -521,6 +606,8 @@ class ReactQuestionAgent:
                             "guidance": list(quality_feedback),
                         }
                     )
+                    if quality_budget:
+                        quality_budget.has_rejected_draft = True
                     final_only = True
                     if (
                         quality_feedback
@@ -582,6 +669,38 @@ class ReactQuestionAgent:
             rewrites += 1
         result.stop_reason = "STEP_LIMIT"
 
+    def _has_recovery_cache(self, interview, failed_plan):
+        """Reserve a review only for an unused opening outside the failed scope."""
+        from agents.planning.needs import open_needs
+        from agents.planning.projects import project_allowed
+        from agents.policies.dialogue_controller import DialogueController
+        from agents.question.prepared import accepted_review_versions
+
+        versions = accepted_review_versions()
+        controller = DialogueController(interview, self._settings)
+        return any(
+            item.kind == "opening"
+            and item.topic_key != failed_plan.topic_key
+            and item.cache_id not in interview.used_prepared_question_ids
+            and item.cache_id not in interview.rejected_prepared_questions
+            and item.review_version in versions
+            and project_allowed(interview, item.project_id)
+            and not controller.project_exhausted(item.project_id)
+            and controller.topic_questions(item.topic_key) < interview.plan.max_questions_per_topic
+            and (
+                item.topic_key not in interview.topic_progress
+                or (
+                    interview.topic_progress[item.topic_key].status not in {"completed", "skipped"}
+                    and interview.topic_progress[item.topic_key].coverage_status != "sufficient"
+                    and (
+                        not interview.topic_progress[item.topic_key].needs_assessed
+                        or open_needs(interview.topic_progress[item.topic_key], item.topic_key)
+                    )
+                )
+            )
+            for item in interview.prepared_questions
+        )
+
     @staticmethod
     def _freeze_intent(question):
         updates = {}
@@ -591,11 +710,6 @@ class ReactQuestionAgent:
 
     @staticmethod
     def _same_selection(selection, intent):
-        if selection.need_id and selection.need_id == intent.need_id:
-            return all(
-                getattr(selection, name) == getattr(intent, name)
-                for name in ("dialogue_action", "project_id", "topic_key")
-            )
         fields = ("dialogue_action", "project_id", "topic_key", "information_goal")
         return all(getattr(selection, name) == getattr(intent, name) for name in fields) and all(
             not getattr(selection, name) or getattr(selection, name) == getattr(intent, name)
@@ -656,19 +770,19 @@ class ReactQuestionAgent:
             if topic in (entry.question.topic or "").casefold()
         ]
         return {
-            "entries": [self._history_entry(entry) for entry in entries[-limit:]],
+            "entries": [self._history_entry(entry, interview) for entry in entries[-limit:]],
             "retained_entries": len(interview.question_history),
             "scope": "retained evaluated turns in this interview only",
         }
 
-    def _history_entry(self, entry: InterviewHistoryEntry) -> dict[str, Any]:
+    def _history_entry(self, entry: InterviewHistoryEntry, interview=None) -> dict[str, Any]:
         limit = self._settings.question_agent.text_char_limit
         question = entry.question.model_dump(mode="json")
         question["text"] = (entry.question.text or "")[:limit]
         answer = entry.answer.model_dump(mode="json") if entry.answer is not None else None
         if answer is not None:
             answer["text"] = entry.answer.text[:limit]
-        return {
+        result = {
             "question": question,
             "answer": answer,
             "question_truncated": len(entry.question.text or "") > limit,
@@ -678,6 +792,14 @@ class ReactQuestionAgent:
             if getattr(entry.feedback, "analysis_status", "valid") == "valid"
             else {"status": "unassessed", "missing_information": []},
         }
+        from agents.planning.needs import askable_targets
+
+        progress = interview.topic_progress.get(entry.question.topic_key) if interview else None
+        if entry.feedback.analysis.needs_assessed or (progress and progress.needs_assessed):
+            result["analysis"]["missing_information"] = askable_targets(
+                progress, entry.feedback.analysis
+            )
+        return result
 
     @staticmethod
     def _normalized(text: str | None) -> str:

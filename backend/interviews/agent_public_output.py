@@ -52,6 +52,7 @@ def public_question_history(history):
                 "difficulty",
                 "dialogue_action",
                 "parent_question_id",
+                "unscored_reason",
             )
             if key in entry
         }

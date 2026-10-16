@@ -6,6 +6,12 @@ This view is deliberately not the question agent's ``planning_view``.
 
 import json
 
+from agents.planning.projects import (
+    permitted_revisits,
+    project_allowed,
+    project_route,
+    unvisited_projects,
+)
 from shared.contracts.planning import TopicProgress
 
 
@@ -21,18 +27,32 @@ def planner_payload(context, trigger, eligible):
     """Send scope facts once and current decisions, never raw evidence or transcripts."""
     prior = context.plan_history[-1].proposal if context.plan_history else None
     preferences = {item.topic_key: item for item in prior.topics} if prior else {}
+    existing_keys = {item.topic_key for item in context.plan.topics}
     goals = []
+    historical = []
     closed = []
     for item in context.plan.topics:
         progress = context.topic_progress.get(item.topic_key, TopicProgress())
         if progress.status in {"completed", "skipped"} or progress.coverage_status == "sufficient":
             closed.append(item.topic_key)
+        # Coverage gaps do not imply that a topic still has an askable need or capacity.
+        if item.topic_key not in eligible:
+            historical.append(
+                {
+                    "topic_key": item.topic_key,
+                    "selectable": False,
+                    "status": progress.status,
+                    "coverage": progress.coverage_status,
+                }
+            )
             continue
         blocked = [need.target for need in progress.information_needs if need.status == "blocked"]
         preference = preferences.get(item.topic_key)
         goals.append(
             {
                 "topic_key": item.topic_key,
+                "selectable": True,
+                "requires_project_revisit": not project_allowed(context, item.project_id),
                 "objective": item.objective,
                 "objective_version": progress.objective_version,
                 "depth": preference.depth if preference else "standard",
@@ -100,10 +120,28 @@ def planner_payload(context, trigger, eligible):
         "estimated_question_seconds": round(context.estimated_question_seconds),
         "closing_seconds": context.plan.closing_seconds,
         "reserve_seconds": context.plan.reserve_seconds,
+        "project_continuity": {
+            **project_route(context),
+            "permitted_revisit_project_ids": sorted(permitted_revisits(context)),
+        },
+        "project_coverage": {
+            "required": "At least one technical question per project; breadth before depth",
+            "unvisited_project_ids": unvisited_projects(context),
+        },
         "eligible_topics": [
-            {**item, "label": _text(item["label"], 270)} for item in eligible.values()
+            {
+                **item,
+                "label": _text(item["label"], 270),
+                "has_existing_objective": item["topic_key"] in existing_keys,
+                "requires_project_revisit": not project_allowed(context, item["project_id"]),
+                "required_objective_fields": []
+                if item["topic_key"] in existing_keys
+                else ["objective", "completion_criteria"],
+            }
+            for item in eligible.values()
         ],
         "current_goals": goals,
+        "historical_goals": historical,
         "closed_topic_keys": closed,
         "recent_changes": changes,
         "safety_guardrails": {

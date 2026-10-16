@@ -34,7 +34,7 @@ agent:
     maximum_question_marks: 1
   timeouts:
     rag_seconds: 2.0
-    evaluation_seconds: 30.0
+    evaluation_seconds: 20.0
     llm_generation_seconds: 30.0
     resume_extraction_seconds: 90.0
     repository_seconds: 1.0
@@ -52,7 +52,8 @@ agent:
     question_start_cutoff_seconds: 30
   question_agent:
     enabled: true
-    quality_timeout_seconds: 20.0
+    quality_timeout_seconds: 10.0
+    max_quality_calls: 3
     max_tool_calls: 2
     total_timeout_seconds: 90.0
     history_retention: 50

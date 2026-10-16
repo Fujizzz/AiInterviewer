@@ -312,9 +312,9 @@ class InterviewIOGateway:
         explicit test ports; issue no model request.
 
         Read settings.AI_SECURITY_ENABLED once. Enabled mode uses the configured character budget
-        (100,000 by default) and preserves the five-second review budget. Disabled mode constructs
-        neither engine nor reviewer, including injected ports; it retains authenticated state
-        contracts and marks outputs unchecked.
+        (100,000 by default) and configured timeout (five seconds by default). Disabled mode
+        constructs neither engine nor reviewer, including injected ports; it retains authenticated
+        state contracts and marks outputs unchecked.
         """
         self.interview_id, self.owner_id = str(interview_id), owner_id
         self.actor_id = f"user-{owner_id}" if owner_id is not None else f"local-{connection_id}"
@@ -327,7 +327,7 @@ class InterviewIOGateway:
                 policy_version="agent-io-v1",
                 max_scan_chars=settings.AI_SECURITY_MAX_SCAN_CHARS,
                 allowed_actions=tuple(f"publish_{kind}" for kind in OUTPUT_FIELDS),
-                semantic_timeout_seconds=5.0,
+                semantic_timeout_seconds=settings.AI_SECURITY_SEMANTIC_TIMEOUT_SECONDS,
             )
             self._owned_reviewer = create_behavior_reviewer() if reviewer is None else None
             self.engine = BehaviorEngine(
@@ -491,6 +491,10 @@ class InterviewIOGateway:
                             "history": [
                                 entry.model_dump(mode="json") for entry in context.question_history
                             ],
+                            "introduction_answer": (
+                                context.introduction_answer.model_dump(mode="json")
+                                if context.introduction_answer is not None else None
+                            ),
                             "current_question": (stored["latest_action"] or {}).get("question"),
                             "formal_scores": stored.get("formal_scores"),
                             "computed_competencies": context.state.model_dump(mode="json")[

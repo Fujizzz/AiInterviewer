@@ -3,6 +3,7 @@
 from collections import Counter
 
 from agents.planning.pace import final_question_window, round_cost
+from agents.planning.projects import constrain_project_order, coverage_due, unvisited_projects
 from shared.contracts.planning import PlanDraft, TopicAllocation, TopicProgress
 
 
@@ -33,6 +34,7 @@ class BudgetAllocator:
                 )
             if eligible[item.topic_key]["project_id"] != item.project_id:
                 raise PlanConstraintError("PROJECT_TOPIC_MISMATCH", topic_key=item.topic_key)
+        adjustments = constrain_project_order(context, proposal)
         if not proposal.topics and eligible:
             raise PlanConstraintError("EMPTY_AGENDA")
 
@@ -42,9 +44,7 @@ class BudgetAllocator:
             context.plan.closing_seconds if context.plan.version else min(120, remaining // 15),
             remaining,
         )
-        final_question = final_question_window(
-            context, self.settings, closing_seconds=closing
-        )
+        final_question = final_question_window(context, self.settings, closing_seconds=closing)
         if final_question:
             # Duration controls whether another question starts, not how long an
             # already issued answer may take. Allocate one final scope locally.
@@ -57,20 +57,35 @@ class BudgetAllocator:
         )
         if final_question:
             reserve = 0
+        required_time = len(unvisited_projects(context)) * minimum
+        # First visits outrank optional closing/reserve time as well as depth.
+        closing = min(closing, max(0, remaining - required_time))
+        reserve = min(reserve, max(0, remaining - closing - required_time))
         usable = max(0, remaining - closing - reserve)
         project_counts = Counter()
         for key, progress in context.topic_progress.items():
             project_counts[owners.get(key)] += progress.questions_asked
         total_slots = max(0, context.plan.max_questions - context.state.question_index)
-        selected, adjustments = [], []
+        selected = []
+        pending = set(unvisited_projects(context))
+        entries = {}
         for item in proposal.topics:
+            if item.project_id in pending:
+                entries.setdefault(item.project_id, item.topic_key)
+        mandatory = set(entries.values())
+        # Reserve one slot/time floor per unvisited project BEFORE optional topics.
+        candidates = sorted(proposal.topics, key=lambda t: t.topic_key not in mandatory)
+        urgent = coverage_due(context, self.settings)
+        for item in candidates:
             project_slots = context.plan.max_questions_per_project - project_counts[item.project_id]
             topic_slots = (
                 context.plan.max_questions_per_topic
                 - context.topic_progress.get(item.topic_key, TopicProgress()).questions_asked
             )
             reason = None
-            if min(project_slots, topic_slots, total_slots) <= 0:
+            if urgent and item.topic_key not in mandatory:
+                reason = "PROJECT_COVERAGE_RESERVED"
+            elif min(project_slots, topic_slots, total_slots) <= 0:
                 reason = "SAFETY_CAPACITY_EXHAUSTED"
             elif (len(selected) + 1) * minimum > usable:
                 reason = "INSUFFICIENT_ALLOCATION_TIME"
@@ -82,6 +97,18 @@ class BudgetAllocator:
             selected.append(item)
             project_counts[item.project_id] += 1
             total_slots -= 1
+
+        selected_keys = {t.topic_key for t in selected}
+        selected = [t for t in proposal.topics if t.topic_key in selected_keys]
+        for owner, key in entries.items():
+            if key not in selected_keys:
+                adjustments.append(
+                    {
+                        "action": "project_coverage_unavailable",
+                        "project_id": owner,
+                        "reason": "INSUFFICIENT_TIME_OR_SAFETY_CAPACITY",
+                    }
+                )
 
         allocations = []
         if selected:

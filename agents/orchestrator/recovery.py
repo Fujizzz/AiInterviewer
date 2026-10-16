@@ -5,6 +5,13 @@ from dataclasses import dataclass
 from agents.domain.models import ProbeDecision, TopicSelection
 from agents.planning.needs import open_needs, sync_needs
 from agents.planning.pace import admission_cost, final_question_window
+from agents.planning.planner import execution_topics
+from agents.planning.projects import (
+    coverage_due,
+    project_allowed,
+    project_route,
+    unvisited_projects,
+)
 from agents.policies.dialogue_controller import DialogueController
 from agents.policies.topic_selector import TopicSelector
 from agents.question.fallback import _resume_label
@@ -58,10 +65,16 @@ def quarantine(context, failure):
 def recovery_target(context, settings):
     """Prefer fresh resume facts, then known gaps; reserve hypothetical goals for failures."""
     controller = DialogueController(context, settings)
-    projects = context.candidate_profile.projects
+    projects = [
+        p for p in context.candidate_profile.projects if project_allowed(context, p.project_id)
+    ]
+    if coverage_due(context, settings):
+        projects = [p for p in projects if p.project_id in unvisited_projects(context)]
     if projects and all(controller.project_exhausted(p.project_id) for p in projects):
         return None
     ordered = {item.topic_key: index for index, item in enumerate(context.plan.topics)}
+    planned = {item.topic_key for item in execution_topics(context, settings)}
+    current = project_route(context)["active_project_id"]
     fresh, gaps = [], []
     for project in projects:
         if controller.project_exhausted(project.project_id):
@@ -74,6 +87,8 @@ def recovery_target(context, settings):
             ):
                 continue
             if controller.topic_questions(topic.topic_key) >= context.plan.max_questions_per_topic:
+                continue
+            if progress.needs_assessed and not open_needs(progress, topic.topic_key):
                 continue
             if topic.topic_key not in context.used_topic_keys:
                 label = _resume_label(topic.topic, words=25, chars=160)
@@ -96,7 +111,15 @@ def recovery_target(context, settings):
                 "Describe one concrete technical implementation you personally worked on",
             )
         )
-    choices = sorted(fresh or gaps, key=lambda item: ordered.get(item[1].topic_key, 10**6))
+    choices = sorted(
+        [*fresh, *gaps],
+        key=lambda item: (
+            item[1].topic_key not in planned,
+            bool(item[0] and item[0].project_id != current),
+            item[1].topic_key in context.used_topic_keys,
+            ordered.get(item[1].topic_key, 10**6),
+        ),
+    )
     if choices:
         project, topic, goal = choices[0]
     else:
@@ -137,7 +160,8 @@ def recovery_target(context, settings):
             )
         )
         selected = None
-        for owner in projects or [None]:
+        owners = sorted(projects, key=lambda p: p.project_id != current)
+        for owner in owners or [None]:
             if owner and controller.project_exhausted(owner.project_id):
                 continue
             for index, (phase, case) in enumerate(cases):
@@ -162,12 +186,7 @@ def recovery_target(context, settings):
             f"Describe the {phase} if {case} occurred; "
             "this is a hypothetical scenario, not a claim about your experience"
         )
-    active = context.active_thread
-    action = (
-        "new_project"
-        if active and project and project.project_id != active.project_id
-        else "new_topic"
-    )
+    action = "new_project" if current and project and project.project_id != current else "new_topic"
     return RecoveryTarget(
         project,
         topic,

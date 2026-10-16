@@ -106,8 +106,15 @@ async def test_old_broad_sufficient_verdict_has_no_authority_to_close_criteria(a
     feedback = await adapter_factory(
         lambda prompt, data, schema: schema.model_validate(model_result(data, [])), repo
     ).evaluate(evaluation)
-    assert feedback.objective_coverage[0].coverage_status == "partial"
-    assert feedback.objective_coverage[0].missing_information == ["Implementation", "Validation"]
+    # The compact wire format cannot express a broad sufficient verdict at all.
+    assert all(c.coverage_status == "partial" for c in feedback.objective_coverage)
+    if feedback.objective_coverage:
+        assert feedback.objective_coverage[0].missing_information == [
+            "Implementation",
+            "Validation",
+        ]
+    else:
+        assert feedback.objective_coverage_status == "unavailable"
 
 
 @pytest.mark.asyncio
@@ -230,7 +237,7 @@ async def test_invalid_criterion_evidence_never_completes_objective(invalid, ada
 
     feedback = await adapter_factory(model, repo).evaluate(evaluation)
     assert feedback.analysis_status == "valid"
-    assert feedback.objective_coverage[0].coverage_status == "partial"
+    assert all(c.coverage_status == "partial" for c in feedback.objective_coverage)
     assert feedback.evaluation_issues
 
 

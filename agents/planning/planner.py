@@ -7,7 +7,7 @@ from agents.model_calls import run_model_call, safe_error_details
 from agents.planning.allocation import BudgetAllocator, PlanConstraintError
 from agents.planning.completion import project_completion, requirements_for_objective
 from agents.planning.coverage import conflicts_for_coverage
-from agents.planning.needs import replace_objective, sync_needs
+from agents.planning.needs import apply_need_updates, open_needs, replace_objective, sync_needs
 from agents.planning.objectives import (
     evidence_criteria,
     fallback_order,
@@ -16,6 +16,14 @@ from agents.planning.objectives import (
 )
 from agents.planning.pace import admission_cost, round_cost
 from agents.planning.payload import payload_chars, planner_payload
+from agents.planning.projects import (
+    coverage_due,
+    order_project_topics,
+    preserve_project_entries,
+    project_allowed,
+    unvisited_projects,
+)
+from agents.planning.reconciliation import prune_unavailable
 from agents.planning.wire import CompactPlanProposal
 from agents.tracing import emit_trace
 from shared.contracts.planning import (
@@ -52,14 +60,26 @@ def remaining_allocation(context, item):
     return max(0, item.budget_seconds - progress.elapsed_seconds)
 
 
-def execution_topics(context):
-    return [
-        item
-        for item in context.plan.topics
-        if context.topic_progress.get(item.topic_key, TopicProgress()).status
-        in {"pending", "active"}
-        and remaining_allocation(context, item) > 0
-    ]
+def execution_topics(context, settings=None):
+    from agents.config import load_agent_settings
+
+    pending = (
+        set(unvisited_projects(context))
+        if coverage_due(context, settings or load_agent_settings())
+        else set()
+    )
+    return order_project_topics(
+        context,
+        [
+            item
+            for item in context.plan.topics
+            if context.topic_progress.get(item.topic_key, TopicProgress()).status
+            in {"pending", "active"}
+            and remaining_allocation(context, item) > 0
+            and project_allowed(context, item.project_id)
+            and (not pending or item.project_id in pending)
+        ],
+    )
 
 
 def planning_view(context):
@@ -119,18 +139,31 @@ class InterviewPlannerAgent:
             and context.topic_progress.get(key, TopicProgress()).questions_asked
             < context.plan.max_questions_per_topic
             and counts[item["project_id"]] < context.plan.max_questions_per_project
+            and not (
+                (p := context.topic_progress.get(key))
+                and p.needs_assessed
+                and p.questions_asked
+                and not open_needs(p, key)
+            )
         }
 
     def _compile(self, proposal, context, eligible):
+        coverage_adjustments = preserve_project_entries(context, proposal, eligible)
         prepare_objectives(proposal, {t.topic_key: t for t in context.plan.topics})
-        return self.allocator.compile(
+        draft, adjustments = self.allocator.compile(
             proposal,
             context,
             eligible,
             owners={k: v["project_id"] for k, v in catalog(context).items()},
         )
+        return draft, [*coverage_adjustments, *adjustments]
 
     def _fallback(self, context, eligible):
+        eligible = {
+            key: item
+            for key, item in eligible.items()
+            if project_allowed(context, item["project_id"])
+        }
         existing = {item.topic_key: item for item in context.plan.topics}
         accepted = (
             context.plan_history[-1].proposal
@@ -169,9 +202,7 @@ class InterviewPlannerAgent:
                 # The initial proposal's replace flag is a one-time operation,
                 # not an instruction to erase coverage every time budgets move.
                 topics.append(
-                    preferences[key].model_copy(
-                        deep=True, update={"objective_change": "preserve"}
-                    )
+                    preferences[key].model_copy(deep=True, update={"objective_change": "preserve"})
                 )
                 continue
             previous = existing.get(key)
@@ -216,6 +247,7 @@ class InterviewPlannerAgent:
             reason_code="PLANNER_COST_NOT_JUSTIFIED" if local_only else trigger,
         )
         fallback, raw_proposal = False, None
+        background_adjustments = []
         if not local_only:
             context.last_planner_request_question_index = context.state.question_index
             context.last_planner_estimated_question_seconds = context.estimated_question_seconds
@@ -239,6 +271,14 @@ class InterviewPlannerAgent:
                 )
             )
             raw_proposal = raw.model_dump() if hasattr(raw, "model_dump") else raw
+            if speculative and trigger != "INITIAL_PLAN":
+                raw, background_adjustments = prune_unavailable(
+                    raw
+                    if isinstance(raw, CompactPlanProposal)
+                    else PlanProposal.model_validate(raw_proposal),
+                    catalog(context),
+                    eligible,
+                )
             # Legacy provider adapters/replay fixtures can still return full persisted plans.
             proposal = (
                 raw.expand(context, eligible)
@@ -301,6 +341,30 @@ class InterviewPlannerAgent:
             local_only=local_only,
             raw_proposal=raw_proposal,
             speculative=speculative,
+            project_adjustments=[
+                *([] if fallback else background_adjustments),
+                *[
+                    a
+                    for a in adjustments
+                    if a["action"] == "project_topics_grouped"
+                    or a["action"] in {"project_entry_preserved", "project_coverage_unavailable"}
+                    or a.get("reason") == "PROJECT_ALREADY_LEFT"
+                ],
+            ],
+        )
+
+    def initialize_locally(self, context):
+        """Start immediately when the opening's speculative model plan is unavailable."""
+        emit_trace(
+            "planning.initial_local_fallback",
+            interview_id=context.interview_id,
+            reason_code="BACKGROUND_INITIAL_NOT_READY_OR_UNAVAILABLE",
+        )
+        self.accept(
+            context,
+            self._fallback(context, self._eligible(context)),
+            "INITIAL_PLAN",
+            fallback=True,
         )
 
     def accept(
@@ -313,6 +377,7 @@ class InterviewPlannerAgent:
         local_only=False,
         raw_proposal=None,
         speculative=False,
+        project_adjustments=(),
     ):
         """Compile model preferences against current facts/time; never restore a snapshot."""
         base_version = context.plan.version
@@ -331,6 +396,11 @@ class InterviewPlannerAgent:
         draft, adjustments = self._compile(
             proposal, context, eligible if proposal.topics or not (fallback or local_only) else {}
         )
+        # Prevalidation may already have grouped/filtered this mutable proposal.
+        adjustments = [
+            *project_adjustments,
+            *(a for a in adjustments if a not in project_adjustments),
+        ]
         prior = context.plan_history[-1].proposal if context.plan_history else None
         before = (
             {item.topic_key: (index, item.model_dump()) for index, item in enumerate(prior.topics)}
@@ -441,13 +511,19 @@ class InterviewPlannerAgent:
         grounded = answer is not None and bool(answer.text.strip())
         progress.objective_id = progress.objective_id or question.topic_key
         terminal = analysis.status in {"explicit_unknown", "refusal"}
+        if grounded:
+            apply_need_updates(progress, question.topic_key, analysis, answer)
         for need in progress.information_needs:
             if need.need_id == question.need_id and grounded:
                 if answer.answer_id not in need.source_answer_ids:
                     need.source_answer_ids.append(answer.answer_id)
                 if terminal:
                     need.status = "blocked"
-                elif analysis.thread_complete and need.target not in progress.missing_information:
+                elif (
+                    need.status == "open"
+                    and analysis.thread_complete
+                    and need.target not in progress.missing_information
+                ):
                     need.status = "satisfied"
         # A corrected claim cannot remain the basis of an objective completion.
         # Fresh coverage below may establish the goal again using the new answer.
@@ -594,13 +670,19 @@ class InterviewPlannerAgent:
         )
         if terminal:
             progress.status, progress.reason = "skipped", "CANDIDATE_STOPPED"
+        elif (
+            progress.needs_assessed
+            and progress.coverage_status != "sufficient"
+            and not open_needs(progress, question.topic_key)
+        ):
+            progress.status, progress.reason = "deferred", "NO_ASKABLE_NEEDS"
         elif no_information and progress.coverage_status != "sufficient":
             progress.status, progress.reason = (
                 "skipped",
                 "CANDIDATE_STOPPED" if terminal else "NO_NEW_INFORMATION",
             )
 
-    async def review(self, context, *, defer=None):
+    async def review(self, context, *, defer=None, allow_model_request=True):
         if not context.plan.planning_enabled or not context.question_history:
             return
         active = context.active_thread
@@ -619,8 +701,10 @@ class InterviewPlannerAgent:
             and remaining_allocation(context, item) < admission_cost(context, self.settings)
         ):
             local_trigger = "ALLOCATION_REACHED"
+        if coverage_due(context, self.settings):
+            local_trigger = "PROJECT_COVERAGE_REQUIRED"
         if (
-            sum(remaining_allocation(context, t) for t in execution_topics(context))
+            sum(remaining_allocation(context, t) for t in execution_topics(context, self.settings))
             > context.state.remaining_seconds - context.plan.closing_seconds
         ):
             local_trigger = "TIME_DRIFT"
@@ -651,7 +735,8 @@ class InterviewPlannerAgent:
         elif since_request >= self.settings.planning.replan_review_interval_questions:
             trigger = "PERIODIC_REVIEW"
         request_model = bool(
-            trigger
+            allow_model_request
+            and trigger
             and self._eligible(context)
             and (exhausted or since_request >= self.settings.planning.replan_cooldown_questions)
         )

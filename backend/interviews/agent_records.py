@@ -107,11 +107,16 @@ def reserve_request(interview_id, command, *, owner_id=None, resume_version_id=N
             if command.type in {"prepare", "start"}:
                 version = None
                 if resume_version_id is not None:
-                    version = ResumeVersion.objects.select_for_update().get(
-                        pk=resume_version_id, owner_id=owner_id, status="ready"
+                    version = (
+                        ResumeVersion.objects.select_for_update()
+                        .defer("original_pdf", "units", "recommendation_slots")
+                        .get(pk=resume_version_id, owner_id=owner_id, status="ready")
                     )
                     if version.text != command.resume_text:
                         raise ValueError("Resume input changed")
+                    from .resume_profile import read_profile
+
+                    read_profile(version, candidate_id=f"candidate-{interview_id}")
                 interview.resume_version = version
                 interview.resume_text_snapshot = command.resume_text if version else ""
                 interview.save(

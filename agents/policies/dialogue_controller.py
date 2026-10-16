@@ -8,7 +8,9 @@ import re
 
 from agents.config import load_agent_settings
 from agents.domain.models import DialogueThread
+from agents.planning.needs import askable_targets, open_needs
 from agents.planning.planner import execution_topics
+from agents.planning.projects import coverage_due, project_allowed, unvisited_projects
 from agents.policies.topic_selector import TopicSelector
 from shared.contracts.planning import InformationNeed, TopicProgress
 
@@ -41,6 +43,7 @@ class DialogueController:
             topic.topic_key: (project, topic)
             for project in context.candidate_profile.projects
             if not self.project_exhausted(project.project_id)
+            and project_allowed(context, project.project_id)
             for topic in TopicSelector().candidates(project)
             if (topic.topic_key not in context.used_topic_keys or self.can_resume(topic.topic_key))
             and self.topic_questions(topic.topic_key) < context.plan.max_questions_per_topic
@@ -48,7 +51,7 @@ class DialogueController:
         if context.plan.planning_enabled:
             # Only the next scheduled unused topic is eligible; the executor may
             # continue the active thread or finish it early and move to this one.
-            for item in execution_topics(context):
+            for item in execution_topics(context, self.settings):
                 if item.topic_key in available:
                     return {item.topic_key: available[item.topic_key]}
             return {}
@@ -63,7 +66,8 @@ class DialogueController:
             and progress.status == "pending"
             and progress.reason == "RESUMED_BY_PLAN"
             and progress.coverage_status != "sufficient"
-            and topic_key in {item.topic_key for item in execution_topics(self.context)}
+            and topic_key
+            in {item.topic_key for item in execution_topics(self.context, self.settings)}
         )
 
     def followup_block(self):
@@ -79,7 +83,13 @@ class DialogueController:
         if context.state.question_index >= context.plan.max_questions:
             return "QUESTION_SAFETY_LIMIT"
         if context.plan.planning_enabled:
-            if active.topic_key not in {item.topic_key for item in execution_topics(context)}:
+            if coverage_due(context, self.settings) and active.project_id not in unvisited_projects(
+                context
+            ):
+                return "PROJECT_COVERAGE_RESERVED"
+            if active.topic_key not in {
+                item.topic_key for item in execution_topics(context, self.settings)
+            }:
                 return "PLAN_TOPIC_FINISHED"
         if self.project_exhausted(active.project_id):
             return "PROJECT_QUESTION_LIMIT"
@@ -91,6 +101,9 @@ class DialogueController:
             return "CANDIDATE_STOPPED_THREAD"
         if active.no_information_count >= self.settings.probe.max_no_information_answers:
             return "NO_NEW_INFORMATION"
+        progress = context.topic_progress.get(active.topic_key)
+        if progress and progress.needs_assessed and not open_needs(progress, active.topic_key):
+            return "NO_ASKABLE_NEEDS"
         cutoff = (
             self.settings.planning.question_start_cutoff_seconds
             if context.plan.planning_enabled
@@ -111,11 +124,11 @@ class DialogueController:
             and progress
             and progress.status in {"active", "pending"}
             and progress.coverage_status == "partial"
-            and progress.missing_information
+            and askable_targets(progress)
         ):
             return False
         return goal is None or any(
-            self._goal_key(item) == self._goal_key(goal) for item in progress.missing_information
+            self._goal_key(item) == self._goal_key(goal) for item in askable_targets(progress)
         )
 
     def goal_already_asked(
@@ -176,8 +189,14 @@ class DialogueController:
         context = self.context
         if context.state.question_index >= context.plan.max_questions:
             raise ValueError("QUESTION_SAFETY_LIMIT")
+        if coverage_due(context, self.settings) and question.project_id not in unvisited_projects(
+            context
+        ):
+            raise ValueError("PROJECT_COVERAGE_RESERVED")
         if self.project_exhausted(question.project_id):
             raise ValueError("PROJECT_QUESTION_LIMIT")
+        if not project_allowed(context, question.project_id):
+            raise ValueError("PROJECT_ALREADY_LEFT")
         continuing = question.dialogue_action in {"clarify", "probe"}
         if continuing:
             block = self.followup_block()

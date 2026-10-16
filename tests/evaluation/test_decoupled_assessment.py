@@ -1,6 +1,7 @@
 """Decisions, delayed scores, corrections and reports have independent failure boundaries."""
 
 import asyncio
+import re
 
 import pytest
 
@@ -21,6 +22,14 @@ def model(prompt, data, schema):
     if schema is AnswerDecision:
         assert "dimensions" not in schema.model_fields
         assert "rubric_level" not in prompt
+        incident = re.search(r"incident (\d+)", data["answer"])
+        # Each scripted answer is a different incident. Repeating one unchanged
+        # need forces a legitimate topic switch and cannot test thread difficulty.
+        need = (
+            f"How was incident {incident[1]}'s fix validated?"
+            if incident
+            else "How was the fix validated?"
+        )
         return schema(
             answer_relevance=0.9,
             analysis=dict(
@@ -28,7 +37,7 @@ def model(prompt, data, schema):
                 answer_scope="concrete",
                 new_information=True,
                 thread_complete=False,
-                missing_information=["How was the fix validated?"],
+                missing_information=[need],
             ),
         )
     assert schema is AnswerAssessment
@@ -80,7 +89,7 @@ async def test_pending_scores_do_not_block_progress_and_are_consumed_once_on_a_l
     monkeypatch.setattr(port.assessment, "assess", slow)
     request, feedback, _ = await commit(agent, repo, port, 1)
     assert feedback.assessment_status == "pending" and not feedback.dimensions
-    assert feedback.analysis.missing_information == ["How was the fix validated?"]
+    assert feedback.analysis.missing_information == ["How was incident 1's fix validated?"]
     port.start_background(request.interview_id)
     try:
         await entered.wait()
@@ -167,7 +176,7 @@ async def test_non_evidence_answers_do_not_call_the_assessment_model(status, sco
     def provider(prompt, data, schema):
         calls.append(schema)
         assert schema is CompactAnswerDecision
-        return schema(answer_relevance=0.5, analysis=dict(status=status, scope=scope))
+        return schema(limits=[], relations=[], relevance=0.5, status=status, scope=scope)
 
     agent, repo, port = await prepared(provider)
     request, _, _ = await commit(agent, repo, port, 1)

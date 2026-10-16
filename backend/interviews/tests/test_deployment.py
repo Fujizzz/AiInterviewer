@@ -67,6 +67,8 @@ from interviews.middleware import LocalOnlyMiddleware
 from interviews.recommendation.rerank import RerankOutput
 from interviews.resume_models import ResumeVersion
 
+from .agent_fixtures import FixtureLLM
+
 
 def deployment_output(payload):
     """Input actual coarse-ranking candidates, return top final_count jobs and synthesized bilingual
@@ -204,11 +206,13 @@ class DeploymentFrontendTests(SimpleTestCase):
 
     def test_verified_archive(self):
         """Accept one exact artifact with a safe source file and public environment template."""
-        archive = self.archive([
-            ("deploy/smoke.py", b"# synthetic release"),
-            (".env.example", b"PUBLIC_EXAMPLE="),
-            (self.bundle_path, self.content),
-        ])
+        archive = self.archive(
+            [
+                ("deploy/smoke.py", b"# synthetic release"),
+                (".env.example", b"PUBLIC_EXAMPLE="),
+                (self.bundle_path, self.content),
+            ]
+        )
         verify_release_bundle(archive, self.bundle)
 
     def test_missing_duplicate_and_stale_artifact(self):
@@ -302,6 +306,7 @@ class DeploymentAvatarTests(LiveServerTestCase):
     STATIC_URL="/static/",
     MEDIA_URL="/media/",
 )
+@patch("interviews.resume_profile.OpenAILLM", FixtureLLM)
 class DeploymentRecommendationTests(LiveServerTestCase):
     """Function: Verify real HTTP behavior and cleanup during release acceptance; logic: use
     isolated database and local thread service.

@@ -1,6 +1,7 @@
 """Validated configuration for dialogue policies and bounded model execution."""
 
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import BaseModel, Field
@@ -48,7 +49,7 @@ class QuestionValidationSettings(BaseModel):
 
 class TimeoutSettings(BaseModel):
     rag_seconds: float = Field(default=2.0, gt=0)
-    evaluation_seconds: float = Field(default=30.0, gt=0)
+    evaluation_seconds: float = Field(default=20.0, gt=0)
     llm_generation_seconds: float = Field(default=30.0, gt=0)
     resume_extraction_seconds: float = Field(default=90.0, gt=0)
     repository_seconds: float = Field(default=1.0, gt=0)
@@ -61,7 +62,9 @@ class RetrySettings(BaseModel):
 
 class QuestionAgentSettings(BaseModel):
     enabled: bool = True
-    quality_timeout_seconds: float = Field(default=20.0, gt=0)
+    quality_timeout_seconds: float = Field(default=10.0, gt=0)
+    quality_mode: Literal["strict", "relaxed"] = "strict"
+    max_quality_calls: int = Field(default=3, ge=1, le=3)
     max_tool_calls: int = Field(default=2, ge=0, le=8)
     total_timeout_seconds: float = Field(default=90.0, gt=0)
     history_retention: int = Field(default=50, ge=1, le=200)

@@ -33,6 +33,8 @@ Database and API behavior execute against the test database; these tests do not 
 extraction, model quality, or browser layout.
 """
 
+from unittest.mock import patch
+
 from django.contrib.auth import get_user_model
 from rest_framework.test import APITestCase
 
@@ -40,7 +42,10 @@ from interviews.recommendation.schemas import JobsRequest
 from interviews.resume_editor import UNIT_LABELS, render_units, split_units
 from interviews.resume_models import ResumeVersion
 
+from .agent_fixtures import FixtureLLM
 
+
+@patch("interviews.resume_profile.OpenAILLM", FixtureLLM)
 class ResumeEditorTests(APITestCase):
     """Functionality: Verify the resume-edition API contract.
     Inputs: Isolated test users, synthetic resume data, and authenticated HTTP requests.

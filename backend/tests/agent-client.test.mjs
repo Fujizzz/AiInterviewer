@@ -272,7 +272,7 @@ async function makePage(options = {}) {
   getElement("duration").value = "30";
   getElement("probes").value = "2";
   const requests = [];
-  const versions = options.versions || [{id:"version-a",status:"ready",label:"Current resume",is_current:true}];
+  const versions = options.versions || [{id:"version-a",status:"ready",can_interview:true,label:"Current resume",is_current:true}];
   /**
  * Input: Request URL; output combined paginated JSON; fail with real HTTP status, no implicit downgrade.
  */
@@ -417,7 +417,7 @@ test("selected ready version starts once with original budget and real timing", 
  *  current may be located on subsequent pages; unready versions do not enter options, explicitly specified unavailable versions do not auto-select others.
  */
 test("selection includes later pages and rejects an unavailable explicit version", async () => {
-  const versions=[{id:"pending",status:"uploaded"},{id:"version-b",status:"ready",is_current:true}];
+  const versions=[{id:"pending",status:"uploaded"},{id:"version-b",status:"ready",can_interview:true,is_current:true}];
   const page=await makePage({versions});
   assert.equal(page.el("resume-select").value,"version-b");assert.equal(page.requests.length,2);
   const missing=await makePage({versions,search:"?resume_version_id=pending"});
@@ -664,7 +664,8 @@ async function blockedResumeSelection() {
   for (const options of [
     { versions: [] },
     { versions: [{ id: "waiting", status: "uploaded", is_current: true }] },
-    { versions: [{ id: "ready", status: "ready", is_current: false }] },
+    { versions: [{ id: "unprepared", status: "ready", can_interview: false, is_current: true }] },
+    { versions: [{ id: "ready", status: "ready", can_interview: true, is_current: false }] },
     { failure: 403 },
   ]) {
     const page = await makePage(options);

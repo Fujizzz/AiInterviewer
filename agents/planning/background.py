@@ -2,6 +2,10 @@
 
 import asyncio
 
+from agents.planning.allocation import PlanConstraintError
+from agents.planning.planner import catalog
+from agents.planning.projects import project_route
+from agents.planning.reconciliation import reconcile
 from agents.tracing import emit_trace
 
 
@@ -11,6 +15,7 @@ class BackgroundReplanner:
         self.tasks = {}
         self.sources = {}
         self.consumed = set()
+        self.adjustments = {}
 
     def request(self, context, trigger):
         # Durable intent survives a lost task. One task per interview coalesces triggers.
@@ -28,6 +33,7 @@ class BackgroundReplanner:
             self.consumed.discard(key)
             self.tasks.pop(key, None)
             self.sources.pop(key, None)
+            self.adjustments.pop(key, None)
         if (
             context.state.status == "finished"
             or not context.pending_replan_trigger
@@ -46,6 +52,12 @@ class BackgroundReplanner:
             revision = draft.plan_history[-1]
             if revision.source != "model" or revision.fallback_used:
                 return None
+            self.adjustments[source.interview_id] = [
+                a
+                for a in revision.adjustments
+                if a["action"] == "background_topic_filtered"
+                or a.get("reason") == "PROJECT_ALREADY_LEFT"
+            ]
             return revision.proposal
         except Exception as error:
             emit_trace(
@@ -65,37 +77,73 @@ class BackgroundReplanner:
         proposal = None if task.cancelled() else task.result()
         context.pending_replan_trigger = None
         if proposal is None:
-            return
-        stale = (
-            proposal.base_plan_version != context.plan.version
-            or any(
-                key in context.topic_progress
-                and progress.objective_version != context.topic_progress[key].objective_version
-                for key, progress in source.topic_progress.items()
+            emit_trace(
+                "planning.background_unavailable",
+                interview_id=key,
+                reason_code="MODEL_UNAVAILABLE_OR_INVALID",
             )
-            or (
-                (
-                    context.state.question_index != source.state.question_index
-                    or context.processed_feedback_ids != source.processed_feedback_ids
-                )
-                and any(t.objective_change == "replace" for t in proposal.topics)
+            return False
+        # Clock and eligible goals are re-read, so completion/refusal and consumed time win.
+        try:
+            if context.state.status == "finished":
+                raise PlanConstraintError("INTERVIEW_FINISHED")
+            if proposal.base_plan_version != context.plan.version:
+                raise PlanConstraintError("STALE_PLAN_VERSION")
+            if proposal.revisit_projects and project_route(source) != project_route(context):
+                raise PlanConstraintError("PROJECT_VISIT_CHANGED")
+            proposal, adjustments = reconcile(
+                proposal, source, context, catalog(context), self.planner._eligible(context)
             )
-        )
-        if stale:
+            adjustments = [*self.adjustments.get(key, []), *adjustments]
+            # Failed compilation cannot leave goal evidence or allocations partially changed.
+            draft = context.model_copy(deep=True)
+            self.planner.accept(
+                draft,
+                proposal,
+                "INITIAL_PLAN"
+                if source.pending_replan_trigger == "INITIAL_PLAN"
+                else "BACKGROUND_REPLAN",
+                project_adjustments=adjustments,
+            )
+            if not any(a["action"] == "allocated" for a in draft.plan_history[-1].adjustments):
+                raise PlanConstraintError("NO_EXECUTABLE_BACKGROUND_TOPICS")
+        except PlanConstraintError as error:
             emit_trace(
                 "planning.background_discarded",
                 interview_id=key,
-                reason_code="STALE_PLAN_OR_OBJECTIVE",
+                reason_code=error.code,
             )
-            return
-        # Clock and eligible goals are re-read, so completion/refusal and consumed time win.
-        self.planner.accept(context, proposal, "BACKGROUND_REPLAN")
+            return False
+        for field in (
+            "plan",
+            "state",
+            "topic_progress",
+            "plan_history",
+            "last_replan_question_index",
+        ):
+            setattr(context, field, getattr(draft, field))
         emit_trace(
             "planning.background_accepted",
             interview_id=key,
             source_state_version=source.state.state_version,
             plan_version=context.plan.version,
+            adoption="partial" if adjustments else "full",
+            adjustments=adjustments,
+            semantic_changes=context.plan_history[-1].semantic_changes,
+            allocations=[
+                a for a in context.plan_history[-1].adjustments if a["action"] == "allocated"
+            ],
         )
+        return True
+
+    def discard(self, interview_id):
+        """A committed transition retires its speculative task without waiting for the model."""
+        task = self.tasks.pop(interview_id, None)
+        if task is not None and not task.done():
+            task.cancel()
+        self.sources.pop(interview_id, None)
+        self.consumed.discard(interview_id)
+        self.adjustments.pop(interview_id, None)
 
     async def close(self):
         tasks = list(self.tasks.values())
@@ -106,3 +154,4 @@ class BackgroundReplanner:
         self.tasks.clear()
         self.sources.clear()
         self.consumed.clear()
+        self.adjustments.clear()

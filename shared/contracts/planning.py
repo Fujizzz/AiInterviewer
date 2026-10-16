@@ -1,6 +1,6 @@
 """Agenda allocations contain objectives, never candidate-facing questions."""
 
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -60,6 +60,11 @@ class PlanProposal(BaseModel):
     # Optional only for loading legacy records. New live proposals must echo the version.
     base_plan_version: int | None = Field(default=None, ge=0)
     topics: list[TopicPreference] = Field(max_length=100)
+    revisit_projects: dict[str, Annotated[str, Field(min_length=3, max_length=300)]] = Field(
+        default_factory=dict,
+        max_length=100,
+        description="Explicit reason for each deliberate return to a previously left project",
+    )
     reason: str = Field(min_length=3, max_length=500)
 
     @model_validator(mode="before")
@@ -86,6 +91,18 @@ class PlanProposal(BaseModel):
         return value
 
 
+class NeedUpdate(BaseModel):
+    """Askability of one concrete detail, independent of objective coverage."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    target: str = Field(min_length=1, max_length=500)
+    status: Literal["open", "blocked"]
+    need_id: str = ""
+    supporting_segment_ids: list[str] = Field(default_factory=list)
+    supporting_quotes: list[str] = Field(default_factory=list)
+    answer_id: str = ""
+
+
 class InformationNeed(BaseModel):
     """A durable objective gap; wording is data, not the identity of a selection."""
 
@@ -98,6 +115,7 @@ class InformationNeed(BaseModel):
     answer_unit: str = ""
     source_answer_ids: list[str] = Field(default_factory=list)
     status: Literal["open", "satisfied", "superseded", "blocked"] = "open"
+    blocked_evidence: list[dict] = Field(default_factory=list)
 
 
 class CompletionRequirement(BaseModel):
@@ -126,6 +144,7 @@ class TopicProgress(BaseModel):
     next_need_id: str | None = None
     objective_version: int = Field(default=1, ge=1)
     information_needs: list[InformationNeed] = Field(default_factory=list)
+    needs_assessed: bool = False
     completion_requirements: list[CompletionRequirement] = Field(default_factory=list)
 
     @model_validator(mode="before")

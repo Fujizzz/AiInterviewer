@@ -161,7 +161,7 @@ function stream(events) {
  *  Input ID/status, output test-only metadata and body; does not use real candidate data.
  */
 function record(id, status = "ready") {
-  return { id, status, label: "<script>label</script>", original_name: status === "uploaded" ? "sample.pdf" : "", extraction_mode: "", error_code: "", is_current: false, created_at: "2026-10-01T00:00:00Z", text: "中文 <img src=x> 简历" };
+  return { id, status, can_interview: status === "ready", interview_profile_status: status === "ready" ? "ready" : "pending", label: "<script>label</script>", original_name: status === "uploaded" ? "sample.pdf" : "", extraction_mode: "", error_code: "", is_current: false, created_at: "2026-10-01T00:00:00Z", text: "中文 <img src=x> 简历" };
 }
 /**
  *  Input initial record, stream events, and optional page size, output real script VM and request; pagination is only for explicit interface stub.
@@ -228,8 +228,15 @@ async function makePage(initial = [], events = [{ type: "result", text: "中文�
     }
     if (path.endsWith("parse/")) {
       item.status = events.at(-1)?.type === "result" ? "ready" : "failed";
+      item.can_interview = item.status === "ready" && events.at(-1).can_interview !== false;
+      item.interview_profile_status = events.at(-1).interview_profile_status || (item.can_interview ? "ready" : "pending");
       if (item.status === "ready") item.text = events.at(-1).text;
       return stream(events);
+    }
+    if (path.endsWith("prepare-interview/")) {
+      item.can_interview = true;
+      item.interview_profile_status = "ready";
+      return json(item);
     }
     if (path.endsWith("current/")) { for (const value of items) value.is_current = value.id === item.id; return json(item); }
     if (method === "DELETE") {
@@ -786,3 +793,31 @@ async function workspaceDraft() {
   assert.equal(page.requests.length, count);
 }
 test("workspace navigation preserves unsaved draft and reveals recommendation fields", workspaceDraft);
+
+test("legacy text-ready version prepares interview details only on explicit action", async () => {
+  const item = record("legacy");
+  item.can_interview = false; item.interview_profile_status = "pending";
+  const page = await makePage([item]);
+  const before = page.elements.get("versions-list").querySelectorAll("button");
+  assert.ok(before.some(button => button.dataset.action === "prepare-interview"));
+  assert.equal(page.requests.filter(request => request.url.endsWith("prepare-interview/")).length, 0);
+  await page.run("rmAction({target:{closest(){return {dataset:{action:'prepare-interview',id:'legacy'}}}}})");
+  assert.equal(item.can_interview, true);
+  assert.match(page.elements.get("operation-status").textContent, /^rm_profile_ready/);
+  assert.equal(page.requests.filter(request => request.url.endsWith("prepare-interview/")).length, 1);
+  assert.equal(page.elements.get("versions-list").querySelectorAll("button").some(button => button.dataset.action === "prepare-interview"), false);
+});
+
+test("PDF semantic preparation failure retains extracted text and offers retry", async () => {
+  const item = record("pdf", "uploaded");
+  const page = await makePage([item], [
+    { type: "progress", stage: "interview_profile" },
+    { type: "result", text: "Saved extracted resume", pages: [], can_interview: false, interview_profile_status: "failed" },
+  ]);
+  await page.run("rmRun(function parse(){return rmParse('pdf')})");
+  assert.equal(item.status, "ready");
+  assert.equal(item.can_interview, false);
+  assert.equal(page.elements.get("preview-text").value, "Saved extracted resume");
+  assert.match(page.elements.get("operation-status").textContent, /^rm_profile_failed/);
+  assert.ok(page.elements.get("versions-list").querySelectorAll("button").some(button => button.dataset.action === "prepare-interview"));
+});

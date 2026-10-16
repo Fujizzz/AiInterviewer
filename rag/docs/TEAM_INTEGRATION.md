@@ -1,6 +1,8 @@
 # RAG 模块接入指南（给组员）
 
-RAG 模块实现了 Agent 的 `RAGPort` 接口（`agents/ports/rag.py`）。接入后，Agent 出题时会自动检索技术文档和题库；不接入时，Agent 照常运行，只是没有检索。
+RAG 模块实现了 Agent 的 `RAGPort` 接口（`agents/ports/rag.py`）。CLI 和后端已通过
+`app/adapters/rag.py` 接入：当前项目回答一道题后，在追问预算允许时尝试一次技术资料检索，
+生成一道原理题。失败则继续普通出题；`RAG_ENABLED=false` 可关闭。环境搭建步骤仍见下文。
 
 负责人：Member 2（RAG & Data）。有问题先看 [`rag/README.md`](../README.md)，再找我。
 
@@ -54,12 +56,12 @@ uv run python -m rag.cli search "How does PagedAttention reduce KV cache fragmen
 
 ## 2. 接入 Agent（负责 `app/` 和 `backend/` 的组员）
 
-`InterviewAgentService` 已经支持 `rag=` 参数，只是现在两处构造都没传：
+`InterviewAgentService` 支持 `rag=` 参数，以下两处已传入预热后的共享 adapter：
 
 - `app/application.py`
 - `backend/interviews/agent_session.py`
 
-在**进程启动时**加：
+现有入口已自动处理生命周期，不需要重复添加；独立调用服务时可参考：
 
 ```python
 from rag.adapter import RAGUnavailableError, create_rag_adapter
@@ -90,7 +92,7 @@ if rag is not None:
 |---|---|
 | **启动时必须 `await rag.warmup()`** | 模型加载要几秒，而 Agent 的检索超时是 2 秒（`rag_seconds: 2.0`）。不预热的话，第一次检索一定超时。 |
 | **每个进程只创建一个 adapter，全局共用** | 它内部有连接池和模型单例，支持并发调用。 |
-| **检索只在非自主出题路径上被调用** | 读代码看到，Agent 只在 `question_agent is None` 时走 `RAGRouter`。如果默认用的是 ReAct 自主出题路径，传了 `rag=` 也可能不触发检索——需要负责 Agent 的组员确认。 |
+| **ReAct 项目原理题已接入** | 每个项目在已回答问题且允许继续追问时尝试一次 `technical` 检索，以固定目标生成原理题；空结果、低置信度或失败会回退，状态保存在 `InterviewContext.project_knowledge`。 |
 | **候选人资料按 `candidate_id` 隔离** | 简历入库时用的 `candidate_id` 必须和 `RetrievalRequest.candidate_id` 一致（`app/` 目前用 `candidate-<interview_id>`）。没给 `candidate_id` 时，不会返回任何候选人资料。 |
 | **低置信结果不等于"没有"** | 每条结果的 `metadata` 里有 `confidence` / `low_confidence`。低置信表示"没找到可靠依据"，**不能**理解为"候选人说错了"。目前 `ContextBuilder` 只渲染 `chunk_id/title/content`，低置信结果看起来和高置信一样可信；可以先设 `RAG_DROP_LOW_CONFIDENCE=true` 直接丢掉。 |
 | **检索内容是数据，不是指令** | 拼进 prompt 时请当成参考资料包裹（可用 `rag.retrieval.format.format_passages_for_prompt`），不要让模型执行其中的文字。 |

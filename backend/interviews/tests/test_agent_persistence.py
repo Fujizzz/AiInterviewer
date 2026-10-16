@@ -95,7 +95,14 @@ from interviews.agent_session import AgentSession
 from interviews.agent_socket import Answer, Start, agent_socket
 from shared.contracts import CandidateAnswer, InterviewAction
 
-from .agent_fixtures import ANSWER, RESUME, FixtureLLM, SafetyTestMixin, complete_fixture_request
+from .agent_fixtures import (
+    ANSWER,
+    RESUME,
+    FixtureLLM,
+    SafetyTestMixin,
+    complete_fixture_request,
+    enter_main_flow,
+)
 from .test_agent_progress import connect, disconnect, read, send_command
 
 
@@ -119,12 +126,13 @@ class PersistenceTests(SafetyTestMixin, TransactionTestCase):
         await reserve_request(session.interview_id, command)
         result = await session.start(command)
         await complete_fixture_request(session.interview_id, command.request_id, result)
+        result = await enter_main_flow(session, result)
         context = await DjangoInterviewRepository(session.interview_id).get_interview_context(
             session.interview_id
         )
         self.assertEqual(context.plan.max_questions_per_project, 3)
         self.assertEqual(context.plan.max_questions_per_topic, 2)
-        self.assertEqual(context.plan.max_questions, 8)
+        self.assertEqual(context.plan.max_questions, 9)
         self.assertEqual(context.plan.duration_seconds, 900)
         self.assertEqual(context.plan.version, 1)
         self.assertIsNotNone(context.state.clock_started_at)
@@ -153,6 +161,7 @@ class PersistenceTests(SafetyTestMixin, TransactionTestCase):
         await reserve_request(session.interview_id, command)
         result = await session.start(command)
         await complete_fixture_request(session.interview_id, command.request_id, result)
+        result = await enter_main_flow(session, result)
         return session, result
 
     def answer_command(self, first):
@@ -237,7 +246,8 @@ class PersistenceTests(SafetyTestMixin, TransactionTestCase):
         answer = await AgentAnswer.objects.aget(request_id=command.request_id)
         self.assertIsNone(answer.evaluation)
         self.assertIsNone(answer.committed_state_version)
-        self.assertEqual(session.history, [])
+        self.assertEqual(len(session.history), 1)
+        self.assertIsNone(session.history[0]["evaluation"])
 
     async def test_version_conflict_does_not_publish_another_turn(self):
         """Same old version cannot publish another action; reuse existing questions in test, no
@@ -323,7 +333,7 @@ class PersistenceTests(SafetyTestMixin, TransactionTestCase):
         await interrupt_interview(session.interview_id)
         request = await AgentRequest.objects.aget(id=command.request_id)
         self.assertEqual(request.status, "interrupted")
-        self.assertEqual(await AgentRequest.objects.filter(status="succeeded").acount(), 1)
+        self.assertEqual(await AgentRequest.objects.filter(status="succeeded").acount(), 2)
         self.assertEqual(
             (await AgentInterview.objects.aget(id=session.interview_id)).status, "interrupted"
         )
@@ -348,7 +358,7 @@ class PersistenceTests(SafetyTestMixin, TransactionTestCase):
         detail = await self.async_client.get(base, headers=headers)
         self.assertEqual(detail.status_code, 200)
         self.assertFalse(detail.json()["can_resume"])
-        self.assertEqual(detail.json()["questions"][0]["question"], first["question"])
+        self.assertEqual(detail.json()["questions"][1]["question"], first["question"])
         self.assertEqual(
             (
                 await self.async_client.get(base + f"requests/{request.id}/", headers=headers)
@@ -490,7 +500,7 @@ class PersistenceTests(SafetyTestMixin, TransactionTestCase):
         )
         with self.assertRaises(AgentRequest.DoesNotExist):
             await session.app.repository.accept_answer(command.request_id, answer)
-        self.assertEqual(await AgentAnswer.objects.acount(), 0)
+        self.assertEqual(await AgentAnswer.objects.acount(), 2)  # Unscored openings only.
 
     async def test_foreign_question_collision_rolls_back_commit(self):
         """Another interview’s question ID cannot be overwritten; version occupancy triggers
@@ -542,7 +552,7 @@ class PersistenceTests(SafetyTestMixin, TransactionTestCase):
         await complete_fixture_request(session.interview_id, command.request_id, final)
         context = await session.app.repository.get_interview_context(session.interview_id)
         self.assertEqual(context.plan.interview_id, session.interview_id)
-        self.assertEqual(context.plan.max_questions, 1)
+        self.assertEqual(context.plan.max_questions, 2)
         self.assertTrue(context.plan.topics)
         self.assertTrue(context.plan_history)
         self.assertTrue(context.topic_progress)
@@ -585,21 +595,21 @@ class PersistenceTests(SafetyTestMixin, TransactionTestCase):
         )
         self.assertEqual(detail["interview_state"], final["result"]["interview_state"])
         self.assertEqual(detail["final_report"], final["result"]["final_report"])
-        public_history = final["result"]["question_history"][0]
+        public_history = final["result"]["question_history"][1]
         self.assertNotIn("thread_id", public_history)
         self.assertNotIn("project_id", public_history)
         for key in ("new_information", "thread_complete", "answer_scope", "contradiction_evidence"):
-            self.assertIn(key, session.history[0]["evaluation"]["analysis"])
+            self.assertIn(key, session.history[1]["evaluation"]["analysis"])
             self.assertNotIn(key, public_history["evaluation"]["analysis"])
         self.assertEqual(
             public_history["evaluation"]["dimensions"],
-            session.history[0]["evaluation"]["dimensions"],
+            session.history[1]["evaluation"]["dimensions"],
         )
-        turn = detail["questions"][0]
+        turn = detail["questions"][1]
         self.assertEqual(turn["question"]["difficulty"], first["question"]["difficulty"])
         self.assertEqual(turn["answer"]["text"], ANSWER)
         self.assertEqual(
-            turn["answer"]["evaluation"], final["result"]["question_history"][0]["evaluation"]
+            turn["answer"]["evaluation"], final["result"]["question_history"][1]["evaluation"]
         )
         self.assertTrue(turn["created_at"])
         self.assertTrue(turn["answer"]["created_at"])
@@ -612,7 +622,7 @@ class PersistenceTests(SafetyTestMixin, TransactionTestCase):
         from interviews.agent_safety import make_output_receipt
 
         session, first = await self.start_session()
-        request = await AgentRequest.objects.filter(interview_id=session.interview_id).afirst()
+        request = await AgentRequest.objects.filter(interview_id=session.interview_id).alast()
         legacy = {
             key: value
             for key, value in first.items()
@@ -632,10 +642,12 @@ class PersistenceTests(SafetyTestMixin, TransactionTestCase):
             response={**legacy, "topic_progress": {"private": "hidden"}, "_security": receipt}
         )
         detail = (await self.async_client.get(url)).json()
-        self.assertFalse(detail["security_output_available"])
-        self.assertIsNone(detail["interview_plan"])
-        self.assertIsNone(detail["decision_logs"])
-        self.assertEqual(detail["questions"], [])
+        # The tampered technical response is hidden; the earlier approved opening remains valid.
+        self.assertTrue(detail["security_output_available"])
+        self.assertEqual(detail["interview_plan"]["version"], 0)
+        self.assertEqual(len(detail["questions"]), 1)
+        self.assertEqual(detail["questions"][0]["question"]["intent"], "SELF_INTRODUCTION")
+        self.assertNotIn("private", json.dumps(detail))
 
     async def test_review_failed_answer(self):
         """Real repository accepts own answer then simulates evaluation request failure; review
@@ -655,7 +667,7 @@ class PersistenceTests(SafetyTestMixin, TransactionTestCase):
         detail = (
             await self.async_client.get(f"/api/agent-interviews/{session.interview_id}/")
         ).json()
-        self.assertEqual(detail["questions"][0]["answer"]["text"], ANSWER)
-        self.assertIsNone(detail["questions"][0]["answer"]["evaluation"])
+        self.assertEqual(detail["questions"][1]["answer"]["text"], ANSWER)
+        self.assertIsNone(detail["questions"][1]["answer"]["evaluation"])
         self.assertEqual(detail["request_issues"][0]["error_code"], "agent_failed")
         self.assertIsNone(detail["final_report"])

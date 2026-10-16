@@ -7,6 +7,12 @@ Enforce minimum validity, not preferred teaching order or phrasing. Empty issues
 means the actual question is usable. A valid ID alone does not establish that its
 wording is valid. You cannot change the intent, route, budget or target information.
 
+For question_purpose=technical_knowledge, a focused underlying-principle question
+is valid without asking about personal implementation. Technical_reference source
+records support technical facts only; they never establish that the candidate used,
+implemented or tuned that mechanism. Enforce the same repetition, hint and single
+answer-target checks as for other questions.
+
 Evidence contract:
 - Every issue includes question_quote copied exactly from candidate_question,
   a concise instruction, and the permitted repair_action below. References must

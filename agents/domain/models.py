@@ -25,6 +25,7 @@ from shared.contracts import (
     RetrievalSource,
 )
 from shared.contracts.planning import PlanRevision, TopicProgress
+from shared.contracts.prepared import PreparedQuestion
 
 REPOSITORY_CONTRACT_VERSION = "2.0"
 
@@ -127,6 +128,16 @@ class EvidenceRecord(BaseModel):
     relation_id: str | None = None
 
 
+class ProjectKnowledgeAttempt(BaseModel):
+    """One project-level retrieval attempt, committed together with the resulting turn."""
+
+    status: str = "attempted"
+    question_id: str | None = None
+    chunk_ids: list[str] = Field(default_factory=list)
+    source_urls: list[str] = Field(default_factory=list)
+    error: str | None = None
+
+
 class InterviewContext(BaseModel):
     """Everything a fresh Agent process needs to resume one interview."""
 
@@ -138,6 +149,9 @@ class InterviewContext(BaseModel):
     state: InterviewState
     recent_feedback: list[EvaluationFeedback] = Field(default_factory=list)
     question_history: list[InterviewHistoryEntry] = Field(default_factory=list)
+    prepared_questions: list[PreparedQuestion] = Field(default_factory=list)
+    used_prepared_question_ids: list[str] = Field(default_factory=list)
+    rejected_prepared_questions: dict[str, str] = Field(default_factory=dict)
     # Durable no-answer receipts survive bounded prompt-history pruning and process restarts.
     unobserved_feedback_ids: list[str] = Field(default_factory=list)
     thread_difficulty: int = 2
@@ -147,6 +161,11 @@ class InterviewContext(BaseModel):
     evidence_records: list[EvidenceRecord] = Field(default_factory=list)
     pending_evaluation: EvaluationRecord | None = Field(default=None, exclude=True, repr=False)
     pending_shadow_job: ShadowJob | None = Field(default=None, exclude=True, repr=False)
+    introduction_question_id: str | None = None
+    introduction_answer: CandidateAnswer | None = None
+    pending_introduction_answer: CandidateAnswer | None = Field(
+        default=None, exclude=True, repr=False
+    )
     # Durable correction ledger, independent of the bounded question-agent history.
     answer_relations: list[dict] = Field(default_factory=list)
     unassessed_answer_ids: list[str] = Field(default_factory=list)
@@ -163,6 +182,7 @@ class InterviewContext(BaseModel):
     estimated_question_seconds: float = 120.0
     last_question_generation_seconds: float = Field(default=0, ge=0)
     coverage_question_criteria: list[str] = Field(default_factory=list)
+    project_knowledge: dict[str, ProjectKnowledgeAttempt] = Field(default_factory=dict)
     policy_config_version: str
 
     @model_validator(mode="after")
@@ -187,6 +207,7 @@ class CommitTurnRequest(BaseModel):
     new_context: InterviewContext | None = None
     evaluation_record: EvaluationRecord | None = None
     shadow_job: ShadowJob | None = None
+    unscored_answer: CandidateAnswer | None = None
 
     @model_validator(mode="after")
     def validate_turn(self) -> "CommitTurnRequest":

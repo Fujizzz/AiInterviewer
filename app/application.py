@@ -8,8 +8,10 @@ from typing import Any
 from uuid import uuid4
 
 from agents.orchestrator import InterviewAgentService
+from agents.ports import RAGPort
 from agents.tracing import emit_trace
 from app.adapters import InMemoryInterviewRepository, LLMEvaluationAdapter, ProviderLLMAdapter
+from app.adapters.rag import close_shared_rag, start_shared_rag
 from app.adapters.rubric_evaluation import build_evaluation_adapter
 from app.parsing.resume import parse_resume_profile
 from app.providers.llm import OpenAILLM, StructuredLLM
@@ -47,10 +49,12 @@ class MVPInterviewApplication:
         *,
         repository: InMemoryInterviewRepository | None = None,
         evaluation_mode: str | None = None,
+        rag: RAGPort | None = None,
     ) -> None:
         self.llm = TracedLLM(llm)
         self.repository = repository or InMemoryInterviewRepository()
         self.agent_llm = ProviderLLMAdapter(self.llm)
+        self.rag = rag
         self.evaluation = build_evaluation_adapter(
             self.llm,
             self.repository,
@@ -105,8 +109,10 @@ class MVPInterviewApplication:
                 competency_importance=DEFAULT_COMPETENCY_IMPORTANCE,
             )
             emit_trace("interview.settings", settings=settings.model_dump(mode="json"))
+            rag = self.rag if self.rag is not None else start_shared_rag()
             service = InterviewAgentService(
                 repository=self.repository,
+                rag=rag,
                 evaluation=self.evaluation,
                 llm=self.agent_llm,
                 settings=settings,
@@ -121,6 +127,7 @@ class MVPInterviewApplication:
                     duration_seconds=duration_seconds,
                     enabled_stages=[InterviewStage.PROJECT_DEEP_DIVE],
                     planning_enabled=True,
+                    include_introduction=True,
                 )
             )
 
@@ -150,6 +157,27 @@ class MVPInterviewApplication:
                     answer_id=str(uuid4()),
                     text=answer,
                 )
+                if question.intent == "SELF_INTRODUCTION":
+                    action = await service.complete_introduction(
+                        interview_id,
+                        candidate_answer,
+                        request_id=str(uuid4()),
+                    )
+                    history.append(
+                        {
+                            "question_id": question.question_id,
+                            "question": question.text,
+                            "answer": answer,
+                            "topic": question.topic,
+                            "difficulty": question.difficulty,
+                            "dialogue_action": question.dialogue_action,
+                            "parent_question_id": None,
+                            "evaluation": None,
+                            "unscored_reason": "self_introduction",
+                        }
+                    )
+                    action = await self._advance_non_question_actions(service, interview_id, action)
+                    continue
                 evaluation_request = EvaluationRequest(
                     request_id=str(uuid4()),
                     interview_id=interview_id,
@@ -230,6 +258,10 @@ class MVPInterviewApplication:
                     for log in self.repository.decision_logs_for(interview_id)
                 ],
                 "interview_finished": context.state.status == "finished",
+                "project_knowledge": {
+                    key: value.model_dump(mode="json")
+                    for key, value in context.project_knowledge.items()
+                },
                 "final_report": report.model_dump(mode="json"),
             }
         finally:
@@ -237,6 +269,7 @@ class MVPInterviewApplication:
                 await service.close_background()
             if hasattr(self.evaluation, "close"):
                 await self.evaluation.close()
+            await close_shared_rag()
 
     @staticmethod
     async def _advance_non_question_actions(

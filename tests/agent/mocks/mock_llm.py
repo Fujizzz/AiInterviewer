@@ -33,7 +33,7 @@ class MockLLMAdapter:
         response_model: type[StructuredModel],
     ) -> StructuredModel:
         # Scripted pass; semantic checks are exercised by dedicated quality tests.
-        if prompt_name == "question_quality_v1":
+        if prompt_name in {"question_quality_v1", "question_quality_relaxed_v1"}:
             return response_model.model_validate({"issues": []})
         self.calls.append((prompt_name, payload.copy()))
         if (
@@ -61,10 +61,17 @@ class MockLLMAdapter:
                     "reason": "Prioritize a few grounded goals for the remaining time",
                 }
             )
-        if prompt_name == "question_react_v1" and self._structured_payload is None:
+        if (
+            prompt_name in {"question_react_v1", "question_react_relaxed_v1"}
+            and self._structured_payload is None
+        ):
             selection = selection_for(payload) if "dialogue_state" in payload else None
             text_payload = (
-                {**payload, "question_plan": plan_for(payload, selection)} if selection else payload
+                {**payload, "question_plan": plan_for(payload, selection)} if selection else
+                {
+                    **payload,
+                    "question_plan": payload.get("locked_intent", payload.get("question_plan")),
+                }
             )
             return response_model.model_validate(
                 {

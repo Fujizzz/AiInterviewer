@@ -26,6 +26,7 @@ Declaration Index:
 - InterviewAgentService._decision_log: Build diagnostic metadata for the selected action.
 - InterviewAgentService._generate_question: Generate and validate question text using the configured
   pipeline.
+- InterviewAgentService._use_prepared_question: Admit reviewed content or retain dynamic generation.
 - InterviewAgentService._generation_prompt_name: Expose the configured question prompt name.
 - InterviewAgentService._get_previous_questions: Load the bounded recent question snapshots.
 - InterviewAgentService._get_context: Load this interview context through its repository port.
@@ -65,6 +66,7 @@ from agents.domain.models import (
     InterviewHistoryEntry,
     PolicyReplayResult,
     ProbeDecision,
+    ProjectKnowledgeAttempt,
     RetrievalBatch,
     TopicSelection,
 )
@@ -89,6 +91,9 @@ from agents.question import (
     QuestionValidator,
 )
 from agents.question.dialogue import followup_block
+from agents.question.introduction import INTRODUCTION_TEXT, INTRODUCTION_TOPIC
+from agents.question.knowledge import KnowledgeTurn, knowledge_plan
+from agents.question.prepared import admit_prepared
 from agents.question.react import QuestionAgentResult, ReactQuestionAgent
 from agents.routing import ContextBuilder, RAGRouter
 from agents.timeouts import call_with_timeout
@@ -114,6 +119,7 @@ from shared.contracts import (
     RetrievalSource,
     StagePlan,
 )
+from shared.contracts.prepared import PreparedQuestion
 
 ResultT = TypeVar("ResultT")
 
@@ -136,6 +142,7 @@ class InterviewAgentService:
         settings: AgentSettings | None = None,
         clock=time,
         background_replanning: bool = False,
+        prepared_questions: Sequence[PreparedQuestion] = (),
     ) -> None:
         """Functionality: Compose reusable policies and injected ports.
         Inputs: repository, rag, evaluation, llm, settings, clock.
@@ -147,6 +154,7 @@ class InterviewAgentService:
         context.
         """
         self._repository = repository
+        self._prepared_questions = list(prepared_questions)
         self._rag = rag
         self._evaluation = evaluation
         self._llm = llm
@@ -158,6 +166,7 @@ class InterviewAgentService:
         self._background_replanner = (
             BackgroundReplanner(self._interview_planner) if background_replanning else None
         )
+        self._initial_planner = BackgroundReplanner(self._interview_planner)
         self._difficulty_controller = DifficultyController(self._settings)
         self._question_planner = QuestionPlanner()
         self._question_generator = (
@@ -206,7 +215,7 @@ class InterviewAgentService:
         state = InterviewState(
             interview_id=request.interview_id,
             status="active",
-            stage=enabled_stages[0],
+            stage=InterviewStage.INTRO if request.include_introduction else enabled_stages[0],
             active_project_id=(
                 request.candidate_profile.projects[0].project_id
                 if request.candidate_profile.projects
@@ -225,8 +234,10 @@ class InterviewAgentService:
             state=state,
             thread_difficulty=self._settings.initial_question_difficulty,
             policy_config_version=self._settings.policy_config_version,
+            introduction_question_id=str(uuid4()) if request.include_introduction else None,
+            prepared_questions=[q.model_copy(deep=True) for q in self._prepared_questions],
         )
-        if request.planning_enabled:
+        if request.planning_enabled and not request.include_introduction:
             try:
                 await self._interview_planner.revise(context, "INITIAL_PLAN")
             except AgentError:
@@ -238,13 +249,67 @@ class InterviewAgentService:
             self._repository.initialize_interview(context),
             operation="initialize interview",
         )
-        first_action = await self.next_action(request.interview_id)
+        first_action = (
+            await self._ask_introduction(await self._get_context(request.interview_id))
+            if request.include_introduction
+            else await self.next_action(request.interview_id)
+        )
         current_context = await self._get_context(request.interview_id)
         return InitializeInterviewResponse(
             interview_id=request.interview_id,
             plan=current_context.plan,
             state=current_context.state,
             first_action=first_action,
+        )
+
+    async def _ask_introduction(self, context):
+        """Publish the fixed opening and schedule planning after its successful commit."""
+        updated = context.model_copy(deep=True)
+        question = PlannedQuestion(
+            question_id=context.introduction_question_id,
+            topic=INTRODUCTION_TOPIC,
+            difficulty=self._settings.initial_question_difficulty,
+            probe_depth=1,
+            question_type=QuestionType.DESCRIPTION,
+            intent="SELF_INTRODUCTION",
+            text=INTRODUCTION_TEXT,
+            thread_id=context.introduction_question_id,
+        )
+        updated.state.question_index = 1
+        updated.state.current_question_id = question.question_id
+        updated.state.asked_question_ids.append(question.question_id)
+        if updated.plan.planning_enabled:
+            updated.state.clock_started_at = self._clock()
+            updated.pending_replan_trigger = "INITIAL_PLAN"
+        action = InterviewAction(
+            action_id=str(uuid4()),
+            interview_id=context.interview_id,
+            type=InterviewActionType.ASK_QUESTION,
+            question=question,
+            decision_trace=DecisionTrace(
+                reason_code="FIXED_SELF_INTRODUCTION",
+                details={
+                    "generation_reason": "FIXED_SELF_INTRODUCTION",
+                    "evaluation_required": False,
+                },
+            ),
+        )
+        return await self._commit_turn(
+            original_context=context,
+            updated_context=updated,
+            action=action,
+            question=question,
+            decision_log=self._decision_log(action, context),
+            feedback_request_id=None,
+        )
+
+    async def complete_introduction(self, interview_id, answer, *, request_id, finish=False):
+        """Save the opening answer and enter the normal flow without any evaluation feedback."""
+        return await self._run_turn(
+            interview_id,
+            introduction_answer=answer,
+            introduction_request_id=str(request_id),
+            finish_reason="USER_FINISHED" if finish else None,
         )
 
     async def next_action(self, interview_id: str) -> InterviewAction:
@@ -334,6 +399,8 @@ class InterviewAgentService:
         elapsed_seconds: int = 0,
         answer: CandidateAnswer | None = None,
         finish_reason: str | None = None,
+        introduction_answer: CandidateAnswer | None = None,
+        introduction_request_id: str | None = None,
     ) -> InterviewAction:
         """Functionality: Load, decide and atomically commit one interview turn.
         Inputs: interview_id, feedback, elapsed_seconds, answer, finish_reason.
@@ -351,7 +418,38 @@ class InterviewAgentService:
                 processed = await self._get_processed_action(interview_id, feedback.request_id)
                 if processed is not None:
                     return processed
+            if introduction_request_id is not None:
+                processed = await self._get_processed_action(interview_id, introduction_request_id)
+                if processed is not None:
+                    return processed
             context = await self._get_context(interview_id)
+            if (
+                context.introduction_question_id is not None
+                and context.state.stage == InterviewStage.INTRO
+                and introduction_answer is None
+                and finish_reason is None
+            ):
+                raise InvalidAgentState("Complete the introduction before continuing")
+            if introduction_answer is not None:
+                if (
+                    context.state.stage != InterviewStage.INTRO
+                    or context.introduction_answer is not None
+                    or introduction_answer.interview_id != interview_id
+                    or introduction_answer.question_id != context.introduction_question_id
+                    or introduction_answer.question_id != context.state.current_question_id
+                    or introduction_request_id is None
+                ):
+                    raise InvalidAgentState("Answer must match the pending introduction")
+                context = context.model_copy(deep=True)
+                context.introduction_answer = introduction_answer.model_copy(deep=True)
+                context.pending_introduction_answer = introduction_answer.model_copy(deep=True)
+                context.state.stage = context.plan.stages[0].stage
+                self._sync_clock(context)
+                if context.plan.planning_enabled and finish_reason is None:
+                    self._initial_planner.consume(context)
+                    if context.plan.version == 0:
+                        self._interview_planner.initialize_locally(context)
+                    context.pending_replan_trigger = None
             emit_trace("turn.loaded", attempt=attempt + 1, context=context.model_dump(mode="json"))
             if feedback is not None:
                 context = await self._context_after_feedback(
@@ -366,13 +464,17 @@ class InterviewAgentService:
                     self._sync_clock(context)
                     return await self._finish(
                         context,
-                        feedback_request_id=feedback.request_id if feedback is not None else None,
+                        feedback_request_id=feedback.request_id
+                        if feedback is not None
+                        else introduction_request_id,
                         started_at=attempt_started,
                         reason=finish_reason,
                     )
                 return await self._decide_and_commit(
                     context,
-                    feedback_request_id=(feedback.request_id if feedback is not None else None),
+                    feedback_request_id=(
+                        feedback.request_id if feedback is not None else introduction_request_id
+                    ),
                     started_at=attempt_started,
                 )
             except StateConflictError:
@@ -446,6 +548,8 @@ class InterviewAgentService:
         absent answers.
         """
         state = context.state
+        if feedback.question_id == context.introduction_question_id:
+            raise InvalidAgentState("Self introduction must not be evaluated")
         if feedback.question_id not in state.asked_question_ids:
             raise InvalidAgentState(
                 f"Feedback question {feedback.question_id!r} was not asked "
@@ -549,13 +653,15 @@ class InterviewAgentService:
             context.state, context.plan
         ):
             try:
+                background_result = None
                 if self._background_replanner:
-                    self._background_replanner.consume(context)
+                    background_result = self._background_replanner.consume(context)
                 await self._interview_planner.review(
                     context,
                     defer=self._background_replanner.request
                     if self._background_replanner
                     else None,
+                    allow_model_request=background_result is not False,
                 )
             except AgentError:
                 raise
@@ -589,17 +695,61 @@ class InterviewAgentService:
         feedback_request_id: str | None,
         started_at: float,
     ) -> InterviewAction:
-        """A failed target is isolated; a different target uses deterministic recovery.
+        from agents.model_calls import QualityCallBudget, quality_call_budget
 
-        Recovery makes no additional model calls and never reuses a blocked intent.
+        token = None
+        if (
+            self._settings.question_agent.quality_mode == "relaxed"
+            and quality_call_budget.get() is None
+        ):
+            token = quality_call_budget.set(
+                QualityCallBudget(
+                    self._settings.question_agent.max_quality_calls,
+                    recovery_reserve=1,
+                )
+            )
+        try:
+            return await self._ask_question_with_budget(
+                context, feedback_request_id=feedback_request_id, started_at=started_at
+            )
+        finally:
+            if token is not None:
+                quality_call_budget.reset(token)
+
+    async def _ask_question_with_budget(
+        self,
+        context: InterviewContext,
+        *,
+        feedback_request_id: str | None,
+        started_at: float,
+    ) -> InterviewAction:
+        """Isolate a failed target and prefer reviewed cached content for its replacement.
+
+        Recovery admits cached content within the existing review budget, then uses a local
+        template if unavailable. It never restarts generation or reuses a blocked intent.
         Feedback and the recovered question still share one idempotent transaction.
         Repository/state errors propagate without publishing a terminal state.
         """
+        context = context.model_copy(deep=True)
+        knowledge = await self._prepare_project_knowledge(context)
+        self._sync_clock(context)
+        if self._termination_policy.should_finish(context.state, context.plan):
+            if knowledge:
+                context.project_knowledge[knowledge.question.project_id].status = "time_limit"
+            return await self._finish(
+                context, feedback_request_id=feedback_request_id, started_at=started_at
+            )
+        if knowledge and followup_block(context, self._settings) is not None:
+            # Retrieval/generation may have consumed the active topic's remaining
+            # allocation. Drop this draft and let normal routing choose a new scope.
+            context.project_knowledge[knowledge.question.project_id].status = "budget_exhausted"
+            knowledge = None
         try:
             return await self._try_ask_question(
                 context,
                 feedback_request_id=feedback_request_id,
                 started_at=started_at,
+                knowledge=knowledge,
             )
         except QuestionUnavailable as failure:
             updated = context.model_copy(deep=True)
@@ -635,7 +785,8 @@ class InterviewAgentService:
                 "question.recovery",
                 reason=failure.reason,
                 next_topic_key=target.topic.topic_key,
-                model_calls_added=0,
+                prepared_question_first=True,
+                generation_calls_added=0,
             )
             return await self._try_ask_question(
                 updated,
@@ -644,6 +795,131 @@ class InterviewAgentService:
                 recovery=target,
             )
 
+    async def _prepare_project_knowledge(self, context) -> KnowledgeTurn | None:
+        if self._question_agent is None:
+            return None
+        plan = knowledge_plan(context, self._settings)
+        if plan is None:
+            return None
+        prepared, cache_id = await self._use_prepared_question(context, plan, kind="knowledge")
+        if prepared is not None:
+            item = next(q for q in context.prepared_questions if q.cache_id == cache_id)
+            context.project_knowledge[plan.project_id] = ProjectKnowledgeAttempt(
+                status="generated",
+                chunk_ids=[c.chunk_id for c in item.evidence],
+                source_urls=list(
+                    dict.fromkeys(
+                        str(c.metadata["source_url"])
+                        for c in item.evidence
+                        if c.metadata.get("source_url")
+                    )
+                ),
+            )
+            from shared.contracts import RetrievalResponse
+
+            return KnowledgeTurn(
+                prepared,
+                QuestionAgentResult(
+                    question=prepared,
+                    locked_intent=prepared,
+                    stop_reason="PREPARED_QUESTION_ACCEPTED",
+                ),
+                [],
+                RetrievalBatch(
+                    responses=[
+                        RetrievalResponse(
+                            request_id=f"prepared:{cache_id}", chunks=item.evidence, latency_ms=0
+                        )
+                    ]
+                ),
+                0,
+                0,
+                prepared_id=cache_id,
+            )
+        if self._rag_router is None:
+            return None
+        if not self._rag_router.is_ready:
+            emit_trace(
+                "question.knowledge_deferred", project_id=plan.project_id, reason="RAG_NOT_READY"
+            )
+            return None
+        attempt = ProjectKnowledgeAttempt()
+        context.project_knowledge[plan.project_id] = attempt
+        project = next(
+            p for p in context.candidate_profile.projects if p.project_id == plan.project_id
+        )
+        requests = self._rag_router.build_requests(
+            plan,
+            interview_id=context.interview_id,
+            candidate_id=context.candidate_profile.candidate_id,
+        )
+        # Exact technology anchors plus a short topic avoid encoding an entire resume claim.
+        query = f"{', '.join(project.technologies[:3])[:80]} {plan.topic[:80]} mechanism".strip()
+        requests[0].query = query
+        requests[0].top_k = 3
+        started = perf_counter()
+        emit_trace("question.knowledge_started", project_id=plan.project_id, query=query)
+        try:
+            batch = await self._rag_router.retrieve_with_diagnostics(requests)
+        except Exception as error:
+            attempt.status, attempt.error = "retrieval_failed", type(error).__name__
+            return None
+        retrieval_ms = self._elapsed_ms(started)
+        chunks = [
+            chunk.model_copy(
+                update={"content": chunk.content[:2000], "title": (chunk.title or "")[:200]}
+            )
+            for response in batch.responses
+            for chunk in response.chunks
+            if chunk.source == RetrievalSource.TECHNICAL
+            and chunk.content.strip()
+            and not chunk.metadata.get("low_confidence", False)
+            and chunk.metadata.get("confidence") != "low"
+        ][:3]
+        if not chunks:
+            attempt.status = "retrieval_failed" if batch.failed_sources else "no_usable_evidence"
+            if batch.failed_sources:
+                attempt.error = "RAG_TIMEOUT" if batch.timeout_sources else "RAG_SOURCE_FAILED"
+            emit_trace(
+                "question.knowledge_skipped", project_id=plan.project_id, reason=attempt.status
+            )
+            return None
+        attempt.chunk_ids = [c.chunk_id for c in chunks]
+        attempt.source_urls = list(
+            dict.fromkeys(
+                str(c.metadata["source_url"]) for c in chunks if c.metadata.get("source_url")
+            )
+        )
+        self._sync_clock(context)
+        if self._termination_policy.should_finish(context.state, context.plan):
+            attempt.status = "time_limit"
+            return None
+        previous = await self._get_previous_questions(context.state)
+        started = perf_counter()
+        try:
+            result = await self._question_agent.generate(
+                plan,
+                "Ask one technical principle question using the supplied reference passages. "
+                "Do not require personal implementation experience or reveal the answer.",
+                interview=context,
+                previous_questions=previous,
+                autonomous=False,
+                retrieved_evidence=chunks,
+            )
+        except Exception as error:
+            attempt.status, attempt.error = "generation_failed", type(error).__name__
+            emit_trace(
+                "question.knowledge_skipped", project_id=plan.project_id, reason=attempt.status
+            )
+            return None
+        if result.question is None:
+            attempt.status, attempt.error = "generation_failed", result.stop_reason
+            return None
+        attempt.status = "generated"
+        return KnowledgeTurn(
+            result.question, result, requests, batch, retrieval_ms, self._elapsed_ms(started)
+        )
+
     async def _try_ask_question(
         self,
         context: InterviewContext,
@@ -651,6 +927,7 @@ class InterviewAgentService:
         feedback_request_id: str | None,
         started_at: float,
         recovery=None,
+        knowledge: KnowledgeTurn | None = None,
     ) -> InterviewAction:
         """Functionality: Admit and generate the next constrained question.
         Inputs: context, feedback_request_id, started_at.
@@ -665,7 +942,27 @@ class InterviewAgentService:
         planner_started = perf_counter()
         try:
             project, topic, probe = (
-                (recovery.project, recovery.topic, recovery.probe)
+                (
+                    next(
+                        p
+                        for p in context.candidate_profile.projects
+                        if p.project_id == knowledge.question.project_id
+                    ),
+                    TopicSelection(
+                        topic=knowledge.question.topic,
+                        topic_key=knowledge.question.topic_key,
+                        reason_code="PROJECT_KNOWLEDGE_QUESTION",
+                    ),
+                    ProbeDecision(
+                        should_probe=True,
+                        next_probe_depth=knowledge.question.probe_depth,
+                        reason_code="PROJECT_KNOWLEDGE_QUESTION",
+                        dialogue_action="probe",
+                        information_goal=knowledge.question.information_goal,
+                    ),
+                )
+                if knowledge
+                else (recovery.project, recovery.topic, recovery.probe)
                 if recovery
                 else choose_dialogue(context, self._settings)
             )
@@ -707,18 +1004,22 @@ class InterviewAgentService:
         latest = context.question_history[-1] if context.question_history else None
         try:
             planner = QuestionPlanner() if recovery else self._question_planner
-            question_plan = planner.plan(
-                project=project,
-                topic=topic,
-                probe=probe,
-                thread=context.active_thread,
-                difficulty=(
-                    context.thread_difficulty
-                    if probe.should_probe
-                    else self._settings.initial_question_difficulty
-                ),
-                parent_question_id=state.current_question_id,
-                answer_excerpt=(latest.answer.text[:1000] if latest and latest.answer else ""),
+            question_plan = (
+                knowledge.question
+                if knowledge
+                else planner.plan(
+                    project=project,
+                    topic=topic,
+                    probe=probe,
+                    thread=context.active_thread,
+                    difficulty=(
+                        context.thread_difficulty
+                        if probe.should_probe
+                        else self._settings.initial_question_difficulty
+                    ),
+                    parent_question_id=state.current_question_id,
+                    answer_excerpt=(latest.answer.text[:1000] if latest and latest.answer else ""),
+                )
             )
         except AgentError:
             raise
@@ -745,14 +1046,18 @@ class InterviewAgentService:
         previous_questions = await self._get_previous_questions(state)
         try:
             requests = (
-                self._rag_router.build_requests(
-                    question_plan,
-                    interview_id=state.interview_id,
-                    candidate_id=context.candidate_profile.candidate_id,
-                    domain=project.domain if project else None,
+                knowledge.requests
+                if knowledge
+                else (
+                    self._rag_router.build_requests(
+                        question_plan,
+                        interview_id=state.interview_id,
+                        candidate_id=context.candidate_profile.candidate_id,
+                        domain=project.domain if project else None,
+                    )
+                    if self._rag_router and self._question_agent is None and not recovery
+                    else []
                 )
-                if self._rag_router and self._question_agent is None and not recovery
-                else []
             )
         except Exception as error:
             emit_trace("question.retrieval_unavailable", error_type=type(error).__name__)
@@ -760,14 +1065,20 @@ class InterviewAgentService:
         retrieval_started = perf_counter()
         try:
             batch = (
-                await self._rag_router.retrieve_with_diagnostics(requests)
-                if self._rag_router and requests
-                else RetrievalBatch()
+                knowledge.batch
+                if knowledge
+                else (
+                    await self._rag_router.retrieve_with_diagnostics(requests)
+                    if self._rag_router and requests
+                    else RetrievalBatch()
+                )
             )
         except Exception as error:
             emit_trace("question.retrieval_unavailable", error_type=type(error).__name__)
             batch = RetrievalBatch()
-        retrieval_latency_ms = self._elapsed_ms(retrieval_started)
+        retrieval_latency_ms = (
+            knowledge.retrieval_ms if knowledge else self._elapsed_ms(retrieval_started)
+        )
         try:
             prompt_context = (
                 ""
@@ -787,8 +1098,45 @@ class InterviewAgentService:
             raise QuestionUnavailable(question_plan, reason="QUESTION_CONTEXT_ERROR") from error
         agent_result = QuestionAgentResult()
         generation_started = perf_counter()
+        prepared_question, prepared_id = None, None
         try:
-            if recovery:
+            if not knowledge and not probe.should_probe:
+                prepared_question, prepared_id = await self._use_prepared_question(
+                    context, question_plan, previous_questions=previous_questions
+                )
+            if knowledge:
+                question = knowledge.question
+                agent_result = knowledge.result
+                generation_reason = "LLM_REPAIRED" if agent_result.repaired else "LLM_GENERATED"
+                if knowledge.prepared_id:
+                    prepared_id = knowledge.prepared_id
+                    generation_reason = "PREPARED_QUESTION"
+            elif prepared_question is not None:
+                question = prepared_question
+                if recovery and question.information_goal != question_plan.information_goal:
+                    # Retire the recovery placeholder; the cache's reviewed target owns this turn.
+                    progress = context.topic_progress[question.topic_key]
+                    for need in progress.information_needs:
+                        if need.need_id == question.need_id and need.status == "open":
+                            need.status = "superseded"
+                    question.need_id = f"need:{question.question_id}"
+                    progress.next_need_id = question.need_id
+                    progress.missing_information = list(
+                        dict.fromkeys(
+                            question.information_goal
+                            if target == question_plan.information_goal
+                            else target
+                            for target in progress.missing_information
+                        )
+                    )
+                agent_result.question = question
+                agent_result.locked_intent = question
+                agent_result.stop_reason = "PREPARED_QUESTION_ACCEPTED"
+                agent_result.steps = [
+                    {"action": "prepared_question", "status": "ACCEPTED", "cache_id": prepared_id}
+                ]
+                generation_reason = "PREPARED_QUESTION"
+            elif recovery:
                 question = self._fallback_policy.apply_locked(question_plan, project=project)
                 if not self._question_validator.is_valid(question, question_plan):
                     raise RuntimeError("Invalid recovery question; session remains active")
@@ -810,7 +1158,9 @@ class InterviewAgentService:
                 raise
             emit_trace("question.generation_unavailable", error_type=type(error).__name__)
             raise QuestionUnavailable(question_plan, reason="QUESTION_GENERATION_ERROR") from error
-        generation_latency_ms = self._elapsed_ms(generation_started)
+        generation_latency_ms = (
+            knowledge.generation_ms if knowledge else self._elapsed_ms(generation_started)
+        )
         timed_context = context.model_copy(deep=True)
         self._sync_clock(timed_context)
         if question is None:
@@ -840,12 +1190,16 @@ class InterviewAgentService:
                 None,
             )
             topic = TopicSelection(
-                topic=question.topic, topic_key=question.topic_key, reason_code="MODEL_SELECTED"
+                topic=question.topic,
+                topic_key=question.topic_key,
+                reason_code="PROJECT_KNOWLEDGE_QUESTION" if knowledge else "MODEL_SELECTED",
             )
             probe = ProbeDecision(
                 should_probe=question.dialogue_action in {"clarify", "probe"},
                 next_probe_depth=question.probe_depth,
-                reason_code="MODEL_DIALOGUE_DECISION",
+                reason_code="PROJECT_KNOWLEDGE_QUESTION"
+                if knowledge
+                else "MODEL_DIALOGUE_DECISION",
                 dialogue_action=question.dialogue_action,
                 information_goal=question.information_goal,
             )
@@ -869,6 +1223,11 @@ class InterviewAgentService:
             duration_ms=generation_latency_ms,
         )
         updated = context.model_copy(deep=True)
+        if prepared_id:
+            updated.used_prepared_question_ids.append(prepared_id)
+        if knowledge:
+            attempt = updated.project_knowledge[question.project_id]
+            attempt.status, attempt.question_id = "asked", question.question_id
         updated.last_question_generation_seconds = generation_latency_ms / 1000
         if updated.plan.planning_enabled and updated.state.clock_started_at is None:
             # Initial resume parsing, planning and first question generation are preparation.
@@ -887,7 +1246,7 @@ class InterviewAgentService:
         updated.state.last_topic = question.topic
         updated.state.active_project_id = question.project_id
         updated.state.consecutive_probes = updated.active_thread.follow_up_count
-        fallback = generation_reason not in {"LLM_GENERATED", "LLM_REPAIRED"}
+        fallback = generation_reason not in {"LLM_GENERATED", "LLM_REPAIRED", "PREPARED_QUESTION"}
         reasons = {
             "dialogue": probe.reason_code,
             "topic": topic.reason_code,
@@ -908,6 +1267,7 @@ class InterviewAgentService:
                     "probe_reason": probe.reason_code,
                     "topic_reason": topic.reason_code,
                     "generation_reason": generation_reason,
+                    "prepared_question_id": prepared_id,
                     "fallback_used": fallback,
                     "decision_source": "model"
                     if agent_result.question is not None
@@ -918,6 +1278,11 @@ class InterviewAgentService:
                     "rag_sources": [r.source.value for r in requests],
                     "rag_failed_sources": [source.value for source in batch.failed_sources],
                     "rag_timeout_sources": [source.value for source in batch.timeout_sources],
+                    "project_knowledge": (
+                        updated.project_knowledge[question.project_id].model_dump(mode="json")
+                        if question.project_id in updated.project_knowledge
+                        else None
+                    ),
                     "planner_latency_ms": planner_latency_ms,
                     "retrieval_latency_ms": retrieval_latency_ms,
                     "generation_latency_ms": generation_latency_ms,
@@ -1143,6 +1508,7 @@ class InterviewAgentService:
             new_context=updated_context,
             evaluation_record=updated_context.pending_evaluation,
             shadow_job=updated_context.pending_shadow_job,
+            unscored_answer=updated_context.pending_introduction_answer,
             question=question,
             decision_log=decision_log,
             feedback_request_id=feedback_request_id,
@@ -1161,13 +1527,19 @@ class InterviewAgentService:
             state=result.state.model_dump(mode="json"),
             decision_log=decision_log.model_dump(mode="json"),
         )
-        if self._background_replanner and result.action.type == InterviewActionType.ASK_QUESTION:
+        if result.state.stage != InterviewStage.INTRO or result.state.status == "finished":
+            self._initial_planner.discard(original_context.interview_id)
+        if result.action.type == InterviewActionType.ASK_QUESTION:
             committed_snapshot = updated_context.model_copy(deep=True)
             committed_snapshot.state = result.state.model_copy(deep=True)
-            self._background_replanner.start(committed_snapshot)
+            if result.state.stage == InterviewStage.INTRO:
+                self._initial_planner.start(committed_snapshot)
+            elif self._background_replanner:
+                self._background_replanner.start(committed_snapshot)
         return result.action
 
     async def close_background(self):
+        await self._initial_planner.close()
         if self._background_replanner:
             await self._background_replanner.close()
 
@@ -1243,6 +1615,34 @@ class InterviewAgentService:
             model="mock-or-configured-llm" if self._llm is not None else None,
         )
 
+    async def _use_prepared_question(self, context, plan, *, kind="opening", previous_questions=()):
+        """Admit the selected scope; commit rejection and usage with the resulting turn."""
+        for item in context.prepared_questions:
+            if item.kind != kind or item.project_id != plan.project_id:
+                continue
+            if kind == "opening" and item.topic_key != plan.topic_key:
+                continue
+            if item.cache_id in context.used_prepared_question_ids:
+                continue
+            if item.cache_id in context.rejected_prepared_questions:
+                continue
+            question, reason = await admit_prepared(
+                item, plan, context, self._llm, self._settings, previous_questions
+            )
+            emit_trace(
+                "question.prepared_checked",
+                cache_id=item.cache_id,
+                accepted=question is not None,
+                reason=reason,
+            )
+            if question is not None:
+                return question, item.cache_id
+            context.rejected_prepared_questions[item.cache_id] = reason
+            if reason in {"CONTEXT_CHECK_UNAVAILABLE", "QUALITY_CALL_LIMIT"}:
+                # Do not try every cached row after a timeout or malformed response.
+                break
+        return None, None
+
     async def _generate_question(
         self,
         question_plan: PlannedQuestion,
@@ -1274,6 +1674,13 @@ class InterviewAgentService:
             agent_result.elapsed_seconds = result.elapsed_seconds
             if result.question is not None:
                 return result.question, "LLM_REPAIRED" if result.repaired else "LLM_GENERATED"
+            failed_plan = result.locked_intent or question_plan
+            if result.stop_reason == "QUALITY_RESERVED_FOR_RECOVERY":
+                return None, "QUALITY_RESERVED_FOR_RECOVERY"
+            if failed_plan.dialogue_action in {"probe", "clarify"}:
+                # An unreviewed template can replay an already answered follow-up goal.
+                # Let recovery select another scope and admit its cache within this budget.
+                return None, "FOLLOWUP_GENERATION_FAILED"
             if result.retarget_requested:
                 emit_trace(
                     "controller.retarget",
@@ -1321,6 +1728,8 @@ class InterviewAgentService:
                     if isinstance(error, AgentError):
                         raise
                     repair_errors = [f"GENERATION_ERROR:{type(error).__name__}"]
+            if question_plan.dialogue_action in {"probe", "clarify"}:
+                return None, "FOLLOWUP_GENERATION_FAILED"
 
         question_plan = self._fallback_policy.prepare_plan(question_plan, interview)
         candidate_fallback = self._fallback_policy.apply(question_plan, project=project)
@@ -1339,7 +1748,11 @@ class InterviewAgentService:
         Constraints: Read-only property; no model call.
         """
         return (
-            ReactQuestionAgent.prompt_name
+            (
+                "question_react_relaxed_v1"
+                if self._settings.question_agent.quality_mode == "relaxed"
+                else ReactQuestionAgent.prompt_name
+            )
             if self._question_agent is not None
             else QuestionGenerator.prompt_name
         )
@@ -1450,7 +1863,7 @@ class InterviewAgentService:
             stages=self._allocate_stage_budgets(request.duration_seconds, enabled_stages),
             max_questions_per_project=self._settings.max_questions_per_project,
             max_questions_per_topic=self._settings.max_questions_per_topic,
-            max_questions=self._settings.max_questions,
+            max_questions=self._settings.max_questions + int(request.include_introduction),
             planning_enabled=request.planning_enabled,
         )
 

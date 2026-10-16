@@ -56,7 +56,7 @@ from .agent_models import (  # noqa: F401
     AgentTurn,
 )
 from .evaluation_models import AgentAssessment, AgentEvaluation, AgentShadowJob  # noqa: F401
-from .resume_models import ResumeVersion  # noqa: F401
+from .resume_models import PreparedResumeQuestion, ResumeVersion  # noqa: F401
 
 
 class Question(models.Model):
@@ -128,8 +128,7 @@ class SessionQuestion(models.Model):
     """
 
     class Status(models.TextChoices):
-        """Single-question status fields: pending, answering, completed, skipped.
-        """
+        """Single-question status fields: pending, answering, completed, skipped."""
 
         PENDING = "pending"
         ANSWERING = "answering"

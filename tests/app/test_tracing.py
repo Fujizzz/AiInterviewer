@@ -45,7 +45,7 @@ def test_run_saves_only_one_concise_file(tmp_path):
     assert reviewed_questions > 0
     assert text.count("提问质量：通过") == reviewed_questions
     assert not any("提问质量" in line for line in printed)
-    assert text.count("**最终问题**") == 2
+    assert text.count("**最终问题**") == 3
     assert "I measured the cache hit rate." in text
     assert "评价：能力评价待完成" in text
     assert "能力评价完成：" in text

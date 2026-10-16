@@ -2,6 +2,7 @@
 
 from agents.config import AgentSettings, load_agent_settings
 from agents.domain.models import InterviewContext, ProbeDecision
+from agents.planning.needs import askable_targets
 from agents.policies.dialogue_controller import DialogueController
 
 
@@ -40,7 +41,7 @@ class ProbeController:
                     action, goal = "clarify", analysis.uncertainties[0]
                 elif controller.unresolved_goal(thread.topic_key):
                     action = "probe"
-                    goal = context.topic_progress[thread.topic_key].missing_information[0]
+                    goal = askable_targets(context.topic_progress[thread.topic_key])[0]
                 elif analysis.status in {"partial", "non_answer"}:
                     action = "clarify"
                     goal = (

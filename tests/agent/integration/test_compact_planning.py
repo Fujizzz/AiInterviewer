@@ -195,6 +195,161 @@ async def test_invalid_analysis_and_closed_scope_are_explicit_without_false_comp
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("exclusion", ["no_open_needs", "topic_limit", "project_limit"])
+async def test_ineligible_deferred_goal_is_history_even_with_partial_coverage(exclusion):
+    service, repo, _, initial = await setup(PlannerLLM())
+    context = await repo.get_interview_context(initial.interview_id)
+    key = context.plan.topics[0].topic_key
+    progress = context.topic_progress[key]
+    progress.status = "deferred"
+    progress.coverage_status = "partial"
+    progress.missing_information = ["Failure handling evidence still absent"]
+    progress.questions_asked = 1
+    if exclusion == "no_open_needs":
+        progress.needs_assessed = True
+        progress.information_needs = []
+    elif exclusion == "topic_limit":
+        progress.questions_asked = context.plan.max_questions_per_topic
+    else:
+        progress.questions_asked = context.plan.max_questions_per_project
+    snapshot = context.model_dump()
+    eligible = service._interview_planner._eligible(context)
+    payload = planner_payload(context, "AGENDA_EXHAUSTED", eligible)
+
+    assert key not in eligible
+    assert key not in {t["topic_key"] for t in payload["current_goals"]}
+    assert next(t for t in payload["historical_goals"] if t["topic_key"] == key) == {
+        "topic_key": key,
+        "selectable": False,
+        "status": "deferred",
+        "coverage": "partial",
+    }
+    assert key not in payload["closed_topic_keys"]  # Ineligible does not prove completion.
+    assert context.model_dump() == snapshot
+    with pytest.raises(PlanConstraintError, match="CLOSED_OR_UNKNOWN_TOPIC"):
+        choice(context).expand(context, eligible)
+
+
+@pytest.mark.asyncio
+async def test_eligible_deferred_goal_can_still_preserve_its_objective():
+    service, repo, _, initial = await setup(PlannerLLM())
+    context = await repo.get_interview_context(initial.interview_id)
+    item = context.plan.topics[0]
+    progress = context.topic_progress[item.topic_key]
+    progress.status = "deferred"
+    progress.coverage_status = "partial"
+    progress.missing_information = ["Actual validation result"]
+    eligible = service._interview_planner._eligible(context)
+    payload = planner_payload(context, "PERIODIC_REVIEW", eligible)
+
+    goal = next(t for t in payload["current_goals"] if t["topic_key"] == item.topic_key)
+    assert goal["selectable"] is True
+    assert goal["gaps"] == progress.missing_information
+    assert item.topic_key not in {t["topic_key"] for t in payload["historical_goals"]}
+    assert choice(context).expand(context, eligible).topics[0].objective == item.objective
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("missing", ["objective", "completion_criteria", "both"])
+async def test_new_topic_marks_both_required_fields_and_cannot_preserve_missing_text(missing):
+    service, repo, _, initial = await setup(PlannerLLM())
+    context = await repo.get_interview_context(initial.interview_id)
+    key = context.plan.topics[0].topic_key
+    context.plan.topics = []
+    eligible = service._interview_planner._eligible(context)
+    payload = planner_payload(context, "PACE_CHANGED", eligible)
+    topic = next(t for t in payload["eligible_topics"] if t["topic_key"] == key)
+    assert topic["has_existing_objective"] is False
+    assert topic["required_objective_fields"] == ["objective", "completion_criteria"]
+    assert not payload["current_goals"]
+    fields = {
+        "objective": "Assess durable state recovery",
+        "completion_criteria": "Establish recovery behavior and boundary validation",
+    }
+    for name in fields:
+        if missing in {name, "both"}:
+            fields[name] = None
+    proposal = CompactPlanProposal.model_validate({
+        "base_plan_version": context.plan.version,
+        "topics": [{"topic_key": key, "objective_change": "preserve", **fields}],
+        "reason": "Select a new implementation goal",
+    })
+    with pytest.raises(PlanConstraintError, match="MISSING_NEW_OBJECTIVE"):
+        proposal.expand(context, eligible)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scenario", ["new_goal", "ineligible_history"])
+async def test_background_replan_uses_explicit_contract_and_is_adopted_in_one_call(scenario):
+    service, repo, _, initial = await setup(PlannerLLM())
+    context = await repo.get_interview_context(initial.interview_id)
+    old = context.plan.topics[0]
+    if scenario == "new_goal":
+        context.plan.topics = []
+    else:
+        progress = context.topic_progress[old.topic_key]
+        progress.status = "deferred"
+        progress.coverage_status = "partial"
+        progress.missing_information = ["Failure handling evidence"]
+        progress.questions_asked = 1
+        progress.needs_assessed = True
+        progress.information_needs = []
+
+    class ContractProvider:
+        calls = 0
+        selected_key = None
+
+        async def generate_structured(self, *, payload, response_model, **kwargs):
+            self.calls += 1
+            topic = payload["eligible_topics"][0]
+            self.selected_key = topic["topic_key"]
+            if scenario == "new_goal":
+                assert topic["has_existing_objective"] is False
+            else:
+                assert old.topic_key not in {t["topic_key"] for t in payload["current_goals"]}
+                assert old.topic_key != self.selected_key
+                assert topic["has_existing_objective"] is True
+            fields = {
+                "topic_key": self.selected_key,
+                "relative_weight": 8,
+                "depth": "deep",
+                "objective_change": "preserve",
+            }
+            if topic["required_objective_fields"]:
+                fields.update(
+                    objective_change="replace",
+                    objective="Assess implementation recovery boundaries",
+                    completion_criteria="Establish the mechanism and its validation results",
+                )
+            return response_model.model_validate({
+                "base_plan_version": payload["base_plan_version"],
+                "topics": [fields],
+                "reason": "Prioritize selectable implementation evidence",
+            })
+
+    provider = ContractProvider()
+    coordinator = BackgroundReplanner(InterviewPlannerAgent(provider, service._settings))
+    original_version = context.plan.version
+    coordinator.request(context, "PACE_CHANGED" if scenario == "new_goal" else "AGENDA_EXHAUSTED")
+    snapshot = context.model_dump()
+    coordinator.start(context)
+    await coordinator.tasks[context.interview_id]
+    assert context.model_dump() == snapshot  # Speculation cannot publish state.
+    assert coordinator.tasks[context.interview_id].result() is not None
+    coordinator.consume(context)
+    assert provider.calls == 1
+    assert context.plan.version == original_version + 1
+    assert context.plan_history[-1].source == "model"
+    assert not context.plan_history[-1].fallback_used
+    selected = context.plan_history[-1].proposal.topics[0]
+    assert selected.topic_key == provider.selected_key
+    assert selected.depth == "deep"
+    if scenario == "ineligible_history":
+        assert context.topic_progress[old.topic_key].coverage_status == "partial"
+    await coordinator.close()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("failure", ["unknown", "closed", "stale", "missing_new_text"])
 async def test_compact_output_cannot_invent_reopen_or_replace_without_a_contract(failure):
     service, repo, _, initial = await setup(PlannerLLM())

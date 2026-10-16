@@ -151,7 +151,7 @@ async def test_cas_recomputation_can_consume_the_same_ready_plan_without_another
 
 
 @pytest.mark.asyncio
-async def test_objective_replacement_is_discarded_after_new_feedback_even_without_new_question():
+async def test_feedback_preserves_existing_objective_and_accepts_other_preferences():
     service, repo, _, initial = await setup(PlannerLLM())
     ctx = await repo.get_interview_context(initial.interview_id)
     coordinator = BackgroundReplanner(service._interview_planner)
@@ -159,10 +159,15 @@ async def test_objective_replacement_is_discarded_after_new_feedback_even_withou
     coordinator.start(ctx)
     proposal = await coordinator.tasks[ctx.interview_id]
     proposal.topics[0].objective_change = "replace"
+    proposal.topics[0].objective = "An obsolete replacement goal"
+    proposal.topics[1].relative_weight = 5
     current = ctx.model_copy(deep=True)
     current.processed_feedback_ids.append("new-answer-feedback")
-    before = current.plan.model_dump()
+    before = current.plan.topics[0].model_copy(deep=True)
     coordinator.consume(current)
-    assert current.plan.model_dump() == before
+    assert current.plan.version == ctx.plan.version + 1
+    assert current.plan.topics[0].objective == before.objective
+    assert current.plan_history[-1].proposal.topics[0].objective_change == "preserve"
+    assert current.plan_history[-1].proposal.topics[1].relative_weight == 5
     assert current.topic_progress == ctx.topic_progress
     await coordinator.close()
