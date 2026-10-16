@@ -444,8 +444,20 @@ class AgentTests(SafetyTestMixin, TransactionTestCase):
         """Duplicate start/answer and stale questions explicitly rejected; client cannot re-consume
         same round.
         """
+        from app.adapters.background_evaluation import BackgroundShadowEvaluationAdapter
+
+        workers = {}
+        original_start = BackgroundShadowEvaluationAdapter.start_background
+
+        def track_background(port, interview_id):
+            workers[interview_id] = port
+            return original_start(port, interview_id)
+
         llm = FixtureLLM()
-        with patch("interviews.agent_session.BackendLLM", return_value=llm):
+        with (
+            patch("interviews.agent_session.BackendLLM", return_value=llm),
+            patch.object(BackgroundShadowEvaluationAdapter, "start_background", track_background),
+        ):
             comm = await self.accepted()
             first = str(uuid4())
             await self.command(comm, "start", request_id=first, resume_text=RESUME)
@@ -468,6 +480,9 @@ class AgentTests(SafetyTestMixin, TransactionTestCase):
                 comm, "answer", request_id=answer_id, question_id=question, answer_text=ANSWER
             )
             await self.read(comm)
+            # Complete legitimate background work before measuring rejected requests.
+            for interview_id, port in list(workers.items()):
+                self.assertTrue(await port.drain(interview_id, timeout_seconds=3))
             calls = len(llm.calls)
             self.assertEqual(
                 (
@@ -703,3 +718,28 @@ class ProviderTests(SimpleTestCase):
                 worker.join(3)
             sdk.return_value.close.assert_called_once()
             take_slot("agent", 1, directory).release()
+
+    @patch.dict(
+        "os.environ",
+        {
+            "LLM_PROVIDER": "openai",
+            "OPENAI_API_KEY": "test-only",
+            "OPENAI_MODEL": "configured-model",
+        },
+        clear=True,
+    )
+    def test_successful_tool_decisions_with_null_text_do_not_retry_or_fail_logging(self):
+        from agents.question.react import QuestionAgentDecision
+
+        with patch("interviews.agent_provider.OpenAI"):
+            provider = BackendLLM()
+            try:
+                for response in (
+                    QuestionAgentDecision(action="get_plan"),
+                    QuestionAgentDecision(action="request_retarget", retarget_reason="Covered"),
+                ):
+                    with patch.object(OpenAILLM, "__call__", return_value=response) as model:
+                        self.assertIs(provider("", {}, QuestionAgentDecision), response)
+                        model.assert_called_once()
+            finally:
+                provider.close()

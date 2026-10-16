@@ -10,6 +10,7 @@ from app.adapters.assessment import BackgroundAssessmentAdapter, RealtimeDecisio
 from app.adapters.background_evaluation import BackgroundShadowEvaluationAdapter
 from evaluation.aggregation import ScoredEvaluation
 from evaluation.contracts import EvaluationResult
+from evaluation.formal_assessment import FormalAssessmentAdapter
 from evaluation.inputs import AnswerSnapshot, QuestionSnapshot
 from evaluation.persistence import (
     EvaluatedFeedback,
@@ -214,4 +215,6 @@ def build_evaluation_adapter(llm, repository, legacy, *, mode=None):
         policy=policy,
         profile=shadow_profile,
     )
-    return BackgroundShadowEvaluationAdapter(decision, formal, assessment=assessment)
+    return BackgroundShadowEvaluationAdapter(
+        decision, formal, assessment=FormalAssessmentAdapter(repository, assessment)
+    )

@@ -127,6 +127,12 @@ class BackgroundShadowEvaluationAdapter:
                     if wake_version != self._wake_versions[interview_id]:
                         continue
                     return
+                if job.shadow_enabled and getattr(self.assessment, "requires_formal", False):
+                    formal = await self.repository.get_evaluation_records(interview_id)
+                    if not any(r.input.request_id == job.request.request_id for r in formal):
+                        if wake_version != self._wake_versions[interview_id]:
+                            continue
+                        return  # Formal append wakes this worker, including after restart.
                 emit_trace("evaluation.assessment_started", request_id=job.request.request_id)
                 record = await self.assessment.assess(job)
                 await self.repository.append_assessment_record(job, record)
@@ -196,6 +202,8 @@ class BackgroundShadowEvaluationAdapter:
                 )
                 await self.repository.append_shadow_record(job, record)
                 self._prepared.get(interview_id, {}).pop(job.request.request_id, None)
+                if getattr(self.assessment, "requires_formal", False):
+                    self.start_background(interview_id)
                 emit_trace(
                     "evaluation.shadow_completed",
                     request_id=job.request.request_id,
@@ -229,15 +237,24 @@ class BackgroundShadowEvaluationAdapter:
         }
         if not workers:
             return True
-        _done, pending = await asyncio.wait(workers, timeout=timeout_seconds)
-        if pending:
-            emit_trace(
-                "evaluation.shadow_pending",
-                interview_id=interview_id,
-                reason_code="FINALIZATION_TIMEOUT",
-                seconds=round(perf_counter() - started, 3),
+        while workers:
+            _done, pending = await asyncio.wait(
+                workers, timeout=max(0, timeout_seconds - (perf_counter() - started))
             )
-            return False
+            if pending:
+                emit_trace(
+                    "evaluation.shadow_pending",
+                    interview_id=interview_id,
+                    reason_code="FINALIZATION_TIMEOUT",
+                    seconds=round(perf_counter() - started, 3),
+                )
+                return False
+            # A completed formal worker may have started a new dependent projection.
+            workers = {
+                pool[interview_id]
+                for pool in (self._workers, self._assessment_workers)
+                if interview_id in pool and not pool[interview_id].done()
+            }
         try:
             records = await self.repository.get_evaluation_records(interview_id)
             jobs = await self.repository.get_shadow_jobs(interview_id)

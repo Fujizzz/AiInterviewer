@@ -49,7 +49,7 @@ def test_run_saves_only_one_concise_file(tmp_path):
     assert "I measured the cache hit rate." in text
     assert "评价：能力评价待完成" in text
     assert "能力评价完成：" in text
-    assert "ownership=3" in text
+    assert "debugging=3" in text  # Capability feedback now uses the formal fixture rating.
     assert "## 最终结果" in text
     assert "completed" in text
     assert "secret_marker" not in text

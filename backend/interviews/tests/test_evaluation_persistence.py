@@ -198,7 +198,8 @@ class EvaluationPersistenceTests(SafetyTestMixin, TransactionTestCase):
             from evaluation.assessment import assessed_report_context
 
             projected = await assessed_report_context(fresh, before)
-            self.assertEqual(projected.state.competencies["ownership"].score, 3)
+            self.assertEqual(projected.state.competencies["debugging"].score, 3)
+            self.assertIsNone(projected.state.competencies["ownership"].score)
             self.assertNotIn(record.answer_id, projected.unassessed_answer_ids)
             self.assertEqual(projected.state.current_question_id, before.state.current_question_id)
             self.assertEqual(projected.topic_progress, before.topic_progress)

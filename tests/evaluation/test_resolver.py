@@ -382,11 +382,20 @@ async def test_resolver_payload_uses_grounded_full_history_without_rubric_or_sco
             "answer",
             "current_evidence",
             "history",
-            "resolved_history",
             "source_answers",
         }
         assert data["source_answers"][0]["answer"]["text"] == old.turn.answer.text
-        return schema(decisions=(decision(new, "refines", (old,)),))
+        return schema(
+            decisions=(
+                decision(new, "refines", (old,)).model_copy(
+                    update={
+                        "evidence_id": data["current_evidence"][0]["evidence_id"],
+                        "related_evidence_ids": (data["history"][0]["evidence_id"],),
+                        "same_episode_as": (data["history"][0]["evidence_id"],),
+                    }
+                ),
+            )
+        )
 
     resolver = EvidenceResolver(model)
     first = await resolver.resolve(context(new), (new.evidence,), history=previous.history)

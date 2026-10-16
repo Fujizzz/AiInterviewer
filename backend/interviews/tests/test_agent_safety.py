@@ -272,7 +272,7 @@ class IOSafetyTests(TransactionTestCase):
             self.assertEqual(entry["evaluation"]["dimensions"][0]["quote"], ANSWER)
             self.assertEqual(
                 entry["evaluation"]["dimensions"][0]["rationale"],
-                "Describes personal implementation",
+                "Supported by the quoted behavior in this answer.",
             )
         self.assertNotIn("competency_importance", reviewed_final["result"]["job_profile"])
         self.assertNotIn("competency_importance", finished["result"]["job_profile"])
@@ -292,7 +292,8 @@ class IOSafetyTests(TransactionTestCase):
                 if key != "competency_importance"
             },
         )
-        self.assertEqual(internal.context["state"]["competencies"]["ownership"]["score"], 3.0)
+        self.assertEqual(internal.context["state"]["competencies"]["debugging"]["score"], 3.0)
+        self.assertIsNone(internal.context["state"]["competencies"]["ownership"]["score"])
         self.assertEqual(finished["result"]["final_report"]["overall_score"], 3.0)
         self.assertEqual(
             finished["result"]["final_report"]["competencies"]["debugging"]["score"], 3.0

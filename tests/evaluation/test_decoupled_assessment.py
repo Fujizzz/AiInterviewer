@@ -236,7 +236,7 @@ async def test_realtime_decision_invalid_structure_keeps_failure_separate_from_c
     assert not feedback.analysis.thread_complete and not feedback.dimensions
 
 
-async def test_shadow_reuses_valid_decision_and_makes_five_calls_per_concrete_answer():
+async def test_shadow_reuses_formal_assessment_and_makes_four_calls_per_concrete_answer():
     from collections import Counter
 
     from evaluation.analyzer import ConversationAnalysis
@@ -267,7 +267,6 @@ async def test_shadow_reuses_valid_decision_and_makes_five_calls_per_concrete_an
         assert ConversationAnalysis not in calls
         assert Counter(calls) == {
             CompactAnswerDecision: 2,
-            AnswerAssessment: 2,
             EvidenceExtraction: 2,
             ResolutionDraft: 2,
             GroupedJudgeDraft: 2,

@@ -45,8 +45,7 @@ logger = logging.getLogger(__name__)
 
 
 class BackendLLM(OpenAILLM):
-    """Reuse OpenAI/Qwen/DeepSeek structured output and log metadata without inputs or keys.
-    """
+    """Reuse OpenAI/Qwen/DeepSeek structured output and log metadata without inputs or keys."""
 
     def __init__(self, *, interview_id=None):
         """Establishes synchronous model client using already-loaded backend environment, without
@@ -144,13 +143,14 @@ class BackendLLM(OpenAILLM):
                 repair_codes,
             )
             result = super().__call__(prompt, data, schema)
+            text = getattr(result, "text", None) or ""
             logger.info(
                 "Agent model completed interview=%s schema=%s duration_ms=%d chars=%d words=%d",
                 self.interview_id,
                 schema.__name__,
                 (perf_counter() - started) * 1000,
-                len(getattr(result, "text", "")),
-                len(getattr(result, "text", "").split()),
+                len(text),
+                len(text.split()),
             )
             return result
         except Exception as exc:

@@ -20,6 +20,7 @@ from evaluation.resolution import (
     ResolutionDraft,
     ResolutionHistory,
 )
+from evaluation.resolver_payload import expand_resolution, resolver_payload
 from evaluation.validator import normalize_claim, validate_evidence
 
 
@@ -255,7 +256,7 @@ def replay_resolution(history: ResolutionHistory) -> EvidenceResolution:
 class EvidenceResolver:
     def __init__(self, llm: StructuredLLM, *, timeout_seconds: float = 30) -> None:
         self._client = EvaluationModelClient(llm, timeout_seconds=timeout_seconds)
-        self._prompt = load_prompt("evidence_resolver_v1")
+        self._prompt = load_prompt("evidence_resolver_v2")
 
     async def resolve(
         self,
@@ -314,33 +315,15 @@ class EvidenceResolver:
             raise EvaluationStageError("resolver", "invalid_evidence") from error
         if not current:
             return previous
+        payload, references = resolver_payload(context, current, previous)
         output = await self._client.call(
             stage="resolver",
             prompt=self._prompt,
-            payload={
-                "question": context.question.model_dump(mode="json"),
-                "answer": context.answer.model_dump(mode="json"),
-                "current_evidence": [item.model_dump(mode="json") for item in current],
-                "history": [source.evidence.model_dump(mode="json") for source in history.sources],
-                "source_answers": [
-                    turn.model_dump(mode="json") for turn in historical_turns.values()
-                ],
-                "resolved_history": [
-                    item.model_dump(
-                        mode="json",
-                        include={
-                            "evidence_id",
-                            "relation",
-                            "related_evidence_ids",
-                            "independence_group_id",
-                        },
-                    )
-                    for item in previous.evidence_items
-                ],
-            },
+            payload=payload,
             schema=ResolutionDraft,
         )
         try:
+            output = expand_resolution(output, references)
             if {decision.evidence_id for decision in output.decisions} != {
                 item.evidence_id for item in current
             }:
