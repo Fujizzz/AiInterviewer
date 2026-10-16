@@ -993,70 +993,6 @@ sources:
       generics, classes, modules), reference pages (utility types, decorators, declaration
       merging, mixins...), tsconfig / modules reference. Release notes and handbook v1 excluded.
 
-  - name: swift-book
-    namespace: technical
-    priority: P1
-    url: https://github.com/swiftlang/swift-book
-    loader: git
-    path: TSPL.docc
-    license: Apache-2.0
-    auto_level: full
-    trust_level: official
-    refresh_cycle: quarterly
-    domain: mobile
-    related_technologies: [swift, ios]
-    reference_only: false
-    verified: true
-    notes: "Repo existence confirmed via ls-remote; path TSPL.docc is the documented structure of this repo (DocC catalog) but not tree-verified in this session — flagged for a quick check before first real fetch."
-
-  - name: kotlin-docs
-    namespace: technical
-    priority: P1
-    url: https://github.com/JetBrains/kotlin-web-site
-    loader: git
-    path: docs/topics
-    license: Apache-2.0
-    auto_level: full
-    trust_level: official
-    refresh_cycle: quarterly
-    domain: mobile
-    related_technologies: [kotlin, android]
-    reference_only: false
-    verified: true
-    notes: "Repo existence confirmed; path docs/topics is the known convention for this site but not tree-verified this session."
-
-  - name: flutter-website
-    namespace: technical
-    priority: P1
-    url: https://github.com/flutter/website
-    loader: git
-    path: src/content
-    license: CC-BY-4.0
-    auto_level: full
-    trust_level: official
-    refresh_cycle: quarterly
-    domain: mobile
-    related_technologies: [flutter, dart, mobile]
-    reference_only: false
-    verified: true
-    notes: "Repo existence confirmed; path not tree-verified this session (flutter/website migrated to an Eleventy/markdown site under src/content — verify before first fetch)."
-
-  - name: react-native-website
-    namespace: technical
-    priority: P1
-    url: https://github.com/facebook/react-native-website
-    loader: git
-    path: docs
-    license: MIT
-    auto_level: full
-    trust_level: official
-    refresh_cycle: quarterly
-    domain: mobile
-    related_technologies: [react-native, mobile]
-    reference_only: false
-    verified: true
-    notes: "Repo existence confirmed; path not tree-verified this session."
-
   - name: front-end-interview-handbook
     namespace: question
     priority: P1
@@ -1592,70 +1528,6 @@ sources:
     verified: true
     notes: >
       Superseded by mitre-attack-enterprise (STIX parser in rag/loaders/stix.py, source mitre-attack/attack-stix-data). Not ingested from mitre/cti to avoid duplicates.
-
-  - name: zephyr-docs
-    namespace: technical
-    priority: P2
-    url: https://github.com/zephyrproject-rtos/zephyr
-    loader: git
-    path: doc
-    license: Apache-2.0
-    auto_level: full
-    trust_level: official
-    refresh_cycle: quarterly
-    domain: embedded
-    related_technologies: [zephyr, rtos, embedded]
-    reference_only: false
-    verified: true
-    notes: "Repo existence confirmed; path not tree-verified this session."
-
-  - name: playwright-docs
-    namespace: technical
-    priority: P2
-    url: https://github.com/microsoft/playwright
-    loader: git
-    path: docs/src
-    license: Apache-2.0
-    auto_level: full
-    trust_level: official
-    refresh_cycle: quarterly
-    domain: testing
-    related_technologies: [playwright, e2e-testing, automation]
-    reference_only: false
-    verified: true
-    notes: "Repo existence confirmed; path not tree-verified this session."
-
-  - name: pytest-docs
-    namespace: technical
-    priority: P2
-    url: https://github.com/pytest-dev/pytest
-    loader: git
-    path: doc/en
-    license: MIT
-    auto_level: full
-    trust_level: official
-    refresh_cycle: quarterly
-    domain: testing
-    related_technologies: [pytest, python, testing]
-    reference_only: false
-    verified: true
-    notes: "Repo existence confirmed; path not tree-verified this session."
-
-  - name: godot-docs
-    namespace: technical
-    priority: P2
-    url: https://github.com/godotengine/godot-docs
-    loader: git
-    path: tutorials
-    license: CC-BY-3.0
-    auto_level: full
-    trust_level: official
-    refresh_cycle: quarterly
-    domain: game-dev
-    related_technologies: [godot, gamedev]
-    reference_only: false
-    verified: true
-    notes: "Repo existence confirmed; path not tree-verified this session."
 
   - name: webpack-docs
     namespace: technical
@@ -4414,3 +4286,3910 @@ sources:
       placeholder with verified:false and an empty url — needs the team member
       who proposed this source to supply the actual link before it is usable.
       reference_only regardless, per task instructions.
+
+  - name: swift-book
+    namespace: technical
+    priority: P1
+    url: https://github.com/swiftlang/swift-book
+    loader: git
+    clean_profile: docc
+    paths: ["TSPL.docc/"]
+    include:
+      - "TSPL.docc/LanguageGuide/*.md"
+      - "TSPL.docc/GuidedTour/GuidedTour.md"
+    max_file_kb: 200
+    options:
+      frontmatter_title: true
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: mobile
+    related_technologies: [swift, ios, arc, memory-management, concurrency, protocols, generics]
+    reference_only: false
+    verified: true
+    notes: >
+      Tree-verified 2026-10-16: TSPL.docc/LanguageGuide/*.md (ARC and retain cycles, memory safety,
+      concurrency, protocols, closures, error handling). The ReferenceManual (formal grammar) and
+      RevisionHistory are excluded. The Swift book is Apache-2.0 (repo LICENSE.txt); the Swift
+      logo/name are trademarks. Apple's own developer.apple.com docs (SwiftUI, Core Data, Instruments)
+      are proprietary and NOT ingested.
+
+  - name: kotlin-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/JetBrains/kotlin-web-site
+    loader: git
+    clean_profile: writerside
+    paths: ["docs/topics/"]
+    include:
+      - "docs/topics/*.md"
+      - "docs/topics/tour/*.md"
+      - "docs/topics/jvm/{comparison-to-java,java-interop,java-to-kotlin-*}.md"
+      - "docs/topics/native/{native-memory-manager,native-arc-integration,native-objc-interop,apple-framework,native-overview}.md"
+    exclude:
+      - "docs/topics/{advent-of-code,books,gsoc-*,kotlin-hands-on,kotlin-night-guidelines,kug-guidelines,edu-tools-*,kotlin-brand-assets,kotlin-pdf,contribute,learning-materials-overview,koans,releases,roadmap,eap,configure-build-for-eap,components-stability*,compose-compiler-*,slack-code-of-conduct,test-page,security,kotlin-osgi,kotlin-lsp,kotlin-ide,kotlin-daemon,build-tools-api,kotlin-and-ci,kotlin-notebook-overview,data-analysis-overview,competitive-programming,code-style-migration-guide,api-references,kotlin-language-features-and-proposals,kotlin-evolution-principles,metadata-jvm,run-code-snippets,web-overview,read-standard-input,standard-input,getting-started,faq,books,kotlin-tips,android-overview,coroutines-overview}.md"
+    options:
+      frontmatter_title: true
+    max_file_kb: 100
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: mobile
+    related_technologies: [kotlin, android, null-safety, generics, sealed-classes, delegation, kotlin-native]
+    reference_only: false
+    verified: true
+    notes: >
+      Tree-verified 2026-10-16 (kotlin-web-site master, docs/topics, Writerside markdown).
+      Language reference + Kotlin tour + Java interop + Kotlin/Native memory/ARC/ObjC interop.
+      Excluded: what's new, releases, compatibility guides, build-tool plugin pages, community pages.
+      Coroutines live in kotlin-coroutines-docs (batch 1).
+
+  - name: kotlin-multiplatform-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/JetBrains/kotlin-multiplatform-dev-docs
+    loader: git
+    clean_profile: writerside
+    paths: ["topics/"]
+    include:
+      - "topics/**/*.md"
+    exclude:
+      - "topics/whats-new/**"
+      - "topics/temp/**"
+      - "topics/compose/compose-desktop*.md"
+      - "topics/development/multiplatform-{plugin-releases,compatibility-guide,project-agp-9-migration,cocoapods-spm-migration*}.md"
+      - "topics/journal/**"
+      - "topics/tools/{configure-teamcity-for-kmp,github-actions-for-kmp,klibs-io}.md"
+      - "topics/ios-ci-cd-teamcity.md"
+      - "topics/kotlin-multiplatform-roadmap.md"
+      - "topics/multiplatform-samples.md"
+    options:
+      frontmatter_title: true
+    max_file_kb: 100
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: mobile
+    related_technologies: [kotlin-multiplatform, compose-multiplatform, expect-actual, ios, android, cross-platform]
+    reference_only: false
+    verified: true
+    notes: >
+      Tree-verified 2026-10-16 (kotlin-multiplatform-dev-docs master, topics/). Kotlin Multiplatform
+      and Compose Multiplatform guides (project structure, expect/actual, iOS integration, shared UI).
+      Release notes / what's new / CI recipes are excluded.
+
+  - name: flutter-website
+    namespace: technical
+    priority: P1
+    url: https://github.com/flutter/website
+    loader: git
+    clean_profile: eleventy
+    paths: ["sites/docs/src/content/"]
+    include:
+      - "sites/docs/src/content/{ui,app-architecture,data-and-backend,perf,testing,add-to-app}/**/*.md"
+      - "sites/docs/src/content/platform-integration/{platform-channels,bind-native-code,android,ios}/**/*.md"
+      - "sites/docs/src/content/platform-integration/platform-channels.md"
+      - "sites/docs/src/content/cookbook/{persistence,networking,lists,navigation}/**/*.md"
+      - "sites/docs/src/content/tools/devtools/{performance,memory,cpu-profiler,inspector,network,app-size}.md"
+    exclude:
+      - "sites/docs/src/content/**/index.md"
+      - "sites/docs/src/content/testing/{vscode-flutter-bar,build-modes}/**"
+    options:
+      frontmatter_title: true
+    max_file_kb: 100
+    license: CC-BY-3.0 (documentation; code samples BSD-3-Clause)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: mobile
+    related_technologies: [flutter, dart, widgets, state-management, impeller, mobile]
+    reference_only: false
+    verified: true
+    notes: >
+      Tree-verified 2026-10-16 (flutter/website main; content moved to sites/docs/src/content).
+      LICENSE: content CC BY 3.0, code samples BSD. UI/layout/state management/app architecture/
+      performance/testing/platform channels/add-to-app and a handful of cookbook recipes.
+      Release notes, breaking-changes archive, blog and showcase excluded.
+
+  - name: react-native-website
+    namespace: technical
+    priority: P1
+    url: https://github.com/react/react-native-website
+    loader: git
+    paths: ["docs/", "website/architecture/"]
+    include:
+      - "docs/*.md"
+      - "docs/*.mdx"
+      - "docs/the-new-architecture/*.md"
+      - "docs/the-new-architecture/*.mdx"
+      - "website/architecture/*.md"
+    exclude:
+      - "docs/{colors,global-*,*-nodes,nodes,react-node,virtualview,upgrading,release-levels,more-resources,libraries,appendix,out-of-tree-platforms,building-for-tv,strict-typescript-api,integration-with-android-fragment,reactnativeversion,roottag,rect,pressevent,layoutevent,targetevent,viewtoken,debugging-release-builds,publishing-to-app-store,signed-apk-android,running-on-simulator-ios,set-up-your-environment}.md"
+      - "docs/{datepicker*,timepickerandroid,progressbarandroid,drawerlayoutandroid,toastandroid,permissionsandroid,segmentedcontrolios,pushnotificationios,imagepickerios,actionsheetios,alertios,statusbarios,dynamiccolorios,inputaccessoryview,settings,share,vibration,appregistry,devsettings,i18nmanager,linking-libraries-ios}.md"
+      - "docs/the-new-architecture/_*"
+      - "website/architecture/{landing-page,bundled-hermes}.md"
+    options:
+      frontmatter_title: true
+    clean_profile: docusaurus
+    max_file_kb: 100
+    license: CC-BY-4.0 (documentation, LICENSE-docs); MIT (code)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: mobile
+    related_technologies: [react-native, jsi, fabric, turbomodules, hermes, flatlist, mobile]
+    reference_only: false
+    verified: true
+    notes: >
+      Tree-verified 2026-10-16 (repo moved facebook/ -> react/). docs/ (core components, lists,
+      performance, navigation, native modules, the New Architecture) plus website/architecture/
+      (Fabric renderer, render pipeline, threading model, JSI). Versioned docs and the blog excluded;
+      platform-specific widgets, node-type reference pages and Web-API global pages excluded.
+
+  - name: android-developers-docs
+    namespace: technical
+    priority: P1
+    url: https://developer.android.com/
+    loader: crawler
+    license: "Apache-2.0 (Android documentation); CC-BY-4.0 / CC-BY-2.5 for content marked as such (developer.android.com/license)"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: quarterly
+    domain: mobile
+    related_technologies: [android, kotlin, jetpack-compose, viewmodel, room, hilt, workmanager, recyclerview, app-startup]
+    reference_only: false
+    verified: true
+    clean_profile: html
+    options:
+      crawl:
+        static_version: "2026-10-16"
+        version_prefix: "snapshot-"
+        permalink: {append: "#{version}"}
+        prefix: "https://developer.android.com/"
+        start_urls:
+          - "https://developer.android.com/topic/architecture"
+          - "https://developer.android.com/develop/ui/compose/documentation"
+          - "https://developer.android.com/develop/ui/compose/state"
+          - "https://developer.android.com/develop/ui/compose/performance"
+          - "https://developer.android.com/training/data-storage/room"
+          - "https://developer.android.com/training/dependency-injection"
+          - "https://developer.android.com/topic/performance/vitals/launch-time"
+          - "https://developer.android.com/topic/performance/memory"
+          - "https://developer.android.com/develop/ui/views/layout/recyclerview"
+          - "https://developer.android.com/develop/background-work/background-tasks"
+          - "https://developer.android.com/training/testing/fundamentals"
+          - "https://developer.android.com/guide/components/activities/activity-lifecycle"
+          - "https://developer.android.com/topic/libraries/architecture/viewmodel"
+        delay_seconds: 1.2
+        max_pages: 420
+        main_selectors: [".devsite-article-body"]
+        strip_selectors: ["devsite-recommendations", ".devsite-github-link", "devsite-feedback", ".devsite-article-meta", "devsite-snackbar", "devsite-bookmark-button"]
+        allow:
+          - "topic/architecture"
+          - "topic/architecture/*"
+          - "topic/architecture/*/*"
+          - "topic/libraries/architecture/{viewmodel,livedata,lifecycle,datastore,paging,workmanager,saving-states}*"
+          - "topic/libraries/architecture/viewmodel/*"
+          - "develop/ui/compose"
+          - "develop/ui/compose/{documentation,state,state-hoisting,state-saving,lifecycle,mental-model,thinking-in-compose,architecture,side-effects,modifiers,navigation,migrate,layouts,lists,text,tooling}*"
+          - "develop/ui/compose/performance"
+          - "develop/ui/compose/performance/*"
+          - "develop/ui/compose/layouts/{basics,custom,intrinsic-measurements,alignment-lines,constraintlayout}"
+          - "develop/ui/compose/state-*"
+          - "develop/ui/compose/compositionlocal"
+          - "develop/ui/compose/phases"
+          - "develop/ui/compose/testing"
+          - "develop/ui/compose/testing/*"
+          - "training/data-storage"
+          - "training/data-storage/{room,sqlite,shared-preferences,app-specific,room/*}"
+          - "training/data-storage/room/*"
+          - "training/dependency-injection"
+          - "training/dependency-injection/*"
+          - "topic/performance/vitals/{launch-time,render,anr,wakelock}*"
+          - "topic/performance/{memory,memory-overview,memory-management,app-startup,baselineprofiles/overview,baselineprofiles/create-baselineprofile,tracing/*,vitals,jank,rendering-performance}"
+          - "topic/performance/appstartup/*"
+          - "topic/performance/baselineprofiles/*"
+          - "develop/ui/views/layout/recyclerview"
+          - "develop/ui/views/layout/recyclerview/*"
+          - "develop/background-work/background-tasks"
+          - "develop/background-work/background-tasks/*"
+          - "develop/background-work/background-tasks/persistent/*"
+          - "develop/background-work/background-tasks/persistent/*/*"
+          - "training/testing"
+          - "training/testing/{fundamentals,local-tests,instrumented-tests,espresso,junit-rules,test-doubles,ui-tests,integration}*"
+          - "training/testing/fundamentals/*"
+          - "training/testing/instrumented-tests/*"
+          - "training/testing/local-tests/*"
+          - "training/testing/espresso/*"
+          - "guide/components/{activities,fragments,services,intents-filters,processes-and-threads}*"
+          - "guide/components/activities/*"
+          - "guide/fragments"
+          - "guide/fragments/*"
+          - "training/articles/{perf-anr,perf-tips,memory-overview}*"
+        deny:
+          - "**/*release-notes*"
+          - "**/*samples*"
+          - "reference/**"
+          - "**/*.zip"
+          - "**/migrate/*"
+          - "**/*codelab*"
+    notes: >
+      Crawled with honour of robots.txt (1.2 s delay, cached). developer.android.com/license: documentation is
+      Apache-2.0; pages carry a CC BY 4.0 / Apache-2.0 footer. Covers Compose (state, recomposition, performance,
+      side effects), app architecture (offline-first data layer, ViewModel, MVVM), Room, Hilt/DI, app startup and
+      memory performance, RecyclerView recycling, WorkManager, activity lifecycle and Android testing.
+      Apple developer docs (SwiftUI/Core Data/Instruments/APNs) are proprietary and are not ingested.
+
+  - name: firebase-cloud-messaging-docs
+    namespace: technical
+    priority: P2
+    url: https://firebase.google.com/docs/cloud-messaging
+    loader: crawler
+    license: "CC-BY-4.0 (content); Apache-2.0 (code samples) per Google Developers Site Policies footer"
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: mobile
+    related_technologies: [fcm, apns, push-notifications, android, ios]
+    reference_only: false
+    verified: true
+    clean_profile: html
+    options:
+      crawl:
+        static_version: "2026-10-16"
+        version_prefix: "snapshot-"
+        permalink: {append: "#{version}"}
+        prefix: "https://firebase.google.com/docs/cloud-messaging/"
+        start_urls: ["https://firebase.google.com/docs/cloud-messaging/fcm-architecture"]
+        delay_seconds: 1.2
+        max_pages: 40
+        main_selectors: [".devsite-article-body"]
+        strip_selectors: ["devsite-recommendations", ".devsite-github-link", "devsite-feedback", ".devsite-article-meta"]
+        allow:
+          - "fcm-architecture"
+          - "{concept-options,customize-messages,scale-and-optimize,understand-delivery,message-priority,topic-messaging,manage-tokens,send-message,receive-messages,server}"
+          - "{android,ios,web,flutter}/{client,receive-messages}"
+          - "{ios,android}/{client,receive-messages}"
+          - "http-server-ref"
+        deny:
+          - "**/*release-notes*"
+    notes: >
+      FCM architecture, message types, delivery, token management, and how FCM relays to APNs on iOS. The only
+      openly licensed push-notification architecture documentation (Apple's APNs docs are proprietary).
+
+  - name: zephyr-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/zephyrproject-rtos/zephyr
+    loader: git
+    clean_profile: rst
+    paths: ["doc/kernel/", "doc/hardware/", "doc/services/", "doc/build/dts/", "doc/introduction/"]
+    include:
+      - "doc/kernel/**/*.rst"
+      - "doc/hardware/peripherals/{adc,dma,gpio,gpio_input,i2c,i3c,spi,uart,pwm,watchdog,counter,clock_control,flash,timing,power,sensors,rtc,entropy,led,w1,smbus,reset,regulators,mbox,ipm,mspi,retained_mem,coredump,crc,dac,display,video,hwspinlock,mux,communication,analog,memory_storage}.rst"
+      - "doc/hardware/arch/arm_cortex_m.rst"
+      - "doc/services/{pm,device_mgmt,storage,ipc,zbus,smf,task_wdt,shell,logging,rtio,net_buf,debugging,tracing,profiling,resource_management,input,cpu_freq,cpu_load,mem_mgmt,crypto,sensing,portability}/**/*.rst"
+      - "doc/services/*.rst"
+      - "doc/services/connectivity/canbus/*.rst"
+      - "doc/services/connectivity/modbus/*.rst"
+      - "doc/build/dts/*.rst"
+      - "doc/introduction/index.rst"
+    exclude:
+      - "doc/services/device_mgmt/smp_groups/**"
+      - "doc/services/storage/disk/**"
+      - "doc/services/storage/zms/*.html"
+      - "doc/services/portability/posix/**"
+      - "doc/services/pm/api/**"
+      - "doc/build/dts/api/**"
+      - "doc/build/dts/{bindings-upstream,howtos,troubleshooting}.rst"
+    max_file_kb: 120
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: embedded
+    related_technologies: [zephyr, rtos, scheduling, interrupts, mutex, semaphore, i2c, spi, uart, dma, power-management, devicetree, ota]
+    reference_only: false
+    verified: true
+    notes: >
+      Tree-verified 2026-10-16. Zephyr kernel services (threads, scheduling, interrupts, synchronization,
+      memory), hardware peripheral overviews (I2C/SPI/UART/DMA/GPIO/ADC/PWM/watchdog), power management,
+      MCUmgr/DFU/OTA, storage (NVS/flash map), devicetree intro, CAN/Modbus. Doxygen API groups
+      (`doxygengroup`) are not expanded; Bluetooth/networking/USB stacks (hundreds of API pages), build
+      system reference and contributor docs are excluded.
+
+  - name: freertos-kernel-book
+    namespace: technical
+    priority: P1
+    url: https://github.com/FreeRTOS/FreeRTOS-Kernel-Book
+    loader: git
+    paths: ["ch*.md"]
+    include:
+      - "ch*.md"
+    max_file_kb: 200
+    license: CC-BY-SA-4.0 (text; code samples modified MIT)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: embedded
+    related_technologies: [freertos, rtos, tasks, queues, semaphores, mutex, priority-inversion, interrupts, software-timers, stack-overflow]
+    reference_only: false
+    verified: true
+    notes: >
+      Mastering the FreeRTOS Real Time Kernel (13 chapters): task management and scheduling, queues, software
+      timers, interrupt management, resource management (mutexes, priority inversion/inheritance, deadlock),
+      event groups, task notifications, low power support, troubleshooting. LICENSE is CC BY-SA 4.0 for the
+      text, LICENSE-SAMPLECODE (MIT) for code.
+
+  - name: yocto-docs
+    namespace: technical
+    priority: P1
+    url: https://git.yoctoproject.org/yocto-docs
+    loader: git
+    clean_profile: rst
+    paths: ["documentation/"]
+    options:
+      permalink_template: "https://git.yoctoproject.org/yocto-docs/tree/{rel}?id={commit}"
+    include:
+      - "documentation/{overview-manual,dev-manual,bsp-manual,kernel-dev,sdk-manual,test-manual}/*.rst"
+      - "documentation/ref-manual/{images,features,terms,system-requirements,devtool-reference}.rst"
+      - "documentation/what-i-wish-id-known.rst"
+      - "documentation/transitioning-to-a-custom-environment.rst"
+    exclude:
+      - "documentation/*/index.rst"
+      - "documentation/dev-manual/{x32-psabi,gobject-introspection,wayland,error-reporting-tool,hashequivserver,sstate-mirrors-setup}.rst"
+      - "documentation/kernel-dev/{maint-appx,faq}.rst"
+    max_file_kb: 150
+    license: CC-BY-SA-2.0-UK
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: embedded
+    related_technologies: [yocto, openembedded, bitbake, embedded-linux, bsp, layers, recipes, device-tree, kernel]
+    reference_only: false
+    verified: true
+    notes: >
+      Yocto Project documentation (git.yoctoproject.org/yocto-docs; conf.py states CC-BY-SA-2.0-UK).
+      Overview, development tasks, BSP, kernel development, SDK and test manuals. Migration guides,
+      variable glossary, release notes and toaster manual excluded.
+
+  - name: devicetree-specification
+    namespace: technical
+    priority: P1
+    url: https://github.com/devicetree-org/devicetree-specification
+    loader: git
+    clean_profile: rst
+    paths: ["source/"]
+    include:
+      - "source/chapter*.rst"
+    max_file_kb: 200
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: embedded
+    related_technologies: [devicetree, dts, embedded-linux, firmware, bindings]
+    reference_only: false
+    verified: true
+    notes: Devicetree Specification chapters 1-6 (basics, device nodes, bindings, flattened format, source language).
+
+  - name: rust-embedded-book
+    namespace: technical
+    priority: P1
+    url: https://github.com/rust-embedded/book
+    loader: git
+    paths: ["src/"]
+    include:
+      - "src/**/*.md"
+    exclude:
+      - "src/SUMMARY.md"
+      - "src/intro/install/**"
+      - "src/intro/{install,hardware}.md"
+      - "src/appendix/**"
+    max_file_kb: 100
+    license: Apache-2.0 OR MIT (code); CC-BY-SA-4.0 (text)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: embedded
+    related_technologies: [embedded, mmio, registers, interrupts, concurrency, volatile, no-std, peripherals]
+    reference_only: false
+    verified: true
+    notes: >
+      The Embedded Rust Book. Memory-mapped registers and volatile access, interrupts and exceptions,
+      concurrency in bare metal, peripheral ownership, typestate, collections without an allocator. LICENSE-CC-BY-SA
+      applies to the text.
+
+  - name: rust-embedded-discovery
+    namespace: technical
+    priority: P1
+    url: https://github.com/rust-embedded/discovery
+    loader: git
+    paths: ["f3discovery/src/"]
+    include:
+      - "f3discovery/src/**/*.md"
+    exclude:
+      - "f3discovery/src/03-setup/**"
+      - "f3discovery/src/02-requirements/**"
+      - "f3discovery/src/SUMMARY.md"
+      - "f3discovery/src/{12-bluetooth-setup,13-serial-over-bluetooth}/**"
+      - "f3discovery/src/**/{my-solution,the-solution}.md"
+    max_file_kb: 100
+    license: Apache-2.0 OR MIT (code); CC-BY-4.0 (text)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: embedded
+    related_technologies: [stm32, i2c, uart, usart, spi, timers, registers, microcontroller, serial]
+    reference_only: false
+    verified: true
+    notes: >
+      Discovery book for the STM32F3 Discovery board: registers, clocks and timers, serial/USART, I2C
+      (LSM303DLHC accelerometer), GPIO. LICENSE-CC-BY applies to the text. Setup chapters excluded.
+
+  - name: godot-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/godotengine/godot-docs
+    loader: git
+    clean_profile: rst
+    paths: ["getting_started/", "tutorials/", "engine_details/architecture/"]
+    include:
+      - "getting_started/{introduction,step_by_step}/*.rst"
+      - "getting_started/{first_2d_game,first_3d_game}/*.rst"
+      - "tutorials/{scripting,2d,3d,physics,navigation,networking,performance,animation,math,shaders,best_practices,inputs,rendering}/**/*.rst"
+      - "engine_details/architecture/*.rst"
+    exclude:
+      - "**/index.rst"
+      - "tutorials/scripting/gdscript/gdscript_documentation_comments.rst"
+      - "tutorials/scripting/c_sharp/diagnostics/**"
+      - "tutorials/scripting/cpp/**"
+      - "tutorials/scripting/gdextension/**"
+      - "tutorials/3d/particles/**"
+      - "tutorials/3d/{3d_text,csg_tools,using_decals,volumetric_fog,variable_rate_shading,physical_light_and_camera_units}.rst"
+      - "tutorials/shaders/{shader_reference,visual_shaders}/**"
+      - "tutorials/shaders/shader_materials.rst"
+      - "tutorials/shaders/compute_shaders.rst"
+      - "tutorials/best_practices/{version_control_systems,data_preferences}.rst"
+      - "engine_details/architecture/{unit_testing,common_engine_methods_and_macros,core_types,inheritance_class_tree,variant_class}.rst"
+      - "getting_started/*/{your_first_2d_game,your_first_3d_game}*"
+    max_file_kb: 150
+    license: CC-BY-3.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: game-dev
+    related_technologies: [godot, game-engine, scene-tree, nodes, signals, physics, navigation, shaders, multiplayer, optimization]
+    reference_only: false
+    verified: true
+    notes: >
+      Tree-verified 2026-10-16. Godot manual: nodes/scenes/signals, scripting, 2D/3D, physics and collision,
+      navigation (A*/navmesh), networking (high-level multiplayer, RPC), optimization (batching, culling, draw
+      calls), shaders, math (vectors/matrices/interpolation), architecture. LICENSE.txt is CC BY 3.0.
+      The auto-generated class reference (classes/), export/platform/XR/editor/plugin pages and
+      contributor documentation are excluded.
+
+  - name: bevy-book
+    namespace: technical
+    priority: P1
+    url: https://github.com/bevyengine/bevy-website
+    loader: git
+    clean_profile: zola
+    paths: ["content/learn/book/"]
+    include:
+      - "content/learn/book/**/*.md"
+    exclude:
+      - "content/learn/book/**/_index.md"
+    options:
+      frontmatter_title: true
+    max_file_kb: 100
+    license: MIT (bevy-website repository LICENSE)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: game-dev
+    related_technologies: [bevy, ecs, rust, game-loop, systems, queries, scheduling, rendering]
+    reference_only: false
+    verified: true
+    notes: >
+      The Bevy Book (content/learn/book): ECS (entities, components, queries, resources), systems and
+      schedules, change detection, the game loop, state machines, render architecture, assets. The
+      news/release posts, community pages and meeting minutes are excluded.
+
+  - name: flecs-docs
+    namespace: technical
+    priority: P2
+    url: https://github.com/SanderMertens/flecs
+    loader: git
+    paths: ["docs/"]
+    include:
+      - "docs/{Quickstart,Manual,EntitiesComponents,Queries,Relationships,Systems,ComponentTraits,DesignWithFlecs,ObserversManual,HierarchiesManual,PrefabsManual,FAQ}.md"
+    max_file_kb: 150
+    clean_profile: flecs
+    license: MIT
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: game-dev
+    related_technologies: [flecs, ecs, entity-component-system, data-oriented-design, archetypes, queries, cache-locality]
+    reference_only: false
+    verified: true
+    notes: >
+      Flecs (C/C++ ECS) manuals: entities and components, archetype storage, queries, relationships,
+      systems, observers, prefabs. Stand-in for Unity DOTS documentation (proprietary). Multi-language
+      snippet tabs are reduced to the C++ tab.
+
+  - name: vulkan-guide
+    namespace: technical
+    priority: P2
+    url: https://github.com/KhronosGroup/Vulkan-Guide
+    loader: git
+    paths: ["chapters/"]
+    include:
+      - "chapters/*.adoc"
+    exclude:
+      - "chapters/{extensions,enabling_features,platforms,decoder_ring,vulkan_cts,vulkan_profiles,loader,layers,ide}*.adoc"
+      - "chapters/extensions/**"
+      - "chapters/**/index.adoc"
+    clean_profile: asciidoc
+    options:
+      exts: [".adoc"]
+    max_file_kb: 100
+    license: CC-BY-4.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: game-dev
+    related_technologies: [vulkan, rendering, gpu, graphics-pipeline, synchronization, memory, shaders]
+    reference_only: false
+    verified: true
+    notes: >
+      Vulkan Guide (Khronos, CC BY 4.0): what Vulkan is, queues and command buffers, pipelines, render passes,
+      synchronization, memory allocation, descriptor sets, shader concepts.
+
+  - name: learnopengl
+    namespace: technical
+    priority: P2
+    url: https://learnopengl.com/
+    loader: crawler
+    license: "CC-BY-NC-4.0 (learnopengl.com/About: code samples CC BY-NC 4.0, images CC BY 4.0; NC is acceptable for the private coursework KB)"
+    auto_level: full
+    trust_level: curated
+    refresh_cycle: never
+    domain: game-dev
+    related_technologies: [opengl, rendering, shaders, lighting, shadow-mapping, pbr, framebuffer, instancing]
+    reference_only: false
+    verified: true
+    clean_profile: html
+    options:
+      crawl:
+        static_version: "2026-10-16"
+        version_prefix: "snapshot-"
+        permalink: {append: "#{version}"}
+        prefix: "https://learnopengl.com/"
+        start_urls: ["https://learnopengl.com/"]
+        delay_seconds: 1.5
+        max_pages: 110
+        main_selectors: ["#content"]
+        strip_selectors: [".ad", "script", "#hover"]
+        allow:
+          - "Getting-started/*"
+          - "Lighting/*"
+          - "Model-Loading/*"
+          - "Advanced-OpenGL/*"
+          - "Advanced-Lighting/*"
+          - "Advanced-Lighting/*/*"
+          - "PBR/*"
+          - "PBR/*/*"
+          - "In-Practice/*"
+        deny:
+          - "Getting-started/{Creating-a-window,Hello-Window}"
+          - "In-Practice/{2D-Game,2D-Game/*,Text-Rendering}"
+          - "In-Practice/2D-Game/*"
+    notes: >
+      LearnOpenGL: graphics pipeline, shaders, textures, transformations/coordinate systems, lighting models,
+      depth/stencil testing, framebuffers, instancing, shadow mapping, deferred shading, HDR/bloom, PBR.
+      The 2D-game series is excluded.
+
+  - name: opencv-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/opencv/opencv
+    loader: git
+    paths: ["doc/tutorials/", "doc/py_tutorials/"]
+    include:
+      - "doc/tutorials/{imgproc,features,calib3d,others,photo,dnn,objdetect}/**/*.markdown"
+      - "doc/py_tutorials/{py_imgproc,py_features,py_calib3d,py_photo,py_video,py_ml,py_core}/**/*.markdown"
+    exclude:
+      - "doc/**/table_of_content*.markdown"
+      - "doc/**/*table_of_contents*.markdown"
+      - "doc/tutorials/others/_old/**"
+      - "doc/tutorials/objdetect/{aruco*,charuco*,macbeth*,barcode*}/**"
+      - "doc/tutorials/dnn/{dnn_android,dnn_halide*,dnn_openvino,dnn_custom_layers}/**"
+      - "doc/py_tutorials/py_core/{py_basic_ops,py_image_arithmetics}/**"
+    clean_profile: doxygen
+    options:
+      exts: [".markdown"]
+    max_file_kb: 80
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: computer-vision
+    related_technologies: [opencv, optical-flow, lucas-kanade, camera-calibration, homography, sift, orb, ransac, feature-matching, image-processing]
+    reference_only: false
+    verified: true
+    notes: >
+      Tree-verified 2026-10-16 (opencv 5.x branch, Apache-2.0). Doxygen-flavoured markdown tutorials: image
+      processing (filters, morphology, thresholding, Hough, Canny, histograms), feature detection and
+      matching (Harris, SIFT, ORB, FLANN, homography), camera calibration, optical flow / background
+      subtraction / meanshift, photo (inpainting, HDR, denoising), DNN usage. `@snippet`/`@include` code
+      lives in samples/ and is not inlined, so some tutorials keep prose and formulas only. Tutorials that only
+      say "content has been moved" are dropped by the too-short filter.
+
+  - name: torchvision-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/pytorch/vision
+    loader: git
+    paths: ["docs/source/", "gallery/", "references/"]
+    include:
+      - "docs/source/{models,transforms,tv_tensors,ops,utils,io,feature_extraction,training_references}.rst"
+      - "gallery/{transforms,others}/plot_*.py"
+      - "references/{detection,segmentation,optical_flow,video_classification,classification,similarity}/README.md"
+    options:
+      py_gallery: true
+    clean_profile: rst
+    max_file_kb: 150
+    license: BSD-3-Clause
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: computer-vision
+    related_technologies: [torchvision, object-detection, segmentation, optical-flow, transforms, augmentation, pretrained-models]
+    reference_only: false
+    verified: true
+    notes: >
+      torchvision: models overview (classification, detection, segmentation, video, optical flow), transforms v2 and
+      tv_tensors, ops (NMS, RoIAlign), gallery tutorials (transforms, optical flow, visualization), and the training
+      reference READMEs. The per-model autodoc pages (docs/source/models/*.rst) are excluded.
+
+  - name: ultralytics-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/ultralytics/ultralytics
+    loader: git
+    paths: ["docs/en/"]
+    include:
+      - "docs/en/guides/{yolo-performance-metrics,yolo-architecture,yolo-data-augmentation,sahi-tiled-inference,steps-of-a-cv-project,model-evaluation-insights,model-training-tips,model-deployment-options,model-deployment-practices,hyperparameter-tuning,object-counting,speed-estimation,instance-segmentation-and-tracking,nvidia-jetson,raspberry-pi,triton-inference-server,optimizing-openvino-latency-vs-throughput-modes,kfold-cross-validation,model-testing,knowledge-distillation,preprocessing-annotated-data,data-collection-and-annotation,defining-project-goals,model-monitoring-and-maintenance,yolo-common-issues,end2end-detection,heatmaps,distance-calculation,object-cropping,region-counting,queue-management,isolating-segmentation-objects,finetuning-guide}.md"
+      - "docs/en/modes/*.md"
+      - "docs/en/tasks/*.md"
+      - "docs/en/models/{index,yolov3,yolov5,yolov8,yolov9,yolov10,yolo11,rtdetr,sam,sam-2,mobile-sam,fast-sam,yolo-world,yolo-nas}.md"
+      - "docs/en/usage/{cfg,engine,python}.md"
+    clean_profile: mkdocs
+    max_file_kb: 100
+    license: AGPL-3.0 (repository LICENSE; copyleft, private non-redistributed use)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: computer-vision
+    related_technologies: [yolo, object-detection, tracking, segmentation, nms, tensorrt, edge-deployment, jetson, sahi, evaluation-metrics]
+    reference_only: false
+    verified: true
+    notes: >
+      Ultralytics docs (AGPL-3.0, like grafana-docs: acceptable because the KB is private and not redistributed or
+      served). Guides on metrics (mAP, IoU, precision/recall), architecture, augmentation, tiled inference, edge
+      deployment (Jetson, OpenVINO, Triton), tracking (ByteTrack/BoT-SORT), tasks and modes. Auto-generated
+      `reference/` (204 pages), datasets and integrations are excluded.
+
+  - name: detectron2-docs
+    namespace: technical
+    priority: P2
+    url: https://github.com/facebookresearch/detectron2
+    loader: git
+    paths: ["docs/tutorials/"]
+    include:
+      - "docs/tutorials/*.md"
+    exclude:
+      - "docs/tutorials/{README,install}.md"
+    max_file_kb: 80
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: computer-vision
+    related_technologies: [detectron2, object-detection, instance-segmentation, mask-rcnn, data-loading, evaluation, deployment]
+    reference_only: false
+    verified: true
+    notes: "Detectron2 tutorials: datasets, data loading, augmentation, models, training, evaluation, deployment (TorchScript/ONNX/Caffe2)."
+
+  - name: mmdetection-docs
+    namespace: technical
+    priority: P2
+    url: https://github.com/open-mmlab/mmdetection
+    loader: git
+    clean_profile: mmlab
+    paths: ["docs/en/"]
+    include:
+      - "docs/en/advanced_guides/*.md"
+      - "docs/en/user_guides/*.md"
+      - "docs/en/get_started.md"
+    exclude:
+      - "docs/en/user_guides/{useful_hooks,deploy,visualization,robustness_benchmarking,test_results_submission}.md"
+    max_file_kb: 100
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: computer-vision
+    related_technologies: [mmdetection, object-detection, data-flow, config-system, transforms, evaluation]
+    reference_only: false
+    verified: true
+    notes: MMDetection 3.x guides (data flow, structures, models, datasets, transforms, evaluation, customization). Model-zoo tables, changelogs, migration docs excluded.
+
+  - name: mmagic-docs
+    namespace: technical
+    priority: P2
+    url: https://github.com/open-mmlab/mmagic
+    loader: git
+    clean_profile: mmlab
+    paths: ["docs/en/", "configs/"]
+    include:
+      - "docs/en/{user_guides,advanced_guides,howto}/*.md"
+      - "configs/{basicvsr,basicvsr_pp,iconvsr,real_basicvsr,edvr,tdan,tof,ttsr,glean,flavr,cain,aot_gan,deepfillv1,deepfillv2,global_local,partial_conv,swinir,nafnet,restormer,esrgan,real_esrgan,srcnn,edsr,rdn,liif,dic}/README.md"
+      - "configs/{dcgan,lsgan,biggan,sagan,sngan_proj,pggan,singan,styleganv1,styleganv2,styleganv3,eg3d,cyclegan,pix2pix,ggan,positional_encoding_in_gans}/README.md"
+      - "configs/{stable_diffusion,stable_diffusion_xl,controlnet,controlnet_animation,dreambooth,textual_inversion,disco_diffusion,guided_diffusion,animatediff,draggan}/README.md"
+    max_file_kb: 80
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: computer-vision
+    related_technologies: [mmagic, video-super-resolution, video-inpainting, video-enhancement, gan, diffusion, image-restoration, frame-interpolation]
+    reference_only: false
+    verified: true
+    notes: >
+      MMagic (MMEditing + MMGeneration): per-method README files carry the paper abstract plus usage for
+      BasicVSR / BasicVSR++ / EDVR (video super-resolution), flow-guided restoration, inpainting (DeepFill, AOT-GAN),
+      GANs (DCGAN, StyleGAN, BigGAN, CycleGAN, pix2pix) and diffusion (Stable Diffusion, ControlNet, DreamBooth).
+      Checkpoint tables are mostly dropped by the junk filter.
+
+  - name: scikit-image-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/scikit-image/scikit-image
+    loader: git
+    paths: ["doc/source/user_guide/", "doc/examples/"]
+    include:
+      - "doc/source/user_guide/*.rst"
+      - "doc/examples/{features_detection,transform,segmentation,registration,edges,filters}/*.py"
+    exclude:
+      - "doc/source/user_guide/{install,getting_help,plugins,skimage2_migration.rst.tpl,tutorials,index}.rst"
+    options:
+      py_gallery: true
+    clean_profile: rst
+    max_file_kb: 100
+    license: BSD-3-Clause
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: computer-vision
+    related_technologies: [scikit-image, feature-detection, ransac, orb, canny, hough, segmentation, optical-flow, registration]
+    reference_only: false
+    verified: true
+    notes: >
+      scikit-image user guide and gallery tutorials: ORB/BRIEF/Harris feature detection and matching, RANSAC robust
+      estimation, Canny/Hough, watershed/SLIC segmentation, image registration (phase correlation, optical flow
+      TV-L1 / iLK), geometric transforms.
+
+  - name: kornia-docs
+    namespace: technical
+    priority: P2
+    url: https://github.com/kornia/kornia
+    loader: git
+    paths: ["docs/source/"]
+    include:
+      - "docs/source/applications/*.rst"
+      - "docs/source/get-started/{camera-conventions,conventions,differentiability,precision}.rst"
+      - "docs/source/models/{loftr,segment_anything,mobile_sam,rt_detr,dexined,affnet,yunet}.rst"
+    exclude:
+      - "docs/source/applications/intro.rst"
+    clean_profile: rst
+    max_file_kb: 80
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: computer-vision
+    related_technologies: [kornia, differentiable-vision, homography, image-matching, loftr, image-stitching, registration]
+    reference_only: false
+    verified: true
+    notes: "Kornia: differentiable geometric computer vision applications (matching, registration, stitching, denoising) and camera conventions."
+
+  - name: cs231n-notes
+    namespace: technical
+    priority: P1
+    url: https://github.com/cs231n/cs231n.github.io
+    loader: git
+    paths: ["*.md"]
+    include:
+      - "{classification,linear-classify,optimization-1,optimization-2,neural-networks-1,neural-networks-2,neural-networks-3,neural-networks-case-study,convolutional-networks,transfer-learning,understanding-cnn,convnet-tips,rnn,attention,transformers,generative-modeling,nerf,adversary-attacks,pixelrnn,overview}.md"
+    exclude:
+      - "assignments/**"
+    clean_profile: jekyll
+    options:
+      frontmatter_title: true
+    max_file_kb: 200
+    license: MIT
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: deep-learning-theory
+    related_technologies: [cs231n, cnn, image-classification, backpropagation, optimization, transfer-learning, convolution, attention, generative-models]
+    reference_only: false
+    verified: true
+    notes: >
+      Stanford CS231n course notes (repository LICENSE: MIT): image classification, linear classifiers, optimization,
+      backpropagation, CNN architecture, transfer learning, visualizing CNNs, RNNs, attention, generative models.
+      Assignment pages excluded.
+
+  - name: sahi-docs
+    namespace: technical
+    priority: P2
+    url: https://github.com/obss/sahi
+    loader: git
+    paths: ["docs/", "README.md"]
+    include:
+      - "README.md"
+      - "docs/{slicing,predict,prediction,quick-start,coco}.md"
+      - "docs/guides/*.md"
+    exclude:
+      - "docs/{tr,zh}/**"
+    clean_profile: mkdocs
+    max_file_kb: 80
+    license: MIT
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: computer-vision
+    related_technologies: [sahi, sliced-inference, small-object-detection, tiled-inference, high-resolution]
+    reference_only: false
+    verified: true
+    notes: "SAHI (Slicing Aided Hyper Inference): tiled / sliding-window inference on large images and frames for small-object detection, with overlap and result merging."
+
+  - name: gstreamer-tutorials
+    namespace: technical
+    priority: P2
+    url: https://github.com/GStreamer/gst-docs
+    loader: git
+    paths: ["markdown/tutorials/"]
+    include:
+      - "markdown/tutorials/basic/*.md"
+      - "markdown/tutorials/playback/*.md"
+    exclude:
+      - "markdown/tutorials/**/{index,*-tutorial-*-index}.md"
+    clean_profile: markdown
+    max_file_kb: 80
+    license: CC-BY-SA-4.0 (tutorial text; tutorial code BSD/MIT/LGPL)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: computer-vision
+    related_technologies: [gstreamer, video-pipeline, multimedia, elements, pads, caps, buffers, clocks, synchronization]
+    reference_only: false
+    verified: true
+    notes: >
+      GStreamer basic and playback tutorials (README Licensing section: tutorials are CC-BY-SA-4.0): pipelines,
+      elements, pads, caps negotiation, buffers, queries and seeking, clocks and synchronization. The Application
+      Developer Manual and Plugin Writer's Guide are Open Publication License v1.0 and are not ingested (see
+      gstreamer-app-dev-manual).
+
+  - name: gstreamer-app-dev-manual
+    namespace: technical
+    priority: P2
+    url: https://github.com/GStreamer/gst-docs
+    loader: manual
+    license: "Open Publication License v1.0 (gst-docs README; not ingested to stay clear of the OPL option clauses)"
+    auto_level: manual
+    trust_level: reference_only
+    refresh_cycle: never
+    domain: computer-vision
+    related_technologies: [gstreamer]
+    reference_only: true
+    verified: true
+    notes: >
+      Application Developer Manual and Plugin Writer's Guide of gst-docs are OPL v1.0 "for historical reasons";
+      the CC-BY-SA-4.0 tutorials cover the same core concepts and are ingested instead.
+
+  - name: ffmpeg-wiki
+    namespace: technical
+    priority: P2
+    url: https://trac.ffmpeg.org/wiki
+    loader: crawler
+    license: "CC-BY-SA-3.0 (FFmpeg Wiki, Community Contributed Documentation)"
+    auto_level: full
+    trust_level: curated
+    refresh_cycle: never
+    domain: computer-vision
+    related_technologies: [ffmpeg, h264, h265, video-encoding, crf, gop, chroma-subsampling, hardware-acceleration]
+    reference_only: false
+    verified: true
+    clean_profile: html
+    options:
+      crawl:
+        static_version: "2026-10-16"
+        version_prefix: "snapshot-"
+        permalink: {append: "#{version}"}
+        prefix: "https://trac.ffmpeg.org/wiki/"
+        start_urls:
+          - "https://trac.ffmpeg.org/wiki/Encode/H.264"
+          - "https://trac.ffmpeg.org/wiki/Encode/H.265"
+          - "https://trac.ffmpeg.org/wiki/Encode/VP9"
+          - "https://trac.ffmpeg.org/wiki/Encode/AV1"
+          - "https://trac.ffmpeg.org/wiki/FilteringGuide"
+          - "https://trac.ffmpeg.org/wiki/Scaling"
+          - "https://trac.ffmpeg.org/wiki/Seeking"
+          - "https://trac.ffmpeg.org/wiki/ChromaSubsampling"
+          - "https://trac.ffmpeg.org/wiki/HWAccelIntro"
+          - "https://trac.ffmpeg.org/wiki/Concatenate"
+          - "https://trac.ffmpeg.org/wiki/Create%20a%20thumbnail%20image%20every%20X%20seconds%20of%20the%20video"
+          - "https://trac.ffmpeg.org/wiki/Null"
+          - "https://trac.ffmpeg.org/wiki/Map"
+        delay_seconds: 1.5
+        max_pages: 16
+        main_selectors: ["#wikipage"]
+        strip_selectors: [".trac-nav", "#pagepath", ".buttons", "#attachments", ".trac-modifiedby"]
+        allow:
+          - "Encode/H.264"
+          - "Encode/H.265"
+          - "Encode/VP9"
+          - "Encode/AV1"
+          - "FilteringGuide"
+          - "Scaling"
+          - "Seeking"
+          - "ChromaSubsampling"
+          - "HWAccelIntro"
+          - "Concatenate"
+          - "Create%20a%20thumbnail%20image%20every%20X%20seconds%20of%20the%20video"
+          - "Null"
+          - "Map"
+    notes: >
+      FFmpeg Wiki community guides (CC BY-SA 3.0 per the wiki's licence notice): H.264/H.265/VP9/AV1 encoding
+      (CRF, presets, GOP/keyframes), filtering, scaling, seeking, chroma subsampling, hardware acceleration.
+
+  - name: pytest-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/pytest-dev/pytest
+    loader: git
+    paths: ["doc/en/"]
+    include:
+      - "doc/en/{how-to,explanation}/*.rst"
+      - "doc/en/{getting-started,index}.rst"
+      - "doc/en/example/{simple,parametrize,markers,special,nonpython}.rst"
+    exclude:
+      - "doc/en/how-to/{bash-completion,existingtestsuite,index}.rst"
+      - "doc/en/explanation/index.rst"
+    clean_profile: rst
+    max_file_kb: 120
+    license: MIT
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: testing
+    related_technologies: [pytest, python, fixtures, parametrize, markers, mocking, monkeypatch, flaky-tests, test-design]
+    reference_only: false
+    verified: true
+    notes: >
+      Tree-verified 2026-10-16. pytest how-to guides (fixtures, parametrization, marks, skipping, monkeypatch, tmp_path,
+      plugins), explanation (anatomy of a test, good practices, flaky tests, CI, pythonpath, types of tests) and
+      selected examples. Changelog, announcements and the reference API pages are excluded.
+
+  - name: playwright-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/microsoft/playwright
+    loader: git
+    clean_profile: playwright
+    paths: ["docs/src/"]
+    include:
+      - "docs/src/{actionability,auth,best-practices-js,browser-contexts,browsers,ci,ci-intro,clock,codegen,debug,dialogs,emulation,events,evaluating,frames,input,locators,mock,navigations,network,other-locators,pages,pom,screenshots,selenium-grid,trace-viewer,videos,aria-snapshots,downloads,docker,accessibility-testing-js,api-testing-js,extensibility}.md"
+      - "docs/src/{intro-js,writing-tests-js,running-tests-js,test-assertions-js,test-annotations-js,test-fixtures-js,test-global-setup-teardown-js,test-parallel-js,test-parameterize-js,test-projects-js,test-reporters-js,test-retries-js,test-sharding-js,test-snapshots-js,test-timeouts-js,test-use-options-js,test-webserver-js,test-configuration-js,test-components-js,test-ui-mode-js,trace-viewer-intro-js}.md"
+    max_file_kb: 100
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: testing
+    related_technologies: [playwright, end-to-end-testing, locators, auto-waiting, test-retries, trace-viewer, ci, flaky-tests, parallelism]
+    reference_only: false
+    verified: true
+    notes: >
+      Playwright docs, JS/TS flavour plus language-neutral guides (actionability / auto-waiting, locators, best
+      practices, retries, parallelism and sharding, fixtures, trace viewer, CI, API testing, mocking). The Java,
+      Python and .NET duplicates, release notes and API reference are excluded.
+
+  - name: junit5-user-guide
+    namespace: technical
+    priority: P1
+    url: https://github.com/junit-team/junit-framework
+    loader: git
+    paths: ["documentation/modules/ROOT/pages/"]
+    include:
+      - "documentation/modules/ROOT/pages/**/*.adoc"
+    exclude:
+      - "documentation/modules/ROOT/pages/{release-notes*,appendix,api-evolution,migrating-from-junit4,running-tests/build-support}.adoc"
+      - "documentation/modules/ROOT/pages/release-notes/**"
+      - "documentation/modules/ROOT/pages/advanced-topics/configuration-parameter-documentation.adoc"
+    options:
+      exts: [".adoc"]
+    clean_profile: asciidoc
+    max_file_kb: 120
+    license: EPL-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: testing
+    related_technologies: [junit5, junit-jupiter, java, parameterized-tests, extensions, assertions, lifecycle, mocking]
+    reference_only: false
+    verified: true
+    notes: >
+      JUnit 5 user guide (Antora AsciiDoc pages in junit-framework). EPL-2.0 is a weak-copyleft licence acceptable for
+      the private KB. Code examples are `include::` directives pointing at the test sources and are not resolved
+      (prose and inline code survive). Release notes excluded.
+
+  - name: jest-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/jestjs/jest
+    loader: git
+    clean_profile: docusaurus
+    paths: ["docs/"]
+    include:
+      - "docs/{Architecture,BypassingModuleMocks,CodeTransformation,Configuration,ECMAScriptModules,Es6ClassMocks,ExpectAPI,GettingStarted,GlobalAPI,JestObjectAPI,ManualMocks,MockFunctionAPI,MockFunctions,SetupAndTeardown,SnapshotTesting,TestEnvironment,TestingAsyncCode,TimerMocks,UsingMatchers,CLI,Troubleshooting,TestingFrameworks}.md"
+    options:
+      frontmatter_title: true
+    max_file_kb: 100
+    license: MIT
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: testing
+    related_technologies: [jest, javascript, mocking, snapshot-testing, matchers, timers, async-testing]
+    reference_only: false
+    verified: true
+    notes: "Jest docs: matchers, mock functions / manual mocks, timer mocks, snapshot testing, async testing, setup/teardown, configuration. Migration guides, tutorials and database recipes excluded."
+
+  - name: vitest-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/vitest-dev/vitest
+    loader: git
+    clean_profile: docusaurus
+    paths: ["docs/guide/"]
+    include:
+      - "docs/guide/*.md"
+    exclude:
+      - "docs/guide/{cli-generated,open-telemetry,ide,index,using-plugins,profiling-test-performance,common-errors}.md"
+    options:
+      frontmatter_title: true
+    max_file_kb: 100
+    license: MIT
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: testing
+    related_technologies: [vitest, vite, mocking, snapshot, coverage, in-source-testing, parallelism, test-context]
+    reference_only: false
+    verified: true
+    notes: Vitest guide (features, mocking, snapshot, coverage, lifecycle hooks, parallelism, test context, filtering, projects, comparisons with Jest).
+
+  - name: cypress-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/cypress-io/cypress-documentation
+    loader: git
+    paths: ["docs/app/"]
+    include:
+      - "docs/app/{core-concepts,write-tests,run-tests,get-started,debug,extend}/**/*.mdx"
+    exclude:
+      - "docs/app/**/{introduction,index}.mdx"
+      - "docs/app/get-started/install-cypress.mdx"
+    options:
+      exts: [".mdx", ".md"]
+      frontmatter_title: true
+    clean_profile: docusaurus
+    max_file_kb: 100
+    license: MIT
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: testing
+    related_technologies: [cypress, end-to-end-testing, component-testing, retry-ability, intercept, flaky-tests, best-practices]
+    reference_only: false
+    verified: true
+    notes: "Cypress app docs: core concepts (retry-ability, interacting with elements, conditional testing), writing tests, network stubbing, running tests, debugging. The command API reference (94 pages) is excluded."
+
+  - name: selenium-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/SeleniumHQ/seleniumhq.github.io
+    loader: git
+    paths: ["website_and_docs/content/documentation/"]
+    include:
+      - "website_and_docs/content/documentation/overview/*.en.md"
+      - "website_and_docs/content/documentation/test_practices/**/*.en.md"
+      - "website_and_docs/content/documentation/webdriver/{waits,getting_started/*,elements/*,interactions/*,support_features/*,drivers/*,troubleshooting/*}.en.md"
+      - "website_and_docs/content/documentation/grid/{architecture,components,getting_started,applicability}.en.md"
+    exclude:
+      - "website_and_docs/content/documentation/**/_index.en.md"
+      - "website_and_docs/content/documentation/webdriver/interactions/virtual_authenticator.en.md"
+    options:
+      frontmatter_title: true
+    clean_profile: hugo
+    max_file_kb: 100
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: testing
+    related_technologies: [selenium, webdriver, page-object-model, waits, grid, test-practices, browser-automation]
+    reference_only: false
+    verified: true
+    notes: "Selenium documentation: WebDriver architecture, locators and waits, test practices (encouraged / discouraged, page objects, test independence), Selenium Grid architecture. Legacy docs and per-browser driver pages excluded."
+
+  - name: locust-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/locustio/locust
+    loader: git
+    paths: ["docs/"]
+    include:
+      - "docs/{what-is-locust,quickstart,writing-a-locustfile,running-distributed,running-without-web-ui,increase-performance,increasing-request-rate,tasksets,testing-other-systems,extending-locust,configuration,use-as-lib,logging,running-in-docker,kubernetes-operator,faq}.rst"
+    clean_profile: rst
+    max_file_kb: 100
+    license: MIT
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: testing
+    related_technologies: [locust, load-testing, performance-testing, distributed-testing, python, users-spawn-rate]
+    reference_only: false
+    verified: true
+    notes: "Locust load testing docs: locustfiles, users and spawn rate, distributed runs, request rate, tasksets, custom clients, running headless / in Docker / on Kubernetes."
+
+  - name: jmeter-manual
+    namespace: technical
+    priority: P1
+    url: https://github.com/apache/jmeter
+    loader: git
+    paths: ["xdocs/usermanual/"]
+    include:
+      - "xdocs/usermanual/{best-practices,get-started,test_plan,glossary,build-test-plan,build-web-test-plan,build-adv-web-test-plan,build-db-test-plan,hints_and_tips,remote-test,jmeter_distributed_testing_step_by_step,generating-dashboard,realtime-results,boss,build-programmatic-test-plan}.xml"
+    options:
+      exts: [".xml"]
+    clean_profile: xdoc
+    max_file_kb: 300
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: testing
+    related_technologies: [jmeter, load-testing, performance-testing, thread-groups, assertions, distributed-testing, dashboard, bottlenecks]
+    reference_only: false
+    verified: true
+    notes: >
+      Apache JMeter user manual (xdocs XML): getting started, test plan elements, building web / DB test plans,
+      best practices (CSV data, correlation, listeners overhead, GUI vs non-GUI), distributed testing, HTML dashboard.
+      component_reference.xml and properties_reference.xml (giant reference tables) are excluded.
+
+  - name: cucumber-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/cucumber/docs
+    loader: git
+    paths: ["content/docs/"]
+    include:
+      - "content/docs/{bdd,gherkin,guides,cucumber,terms}/**/*.md"
+    exclude:
+      - "content/docs/**/_index.md"
+      - "content/docs/community/**"
+    options:
+      frontmatter_title: true
+    clean_profile: markdown
+    max_file_kb: 80
+    license: MIT
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: testing
+    related_technologies: [cucumber, bdd, gherkin, behaviour-driven-development, example-mapping, step-definitions]
+    reference_only: false
+    verified: true
+    notes: "Cucumber docs (repository archived 2026-05, content still current): BDD (discovery workshops, example mapping), Gherkin reference, step definitions, 10-minute tutorial, anti-patterns."
+
+  - name: hypothesis-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/HypothesisWorks/hypothesis
+    loader: git
+    paths: ["hypothesis/docs/"]
+    include:
+      - "hypothesis/docs/{quickstart,stateful,extras,usage}.rst"
+      - "hypothesis/docs/{tutorial,how-to,explanation}/*.rst"
+    exclude:
+      - "hypothesis/docs/**/index.rst"
+    clean_profile: rst
+    max_file_kb: 100
+    license: MPL-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: testing
+    related_technologies: [hypothesis, property-based-testing, shrinking, strategies, stateful-testing, fuzzing]
+    reference_only: false
+    verified: true
+    notes: "Hypothesis (property-based testing for Python): tutorial, strategies, shrinking, stateful testing, health checks, test case count. The API reference and changelog are excluded."
+
+  - name: engineering-playbook-testing
+    namespace: technical
+    priority: P1
+    url: https://github.com/microsoft/code-with-engineering-playbook
+    loader: git
+    paths: ["docs/automated-testing/"]
+    include:
+      - "docs/automated-testing/**/*.md"
+    exclude:
+      - "docs/automated-testing/templates/**"
+      - "docs/automated-testing/tech-specific-samples/**"
+      - "docs/automated-testing/e2e-testing/recipes/**"
+    options:
+      frontmatter_title: true
+    clean_profile: markdown
+    max_file_kb: 80
+    license: CC-BY-4.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: testing
+    related_technologies: [unit-testing, integration-testing, e2e-testing, contract-testing, consumer-driven-contracts, performance-testing, shadow-testing, smoke-testing, test-pyramid, fault-injection]
+    reference_only: false
+    verified: true
+    notes: >
+      Microsoft Code-With Engineering Playbook, automated testing section (repository licence CC BY 4.0 for the docs):
+      unit, integration, E2E, UI, performance and load, smoke, shadow, synthetic monitoring, fault injection and
+      consumer-driven contract testing, test pyramid and test planning.
+
+  - name: robot-framework-userguide
+    namespace: technical
+    priority: P2
+    url: https://github.com/robotframework/robotframework
+    loader: git
+    paths: ["doc/userguide/src/"]
+    include:
+      - "doc/userguide/src/{GettingStarted,CreatingTestData,ExecutingTestCases}/*.rst"
+    exclude:
+      - "doc/userguide/src/GettingStarted/CopyrightAndLicense.rst"
+    clean_profile: rst
+    max_file_kb: 200
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: testing
+    related_technologies: [robot-framework, keyword-driven-testing, acceptance-testing, test-automation, variables, test-libraries]
+    reference_only: false
+    verified: true
+    notes: "Robot Framework user guide: keyword-driven and data-driven testing, test data syntax, user keywords, variables, libraries, execution and reporting."
+
+  - name: testing-library-docs
+    namespace: technical
+    priority: P2
+    url: https://github.com/testing-library/testing-library-docs
+    loader: git
+    clean_profile: docusaurus
+    paths: ["docs/"]
+    include:
+      - "docs/dom-testing-library/{intro,api-queries,api-async,api-accessibility,api-events,faq,about-queries,guiding-principles}.mdx"
+      - "docs/react-testing-library/{intro,api,example-intro,faq,cheatsheet}.mdx"
+      - "docs/guiding-principles.mdx"
+      - "docs/queries/*.mdx"
+    options:
+      exts: [".mdx", ".md"]
+      frontmatter_title: true
+    max_file_kb: 80
+    license: MIT
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: testing
+    related_technologies: [testing-library, react-testing-library, dom-testing-library, user-centric-testing, queries, accessibility]
+    reference_only: false
+    verified: true
+    notes: "Testing Library: guiding principles (test behaviour not implementation), query priority, async utilities, user events."
+
+  - name: pact-docs
+    namespace: technical
+    priority: P2
+    url: https://github.com/pact-foundation/docs.pact.io
+    loader: manual
+    license: "Unknown - the docs.pact.io repository has no LICENSE file and its README states none"
+    auto_level: manual
+    trust_level: reference_only
+    refresh_cycle: never
+    domain: testing
+    related_technologies: [pact, contract-testing, consumer-driven-contracts]
+    reference_only: true
+    verified: true
+    notes: >
+      Pact docs (consumer-driven contract testing) could not be ingested: no licence is stated in the repository.
+      The Microsoft engineering playbook (CC BY 4.0) and Wikipedia cover consumer-driven contract testing instead.
+
+  - name: k6-docs
+    namespace: technical
+    priority: P2
+    url: https://github.com/grafana/k6-docs
+    loader: manual
+    license: "Unknown - the k6-docs repository has no LICENSE file (GitHub reports none)"
+    auto_level: manual
+    trust_level: reference_only
+    refresh_cycle: never
+    domain: testing
+    related_technologies: [k6, load-testing, performance-testing]
+    reference_only: true
+    verified: true
+    notes: >
+      Grafana k6 docs: no licence file in the docs repository, so not ingested. Locust and the JMeter manual are the
+      ingested load-testing sources.
+
+  - name: testng-docs
+    namespace: technical
+    priority: P2
+    url: https://github.com/testng-team/testng-team.github.io
+    loader: manual
+    license: "Unknown - the website repository has no LICENSE file (GitHub reports none)"
+    auto_level: manual
+    trust_level: reference_only
+    refresh_cycle: never
+    domain: testing
+    related_technologies: [testng, java]
+    reference_only: true
+    verified: true
+    notes: TestNG documentation site repository states no licence; JUnit 5 user guide (EPL-2.0) is ingested instead.
+
+  - name: google-testing-blog
+    namespace: technical
+    priority: P2
+    url: https://testing.googleblog.com/
+    loader: manual
+    license: "Blog posts; not ingested (blogs are out of scope and per-post licensing is not stated)"
+    auto_level: manual
+    trust_level: reference_only
+    refresh_cycle: never
+    domain: testing
+    related_technologies: [google-testing-blog, test-pyramid, flaky-tests]
+    reference_only: true
+    verified: true
+    notes: Blogs are excluded by the corpus rules. Test pyramid and flaky-test material comes from the engineering playbook, pytest explanation docs, Playwright/Cypress guides and Wikipedia.
+
+  - name: trl-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/huggingface/trl
+    loader: git
+    paths: ["docs/source/"]
+    include:
+      - "docs/source/{index,quickstart,sft_trainer,dpo_trainer,grpo_trainer,rloo_trainer,reward_trainer,kto_trainer,orpo_trainer,cpo_trainer,online_dpo_trainer,gkd_trainer,dataset_formats,chat_templates,reducing_memory_usage,speeding_up_training,peft_integration,lora_without_regret,distributing_training,deepspeed_integration,vllm_integration,example_overview,rewards,customization,long_context_training,paper_index}.md"
+    max_file_kb: 150
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: llm-post-training
+    related_technologies: [trl, rlhf, dpo, ppo, grpo, sft, reward-model, preference-optimization, alignment, lora]
+    reference_only: false
+    verified: true
+    notes: >
+      TRL docs: SFT, reward modelling, DPO / KTO / ORPO / CPO preference optimisation, GRPO and RLOO (RL with
+      verifiable rewards), online DPO, dataset formats, memory and speed tuning, PEFT / DeepSpeed / vLLM integration.
+      PPO now lives under experimental and is covered via the paper index and Spinning Up.
+
+  - name: diffusers-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/huggingface/diffusers
+    loader: git
+    paths: ["docs/source/en/"]
+    include:
+      - "docs/source/en/{index,quicktour,stable_diffusion}.md"
+      - "docs/source/en/tutorials/*.md"
+      - "docs/source/en/training/{overview,text2image,dreambooth,lora,controlnet,sdxl,text_inversion,unconditional_training,lcm_distill,t2i_adapters,ddpo,instructpix2pix,adapt_a_model,create_dataset,custom_diffusion}.md"
+      - "docs/source/en/optimization/{memory,fp16,speed-memory-optims,cache}.md"
+      - "docs/source/en/using-diffusers/{loading,schedulers,conditional_image_generation,img2img,inpaint,controlnet,controlling_generation,write_own_pipeline,unconditional_image_generation,reusing_seeds,weighted_prompts,ip_adapter,dreambooth,depth2img,text-img2vid,image_quality,batched_inference}.md"
+      - "docs/source/en/conceptual/philosophy.md"
+    max_file_kb: 100
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: generative-models
+    related_technologies: [diffusers, stable-diffusion, diffusion-models, schedulers, controlnet, lora, dreambooth, latent-diffusion, classifier-free-guidance]
+    reference_only: false
+    verified: true
+    notes: "Diffusers: pipelines, models and schedulers (denoising steps), text-to-image / img2img / inpainting, ControlNet, training (text2image, DreamBooth, LoRA, textual inversion), memory and speed optimisation. The 290 auto-generated API pages are excluded."
+
+  - name: peft-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/huggingface/peft
+    loader: git
+    paths: ["docs/source/"]
+    include:
+      - "docs/source/{index,quicktour}.md"
+      - "docs/source/methods/overview.md"
+      - "docs/source/developer_guides/*.md"
+      - "docs/source/package_reference/{lora,ia3,prefix_tuning,prompt_tuning,p_tuning,adalora,vera,lora_variant_dora,loha,lokr,oft,boft}.md"
+      - "docs/source/accelerate/*.md"
+    exclude:
+      - "docs/source/developer_guides/contributing.md"
+    max_file_kb: 100
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: llm-post-training
+    related_technologies: [peft, lora, qlora, adapters, prompt-tuning, prefix-tuning, ia3, dora, quantization, model-merging]
+    reference_only: false
+    verified: true
+    notes: "PEFT docs: parameter-efficient fine-tuning methods (LoRA, QLoRA via quantization guide, IA3, prefix / prompt tuning, AdaLoRA, DoRA), model merging, memory-efficient training, DeepSpeed / FSDP integration."
+
+  - name: smol-course
+    namespace: technical
+    priority: P2
+    url: https://github.com/huggingface/smol-course
+    loader: git
+    clean_profile: docusaurus
+    paths: ["units/en/"]
+    include:
+      - "units/en/{unit1,unit2,unit3}/*.md"
+    max_file_kb: 80
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: llm-post-training
+    related_technologies: [sft, instruction-tuning, chat-templates, preference-alignment, dpo, evaluation, smollm3]
+    reference_only: false
+    verified: true
+    notes: "Hugging Face smol course (English units 1-3): instruction tuning with SFT, chat templates, evaluation, preference alignment."
+
+  - name: hf-llm-course-post-training
+    namespace: technical
+    priority: P2
+    url: https://github.com/huggingface/course
+    loader: git
+    clean_profile: docusaurus
+    paths: ["chapters/en/chapter11/", "chapters/en/chapter12/", "chapters/en/chapter1/", "chapters/en/chapter3/"]
+    include:
+      - "chapters/en/chapter{1,3,11,12}/*.mdx"
+    exclude:
+      - "chapters/en/chapter*/{quiz,*quiz*,*questions*,*conclusion*}.mdx"
+      - "chapters/en/chapter*/0.mdx"
+    max_file_kb: 80
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: llm-post-training
+    related_technologies: [transformers, fine-tuning, sft, lora, grpo, reasoning-models, rlvr, chat-templates]
+    reference_only: false
+    verified: true
+    notes: Hugging Face LLM course chapters 1 (how transformers work), 3 (fine-tuning), 11 (SFT, chat templates, LoRA, evaluation) and 12 (reasoning models, GRPO). Other chapters (tokenizers, datasets, audio) are excluded.
+
+  - name: diffusion-models-class
+    namespace: technical
+    priority: P1
+    url: https://github.com/huggingface/diffusion-models-class
+    loader: git
+    paths: ["unit1/", "unit2/", "unit3/", "unit4/"]
+    include:
+      - "{unit1,unit2,unit3,unit4}/README.md"
+    max_file_kb: 80
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: generative-models
+    related_technologies: [diffusion-models, ddpm, noise-schedule, unet, stable-diffusion, guidance, ddim]
+    reference_only: false
+    verified: true
+    notes: "Hugging Face Diffusion Models Course units 1-4: forward / reverse diffusion, DDPM training, fine-tuning and guidance, Stable Diffusion, DDIM and advanced sampling."
+
+  - name: deep-rl-class
+    namespace: technical
+    priority: P1
+    url: https://github.com/huggingface/deep-rl-class
+    loader: git
+    clean_profile: docusaurus
+    paths: ["units/en/"]
+    include:
+      - "units/en/{unit1,unit2,unit3,unit4,unit6}/*.mdx"
+      - "units/en/unit8/*.mdx"
+    exclude:
+      - "units/en/unit*/{hands-on,quiz*,glossary,additional-readings,conclusion,introduction,mid-way-quiz,mid-way-recap}.mdx"
+    max_file_kb: 80
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: reinforcement-learning
+    related_technologies: [reinforcement-learning, q-learning, dqn, policy-gradient, actor-critic, ppo, bellman-equation, exploration]
+    reference_only: false
+    verified: true
+    notes: "Hugging Face Deep RL course: RL framework, value-based methods (Q-learning, Bellman, DQN), policy gradient, advantage actor-critic, PPO."
+
+  - name: spinning-up
+    namespace: technical
+    priority: P1
+    url: https://github.com/openai/spinningup
+    loader: git
+    paths: ["docs/"]
+    include:
+      - "docs/algorithms/*.rst"
+      - "docs/spinningup/{rl_intro,rl_intro2,rl_intro3,rl_intro4,keypapers}.rst"
+      - "docs/user/introduction.rst"
+    clean_profile: rst
+    max_file_kb: 100
+    license: MIT
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: reinforcement-learning
+    related_technologies: [reinforcement-learning, ppo, trpo, ddpg, sac, td3, policy-gradient, on-policy, off-policy]
+    reference_only: false
+    verified: true
+    notes: "OpenAI Spinning Up in Deep RL: key concepts, kinds of RL algorithms, intro to policy optimisation, and the VPG / TRPO / PPO / DDPG / TD3 / SAC algorithm pages (MIT licence)."
+
+  - name: uva-dl-notebooks
+    namespace: technical
+    priority: P1
+    url: https://github.com/phlippe/uvadlc_notebooks
+    loader: git
+    paths: ["docs/tutorial_notebooks/"]
+    include:
+      - "docs/tutorial_notebooks/tutorial{3,4,5,6,7,8,9,10,11,12,13,15,16,17}/*.ipynb"
+      - "docs/tutorial_notebooks/JAX/tutorial13/GAN.ipynb"
+    exclude:
+      - "docs/tutorial_notebooks/**/*_empty.ipynb"
+    clean_profile: notebook
+    max_file_kb: 8000
+    license: MIT
+    auto_level: full
+    trust_level: curated
+    refresh_cycle: never
+    domain: deep-learning-theory
+    related_technologies: [simclr, contrastive-learning, gan, normalizing-flows, autoencoders, vision-transformer, adversarial-attacks, meta-learning, bayesian-deep-learning]
+    reference_only: false
+    verified: true
+    notes: >
+      UvA Deep Learning tutorial notebooks (markdown cells only): activation functions, optimisation and initialisation,
+      ResNet/Inception, attention and Transformers, GNNs, autoencoders, adversarial attacks, normalizing flows,
+      autoregressive models, ViT, meta-learning, SimCLR contrastive learning, GANs.
+
+  - name: lightly-docs
+    namespace: technical
+    priority: P2
+    url: https://github.com/lightly-ai/lightly
+    loader: git
+    paths: ["docs/source/examples/"]
+    include:
+      - "docs/source/examples/{simclr,moco,byol,dino,barlowtwins,vicreg,swav,simsiam,mae,dcl,nnclr,msn}.rst"
+    clean_profile: rst
+    max_file_kb: 80
+    license: MIT
+    auto_level: full
+    trust_level: curated
+    refresh_cycle: yearly
+    domain: deep-learning-theory
+    related_technologies: [self-supervised-learning, contrastive-learning, simclr, moco, byol, dino, infonce, masked-autoencoder]
+    reference_only: false
+    verified: true
+    notes: "Lightly self-supervised learning example pages (each summarises the paper's method and loss: SimCLR / InfoNCE, MoCo, BYOL, DINO, Barlow Twins, VICReg, SwAV, MAE)."
+
+  - name: pytorch-notes
+    namespace: technical
+    priority: P1
+    url: https://github.com/pytorch/pytorch
+    loader: git
+    paths: ["docs/source/notes/"]
+    include:
+      - "docs/source/notes/{randomness,autograd,cuda,broadcasting,multiprocessing,amp_examples,ddp,modules,serialization,numerical_accuracy,extending,faq,cpu_threading_torchscript_inference}.md"
+    clean_profile: myst
+    max_file_kb: 100
+    license: BSD-3-Clause
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: ml-engineering
+    related_technologies: [pytorch, reproducibility, nondeterminism, cuda-semantics, autograd, mixed-precision, ddp, seeds]
+    reference_only: false
+    verified: true
+    notes: "PyTorch developer notes: reproducibility / randomness (seeds, deterministic algorithms, DataLoader workers), CUDA semantics, autograd mechanics, AMP examples, DDP, multiprocessing, numerical accuracy."
+
+  - name: pandera-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/unionai-oss/pandera
+    loader: git
+    clean_profile: myst
+    paths: ["docs/source/"]
+    include:
+      - "docs/source/{index,dataframe_schemas,dataframe_models,checks,decorators,lazy_validation,data_synthesis_strategies,parsers,error_report,drop_invalid_rows,dtype_validation,pydantic_integration,fastapi,mypy_integration,hypothesis}.md"
+    options:
+      frontmatter_title: true
+    max_file_kb: 100
+    license: MIT
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: data-science
+    related_technologies: [pandera, data-validation, dataframe-schema, data-quality, checks, pandas, schema-inference]
+    reference_only: false
+    verified: true
+    notes: "Pandera: DataFrame schemas and models, checks, lazy validation, decorators, parsers, property-based data synthesis."
+
+  - name: pydantic-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/pydantic/pydantic
+    loader: git
+    paths: ["docs/concepts/"]
+    include:
+      - "docs/concepts/{models,validators,fields,types,unions,strict_mode,serialization,json_schema,type_adapter,validation_decorator,performance,dataclasses,config,alias,forward_annotations,json}.md"
+    options:
+      frontmatter_title: true
+    clean_profile: mkdocs
+    max_file_kb: 120
+    license: MIT
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: web-backend
+    related_technologies: [pydantic, data-validation, type-hints, serialization, json-schema, validators, strict-mode]
+    reference_only: false
+    verified: true
+    notes: "Pydantic v2 concepts: models, validators, fields, types, strict vs lax mode, serialization, JSON schema, TypeAdapter, performance tips."
+
+  - name: great-expectations-docs
+    namespace: technical
+    priority: P2
+    url: https://github.com/great-expectations/great_expectations
+    loader: git
+    paths: ["docs/docusaurus/docs/core/"]
+    include:
+      - "docs/docusaurus/docs/core/introduction/gx_overview.md"
+      - "docs/docusaurus/docs/core/define_expectations/*.md"
+      - "docs/docusaurus/docs/core/customize_expectations/*.md"
+      - "docs/docusaurus/docs/core/trigger_actions_based_on_results/*.md"
+      - "docs/docusaurus/docs/core/run_validations/*.md"
+      - "docs/docusaurus/docs/core/connect_to_data/connect_to_data.md"
+    options:
+      frontmatter_title: true
+    clean_profile: docusaurus
+    max_file_kb: 80
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: data-engineering
+    related_technologies: [great-expectations, data-quality, data-validation, expectations, checkpoints, data-docs]
+    reference_only: false
+    verified: true
+    notes: "Great Expectations (GX Core) concepts: Data Context, Data Sources / Assets / Batch Definitions, Expectations and Suites, Validation Definitions and Checkpoints, actions on results."
+
+  - name: pgbouncer-docs
+    namespace: technical
+    priority: P2
+    url: https://github.com/pgbouncer/pgbouncer
+    loader: git
+    paths: ["doc/"]
+    include:
+      - "doc/{usage,features,faq,config}.md"
+    max_file_kb: 120
+    license: ISC
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: databases
+    related_technologies: [pgbouncer, connection-pooling, postgresql, pool-modes, transaction-pooling]
+    reference_only: false
+    verified: true
+    notes: "PgBouncer connection pooler docs (ISC licence): pool modes (session / transaction / statement), features, FAQ, configuration."
+
+  - name: hikaricp-pool-sizing
+    namespace: technical
+    priority: P2
+    url: https://github.com/brettwooldridge/HikariCP
+    loader: git
+    paths: ["README.md"]
+    include:
+      - "README.md"
+    max_file_kb: 80
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: databases
+    related_technologies: [hikaricp, connection-pooling, jdbc, pool-sizing, java]
+    reference_only: false
+    verified: true
+    notes: HikariCP README (configuration, pool sizing guidance, pool-locking, pitfalls of connection pools). The wiki ("About Pool Sizing") is a separate git repository and is not cloned.
+
+  - name: wikipedia-mobile
+    namespace: technical
+    priority: P1
+    url: https://en.wikipedia.org/
+    loader: wikipedia
+    license: CC-BY-SA-4.0 (Wikipedia text; per-page revision permalinks in source_url)
+    auto_level: full
+    trust_level: community
+    refresh_cycle: yearly
+    domain: mobile
+    related_technologies:
+    - wikipedia
+    - concepts
+    reference_only: false
+    verified: true
+    options:
+      titles:
+      - Mobile app development
+      - Android (operating system)
+      - iOS
+      - Android Runtime
+      - Dalvik (software)
+      - Kotlin (programming language)
+      - Swift (programming language)
+      - Objective-C
+      - Jetpack Compose
+      - SwiftUI
+      - UIKit
+      - Flutter (software)
+      - React Native
+      - Xamarin
+      - Kotlin Multiplatform
+      - Cross-platform software
+      - Model–view–presenter
+      - Service locator pattern
+      - Core Data
+      - Realm (database)
+      - Automatic Reference Counting
+      - Weak reference
+      - Firebase Cloud Messaging
+      - Apple Push Notification service
+      - Operational transformation
+      - Optimistic replication
+      - Data synchronization
+      - Object pool pattern
+      - Android software development
+      - App Store (Apple)
+      - Google Play
+      - Mobile app
+      - Mobile backend as a service
+      - Deep linking
+      - Biometrics
+      - Hot swapping
+      - Android Studio
+      - Xcode
+      - Cold start (computing)
+      - Ahead-of-time compilation
+      - Just-in-time compilation
+      - Frame rate
+      - Jank
+      - Declarative programming
+      - Observer pattern
+      - Background process
+      - Grand Central Dispatch
+      - Structured concurrency
+      - Mobile device
+      - Accessibility
+      - Instruments (software)
+      - Over-the-air programming
+      - Mobile security
+      - Jailbreaking
+      - Rooting (Android)
+      - Local-first software
+      - Android App Bundle
+      max_words: 5000
+    notes: 'Mobile development concepts (Android, iOS, cross-platform, offline sync, push, memory management): curated list of 88 encyclopedia articles (lead + body, boilerplate sections dropped). Complements product documentation with plain-language definitions that match bare-term and paraphrased queries.'
+
+  - name: wikipedia-embedded
+    namespace: technical
+    priority: P1
+    url: https://en.wikipedia.org/
+    loader: wikipedia
+    license: CC-BY-SA-4.0 (Wikipedia text; per-page revision permalinks in source_url)
+    auto_level: full
+    trust_level: community
+    refresh_cycle: yearly
+    domain: embedded
+    related_technologies:
+    - wikipedia
+    - concepts
+    reference_only: false
+    verified: true
+    options:
+      titles:
+      - Embedded system
+      - Microcontroller
+      - Firmware
+      - Real-time operating system
+      - Real-time computing
+      - Rate-monotonic scheduling
+      - Earliest deadline first scheduling
+      - Priority inversion
+      - Priority inheritance
+      - Priority ceiling protocol
+      - Interrupt
+      - Interrupt latency
+      - Interrupt handler
+      - Direct memory access
+      - Memory-mapped I/O and port-mapped I/O
+      - Memory-mapped I/O
+      - Volatile (computer programming)
+      - Watchdog timer
+      - Bootloader
+      - Booting
+      - Device driver
+      - Linux kernel
+      - Embedded Linux
+      - Yocto Project
+      - OpenEmbedded
+      - BusyBox
+      - Device tree
+      - U-Boot
+      - Board support package
+      - Cortex-M
+      - ARM Cortex-M
+      - ARM architecture family
+      - RISC-V
+      - STM32
+      - Arduino
+      - FreeRTOS
+      - Zephyr (operating system)
+      - RIOT (operating system)
+      - I²C
+      - Serial Peripheral Interface
+      - Universal asynchronous receiver-transmitter
+      - Controller Area Network
+      - General-purpose input/output
+      - Analog-to-digital converter
+      - Digital-to-analog converter
+      - Pulse-width modulation
+      - JTAG
+      - Serial Wire Debug
+      - In-circuit emulation
+      - Schmitt trigger
+      - Pull-up resistor
+      - Spinlock
+      - Reentrancy (computing)
+      - Critical section
+      - Cyclic executive
+      - Context switch
+      - Task (computing)
+      - Bare machine
+      - Stack-based memory allocation
+      - Memory pool
+      - Dynamic memory allocation
+      - Memory protection unit
+      - Endianness
+      - Linker (computing)
+      - Cross compiler
+      - Toolchain
+      - MISRA C
+      - Static program analysis
+      - Power management
+      - Dynamic frequency scaling
+      - Dynamic voltage scaling
+      - Sleep mode
+      - Low-power electronics
+      - Real-time clock
+      - Timer
+      - Flash memory
+      - EEPROM
+      - Wear leveling
+      - Embedded software
+      - System on a chip
+      - Field-programmable gate array
+      - Digital signal processor
+      - Hardware abstraction
+      - Hardware abstraction layer
+      - Hardware-in-the-loop simulation
+      - Secure boot
+      - Trusted Execution Environment
+      - Modbus
+      - Bluetooth Low Energy
+      - Zigbee
+      - LoRa
+      - MQTT
+      - Internet of things
+      - Programmable interrupt controller
+      - Brownout (electricity)
+      max_words: 5000
+    notes: 'Embedded systems, RTOS, firmware, embedded Linux, peripherals and protocols: curated list of 105 encyclopedia articles (lead + body, boilerplate sections dropped). Complements product documentation with plain-language definitions that match bare-term and paraphrased queries.'
+
+  - name: wikipedia-game-dev
+    namespace: technical
+    priority: P1
+    url: https://en.wikipedia.org/
+    loader: wikipedia
+    license: CC-BY-SA-4.0 (Wikipedia text; per-page revision permalinks in source_url)
+    auto_level: full
+    trust_level: community
+    refresh_cycle: yearly
+    domain: game-dev
+    related_technologies:
+    - wikipedia
+    - concepts
+    reference_only: false
+    verified: true
+    options:
+      titles:
+      - Game engine
+      - Game loop
+      - Video game development
+      - Game physics
+      - Physics engine
+      - Rigid body dynamics
+      - Collision detection
+      - Bounding volume hierarchy
+      - Spatial partitioning
+      - Quadtree
+      - Octree
+      - k-d tree
+      - Verlet integration
+      - Euler method
+      - Runge–Kutta methods
+      - Entity component system
+      - Data-oriented design
+      - Flyweight pattern
+      - State pattern
+      - Finite-state machine
+      - Behavior tree (artificial intelligence, robotics and control)
+      - Utility system
+      - Boids
+      - Pathfinding
+      - A* search algorithm
+      - Navigation mesh
+      - Dijkstra's algorithm
+      - Jump point search
+      - Procedural generation
+      - Perlin noise
+      - Simplex noise
+      - Value noise
+      - Wave function collapse
+      - Cellular automaton
+      - Voronoi diagram
+      - Fractal
+      - Graphics pipeline
+      - Rasterisation
+      - Ray tracing (graphics)
+      - Shader
+      - OpenGL
+      - Vulkan
+      - Direct3D
+      - Z-buffering
+      - Level of detail (computer graphics)
+      - Back-face culling
+      - Hidden-surface determination
+      - Frustum
+      - Occlusion culling
+      - Texture mapping
+      - Mipmap
+      - Normal mapping
+      - Shadow mapping
+      - Deferred shading
+      - Physically based rendering
+      - Global illumination
+      - Anti-aliasing
+      - Sprite (computer graphics)
+      - Tile-based video game
+      - Skeletal animation
+      - Inverse kinematics
+      - Quaternion
+      - Gimbal lock
+      - Rotation matrix
+      - Transformation matrix
+      - Scene graph
+      - Instancing
+      - Unity (game engine)
+      - Unreal Engine
+      - Godot (game engine)
+      - Netcode
+      - Client-side prediction
+      - Lag compensation
+      - Dead reckoning
+      - Lockstep protocol
+      - Interpolation
+      - Client–server model
+      - Peer-to-peer
+      - Cheating in online games
+      - Game AI
+      - Non-player character
+      - Minimax
+      - Monte Carlo tree search
+      - Vertical synchronization
+      - Delta timing
+      - Input lag
+      - Game design
+      - Game balance
+      - Level design
+      - Save game
+      - glTF
+      - Collision response
+      - Convex hull
+      - Minkowski addition
+      - Separating axis theorem
+      - GJK algorithm
+      - Ragdoll physics
+      - Particle system
+      - Physics processing unit
+      - Compute shader
+      - Video game programming
+      max_words: 5000
+    notes: 'Game development: engines, loop, physics, collision, rendering, AI, networking, procedural generation: curated list of 115 encyclopedia articles (lead + body, boilerplate sections dropped). Complements product documentation with plain-language definitions that match bare-term and paraphrased queries.'
+
+  - name: wikipedia-cv-video
+    namespace: technical
+    priority: P1
+    url: https://en.wikipedia.org/
+    loader: wikipedia
+    license: CC-BY-SA-4.0 (Wikipedia text; per-page revision permalinks in source_url)
+    auto_level: full
+    trust_level: community
+    refresh_cycle: yearly
+    domain: computer-vision
+    related_technologies:
+    - wikipedia
+    - concepts
+    reference_only: false
+    verified: true
+    options:
+      titles:
+      - Computer vision
+      - Object detection
+      - Region Based Convolutional Neural Networks
+      - You Only Look Once
+      - Intersection over union
+      - Mean average precision
+      - Image segmentation
+      - Semantic segmentation
+      - U-Net
+      - Segment Anything
+      - Video tracking
+      - Object tracking
+      - Multiple object tracking
+      - Kalman filter
+      - Hungarian algorithm
+      - Data association
+      - Optical flow
+      - Lucas–Kanade method
+      - Horn–Schunck method
+      - Motion estimation
+      - Motion compensation
+      - Block-matching algorithm
+      - Scale-invariant feature transform
+      - Oriented FAST and rotated BRIEF
+      - Speeded up robust features
+      - Harris corner detector
+      - Feature (computer vision)
+      - Corner detection
+      - Edge detection
+      - Canny edge detector
+      - Hough transform
+      - RANSAC
+      - Homography (computer vision)
+      - Camera resectioning
+      - Pinhole camera model
+      - Camera matrix
+      - Epipolar geometry
+      - Structure from motion
+      - Stereo cameras
+      - Image stitching
+      - Image registration
+      - Image pyramid
+      - Gaussian blur
+      - Histogram equalization
+      - Convolution
+      - Kernel (image processing)
+      - Morphological image processing
+      - Thresholding (image processing)
+      - Otsu's method
+      - Watershed (image processing)
+      - Optical character recognition
+      - Face detection
+      - Pose (computer vision)
+      - Residual neural network
+      - Vision transformer
+      - Data augmentation
+      - Image classification
+      - Video compression picture types
+      - Group of pictures
+      - Advanced Video Coding
+      - High Efficiency Video Coding
+      - AV1
+      - VP9
+      - Video codec
+      - Video coding format
+      - FFmpeg
+      - GStreamer
+      - OpenCV
+      - Chroma subsampling
+      - YUV
+      - Color space
+      - Interlaced video
+      - Deinterlacing
+      - Image noise
+      - Video denoising
+      - Inpainting
+      - Super-resolution imaging
+      - Deblurring
+      - Video super-resolution
+      - Frame interpolation
+      - Motion interpolation
+      - Temporal anti-aliasing
+      - Video stabilization
+      - Rolling shutter
+      - Flicker (screen)
+      - Background subtraction
+      - Image sensor
+      - Rectified linear unit
+      - Model compression
+      - Quantization (signal processing)
+      - Knowledge distillation
+      - TensorRT
+      - Sliding window protocol
+      - Sliding window
+      - Tile-based rendering
+      - Image tracing
+      - Depth map
+      - Point cloud
+      - Simultaneous localization and mapping
+      - Visual odometry
+      - Photogrammetry
+      - Radiometric calibration
+      - Lens distortion
+      - Distortion (optics)
+      - Video content analysis
+      - Surveillance
+      - Medical image computing
+      - Nvidia Jetson
+      max_words: 5000
+    notes: 'Computer vision and video processing: detection, tracking, segmentation, optical flow, features, calibration, codecs, restoration: curated list of 120 encyclopedia articles (lead + body, boilerplate sections dropped). Complements product documentation with plain-language definitions that match bare-term and paraphrased queries.'
+
+  - name: wikipedia-testing-qa
+    namespace: technical
+    priority: P1
+    url: https://en.wikipedia.org/
+    loader: wikipedia
+    license: CC-BY-SA-4.0 (Wikipedia text; per-page revision permalinks in source_url)
+    auto_level: full
+    trust_level: community
+    refresh_cycle: yearly
+    domain: testing
+    related_technologies:
+    - wikipedia
+    - concepts
+    reference_only: false
+    verified: true
+    options:
+      titles:
+      - Software testing
+      - Unit testing
+      - Integration testing
+      - System testing
+      - Acceptance testing
+      - Regression testing
+      - Smoke testing (software)
+      - Sanity check
+      - Exploratory testing
+      - Black-box testing
+      - White-box testing
+      - Gray-box testing
+      - Test automation
+      - Test-driven development
+      - Behavior-driven development
+      - Acceptance test–driven development
+      - Test double
+      - Mock object
+      - Test fixture
+      - Test harness
+      - Test case
+      - Test suite
+      - Test oracle
+      - Test plan
+      - Code coverage
+      - Modified condition/decision coverage
+      - Mutation testing
+      - Cyclomatic complexity
+      - Property testing
+      - Equivalence partitioning
+      - Boundary-value analysis
+      - All-pairs testing
+      - Decision table
+      - State transition table
+      - Software performance testing
+      - Stress testing (software)
+      - Soak testing
+      - Benchmark (computing)
+      - Apache JMeter
+      - Selenium (software)
+      - Cucumber (software)
+      - JUnit
+      - xUnit
+      - Pytest
+      - Continuous testing
+      - Fault injection
+      - Design by contract
+      - API testing
+      - End-to-end testing
+      - Flaky test
+      - Heisenbug
+      - Software bug
+      - Bug tracking system
+      - Software quality assurance
+      - Quality assurance
+      - Software verification and validation
+      - Code review
+      - Pair programming
+      - Software test documentation
+      - Characterization test
+      - Test data
+      - Test environment
+      - Service virtualization
+      - Stubs
+      - Usability testing
+      - Compatibility testing
+      - Security testing
+      - Reliability engineering
+      - Software testability
+      - Orthogonal array testing
+      - Risk-based testing
+      - Test management
+      - Software metric
+      - Software testing tactics
+      max_words: 5000
+    notes: 'Software testing and QA: test levels, strategies, TDD/BDD, coverage, mocking, load testing, contracts, flaky tests: curated list of 97 encyclopedia articles (lead + body, boilerplate sections dropped). Complements product documentation with plain-language definitions that match bare-term and paraphrased queries.'
+
+  - name: wikipedia-generative-llm
+    namespace: technical
+    priority: P1
+    url: https://en.wikipedia.org/
+    loader: wikipedia
+    license: CC-BY-SA-4.0 (Wikipedia text; per-page revision permalinks in source_url)
+    auto_level: full
+    trust_level: community
+    refresh_cycle: yearly
+    domain: generative-models
+    related_technologies:
+    - wikipedia
+    - concepts
+    reference_only: false
+    verified: true
+    options:
+      titles:
+      - Generative adversarial network
+      - Mode collapse
+      - Wasserstein GAN
+      - Variational autoencoder
+      - Autoencoder
+      - Diffusion model
+      - Stable Diffusion
+      - Latent diffusion model
+      - Flow-based generative model
+      - Normalizing flow
+      - Autoregressive model
+      - Generative model
+      - Deep learning
+      - Self-supervised learning
+      - Contrastive learning
+      - Siamese neural network
+      - Triplet loss
+      - Contrastive Language-Image Pre-training
+      - Representation learning
+      - Large language model
+      - Fine-tuning (deep learning)
+      - Prompt engineering
+      - Instruction tuning
+      - Reinforcement learning from human feedback
+      - Direct preference optimization
+      - Proximal policy optimization
+      - Policy gradient method
+      - Q-learning
+      - Actor-critic algorithm
+      - Reward model
+      - Constitutional AI
+      - Markov decision process
+      - Bellman equation
+      - Exploration–exploitation dilemma
+      - Reward hacking
+      - AI alignment
+      - Mixture of experts
+      - Retrieval-augmented generation
+      - Hallucination (artificial intelligence)
+      - Attention (machine learning)
+      - Nearest neighbor search
+      - Hierarchical navigable small world
+      - Locality-sensitive hashing
+      - Vanishing gradient problem
+      - Learning rate
+      - Random seed
+      - Reproducibility
+      - Determinism
+      - Mixed-precision arithmetic
+      - Multimodal learning
+      - Text-to-image model
+      - Neural style transfer
+      - Deepfake
+      - Tokenization (lexical analysis)
+      - Byte pair encoding
+      - Perplexity
+      - BLEU
+      - Evaluation of binary classifiers
+      - Meta-learning (computer science)
+      - Few-shot learning
+      - Zero-shot learning
+      - In-context learning
+      - Chain-of-thought prompting
+      max_words: 5000
+    notes: 'Generative models, self-supervised learning, LLM post-training and reinforcement learning: curated list of 88 encyclopedia articles (lead + body, boilerplate sections dropped). Complements product documentation with plain-language definitions that match bare-term and paraphrased queries.'
+
+  - name: wikipedia-algorithms-cs
+    namespace: technical
+    priority: P1
+    url: https://en.wikipedia.org/
+    loader: wikipedia
+    license: CC-BY-SA-4.0 (Wikipedia text; per-page revision permalinks in source_url)
+    auto_level: full
+    trust_level: community
+    refresh_cycle: yearly
+    domain: algorithms
+    related_technologies:
+    - wikipedia
+    - concepts
+    reference_only: false
+    verified: true
+    options:
+      titles:
+      - Red–black tree
+      - AVL tree
+      - Trie
+      - Radix tree
+      - Cuckoo hashing
+      - Binary search tree
+      - Self-balancing binary search tree
+      - Splay tree
+      - Treap
+      - Heap (data structure)
+      - Priority queue
+      - Fibonacci heap
+      - Segment tree
+      - Fenwick tree
+      - Disjoint-set data structure
+      - Graph (abstract data type)
+      - Adjacency list
+      - Quicksort
+      - Merge sort
+      - Heapsort
+      - Timsort
+      - Introsort
+      - Radix sort
+      - Counting sort
+      - Sorting algorithm
+      - Selection algorithm
+      - Quickselect
+      - Binary search algorithm
+      - Amortized analysis
+      - Big O notation
+      - Time complexity
+      - Space complexity
+      - Master theorem (analysis of algorithms)
+      - Dynamic programming
+      - Greedy algorithm
+      - Divide-and-conquer algorithm
+      - Backtracking
+      - Branch and bound
+      - Breadth-first search
+      - Depth-first search
+      - Topological sorting
+      - Bellman–Ford algorithm
+      - Floyd–Warshall algorithm
+      - Kruskal's algorithm
+      - Prim's algorithm
+      - Minimum spanning tree
+      - Strongly connected component
+      - Maximum flow problem
+      - Least frequently used
+      - LRU
+      - Linked list
+      - Doubly linked list
+      - Dynamic array
+      - Circular buffer
+      - Stack (abstract data type)
+      - Queue (abstract data type)
+      - Deque
+      - Knuth–Morris–Pratt algorithm
+      - Rabin–Karp algorithm
+      - Boyer–Moore string-search algorithm
+      - Edit distance
+      - Longest common subsequence
+      - Suffix array
+      - Suffix tree
+      - Huffman coding
+      - Lempel–Ziv–Welch
+      - Connection pool
+      - Data validation
+      - Hash function
+      - Merkle tree
+      - Random access
+      - Cache-oblivious algorithm
+      - External memory algorithm
+      - Space-filling curve
+      - R-tree
+      - Interval tree
+      - Bit array
+      - Count–min sketch
+      - HyperLogLog
+      - Reservoir sampling
+      - Fisher–Yates shuffle
+      - Random number generation
+      - NP-completeness
+      - P versus NP problem
+      - Halting problem
+      - Turing machine
+      - Regular expression
+      - Context-free grammar
+      - Parsing
+      - Abstract syntax tree
+      - Virtual memory
+      - Paging
+      - Thrashing (computer science)
+      - Recursion
+      - Tail call
+      - Concurrency (computer science)
+      - Compare-and-swap
+      - Memory model (programming)
+      - Producer–consumer problem
+      - Dining philosophers problem
+      - Readers–writers problem
+      - Non-blocking algorithm
+      - Database schema
+      max_words: 5000
+    notes: 'Classic CS topics: balanced trees, tries, hashing, amortized analysis, sorting, indexes (B+ tree, LSM), caches, pooling, data validation: curated list of 126 encyclopedia articles (lead + body, boilerplate sections dropped). Complements product documentation with plain-language definitions that match bare-term and paraphrased queries.'
+
+  - name: linux-kernel-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/torvalds/linux
+    loader: git
+    paths: ["Documentation/driver-api/", "Documentation/i2c/", "Documentation/spi/", "Documentation/core-api/", "Documentation/locking/", "Documentation/scheduler/", "Documentation/timers/", "Documentation/power/", "Documentation/admin-guide/pm/", "Documentation/watchdog/", "Documentation/devicetree/", "Documentation/kernel-hacking/"]
+    include:
+      - "Documentation/driver-api/{driver-model,gpio,dmaengine,pm,serial}/*.rst"
+      - "Documentation/driver-api/{i2c,spi,pwm,clk,regulator,device-io,io_ordering,ioctl,mailbox,uio-howto,input,misc_devices,reset,pin-control,devfreq,interconnect}.rst"
+      - "Documentation/i2c/*.rst"
+      - "Documentation/spi/*.rst"
+      - "Documentation/core-api/irq/*.rst"
+      - "Documentation/core-api/{genericirq,workqueue,kref,kobject,dma-api,dma-api-howto,memory-allocation,refcount-vs-atomic,circular-buffers,this_cpu_ops,timekeeping,printk-basics}.rst"
+      - "Documentation/core-api/real-time/*.rst"
+      - "Documentation/locking/*.rst"
+      - "Documentation/scheduler/*.rst"
+      - "Documentation/timers/*.rst"
+      - "Documentation/power/{runtime_pm,pm_qos_interface,devices,suspend-and-cpuidle,power_supply_class}.rst"
+      - "Documentation/admin-guide/pm/*.rst"
+      - "Documentation/watchdog/{watchdog-api,watchdog-kernel-api,watchdog-pm}.rst"
+      - "Documentation/devicetree/{usage-model,overlay-notes}.rst"
+      - "Documentation/kernel-hacking/*.rst"
+    exclude:
+      - "Documentation/**/index.rst"
+      - "Documentation/i2c/busses/**"
+      - "Documentation/i2c/muxes/**"
+      - "Documentation/i2c/{i2c-topology,gpio-fault-injection,i2c-stub,i2c-address-translators,slave-eeprom-backend,slave-testunit-backend,old-module-parameters,i2c-protocol,i2c-sysfs,dma-considerations}.rst"
+      - "Documentation/driver-api/gpio/legacy*.rst"
+    clean_profile: rst
+    max_file_kb: 100
+    license: GPL-2.0 (kernel Documentation; per-file SPDX headers)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: embedded
+    related_technologies: [linux-kernel, device-drivers, character-devices, i2c, spi, gpio, dma, interrupts, locking, rt-mutex, scheduler, runtime-pm, devicetree]
+    reference_only: false
+    verified: true
+    notes: >
+      Linux kernel Documentation (sparse checkout, selected subsystems): driver model, character devices / ioctl,
+      GPIO, I2C, SPI, DMA engine, interrupts (genericirq), workqueues, locking and rt-mutex (priority inheritance),
+      scheduler (CFS, RT, deadline), timers, runtime PM and cpuidle, watchdog, devicetree usage, PREEMPT_RT notes.
+      GPL-2.0: acceptable for a private, non-redistributed KB. Per-driver/bus pages and kernel-doc API dumps
+      excluded.
+
+  - name: game-programming-patterns
+    namespace: technical
+    priority: P2
+    url: https://github.com/munificent/game-programming-patterns
+    loader: manual
+    license: CC-BY-NC-ND-4.0 (prose, repository LICENSE); MIT (code)
+    auto_level: manual
+    trust_level: reference_only
+    refresh_cycle: never
+    domain: game-dev
+    related_technologies:
+    - game-dev
+    reference_only: true
+    verified: true
+    notes: 'No-derivatives clause: chunking is a derivative, so the book (object pool, game loop, component, flyweight, state, spatial partition) is not ingested. Godot docs, Bevy book, Flecs manuals and Wikipedia cover the same patterns.'
+
+  - name: the-book-of-shaders
+    namespace: technical
+    priority: P2
+    url: https://github.com/patriciogonzalezvivo/thebookofshaders
+    loader: manual
+    license: All rights reserved (repository LICENSE forbids hosting, display or use in any project)
+    auto_level: manual
+    trust_level: reference_only
+    refresh_cycle: never
+    domain: game-dev
+    related_technologies:
+    - game-dev
+    reference_only: true
+    verified: true
+    notes: Explicit all-rights-reserved licence. LearnOpenGL (CC BY-NC), Godot shader docs and the Vulkan Guide are ingested instead.
+
+  - name: gaffer-on-games
+    namespace: technical
+    priority: P2
+    url: https://gafferongames.com/
+    loader: manual
+    license: Copyright (c) Glenn Fiedler; no open licence stated
+    auto_level: manual
+    trust_level: reference_only
+    refresh_cycle: never
+    domain: game-dev
+    related_technologies:
+    - game-dev
+    reference_only: true
+    verified: true
+    notes: Game networking articles (snapshot interpolation, client-side prediction, lockstep) are copyrighted with no reuse licence. Godot multiplayer docs and Wikipedia (netcode, lag compensation, dead reckoning, lockstep) cover the topic.
+
+  - name: redblobgames-pathfinding
+    namespace: technical
+    priority: P2
+    url: https://www.redblobgames.com/pathfinding/a-star/introduction.html
+    loader: manual
+    license: Copyright (c) Red Blob Games; no open licence for the text stated
+    auto_level: manual
+    trust_level: reference_only
+    refresh_cycle: never
+    domain: game-dev
+    related_technologies:
+    - game-dev
+    reference_only: true
+    verified: true
+    notes: A* tutorials are copyrighted; Wikipedia (A* search algorithm, navigation mesh, pathfinding), cp-algorithms and Godot navigation docs are ingested instead.
+
+  - name: unity-unreal-docs
+    namespace: technical
+    priority: P2
+    url: https://docs.unity3d.com/
+    loader: manual
+    license: Proprietary vendor documentation (Unity, Epic Games)
+    auto_level: manual
+    trust_level: reference_only
+    refresh_cycle: never
+    domain: game-dev
+    related_technologies:
+    - game-dev
+    reference_only: true
+    verified: true
+    notes: Unity manual / DOTS / Netcode for GameObjects and Unreal docs are proprietary and are not ingested. Flecs, Bevy and Godot stand in for ECS / engine concepts.
+
+  - name: apple-developer-docs
+    namespace: technical
+    priority: P2
+    url: https://developer.apple.com/documentation/
+    loader: manual
+    license: Proprietary vendor documentation (Apple)
+    auto_level: manual
+    trust_level: reference_only
+    refresh_cycle: never
+    domain: mobile
+    related_technologies:
+    - mobile
+    reference_only: true
+    verified: true
+    notes: SwiftUI, UIKit, Core Data, Instruments and APNs documentation are proprietary and not ingested. The Swift book (Apache-2.0), Wikipedia articles and Kotlin/Flutter/React Native docs cover the concepts.
+
+  - name: misra-c-guidelines
+    namespace: technical
+    priority: P2
+    url: https://misra.org.uk/
+    loader: manual
+    license: Proprietary (paid standard)
+    auto_level: manual
+    trust_level: reference_only
+    refresh_cycle: never
+    domain: embedded
+    related_technologies:
+    - embedded
+    reference_only: true
+    verified: true
+    notes: MISRA C rules are proprietary. Wikipedia "MISRA C" (rule categories in prose), CMSIS-Core notes and the Embedded Rust book cover the surrounding practice.
+
+  - name: linux-device-drivers-3
+    namespace: technical
+    priority: P2
+    url: https://lwn.net/Kernel/LDD3/
+    loader: manual
+    license: CC-BY-NC-SA-2.0 (book chapters)
+    auto_level: manual
+    trust_level: reference_only
+    refresh_cycle: never
+    domain: embedded
+    related_technologies:
+    - embedded
+    reference_only: true
+    verified: true
+    notes: Published as PDF chapters only; no PDF loader in the pipeline. Linux kernel Documentation (driver-api, i2c, spi, locking) is ingested instead.
+
+  - name: u-boot-docs
+    namespace: technical
+    priority: P2
+    url: https://github.com/u-boot/u-boot
+    loader: manual
+    license: GPL-2.0-or-later (repository)
+    auto_level: manual
+    trust_level: reference_only
+    refresh_cycle: never
+    domain: embedded
+    related_technologies:
+    - embedded
+    reference_only: true
+    verified: true
+    notes: 'Not ingested: command and board-specific reference pages dominate doc/; low interview value next to Yocto, devicetree spec and Zephyr docs. Can be added with a doc/develop + doc/usage scope.'
+
+  - name: bootlin-training-slides
+    namespace: technical
+    priority: P2
+    url: https://bootlin.com/doc/training/
+    loader: manual
+    license: CC-BY-SA-3.0 (slides)
+    auto_level: manual
+    trust_level: reference_only
+    refresh_cycle: never
+    domain: embedded
+    related_technologies:
+    - embedded
+    reference_only: true
+    verified: true
+    notes: Beamer / PDF slides (LaTeX sources), not parsable by the available loaders. Yocto docs and kernel Documentation cover embedded Linux.
+
+  - name: cmsis-docs
+    namespace: technical
+    priority: P2
+    url: https://github.com/ARM-software/CMSIS_6
+    loader: manual
+    license: Apache-2.0
+    auto_level: manual
+    trust_level: reference_only
+    refresh_cycle: never
+    domain: embedded
+    related_technologies:
+    - embedded
+    reference_only: true
+    verified: true
+    notes: Doxygen-centric API pages (CMSIS-Core NVIC/intrinsics, CMSIS-RTOS2) are mostly generated API listings; not ingested in batch 2 (the doxygen profile exists if the team wants CMSIS-Core "using" pages).
+
+  - name: ffmpeg-official-docs
+    namespace: technical
+    priority: P2
+    url: https://ffmpeg.org/documentation.html
+    loader: manual
+    license: LGPL-2.1 / GPL (texinfo man pages)
+    auto_level: manual
+    trust_level: reference_only
+    refresh_cycle: never
+    domain: computer-vision
+    related_technologies:
+    - computer-vision
+    reference_only: true
+    verified: true
+    notes: ffmpeg-all.html is a single giant command reference; the FFmpeg wiki (CC BY-SA 3.0) community guides are ingested instead.
+
+  - name: segment-anything-detr-raft-repos
+    namespace: technical
+    priority: P2
+    url: https://github.com/facebookresearch/segment-anything
+    loader: manual
+    license: Apache-2.0 / BSD-3-Clause (READMEs)
+    auto_level: manual
+    trust_level: reference_only
+    refresh_cycle: never
+    domain: computer-vision
+    related_technologies:
+    - computer-vision
+    reference_only: true
+    verified: true
+    notes: 'Not ingested: READMEs of SAM, SAM2, DETR, RAFT, ByteTrack are install/usage notes with checkpoint tables; the method descriptions come from the CC-licensed papers (DETR, SAM family via Ultralytics/torchvision/Kornia docs).'
+
+  - name: mockito-docs
+    namespace: technical
+    priority: P2
+    url: https://github.com/mockito/mockito
+    loader: manual
+    license: MIT
+    auto_level: manual
+    trust_level: reference_only
+    refresh_cycle: never
+    domain: testing
+    related_technologies:
+    - testing
+    reference_only: true
+    verified: true
+    notes: 'Not ingested: the documentation lives in the Mockito.java javadoc, which is an API reference dump. JUnit 5, pytest and Wikipedia (mock object, test double) cover the concepts.'
+
+  - name: test-pyramid-articles
+    namespace: technical
+    priority: P2
+    url: https://martinfowler.com/articles/practical-test-pyramid.html
+    loader: manual
+    license: Copyright (c) Martin Fowler / Ham Vocke; no open licence
+    auto_level: manual
+    trust_level: reference_only
+    refresh_cycle: never
+    domain: testing
+    related_technologies:
+    - testing
+    reference_only: true
+    verified: true
+    notes: Test pyramid articles (martinfowler.com, Google Testing Blog) are copyrighted. The test pyramid is covered by the Microsoft engineering playbook (CC BY 4.0), Wikipedia and framework guides.
+
+  - name: box2d-manual
+    namespace: technical
+    priority: P1
+    url: https://github.com/erincatto/box2d
+    loader: git
+    paths: ["docs/"]
+    include:
+      - "docs/{overview,hello,simulation,collision,foundation,character,large_worlds,loose_ends,questions}.md"
+    max_file_kb: 150
+    license: MIT
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: game-dev
+    related_technologies: [box2d, physics-engine, rigid-body, collision-detection, continuous-collision, solver, broad-phase, contact-constraints]
+    reference_only: false
+    verified: true
+    notes: "Box2D v3 manual: world / bodies / shapes, simulation stepping and sub-stepping, contacts, joints, continuous collision (TOI), broad-phase dynamic tree, collision queries, character movement, large worlds."
+
+  - name: colyseus-docs
+    namespace: technical
+    priority: P2
+    url: https://github.com/colyseus/docs
+    loader: git
+    paths: ["pages/"]
+    include:
+      - "pages/{state,room,netcode,server,getting-started,learn,matchmaker,auth,recipes}/**/*.mdx"
+      - "pages/{faq,getting-started,state,room,auth}.mdx"
+    exclude:
+      - "pages/**/{migrating,_meta}*"
+      - "pages/learn/**/{tutorials,sample}*"
+    options:
+      exts: [".mdx", ".md"]
+      frontmatter_title: true
+    clean_profile: docusaurus
+    max_file_kb: 100
+    license: MIT
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: game-dev
+    related_technologies: [colyseus, multiplayer, authoritative-server, state-synchronization, matchmaking, rooms, netcode, client-prediction]
+    reference_only: false
+    verified: true
+    notes: "Colyseus (Node.js multiplayer framework) docs: authoritative rooms, schema state synchronisation and patches, matchmaking, netcode (client prediction / interpolation). Stand-in for the proprietary Unity netcode / Photon docs."
+
+  - name: jolt-physics-architecture
+    namespace: technical
+    priority: P2
+    url: https://github.com/jrouwe/JoltPhysics
+    loader: git
+    paths: ["Docs/Architecture.md"]
+    include:
+      - "Docs/Architecture.md"
+    max_file_kb: 150
+    license: MIT
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: game-dev
+    related_technologies: [jolt-physics, physics-engine, broad-phase, narrow-phase, constraint-solver, ccd, multithreading]
+    reference_only: false
+    verified: true
+    notes: Jolt Physics architecture document (bodies, shapes, broad phase, narrow phase, constraint solver, continuous collision, job system).
+
+  - name: supervision-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/roboflow/supervision
+    loader: git
+    paths: ["docs/how_to/", "docs/detection/tools/", "docs/metrics/", "docs/index.md"]
+    include:
+      - "docs/how_to/*.md"
+      - "docs/detection/tools/*.md"
+      - "docs/metrics/*.md"
+      - "docs/index.md"
+    clean_profile: mkdocs
+    options:
+      frontmatter_title: true
+    max_file_kb: 100
+    license: MIT
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: computer-vision
+    related_technologies: [supervision, object-tracking, bytetrack, zone-counting, tiled-inference, detection-metrics, video-processing]
+    reference_only: false
+    verified: true
+    notes: "Roboflow supervision: tracking objects with ByteTrack, counting in zones / across lines, detecting small objects with InferenceSlicer, filtering detections, smoothing, detection metrics."
+
+  - name: kalman-bayesian-filters-book
+    namespace: technical
+    priority: P1
+    url: https://github.com/rlabbe/Kalman-and-Bayesian-Filters-in-Python
+    loader: git
+    paths: ["*.ipynb"]
+    include:
+      - "{01-g-h-filter,02-Discrete-Bayes,03-Gaussians,04-One-Dimensional-Kalman-Filters,05-Multivariate-Gaussians,06-Multivariate-Kalman-Filters,07-Kalman-Filter-Math,08-Designing-Kalman-Filters,09-Nonlinear-Filtering,10-Unscented-Kalman-Filter,11-Extended-Kalman-Filters,13-Smoothing,14-Adaptive-Filtering}.ipynb"
+    clean_profile: notebook
+    max_file_kb: 12000
+    license: CC-BY-4.0 (repository README licence notice)
+    auto_level: full
+    trust_level: curated
+    refresh_cycle: never
+    domain: computer-vision
+    related_technologies: [kalman-filter, bayesian-filtering, state-estimation, tracking, extended-kalman-filter, sensor-fusion, g-h-filter]
+    reference_only: false
+    verified: true
+    notes: "Kalman and Bayesian Filters in Python (R. Labbe): g-h filters, discrete Bayes, Gaussians, 1-D and multivariate Kalman filters, filter design, EKF/UKF, smoothing (markdown cells only). The foundation of SORT / DeepSORT tracking."
+
+  - name: basicsr-docs
+    namespace: technical
+    priority: P2
+    url: https://github.com/XPixelGroup/BasicSR
+    loader: git
+    clean_profile: mmlab
+    paths: ["docs/"]
+    include:
+      - "docs/{introduction,Models,DesignConvention,HOWTOs,Config,TrainTest,Metrics,DatasetPreparation,Logging,FAQ}.md"
+    max_file_kb: 100
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: computer-vision
+    related_technologies: [basicsr, super-resolution, image-restoration, esrgan, edvr, metrics, psnr, ssim]
+    reference_only: false
+    verified: true
+    notes: "BasicSR open-source image and video restoration toolbox docs (English pages): design conventions, models, configs, training/testing, metrics (PSNR/SSIM/LPIPS). Chinese pages excluded."
+
+  - name: testcontainers-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/testcontainers/testcontainers-java
+    loader: git
+    paths: ["docs/"]
+    include:
+      - "docs/{features,quickstart,test_framework_integration}/*.md"
+      - "docs/index.md"
+    options:
+      frontmatter_title: true
+    clean_profile: mkdocs
+    max_file_kb: 80
+    license: MIT
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: testing
+    related_technologies: [testcontainers, integration-testing, docker, junit5, test-isolation, wait-strategies]
+    reference_only: false
+    verified: true
+    notes: "Testcontainers for Java docs: throwaway containers for integration tests, startup and wait strategies, networking, reuse, JUnit 4/5 and Spock integration."
+
+  - name: appium-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/appium/appium
+    loader: git
+    paths: ["packages/appium/docs/en/"]
+    include:
+      - "packages/appium/docs/en/{intro,quickstart,guides}/*.md"
+      - "packages/appium/docs/en/index.md"
+    exclude:
+      - "packages/appium/docs/en/guides/{migrating-1-to-2,migrating-2-to-3,branch-testing,log-filters,managing-exts}.md"
+      - "packages/appium/docs/en/quickstart/{test-dotnet,test-java,test-js,test-rb}.md"
+    options:
+      frontmatter_title: true
+    clean_profile: mkdocs
+    max_file_kb: 80
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: testing
+    related_technologies: [appium, mobile-test-automation, webdriver, uiautomator2, xcuitest, capabilities, grid]
+    reference_only: false
+    verified: true
+    notes: "Appium 2/3 docs: architecture (client / server / drivers), capabilities, session settings, execute methods, security, Grid; mobile UI test automation for Android (UiAutomator2) and iOS (XCUITest)."
+
+  - name: okhttp-docs
+    namespace: technical
+    priority: P2
+    url: https://github.com/lysine-dev/okhttp
+    loader: git
+    paths: ["docs/features/", "docs/security/", "docs/recipes.md"]
+    include:
+      - "docs/features/*.md"
+      - "docs/recipes.md"
+      - "docs/security/security.md"
+    clean_profile: mkdocs
+    max_file_kb: 80
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: mobile
+    related_technologies: [okhttp, android, http-client, interceptors, connection-pooling, caching, tls, retrofit]
+    reference_only: false
+    verified: true
+    notes: "OkHttp (the HTTP client under Retrofit and most Android apps): calls, connections and pooling, interceptors, caching, events, HTTPS / TLS configuration, R8 / ProGuard."
+
+  - name: verl-docs
+    namespace: technical
+    priority: P2
+    url: https://github.com/verl-project/verl
+    loader: git
+    paths: ["docs/algo/", "docs/start/", "docs/workers/", "docs/hybrid_flow.rst"]
+    include:
+      - "docs/algo/{ppo,grpo,dapo,gpg,spin,sppo,opo,baseline,entropy}.md"
+      - "docs/start/quickstart.rst"
+      - "docs/hybrid_flow.rst"
+      - "docs/workers/{ray_trainer,engine_workers,model_engine}.rst"
+    clean_profile: rst
+    max_file_kb: 100
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: llm-post-training
+    related_technologies: [verl, rlhf, ppo, grpo, dapo, reinforcement-learning, rollout, reward-model, ray]
+    reference_only: false
+    verified: true
+    notes: verl (HybridFlow) RL post-training framework docs (PPO, GRPO, DAPO and other algorithms; the hybrid controller / worker design; quickstart).
+
+  - name: lm-evaluation-harness-docs
+    namespace: technical
+    priority: P2
+    url: https://github.com/EleutherAI/lm-evaluation-harness
+    loader: git
+    paths: ["docs/", "README.md"]
+    include:
+      - "README.md"
+      - "docs/{task_guide,new_task_guide,model_guide,python-api,interface,decontamination,chat-template-readme,config_files,footguns}.md"
+    max_file_kb: 100
+    license: MIT
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: llm-post-training
+    related_technologies: [lm-evaluation-harness, llm-evaluation, benchmarks, few-shot, decontamination, log-likelihood, generation-evaluation]
+    reference_only: false
+    verified: true
+    notes: "EleutherAI lm-evaluation-harness: how LLM benchmarks are specified and scored (log-likelihood vs generation tasks, few-shot prompting, chat templates, contamination)."
+
+  - name: linux-kernel-labs
+    namespace: technical
+    priority: P1
+    url: https://github.com/linux-kernel-labs/linux
+    loader: git
+    paths: ["Documentation/teaching/labs/"]
+    include:
+      - "Documentation/teaching/labs/{kernel_modules,device_drivers,device_model,interrupts,deferred_work,kernel_api,memory_mapping,block_device_drivers,networking,kernel_profiling}.rst"
+    clean_profile: rst
+    max_file_kb: 150
+    license: GPL-2.0 (Linux kernel tree; Linux Kernel Teaching labs by UPB)
+    auto_level: full
+    trust_level: curated
+    refresh_cycle: never
+    domain: embedded
+    related_technologies: [linux-kernel, kernel-modules, character-devices, cdev, file-operations, ioctl, interrupts, tasklets, workqueues, memory-mapping, device-drivers]
+    reference_only: false
+    verified: true
+    notes: >
+      Linux Kernel Teaching labs (linux-kernel-labs/linux, master): kernel modules, character device drivers
+      (struct file_operations, cdev, ioctl, open/read/write), the device model, interrupts, deferred work
+      (tasklets, workqueues), kernel API (memory, locking), memory mapping, block drivers, networking.
+      Stand-in for Linux Device Drivers 3 (PDF only).
+
+  - name: swift-evolution-proposals
+    namespace: technical
+    priority: P2
+    url: https://github.com/swiftlang/swift-evolution
+    loader: git
+    paths: ["proposals/"]
+    include:
+      - "proposals/{0258-property-wrappers,0289-result-builders,0296-async-await,0298-asyncsequence,0300-continuation,0302-concurrent-value-and-concurrent-closures,0304-structured-concurrency,0306-actors,0313-actor-isolation-control,0316-global-actors,0317-async-let,0395-observability,0414-region-based-isolation}.md"
+    max_file_kb: 150
+    license: Apache-2.0
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: mobile
+    related_technologies: [swift, swiftui, property-wrappers, result-builders, async-await, actors, structured-concurrency, observation, sendable]
+    reference_only: false
+    verified: true
+    notes: >
+      Selected Swift Evolution proposals (Apache-2.0): property wrappers (the mechanism behind SwiftUI @State /
+      @Binding), result builders (SwiftUI view builders), async/await, structured concurrency, actors and Sendable,
+      Observation (@Observable). SwiftUI documentation itself is Apple-proprietary and is not ingested.
+
+  - name: paper-detr
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2005.12872
+    loader: arxiv
+    license: CC0-1.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: computer-vision
+    related_technologies:
+    - detr
+    reference_only: false
+    verified: true
+    notes: "arXiv 2005.12872; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/publicdomain/zero/1.0/)."
+
+  - name: paper-fcos
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/1904.01355
+    loader: arxiv
+    license: CC-BY-NC-SA-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: computer-vision
+    related_technologies:
+    - fcos
+    reference_only: false
+    verified: true
+    notes: "arXiv 1904.01355; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by-nc-sa/4.0/)."
+
+  - name: paper-swin-transformer
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2103.14030
+    loader: arxiv
+    license: CC-BY-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: computer-vision
+    related_technologies:
+    - swin-transformer
+    reference_only: false
+    verified: true
+    notes: "arXiv 2103.14030; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by/4.0/)."
+
+  - name: paper-basicvsr
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2012.02181
+    loader: arxiv
+    license: CC-BY-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: computer-vision
+    related_technologies:
+    - basicvsr
+    reference_only: false
+    verified: true
+    notes: "arXiv 2012.02181; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by/4.0/)."
+
+  - name: paper-basicvsr-plusplus
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2104.13371
+    loader: arxiv
+    license: CC-BY-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: computer-vision
+    related_technologies:
+    - basicvsr-plusplus
+    reference_only: false
+    verified: true
+    notes: "arXiv 2104.13371; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by/4.0/)."
+
+  - name: paper-e2fgvi
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2204.02663
+    loader: arxiv
+    license: CC-BY-NC-SA-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: computer-vision
+    related_technologies:
+    - e2fgvi
+    reference_only: false
+    verified: true
+    notes: "arXiv 2204.02663; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by-nc-sa/4.0/)."
+
+  - name: paper-propainter
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2309.03897
+    loader: arxiv
+    license: CC-BY-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: computer-vision
+    related_technologies:
+    - propainter
+    reference_only: false
+    verified: true
+    notes: "arXiv 2309.03897; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by/4.0/)."
+
+  - name: paper-real-basicvsr
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2111.12704
+    loader: arxiv
+    license: CC-BY-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: computer-vision
+    related_technologies:
+    - real-basicvsr
+    reference_only: false
+    verified: true
+    notes: "arXiv 2111.12704; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by/4.0/)."
+
+  - name: paper-loftr
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2104.00680
+    loader: arxiv
+    license: CC-BY-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: computer-vision
+    related_technologies:
+    - loftr
+    reference_only: false
+    verified: true
+    notes: "arXiv 2104.00680; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by/4.0/)."
+
+  - name: paper-dreambooth
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2208.12242
+    loader: arxiv
+    license: CC-BY-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: generative-models
+    related_technologies:
+    - dreambooth
+    reference_only: false
+    verified: true
+    notes: "arXiv 2208.12242; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by/4.0/)."
+
+  - name: paper-dit
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2212.09748
+    loader: arxiv
+    license: CC-BY-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: generative-models
+    related_technologies:
+    - dit
+    reference_only: false
+    verified: true
+    notes: "arXiv 2212.09748; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by/4.0/)."
+
+  - name: paper-dino
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2104.14294
+    loader: arxiv
+    license: CC-BY-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: deep-learning-theory
+    related_technologies:
+    - dino
+    reference_only: false
+    verified: true
+    notes: "arXiv 2104.14294; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by/4.0/)."
+
+  - name: paper-mae
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2111.06377
+    loader: arxiv
+    license: CC-BY-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: deep-learning-theory
+    related_technologies:
+    - mae
+    reference_only: false
+    verified: true
+    notes: "arXiv 2111.06377; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by/4.0/)."
+
+  - name: paper-dpo
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2305.18290
+    loader: arxiv
+    license: CC-BY-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: llm-post-training
+    related_technologies:
+    - dpo
+    reference_only: false
+    verified: true
+    notes: "arXiv 2305.18290; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by/4.0/)."
+
+  - name: paper-constitutional-ai
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2212.08073
+    loader: arxiv
+    license: CC-BY-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: llm-post-training
+    related_technologies:
+    - constitutional-ai
+    reference_only: false
+    verified: true
+    notes: "arXiv 2212.08073; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by/4.0/)."
+
+  - name: paper-qlora
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2305.14314
+    loader: arxiv
+    license: CC-BY-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: llm-post-training
+    related_technologies:
+    - qlora
+    reference_only: false
+    verified: true
+    notes: "arXiv 2305.14314; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by/4.0/)."
+
+  - name: paper-hh-rlhf
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2204.05862
+    loader: arxiv
+    license: CC-BY-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: llm-post-training
+    related_technologies:
+    - hh-rlhf
+    reference_only: false
+    verified: true
+    notes: "arXiv 2204.05862; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by/4.0/)."
+
+  - name: paper-kto
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2402.01306
+    loader: arxiv
+    license: CC-BY-SA-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: llm-post-training
+    related_technologies:
+    - kto
+    reference_only: false
+    verified: true
+    notes: "arXiv 2402.01306; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by-sa/4.0/)."
+
+  - name: paper-llama
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2302.13971
+    loader: arxiv
+    license: CC-BY-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: llm-engineering
+    related_technologies:
+    - llama
+    reference_only: false
+    verified: true
+    notes: "arXiv 2302.13971; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by/4.0/)."
+
+  - name: paper-all-in-one-deflicker
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2303.08120
+    loader: arxiv
+    license: CC-BY-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: computer-vision
+    related_technologies:
+    - all-in-one-deflicker
+    reference_only: false
+    verified: true
+    notes: "arXiv 2303.08120; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by/4.0/)."
+
+  - name: paper-tokenflow
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2307.10373
+    loader: arxiv
+    license: CC-BY-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: computer-vision
+    related_technologies:
+    - tokenflow
+    reference_only: false
+    verified: true
+    notes: "arXiv 2307.10373; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by/4.0/)."
+
+  - name: paper-yolov10
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2405.14458
+    loader: arxiv
+    license: CC-BY-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: computer-vision
+    related_technologies:
+    - yolov10
+    reference_only: false
+    verified: true
+    notes: "arXiv 2405.14458; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by/4.0/)."
+
+  - name: paper-mobilesam
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2306.14289
+    loader: arxiv
+    license: CC-BY-NC-SA-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: computer-vision
+    related_technologies:
+    - mobilesam
+    reference_only: false
+    verified: true
+    notes: "arXiv 2306.14289; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by-nc-sa/4.0/)."
+
+  - name: paper-strongsort
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2202.13514
+    loader: arxiv
+    license: CC-BY-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: computer-vision
+    related_technologies:
+    - strongsort
+    reference_only: false
+    verified: true
+    notes: "arXiv 2202.13514; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by/4.0/)."
+
+  - name: paper-trackformer
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2101.02702
+    loader: arxiv
+    license: CC-BY-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: computer-vision
+    related_technologies:
+    - trackformer
+    reference_only: false
+    verified: true
+    notes: "arXiv 2101.02702; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by/4.0/)."
+
+  - name: paper-xmem
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2207.07115
+    loader: arxiv
+    license: CC-BY-NC-SA-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: computer-vision
+    related_technologies:
+    - xmem
+    reference_only: false
+    verified: true
+    notes: "arXiv 2207.07115; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by-nc-sa/4.0/)."
+
+  - name: paper-video-swin
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2106.13230
+    loader: arxiv
+    license: CC-BY-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: computer-vision
+    related_technologies:
+    - video-swin
+    reference_only: false
+    verified: true
+    notes: "arXiv 2106.13230; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by/4.0/)."
+
+  - name: paper-videomae
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2203.12602
+    loader: arxiv
+    license: CC-BY-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: computer-vision
+    related_technologies:
+    - videomae
+    reference_only: false
+    verified: true
+    notes: "arXiv 2203.12602; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by/4.0/)."
+
+  - name: paper-flowformer
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2203.16194
+    loader: arxiv
+    license: CC-BY-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: computer-vision
+    related_technologies:
+    - flowformer
+    reference_only: false
+    verified: true
+    notes: "arXiv 2203.16194; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by/4.0/)."
+
+  - name: paper-gmflow
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2111.13680
+    loader: arxiv
+    license: CC-BY-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: computer-vision
+    related_technologies:
+    - gmflow
+    reference_only: false
+    verified: true
+    notes: "arXiv 2111.13680; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by/4.0/)."
+
+  - name: paper-restormer
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2111.09881
+    loader: arxiv
+    license: CC-BY-NC-SA-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: computer-vision
+    related_technologies:
+    - restormer
+    reference_only: false
+    verified: true
+    notes: "arXiv 2111.09881; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by-nc-sa/4.0/)."
+
+  - name: paper-sdxl
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2307.01952
+    loader: arxiv
+    license: CC-BY-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: generative-models
+    related_technologies:
+    - sdxl
+    reference_only: false
+    verified: true
+    notes: "arXiv 2307.01952; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by/4.0/)."
+
+  - name: paper-dalle2
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2204.06125
+    loader: arxiv
+    license: CC-BY-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: generative-models
+    related_technologies:
+    - dalle2
+    reference_only: false
+    verified: true
+    notes: "arXiv 2204.06125; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by/4.0/)."
+
+  - name: paper-rlaif
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2309.00267
+    loader: arxiv
+    license: CC-BY-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: llm-post-training
+    related_technologies:
+    - rlaif
+    reference_only: false
+    verified: true
+    notes: "arXiv 2309.00267; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by/4.0/)."
+
+  - name: paper-zephyr
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2310.16944
+    loader: arxiv
+    license: CC-BY-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: llm-post-training
+    related_technologies:
+    - zephyr
+    reference_only: false
+    verified: true
+    notes: "arXiv 2310.16944; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by/4.0/)."
+
+  - name: paper-ipo
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2310.12036
+    loader: arxiv
+    license: CC-BY-NC-SA-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: llm-post-training
+    related_technologies:
+    - ipo
+    reference_only: false
+    verified: true
+    notes: "arXiv 2310.12036; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by-nc-sa/4.0/)."
+
+  - name: paper-mistral
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2310.06825
+    loader: arxiv
+    license: CC-BY-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: llm-engineering
+    related_technologies:
+    - mistral
+    reference_only: false
+    verified: true
+    notes: "arXiv 2310.06825; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by/4.0/)."
+
+  - name: paper-mixtral
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2401.04088
+    loader: arxiv
+    license: CC-BY-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: llm-engineering
+    related_technologies:
+    - mixtral
+    reference_only: false
+    verified: true
+    notes: "arXiv 2401.04088; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by/4.0/)."
+
+  - name: paper-lima
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2305.11206
+    loader: arxiv
+    license: CC-BY-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: llm-post-training
+    related_technologies:
+    - lima
+    reference_only: false
+    verified: true
+    notes: "arXiv 2305.11206; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by/4.0/)."
+
+  - name: paper-self-instruct
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2212.10560
+    loader: arxiv
+    license: CC-BY-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: llm-post-training
+    related_technologies:
+    - self-instruct
+    reference_only: false
+    verified: true
+    notes: "arXiv 2212.10560; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by/4.0/)."
+
+  - name: paper-chain-of-thought
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2201.11903
+    loader: arxiv
+    license: CC-BY-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: llm-engineering
+    related_technologies:
+    - chain-of-thought
+    reference_only: false
+    verified: true
+    notes: "arXiv 2201.11903; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by/4.0/)."
+
+  - name: paper-self-consistency
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2203.11171
+    loader: arxiv
+    license: CC-BY-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: llm-engineering
+    related_technologies:
+    - self-consistency
+    reference_only: false
+    verified: true
+    notes: "arXiv 2203.11171; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by/4.0/)."
+
+  - name: paper-tree-of-thoughts
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2305.10601
+    loader: arxiv
+    license: CC-BY-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: llm-engineering
+    related_technologies:
+    - tree-of-thoughts
+    reference_only: false
+    verified: true
+    notes: "arXiv 2305.10601; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by/4.0/)."
+
+  - name: paper-self-rag
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2310.11511
+    loader: arxiv
+    license: CC-BY-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: rag
+    related_technologies:
+    - self-rag
+    reference_only: false
+    verified: true
+    notes: "arXiv 2310.11511; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by/4.0/)."
+
+  - name: paper-bge-m3
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2402.03216
+    loader: arxiv
+    license: CC-BY-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: rag
+    related_technologies:
+    - bge-m3
+    reference_only: false
+    verified: true
+    notes: "arXiv 2402.03216; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by/4.0/)."
+
+  - name: paper-gqa
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2305.13245
+    loader: arxiv
+    license: CC-BY-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: llm-engineering
+    related_technologies:
+    - gqa
+    reference_only: false
+    verified: true
+    notes: "arXiv 2305.13245; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by/4.0/)."
+
+  - name: paper-speculative-decoding
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2211.17192
+    loader: arxiv
+    license: CC-BY-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: ml-serving
+    related_technologies:
+    - speculative-decoding
+    reference_only: false
+    verified: true
+    notes: "arXiv 2211.17192; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by/4.0/)."
+
+  - name: paper-gptq
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2210.17323
+    loader: arxiv
+    license: CC-BY-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: ml-efficiency
+    related_technologies:
+    - gptq
+    reference_only: false
+    verified: true
+    notes: "arXiv 2210.17323; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by/4.0/)."
+
+  - name: paper-smoothquant
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/abs/2211.10438
+    loader: arxiv
+    license: CC-BY-4.0 (arXiv abs page licence link, checked 2026-10-16)
+    auto_level: full
+    trust_level: official
+    refresh_cycle: never
+    domain: ml-efficiency
+    related_technologies:
+    - smoothquant
+    reference_only: false
+    verified: true
+    notes: "arXiv 2211.10438; ingested because the abs page carries a Creative Commons licence (http://creativecommons.org/licenses/by/4.0/)."
+
+  - name: arxiv-papers-reference-only-batch2
+    namespace: technical
+    priority: P2
+    url: https://arxiv.org/
+    loader: manual
+    license: arXiv.org perpetual non-exclusive licence (or CC BY-NC-ND) - redistribution not permitted; metadata only
+    auto_level: manual
+    trust_level: reference_only
+    refresh_cycle: never
+    domain: research-papers
+    related_technologies:
+    - arxiv
+    reference_only: true
+    verified: true
+    notes: 'Papers checked on 2026-10-16 whose arXiv abs page shows the default non-exclusive licence (or CC BY-NC-ND): not chunked. The same concepts are covered by openly licensed docs / course notes in this KB. 127 papers: 1506.02640 yolo [arXiv non-exclusive]; 1612.08242 yolo9000 [arXiv non-exclusive]; 1804.02767 yolov3 [arXiv non-exclusive]; 2004.10934 yolov4 [arXiv non-exclusive]; 2207.02696 yolov7 [arXiv non-exclusive]; 1506.01497 faster-rcnn [arXiv non-exclusive]; 1504.08083 fast-rcnn [arXiv non-exclusive]; 1311.2524 rcnn [arXiv non-exclusive]; 1703.06870 mask-rcnn [arXiv non-exclusive]; 1708.02002 retinanet-focal-loss [arXiv non-exclusive]; 1512.02325 ssd [arXiv non-exclusive]; 1612.03144 fpn [arXiv non-exclusive]; 2010.04159 deformable-detr [arXiv non-exclusive]; 1904.07850 centernet [arXiv non-exclusive]; 2304.02643 segment-anything [arXiv non-exclusive]; 2408.00714 sam2 [arXiv non-exclusive]; 1505.04597 unet [arXiv non-exclusive]; 1411.4038 fcn [arXiv non-exclusive]; 1802.02611 deeplabv3plus [arXiv non-exclusive]; 2010.11929 vit [arXiv non-exclusive]; 1512.03385 resnet [arXiv non-exclusive]; 1602.00763 sort [arXiv non-exclusive]; 1703.07402 deepsort [arXiv non-exclusive]; 2110.06864 bytetrack [arXiv non-exclusive]; 2206.14651 oc-sort [arXiv non-exclusive]; 1612.01925 flownet2 [arXiv non-exclusive]; 2003.12039 raft [arXiv non-exclusive]; 1504.06852 flownet [arXiv non-exclusive]; 2201.12288 vrt [by-nc-nd/4.0]; 2206.02146 rvrt [by-nc-nd/4.0]; 2007.10247 sttn [arXiv non-exclusive]; 2009.01835 fgvc [arXiv non-exclusive]; 1809.00219 esrgan [arXiv non-exclusive]; 2107.10833 real-esrgan [arXiv non-exclusive]; 1905.02716 edvr [arXiv non-exclusive]; 1801.07892 deepfill-contextual-attention [arXiv non-exclusive]; 1808.00449 blind-video-temporal-consistency [arXiv non-exclusive]; 2202.06934 sahi [arXiv non-exclusive]; 1812.03982 slowfast [arXiv non-exclusive]; 1705.07750 i3d [arXiv non-exclusive]; 2102.05095 timesformer [arXiv non-exclusive]; 1811.08383 tsm [arXiv non-exclusive];
+      1712.07629 superpoint [arXiv non-exclusive]; 1911.11763 superglue [arXiv non-exclusive]; 1406.2661 gan [arXiv non-exclusive]; 1511.06434 dcgan [arXiv non-exclusive]; 1701.07875 wgan [arXiv non-exclusive]; 1710.10196 pggan [arXiv non-exclusive]; 1812.04948 stylegan [arXiv non-exclusive]; 1312.6114 vae [arXiv non-exclusive]; 2006.11239 ddpm [arXiv non-exclusive]; 2010.02502 ddim [arXiv non-exclusive]; 2112.10752 latent-diffusion [arXiv non-exclusive]; 2105.05233 diffusion-beats-gans [arXiv non-exclusive]; 2207.12598 classifier-free-guidance [arXiv non-exclusive]; 2210.02747 flow-matching [arXiv non-exclusive]; 2302.05543 controlnet [arXiv non-exclusive]; 2011.13456 score-sde [arXiv non-exclusive]; 2103.00020 clip [arXiv non-exclusive]; 2002.05709 simclr [arXiv non-exclusive]; 1911.05722 moco [arXiv non-exclusive]; 2006.07733 byol [arXiv non-exclusive]; 1807.03748 cpc-infonce [arXiv non-exclusive]; 2005.10242 alignment-uniformity [arXiv non-exclusive]; 2203.02155 instructgpt [arXiv non-exclusive]; 1707.06347 ppo [arXiv non-exclusive]; 2402.03300 deepseekmath-grpo [arXiv non-exclusive]; 1909.08593 finetune-lm-human-preferences [arXiv non-exclusive]; 2009.01325 learning-to-summarize-human-feedback [arXiv non-exclusive]; 2403.07691 orpo [arXiv non-exclusive]; 2501.12948 deepseek-r1 [arXiv non-exclusive]; 2307.09288 llama2 [arXiv non-exclusive]; 2005.14165 gpt3 [arXiv non-exclusive]; 1810.04805 bert [arXiv non-exclusive]; 2205.14135 flashattention [arXiv non-exclusive]; 2011.06294 rife [arXiv non-exclusive]; 2202.04901 film [arXiv non-exclusive]; 2306.07954 rerender-a-video [arXiv non-exclusive]; 2303.13439 text2video-zero [arXiv non-exclusive]; 2308.09711 vidtome [arXiv non-exclusive]; 2210.02303 imagen-video [arXiv non-exclusive]; 2204.03458 video-diffusion [arXiv non-exclusive]; 1905.05235 temporal-consistency-adversarial [arXiv non-exclusive]; 1912.11382 deep-video-prior-dvp [arXiv non-exclusive]; 2107.12847 neural-video-editing [arXiv non-exclusive]; 2011.10040 video-instance-segmentation-sam
+      [arXiv non-exclusive]; 2107.08430 yolox [arXiv non-exclusive]; 2209.02976 yolov6 [arXiv non-exclusive]; 2402.13616 yolov9 [arXiv non-exclusive]; 2304.08069 rt-detr [arXiv non-exclusive]; 2203.03605 dino-detr [arXiv non-exclusive]; 2112.01527 mask2former [arXiv non-exclusive]; 2105.15203 segformer [arXiv non-exclusive]; 1911.09070 efficientdet [arXiv non-exclusive]; 2004.01888 fairmot [arXiv non-exclusive]; 2105.03247 motr [arXiv non-exclusive]; 2307.07635 cotracker [by-nc-nd/4.0]; 2103.15691 vivit [arXiv non-exclusive]; 1709.02371 pwc-net [arXiv non-exclusive]; 2108.10257 swinir [by-nc-nd/4.0]; 2204.04676 nafnet [arXiv non-exclusive]; 1809.11096 biggan [arXiv non-exclusive]; 1912.04958 stylegan2 [arXiv non-exclusive]; 1703.10593 cyclegan [arXiv non-exclusive]; 1611.07004 pix2pix [arXiv non-exclusive]; 2205.11487 imagen [arXiv non-exclusive]; 2303.01469 consistency-models [arXiv non-exclusive]; 2403.03206 sd3 [arXiv non-exclusive]; 2405.14734 simpo [arXiv non-exclusive]; 2401.01335 spin [arXiv non-exclusive]; 2503.14476 dapo [arXiv non-exclusive]; 2407.21783 llama3 [arXiv non-exclusive]; 2307.08691 flashattention2 [arXiv non-exclusive]; 2203.15556 chinchilla [arXiv non-exclusive]; 2001.08361 scaling-laws [arXiv non-exclusive]; 1910.10683 t5 [arXiv non-exclusive]; 2302.04761 toolformer [arXiv non-exclusive]; 2212.10496 hyde [arXiv non-exclusive]; 2004.04906 dpr [arXiv non-exclusive]; 2004.12832 colbert [arXiv non-exclusive]; 2210.07316 mteb [arXiv non-exclusive]; 2307.03172 lost-in-the-middle [arXiv non-exclusive]; 2104.09864 rope [by-nc-nd/4.0]; 2108.12409 alibi [arXiv non-exclusive]; 2306.00978 awq [arXiv non-exclusive]; 1910.02054 zero [arXiv non-exclusive]; 1907.11692 roberta [arXiv non-exclusive]'
+
+  - name: langchain-docs
+    namespace: technical
+    priority: P1
+    url: https://github.com/langchain-ai/docs
+    loader: git
+    paths: ["src/oss/langchain/", "src/oss/langgraph/agentic-rag.mdx"]
+    include:
+      - "src/oss/langchain/{agents,tools,models,messages,structured-output,short-term-memory,long-term-memory,knowledge-base,guardrails,context-engineering,human-in-the-loop,streaming,sql-agent,component-architecture,philosophy,overview,quickstart}.mdx"
+      - "src/oss/langgraph/agentic-rag.mdx"
+    options:
+      exts: [".mdx", ".md"]
+      frontmatter_title: true
+    clean_profile: docusaurus
+    max_file_kb: 100
+    license: MIT
+    auto_level: full
+    trust_level: official
+    refresh_cycle: yearly
+    domain: llm-engineering
+    related_technologies: [langchain, rag, retrieval, vector-store, faiss, embeddings, agents, tools, memory, structured-output]
+    reference_only: false
+    verified: true
+    notes: >
+      LangChain v1 docs (langchain-ai/docs, MIT): agents, tools, models and messages, structured output, short- and
+      long-term memory, building a semantic-search knowledge base / RAG, agentic RAG with LangGraph, guardrails,
+      human-in-the-loop, context engineering. The 4,000-file docs repo (integrations, LangSmith, changelogs) is
+      mostly excluded.
