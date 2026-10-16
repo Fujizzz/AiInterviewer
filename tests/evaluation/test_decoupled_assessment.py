@@ -78,6 +78,21 @@ async def test_pending_scores_do_not_block_progress_and_are_consumed_once_on_a_l
     monkeypatch,
 ):
     agent, repo, port = await prepared()
+    initial = await repo.get_interview_context("pipeline-interview")
+    thread_id = initial.active_thread.thread_id
+    topic_key = initial.active_thread.topic_key
+    drafts = []
+
+    def validation_followup(payload):
+        # The generic mock wraps this goal in another question, producing two
+        # question marks and triggering recovery. Emit the diagnosed request
+        # directly so this scoring test stays on its intended thread.
+        goal = payload["question_plan"]["topic"]
+        assert re.fullmatch(r"How was incident \d+'s fix validated\?", goal)
+        drafts.append(goal)
+        return goal
+
+    monkeypatch.setattr(agent._llm, "_next_text", validation_followup)
     entered, release = asyncio.Event(), asyncio.Event()
     original = port.assessment.assess
 
@@ -96,17 +111,28 @@ async def test_pending_scores_do_not_block_progress_and_are_consumed_once_on_a_l
         second, _, _ = await asyncio.wait_for(commit(agent, repo, port, 2), 1)
         port.start_background(request.interview_id)
         before = await repo.get_interview_context(request.interview_id)
+        assert before.active_thread.thread_id == thread_id
+        assert before.active_thread.topic_key == topic_key
+        assert before.closed_threads == initial.closed_threads
         assert before.thread_difficulty == 2
         assert before.state.competencies["ownership"].score is None
         assert not await repo.get_assessment_records(request.interview_id)
         release.set()
         assert await port.drain(request.interview_id, timeout_seconds=2)
         assert await repo.get_interview_context(request.interview_id) == before
-        third, _, _ = await commit(agent, repo, port, 3)
+        third, _, action = await commit(agent, repo, port, 3)
         current = await repo.get_interview_context(request.interview_id)
+        assert current.active_thread.thread_id == thread_id
+        assert current.active_thread.topic_key == topic_key
+        assert current.closed_threads == initial.closed_threads
+        assert action.question.thread_id == thread_id
+        assert action.question.dialogue_action == "probe"
+        assert action.decision_trace.details["fallback_used"] is False
+        assert drafts == [f"How was incident {i}'s fix validated?" for i in (1, 2, 3)]
         assert current.applied_assessment_ids == [request.request_id, second.request_id]
         assert current.state.competencies["ownership"].score == 4
         assert current.thread_difficulty == 3
+        assert action.question.difficulty == 3
         assert request.answer.answer_id not in current.unassessed_answer_ids
         assert third.answer.answer_id in current.unassessed_answer_ids
         repeated, _ = project_assessments(
