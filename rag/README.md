@@ -135,9 +135,9 @@ clean profile and the reason it was ingested or skipped. Nothing from the corpus
 
 | namespace | before batch 1 | after batch 1 |
 |---|---|---|
-| `technical` | 13,068 chunks / 20 sources | **60,939 chunks / 113 sources** |
+| `technical` | 13,068 chunks / 20 sources | 60,939 / 113 after batch 1, **91,742 / 243 after batch 2** |
 | `question` | 3,311 | 3,311 (interview Q&A banks are deliberately not ingested, see below) |
-| total in the index | 16,379 | **64,250** |
+| total in the index | 16,379 | 64,250 after batch 1, **95,053 after batch 2** |
 
 Batch 1 (2026-10, branch `feat/rag-corpus-expansion`) added 93 technical-documentation sources,
 47,871 chunks, for the topics candidates bring up in interviews:
@@ -189,6 +189,37 @@ Source families (names are the `sources.yaml` keys):
   "k-means++") or a plain-language paraphrase, which an encyclopedia lead matches far better than
   product documentation.
 
+Batch 2 (2026-10, same branch) added 30,803 chunks (10.2M tokens) from 131 sources for the domains the
+blind audit found nearly empty. Per-source licence, files, chunks, junk dropped and residue:
+[docs/corpus-batch2.md](docs/corpus-batch2.md).
+
+| domain | sources | chunks |
+|---|---|---|
+| mobile (Android, Kotlin, KMP, Swift, Flutter, React Native, FCM, OkHttp) | 10 | 6,432 |
+| computer vision / video (OpenCV, torchvision, Ultralytics, MMagic, scikit-image, CS231n, FFmpeg, GStreamer, 35 CC papers) | 36 | 4,945 |
+| game dev (Godot, Bevy, Flecs, Box2D, Colyseus, Vulkan, LearnOpenGL, Wikipedia) | 9 | 4,722 |
+| test / QA (pytest, Playwright, JUnit 5, Cypress, Selenium, JMeter, Locust, Cucumber, Hypothesis, playbook) | 17 | 4,556 |
+| embedded (Zephyr, FreeRTOS book, Yocto, Linux kernel docs and labs, devicetree spec, Embedded Rust) | 9 | 4,411 |
+| LLM post-training / generative / RL (TRL, PEFT, Diffusers, courses, verl, Spinning Up, papers) | 25 | 3,200 |
+| classic CS, data validation, connection pools | ~8 | ~1,500 |
+
+Seven new Wikipedia lists (mobile, embedded, game dev, CV/video, testing, generative/LLM, algorithms) were
+de-duplicated against every other Wikipedia source (one chunk set per article).
+
+New clean profiles: `writerside`, `docc`, `eleventy`, `doxygen`, `mkdocs`, `flecs`, `zola`, `xdoc`,
+`docusaurus`, `myst`, `mmlab`, `playwright`. New loader options: git `permalink_template` (non-GitHub hosts,
+e.g. git.yoctoproject.org), crawler `static_version` + `permalink.append` (sites without versioned URLs:
+chunks carry `snapshot-2026-10-16` as doc_version and URL fragment).
+
+arXiv rule for batch 2: a paper is ingested only if its abs page shows a Creative Commons licence (not ND);
+127 checked papers with the default non-exclusive licence (or CC BY-NC-ND) are listed in the single
+`arxiv-papers-reference-only-batch2` entry. The six P0 papers ingested earlier (Attention, LoRA, PagedAttention,
+RAG, ReAct, Reflexion) carry the non-exclusive licence and predate this rule: decide whether to keep them.
+
+Not ingested: Apple docs, Unity/Unreal, MISRA (proprietary); Game Programming Patterns (CC BY-NC-ND); The Book
+of Shaders (all rights reserved); Gaffer on Games, Red Blob Games, Martin Fowler (copyright, no licence); Pact,
+k6, TestNG docs (no licence file); GStreamer app-dev manual (OPL). See `sources.yaml` notes.
+
 Licence policy: ingest only what a non-commercial, privately shared coursework knowledge base may
 reuse. NC and SA licences are accepted (`clickhouse-docs`, `interpretable-ml-book`, `think-*`,
 `linux-insides` are NC; `ansible-docs` GPL-3.0, `grafana-docs` AGPL-3.0). No-derivatives (ND),
@@ -215,14 +246,24 @@ New clean profiles for these sources live in `profiles.py` (`mdn`, `asciidoc`, `
 `quarto`, `notebook`, plus Hugo / VitePress / MDX additions); `rag/loaders/stix.py` and
 `rag/loaders/wikipedia_loader.py` are the two new loaders. Embedding the batch took about 35
 minutes for 37k new chunks (17.6 chunks/s on MPS), indexing under a minute; the Postgres database
-is ~1.1 GB.
+was ~1.1 GB after batch 1 and is 1.8 GB after batch 2 (table 1.8 GB incl. vectors, HNSW 742 MB, trigram 128 MB, tsvector GIN 66 MB).
 
 Quality gates for the corpus: the end-to-end invariants in `tests/rag/test_chunks_e2e.py` (no raw
 HTML tags, balanced fences, permalinks that pin the version, no heading id suffixes), the residue
 scanner (`python -m rag.residue`), the unit tests in `tests/rag/test_corpus_expansion.py` and the
 licence rule in the same file (no ingestable source with ND / BUSL / unknown licence).
 
-### Retrieval after the expansion
+### Retrieval after batch 2
+
+* Gold eval (40 queries, hybrid, no rerank), batch 1 -> batch 2: Recall@10 0.623 -> 0.568, MRR@10 0.612 -> 0.594,
+  nDCG@10 0.550 -> 0.513, Hit@10 0.825 -> 0.800 (same artefact as before: gold marks are old chunk ids).
+* **Latency regressed past the 300 ms p95 target** (312 calls, 156 dev queries x 2, hybrid, no rerank, idle
+  machine): 64k rows p50 289 / p95 818 ms -> 95k rows p50 436 / p95 1,244 ms. Exact dense p50 151 -> 212 ms
+  (p95 165 -> 247). The tail is the lexical leg (p95 665 -> 1,034 ms): an OR of up to 12 terms matches
+  ~35k of 95k rows, Postgres seq-scans and ranks every match with `ts_rank_cd`. The ~90-100 ms dense scan is
+  not the problem; options are in `BACKLOG.md`.
+
+### Retrieval after the expansion (batch 1)
 
 * **Dense search is exact by default** (`Retriever(exact_dense=True)`: index scans are disabled in the
   dense transaction). At ~64k rows the planner flipped to the incrementally built HNSW index and its

@@ -118,6 +118,27 @@ licence, scope and counts: `data/sources.yaml` and the Corpus section of `README
 - [ ] **`rag.cli eval` crashed in its held-out step** on `main` (candidate namespace without
   `candidate_id` in `rag/eval/tune.py`); fixed in this branch by scoping namespaces like the retriever.
 
+## Corpus expansion, batch 2 (2026-10, branch `feat/rag-corpus-expansion`)
+
+95,053 chunks / 246 sources now. Open items:
+
+- [ ] **Hybrid latency p95 1.2 s (target 300 ms), needs a decision.** Measured options on the lexical leg
+  (151 dev queries, p50/p95 ms; baseline 201/1004): ts_rank instead of ts_rank_cd 163/883; cap OR terms at 6
+  160/834, at 4 79/583; more parallel workers or forcing the GIN plan: no gain. Not tried: strict-AND first
+  with OR fallback (AND alone is 1 ms but has hits for only 15 of 151 queries), running dense and lexical on two
+  connections concurrently (total ~ max instead of sum), `shared_buffers` above the 128 MB default (the seq scan
+  reads ~100k buffers per query), halfvec embeddings, rebuilt HNSW (`maintenance_work_mem=1GB`, `ef_search>=400`).
+- [ ] **Cross-lingual queries are weak**: Chinese embedded/iOS dev queries (q046, q193) miss although the English
+  content exists. Same for long router-style queries dominated by a product name (q238 Unity, q109 LangChain).
+- [ ] **Acronym ambiguity** (information only): `ISR` (Next.js incremental static regeneration vs interrupt service
+  routine) and `ROI` (RoI heads vs no clear sense) are ambiguous; `GC`, `HPA`, `TLS`, `NMS`, `DMA` resolve cleanly.
+- [ ] arXiv P0 papers (six) carry the non-exclusive licence; consider `reference_only`.
+- [ ] Not covered by open licences: SwiftUI, Apple Instruments/APNs, Unity DOTS/netcode, MISRA, Pact, k6.
+  Apple/Unity topics rely on the Swift book, Swift Evolution, Wikipedia, Flecs, Godot, Colyseus.
+- [ ] Known residue: Playwright / LangChain tab blocks keep indented fences; Android code fences have no language;
+  OpenCV `@snippet` code is not inlined; Wikipedia long lines; 2 CJK mirror-link lines in basicsr-docs.
+- [ ] Chunks of batch-1 sources were not regenerated with the fence/rst fixes (char-aware fences, short rst titles).
+
 ## Data pipeline and index (carried over)
 
 P0 通过独立验收（报告 `data/reports/20261002-154629.md`，16,379 chunks，178 tests）。

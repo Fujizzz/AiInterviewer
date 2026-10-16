@@ -27,13 +27,13 @@ docker compose -f rag/docker-compose.yml up -d
 
 ### 方式 A：用现成的数据库导出（推荐，几分钟）
 
-找 Member 2 要 `intellihire-rag.dump`（约 333 MB，不在 Git 里；2026-10 语料扩充后的版本，旧版 84 MB / 16,379 条已作废），然后：
+找 Member 2 要 `intellihire-rag.dump`（约 493 MB，不在 Git 里；2026-10 第二批语料扩充后的版本；第一批的 333 MB / 64,250 条保留为 `intellihire-rag.batch1.dump`，更早的 84 MB / 16,379 条已作废），然后：
 
 ```bash
 docker exec -i intellihire-pg pg_restore -U intellihire -d intellihire \
   --no-owner --no-privileges --clean --if-exists < intellihire-rag.dump
 
-# 检查：应输出 64250
+# 检查：应输出 95053
 docker exec intellihire-pg psql -U intellihire -d intellihire -Atc "select count(*) from chunks"
 ```
 
@@ -45,7 +45,7 @@ uv run python -m rag.cli all --priority P0    # 拉取 → 清洗 → 切块（�
 uv run python -m rag.cli embed --all          # bge-m3 向量化（M 系列 Mac P0 约 13 分钟；首次下载模型约 2.3 GB）
 uv run python -m rag.cli index --all          # 导入数据库
 
-# 第一批语料扩充（前端/后端/DevOps/数据工程/经典 ML/安全，93 个来源，约 4.8 万条，embed 约 35 分钟）：
+# 语料扩充：第一批 93 个来源约 4.8 万条（embed 约 35 分钟）；第二批（移动端/嵌入式/游戏/CV 视频/测试/生成式与后训练）131 个来源约 3.1 万条（约 30 分钟）：
 # sources.yaml 里 priority 为 P1/P2 且 reference_only=false 的来源即是；按名字取子集，例如：
 uv run python -m rag.cli all --source kubernetes-website,wikipedia-security
 uv run python -m rag.cli embed --source kubernetes-website,wikipedia-security
@@ -120,7 +120,7 @@ if rag is not None:
 
 | `RetrievalSource` | 状态 |
 |---|---|
-| `technical` | ✅ 60,939 条（113 个来源）。原有：vLLM、Transformers、LangGraph、LlamaIndex、PyTorch、d2l、FastAPI、Django、PostgreSQL、Redis、Kafka、System Design Primer、cp-algorithms、6 篇论文。2026-10 新增 93 个来源：前端（MDN、React、Vue、Angular、Next.js、TypeScript、webpack、Vite、Redux）、后端与数据库（Spring 全家、Python、Flask、Rails、.NET、Node、Express、Go、Rust、gRPC/protobuf、GraphQL、Azure 架构模式、RabbitMQ、OpenSearch、Cassandra、nginx）、DevOps（Kubernetes、Docker、Helm、Prometheus、OpenTelemetry、Istio、Argo CD、GitHub Actions、Ansible、OpenTofu、事故响应、计算机网络）、数据工程（Spark、Airflow、dbt、Flink、Iceberg、Delta、Parquet、Debezium、ClickHouse）、经典 ML 与统计（scikit-learn、XGBoost、pandas、statsmodels、OpenIntro、因果推断）、安全（OWASP 全系列、NIST 800-63、MITRE ATT&CK、密码学、TLS 1.3）、约 700 篇 Wikipedia 概念条目 |
+| `technical` | ✅ 91,742 条（243 个来源）。原有：vLLM、Transformers、LangGraph、LlamaIndex、PyTorch、d2l、FastAPI、Django、PostgreSQL、Redis、Kafka、System Design Primer、cp-algorithms、6 篇论文。2026-10 新增 93 个来源：前端（MDN、React、Vue、Angular、Next.js、TypeScript、webpack、Vite、Redux）、后端与数据库（Spring 全家、Python、Flask、Rails、.NET、Node、Express、Go、Rust、gRPC/protobuf、GraphQL、Azure 架构模式、RabbitMQ、OpenSearch、Cassandra、nginx）、DevOps（Kubernetes、Docker、Helm、Prometheus、OpenTelemetry、Istio、Argo CD、GitHub Actions、Ansible、OpenTofu、事故响应、计算机网络）、数据工程（Spark、Airflow、dbt、Flink、Iceberg、Delta、Parquet、Debezium、ClickHouse）、经典 ML 与统计（scikit-learn、XGBoost、pandas、statsmodels、OpenIntro、因果推断）、安全（OWASP 全系列、NIST 800-63、MITRE ATT&CK、密码学、TLS 1.3）、约 700 篇 Wikipedia 概念条目。2026-10 第二批新增 131 个来源（约 3.1 万条）：移动端（Android 文档、Kotlin/KMP、Swift、Flutter、React Native、FCM）、嵌入式（Zephyr、FreeRTOS 内核书、Yocto、Linux 内核文档与实验、devicetree、Embedded Rust）、游戏（Godot、Bevy、Flecs、Box2D、Colyseus、LearnOpenGL）、CV/视频（OpenCV、torchvision、Ultralytics、MMagic、scikit-image、CS231n、FFmpeg wiki、49 篇 CC 许可论文）、测试/QA（pytest、Playwright、JUnit 5、Cypress、Selenium、JMeter、Cucumber 等）、生成式/后训练（TRL、PEFT、Diffusers、课程）、约 560 篇新增 Wikipedia 条目；逐源明细见 `rag/docs/corpus-batch2.md`。数据库约 1.8 GB（检索延迟见 README） |
 | `question` | ✅ 3,311 条：LeetCode 题库（带难度）、Tech Interview Handbook |
 | `candidate` | ⏳ 空：需要接入简历入库 |
 | `job` | ⏳ 空：等 SkillsFuture / MyCareersFuture 岗位数据 |

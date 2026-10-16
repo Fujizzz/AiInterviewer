@@ -513,3 +513,15 @@ This archived design note predates the expansion. What changed in the pipeline:
 - **Evaluation**: gold eval on the 64k-row index, hybrid no rerank: Recall@10 0.664 -> 0.623, MRR@10
   0.672 -> 0.612, nDCG@10 0.595 -> 0.550, Hit@10 0.850 -> 0.825 (gold relevance marks are fixed old chunk
   ids; new relevant chunks count as misses). `rag.cli eval` no longer crashes in the held-out step.
+
+
+## Corpus expansion, batch 2 (2026-10; English addendum)
+
+- **Profiles** (`rag/profiles.py`): writerside (Kotlin), docc (Swift book), eleventy (Flutter), doxygen (OpenCV),
+  mkdocs (admonitions, content tabs, jinja lines, mkdocstrings), flecs, zola, xdoc (JMeter XML), docusaurus (MDX
+  React components), myst, mmlab, playwright. The `rst` profile hands `.md` files to the markdown profile.
+- **Fences**: a fence is closed only by a bare run of its own character in the chunker, cleaner and profiles
+  (`~~~~~~` squiggles inside a ``` block no longer flip the state). Batch-1 chunks were not regenerated.
+- **htmlmd**: block start tags close an open `<p>`; custom elements (`devsite-code`) render as divs; `<pre syntax=>`.
+- **Loaders**: git `permalink_template`; dangling symlinks skipped; crawler `static_version` + `permalink.append`.
+- **Index**: 95,053 chunks, 1.8 GB; exact dense search kept. Latency and options: `rag/README.md`, `BACKLOG.md`.
