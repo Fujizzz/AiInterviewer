@@ -132,6 +132,7 @@ licence, scope and counts: `data/sources.yaml` and the Corpus section of `README
   content exists. Same for long router-style queries dominated by a product name (q238 Unity, q109 LangChain).
 - [ ] **Acronym ambiguity** (information only): `ISR` (Next.js incremental static regeneration vs interrupt service
   routine) and `ROI` (RoI heads vs no clear sense) are ambiguous; `GC`, `HPA`, `TLS`, `NMS`, `DMA` resolve cleanly.
+- [ ] Confidence rule: 15/22 negatives flagged low after batch 2 (16 after batch 1); test threshold lowered, thresholds not recalibrated.
 - [ ] arXiv P0 papers (six) carry the non-exclusive licence; consider `reference_only`.
 - [ ] Not covered by open licences: SwiftUI, Apple Instruments/APNs, Unity DOTS/netcode, MISRA, Pact, k6.
   Apple/Unity topics rely on the Swift book, Swift Evolution, Wikipedia, Flecs, Godot, Colyseus.
