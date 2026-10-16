@@ -1,6 +1,6 @@
 /*
  * Responsibilities: Style the interview workspace after the shared styles.
- * Implementation: Arrange the question, centered interviewer, upper-right local preview, captions and progress/device sidebar; narrow screens retain DOM readability. Bound caption scrolling and independently scroll the preparation dialog with stable confirmation controls.
+ * Implementation: Arrange the question, centered interviewer, upper-right local preview, captions and progress/device sidebar. Size the stage from its column width with a minimum overlay height; short viewports scroll the page. Bound caption scrolling and independently scroll the preparation dialog with stable confirmation controls.
  * Related Modules: agent.html, style.css and workspace.css; agent.js owns business state and interview-camera.js owns media preview.
  * Declaration Index:
  * None
@@ -9,6 +9,7 @@
  * Style Groups:
  * Form labels/inputs and .settings-grid; #question/#report-summary; details/pre; #stage-log/#wait-time; saved-version controls and [hidden]; .studio-heading/.question-card; .interviewer-stage/.avatar-view/.self-preview; .camera-toolbar/.voice-panel/.answer-subtitles/.preparation-dialog; responsive @media rules.
  * .interview-progress/.interview-stats shows budgets; .interview-topic-list scrolls; .interview-alert-panel shows existing anomalies; .answer-countdown highlights preparation/silence seconds; end-interview dialog shares preparation layout.
+ * .interviewer-stage owns stage geometry: preferred 16:9 with a 320px minimum, or 4:3 with a 260px minimum at viewport widths up to 520px.
  * Constraints:
  * Styles create no media streams and alter no disabled state, budget, score, collection parameter or protocol transition.
  */
@@ -41,7 +42,12 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 480px; overflo
 .question-label h2 { font-size: 11px; letter-spacing: 2px; color: #52745d; margin: 0; }
 .question-label .hint { margin: 0; }
 #question { font-size: 18px; line-height: 1.7; margin: 10px 0 0; }
-.interviewer-stage { position: relative; height: clamp(350px, 43vw, 460px); overflow: hidden; border-radius: 16px; background: radial-gradient(ellipse at 48% 36%, #4b6259 0, #2c4239 45%, #1c3029 100%); color: #f0f3e9; }
+/*
+ * Derive the preferred height from the actual column width, independently of viewport height
+ * and browser chrome. The minimum reserves room for preview/caption overlays when the sidebar
+ * narrows the column; it may exceed 16:9. Normal document scrolling keeps controls reachable.
+ */
+.interviewer-stage { position: relative; width: 100%; aspect-ratio: 16 / 9; min-height: 320px; overflow: hidden; border-radius: 16px; background: radial-gradient(ellipse at 48% 36%, #4b6259 0, #2c4239 45%, #1c3029 100%); color: #f0f3e9; }
 .stage-caption { position: absolute; top: 23px; left: 25px; font-size: 12px; display: flex; align-items: center; gap: 9px; z-index: 1; }
 .stage-dot { width: 6px; height: 6px; background: #bbcbaa; border-radius: 50%; }
 .self-preview { position: absolute; top: 20px; right: 20px; width: 192px; height: 132px; background: #182821; border: 1px solid #748379; border-radius: 12px; overflow: hidden; box-shadow: 0 8px 24px #10261b33; }
@@ -70,6 +76,8 @@ input:focus-visible, #resume-select:focus-visible, summary:focus-visible, a:focu
   .stage-caption { top: 18px; left: 16px; font-size: 11px; }
   .stage-bottom { left: 16px; right: 16px; bottom: 13px; font-size: 10px; }
 }
+/* Narrow screens use a taller preferred ratio; the minimum retains the existing 260px floor. */
+@media (max-width: 520px) { .interviewer-stage { aspect-ratio: 4 / 3; min-height: 260px; } }
 
 /* Digital-human video occupies the existing interviewer stage; camera stays local. */
 .avatar-view { position: absolute; inset: 0; width: 100%; height: 100%; background: #17231f; }

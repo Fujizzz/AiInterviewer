@@ -1,6 +1,6 @@
 /*
  * Responsibilities: Provide shared navigation, reading width, spacing, focus and responsive workspace layout.
- * Implementation: Arrange task cards and interview main/sidebar columns; render mobile content in DOM order. :empty shows the brand placeholder until player media mounts.
+ * Implementation: Arrange task cards and interview main/sidebar columns; render mobile content in DOM order. agent.css owns the width-based interview stage geometry. :empty shows the brand placeholder until player media mounts.
  * Related Modules: workspace-nav.html and home/resumes/agent/interview-review/account/index.html.
  * Declaration Index:
  * None
@@ -87,7 +87,6 @@
 .studio-sidebar .interview-progress { margin-top: 0; background: white; }
 .studio-sidebar .interview-stats { grid-template-columns: 1fr; gap: 14px; }
 .studio-sidebar .interview-stats > div { border-bottom: 1px solid var(--ws-line); padding-bottom: 12px; }
-.workspace-page .interviewer-stage { height: clamp(220px, calc(100dvh - 510px), 420px); }
 .workspace-page .self-preview { width: 150px; height: 108px; }
 .workspace-page .question-card { padding: 18px 22px; }
 .workspace-page #question { font-size: 17px; max-height: 180px; overflow-y: auto; }
@@ -161,7 +160,6 @@
   .answer-actions button { flex: 1; min-width: 0; }
   .studio-sidebar .interview-stats { grid-template-columns: 1fr; }
   .workspace-page input, .workspace-page textarea, .workspace-page select:not([data-language-selector]) { font-size: 16px; }
-  .workspace-page .interviewer-stage { height: 260px; }
   .workspace-page .studio-session-actions { width: auto; flex-wrap: nowrap; gap: 8px; }
   .workspace-page .studio-heading .eyebrow { display: none; }
   .workspace-page .studio-session-actions button { font-size: 12px; padding: 8px 10px; }
