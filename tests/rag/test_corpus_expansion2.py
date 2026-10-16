@@ -320,3 +320,42 @@ def test_every_registered_source_has_a_loadable_profile():
         if s.reference_only or s.loader not in ("git", "crawler"):
             continue
         assert clean_markdown(apply_profile("# T\n\ntext text text\n", s.clean_profile)) is not None
+
+
+def test_fences_close_only_on_their_own_character():
+    from rag.chunking import _closes_fence
+    from rag.profiles import _outside_fences
+
+    assert _closes_fence("```", "```ts")
+    assert not _closes_fence("~~~~~~~~~~", "```ts")  # TypeScript error squiggles are content
+    assert not _closes_fence("```", "~~~gherkin")
+    seen: list[str] = []
+    text = "a\n```\n~~~~~~\nb\n```\nc"
+    _outside_fences(text, lambda s: seen.append(s) or s)
+    assert seen == ["a", "c"]
+
+
+def test_crawler_snapshot_permalink_and_static_version():
+    pytest = __import__("pytest")
+    pytest.importorskip("requests")
+    from rag.loaders.crawler_loader import apply_permalink, pages_to_docs
+
+    cfg = {
+        "static_version": "2026-10-16",
+        "version_prefix": "snapshot-",
+        "permalink": {"append": "#{version}"},
+        "main_selectors": ["article"],
+    }
+    docs, _ = pages_to_docs(
+        [("https://x.dev/a", "a", "<article><h1>T</h1><p>body text</p></article>")], cfg
+    )
+    assert docs[0].doc_version == "snapshot-2026-10-16"
+    assert docs[0].source_url == "https://x.dev/a#snapshot-2026-10-16"
+    assert apply_permalink("https://x.dev/a", {}, "v") == "https://x.dev/a"
+
+
+def test_rst_short_titles_and_cjk_bullets():
+    from rag.profiles import apply_profile
+
+    out = apply_profile("Top\n===\n\nC++\n~~~\n\nText here.\n", "rst")
+    assert "## C++" in out and "~~~" not in out

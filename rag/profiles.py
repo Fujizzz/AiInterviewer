@@ -28,23 +28,27 @@ _FENCE_LINE = re.compile(r"^(\s*)(```|~~~)")
 
 
 def _outside_fences(text: str, fn: Callable[[str], str]) -> str:
-    """Applies `fn` to the non-fenced segments only."""
+    """Applies `fn` to the non-fenced segments only. A fence is closed only by a bare fence line of
+    the same character (a `~~~~~~` squiggle line inside a ``` block is content)."""
     out: list[str] = []
     buf: list[str] = []
     in_fence = False
+    opener = ""
     for ln in text.split("\n"):
-        if _FENCE_LINE.match(ln):
-            if not in_fence:
-                if buf:
-                    out.append(fn("\n".join(buf)))
-                    buf = []
-                buf = [ln]
-                in_fence = True
-            else:
-                buf.append(ln)
+        m = _FENCE_LINE.match(ln)
+        if in_fence:
+            buf.append(ln)
+            if m and m.group(2)[0] == opener and re.fullmatch(r"\s*(`{3,}|~{3,})\s*", ln):
                 out.append("\n".join(buf))
                 buf = []
                 in_fence = False
+            continue
+        if m:
+            if buf:
+                out.append(fn("\n".join(buf)))
+            buf = [ln]
+            in_fence = True
+            opener = m.group(2)[0]
             continue
         buf.append(ln)
     if buf:
@@ -112,7 +116,8 @@ _EMPTY_FENCE_RE = re.compile(
 
 # README language switcher: `*[English](README.md) ∙ [日本語](README-ja.md) ∙ ...*`
 _LANG_SWITCHER_RE = re.compile(
-    r"^[ \t]*\*?\[English\]\([^)\n]*\)(?:[ \t]*[∙|·•][ \t]*\[[^\]\n]+\]\([^)\n]*\))+[^\n]*$\n?",
+    r"^[ \t]*\*?\[English\]\([^)\n]*\)"
+    r"(?:[ \t]*(?:[∙|·•]|\*\*\|\*\*)[ \t]*\[[^\]\n]+\]\([^)\n]*\))+[^\n]*$\n?",
     re.M,
 )
 
@@ -608,6 +613,8 @@ def profile_hugo(text: str) -> str:
     text = re.sub(
         r"<!--.*?-->", lambda m: "" if len(m.group(0)) < 6000 else m.group(0), text, flags=re.S
     )  # license headers etc. first: their indented URLs must not become code
+    # ```formula``` on one line is inline code, not a fence (it would flip fence parity)
+    text = _ONELINE_FENCE_RE.sub(lambda m: f"{m.group(1)}`{m.group(2).strip()}`", text)
 
     # {{< clients-example ... >}} cli-session {{< /clients-example >}} -> fenced block
     def _example(m: re.Match) -> str:
@@ -958,8 +965,11 @@ def _is_adorn(s: str) -> bool:
 
 def _looks_like_title(title: str) -> bool:
     t = title.strip()
-    return (
-        bool(re.search(r"[A-Za-z]{3}", t)) and t[0] not in ")]}" and not re.fullmatch(r"[\W_]+", t)
+    if t[:1] in ")]}" or re.fullmatch(r"[\W_]+", t):
+        return False
+    # short titles such as "C++", "Q&A", "I/O" have no run of three letters
+    return bool(re.search(r"[A-Za-z]{3}", t)) or (
+        len(t) <= 20 and bool(re.search(r"[A-Za-z]", t)) and bool(re.fullmatch(r"[\w+&#/ .-]+", t))
     )
 
 
@@ -1305,9 +1315,16 @@ def profile_rst(text: str, path: str = "") -> str:
     text = _INVISIBLE_BLOCK_RE.sub(
         "", text
     )  # pytorch/tutorials: code that is executed but hidden in the rendered page
+    # upstream typo "```name``" at the start of a line (inline literal with an extra backtick)
+    text = re.sub(r"^([ \t]*)```([^`\n]+)``(?!`)", r"\1``\2``", text, flags=re.M)
     if path.endswith(".py"):
         text = sphinx_gallery_to_rst(text)
     return rst_to_markdown(text)
+
+
+_CJK_BULLET_RE = re.compile(
+    r"^[ \t]*[-*][ \t]+[^\w\n]*[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af][^\n]*$\n?", re.M
+)
 
 
 def profile_html(text: str, path: str = "", options: dict | None = None) -> str:
@@ -1335,6 +1352,7 @@ def profile_html(text: str, path: str = "", options: dict | None = None) -> str:
             body = f"# {page_title}\n\n{body.lstrip()}"
         return body
     if not text.lstrip().startswith("<"):
+        text = _CJK_BULLET_RE.sub("", text)  # translated "see also" links (English-only corpus)
         return convert_embedded_html(text)
     md, _ = html_to_markdown(text)
     if not re.match(r"\s*#{1,2}\s", md):
@@ -2195,7 +2213,9 @@ _JINJA_LINE_RE = re.compile(
 _CANVAS_RE = re.compile(r"<canvas\b[^>]*>(?:</canvas>)?[ \t]*\n?", re.I)
 
 
-_MKDOCSTRINGS_BLOCK_RE = re.compile(r"^:::[ \t]*[\w.]+[ \t]*\n(?:[ \t]+[^\n]*\n|[ \t]*\n(?=[ \t]+\S))*", re.M)
+_MKDOCSTRINGS_BLOCK_RE = re.compile(
+    r"^:::[ \t]*[\w.]+[ \t]*\n(?:[ \t]+[^\n]*\n|[ \t]*\n(?=[ \t]+\S))*", re.M
+)
 _ATTR_ONLY_LINE_RE = re.compile(r"^[ \t]*\{[ \t]*[.#][^}\n]*\}[ \t]*$\n?", re.M)
 
 
@@ -2354,7 +2374,9 @@ def _strip_jsx_components(seg: str) -> str:
     return "".join(out)
 
 
-_VIDEO_RE = re.compile(r"<video\b.*?</video>[ \t]*\n?", re.S | re.I)
+_VIDEO_RE = re.compile(
+    r"<video\b.*?</video>[ \t]*\n?|<ins\b[^>]*?/>[ \t]*", re.S | re.I
+)  # also RN colour swatches
 
 
 def profile_docusaurus(text: str) -> str:
@@ -2498,8 +2520,47 @@ def _drop_zoo_tables(seg: str) -> str:
     return "\n".join(out)
 
 
+_CJK_LINK_RE = re.compile(
+    r"[,;:]?[ \t]*\[[^\]\n]*[\u3040-\u30ff\u3400-\u9fff][^\]\n]*\]\([^)\n]*\)"
+)
+
+
 def profile_mmlab(text: str) -> str:
-    return profile_markdown(_outside_fences(text, _drop_zoo_tables))
+    """OpenMMLab / BasicSR READMEs: model-zoo tables dropped, links with CJK labels (mirror
+    downloads, translated pages) removed."""
+    text = _outside_fences(text, lambda s: _CJK_LINK_RE.sub("", _drop_zoo_tables(s)))
+    return profile_markdown(text)
+
+
+# ---------------------------------------------------------------------------
+# Playwright docs: per-language fences (```bash js / ```java) and `######\n* langs: x` blocks
+# ---------------------------------------------------------------------------
+
+_PW_LANG_SECTION_RE = re.compile(
+    r"^######[ \t]*\n\*[ \t]+langs:[ \t]*([^\n]*)\n(.*?)(?=^######|^#{1,5}[ \t]|\Z)", re.S | re.M
+)
+_PW_OTHER_LANGS = ("java", "python", "csharp", "dotnet")
+_PW_FENCE_RE = re.compile(r"^([ \t]*)(`{3,})([^\n`]*)\n(.*?)^\1\2[ \t]*$\n?", re.S | re.M)
+
+
+def _pw_section(m: re.Match) -> str:
+    langs = [x.strip() for x in m.group(1).split(",")]
+    return m.group(2) if ("js" in langs or not m.group(1).strip()) else ""
+
+
+def _pw_fence(m: re.Match) -> str:
+    info = m.group(3).split()
+    sel = [w.lower() for w in info]
+    if any(w in _PW_OTHER_LANGS or w.startswith(("python", "java", "csharp")) for w in sel):
+        return ""
+    return m.group(0)
+
+
+def profile_playwright(text: str) -> str:
+    text = _PW_LANG_SECTION_RE.sub(_pw_section, text)
+    text = _PW_FENCE_RE.sub(_pw_fence, text)
+    text = re.sub(r"^######[ \t]*$\n?", "", text, flags=re.M)
+    return profile_docusaurus(text)
 
 
 PROFILES = {
@@ -2526,6 +2587,7 @@ PROFILES = {
     "docusaurus": lambda text, path="", options=None: profile_docusaurus(text),
     "myst": lambda text, path="", options=None: profile_myst(text),
     "mmlab": lambda text, path="", options=None: profile_mmlab(text),
+    "playwright": lambda text, path="", options=None: profile_playwright(text),
 }
 
 

@@ -175,6 +175,31 @@ LEGIT_HTML_IN_PROSE = {
     ("wikipedia-frontend", "video"): "Shadow DOM article: <video> element example",
     ("vite-docs", "audio"): "Vite docs demo of the `<audio>` element",
     ("vite-docs", "svg-image"): "Vite docs: Vue component usage in prose",
+    # --- corpus expansion, batch 2 ---
+    ("paper-dpo", "summary"): "DPO paper: prompt-template placeholders <Summary A> / <Summary B>",
+    ("freertos-kernel-book", "h3"): "FreeRTOS book: stray closing </h3> in the upstream markdown",
+    ("hikaricp-pool-sizing", "h1"): "HikariCP README: HTML <h1> title block spanning several lines",
+    ("kotlin-multiplatform-docs", "item"): "Android string resources XML shown in a table cell",
+    ("kotlin-multiplatform-docs", "plurals"): "Android string resources XML shown in a table cell",
+    (
+        "kotlin-multiplatform-docs",
+        "string-array",
+    ): "Android string resources XML shown in a table cell",
+    (
+        "mmagic-docs",
+        "summary",
+    ): "model README: <details><summary align=...> wrapper with nested links",
+    (
+        "pydantic-docs",
+        "h3",
+    ): "Pydantic models page: dictionary-definition blockquote written in HTML",
+    ("cypress-docs", "div"): "Cypress error-messages page: commented jQuery sample with <div />",
+    ("cypress-docs", "mountresponse"): "TypeScript generic type name <MountResponse> in a table",
+    (
+        "paper-self-rag",
+        "p",
+    ): "Self-RAG paper: <p> / </p> are the special passage tokens of the method",
+    ("zephyr-docs", "p"): "Zephyr latency page: <p> is a placeholder for a priority value",
 }
 
 
@@ -226,12 +251,18 @@ def test_no_snippet_markers(rows):
     assert not [(s, r["chunk_id"]) for s, r in rows if "--8<--" in r["text"]]
 
 
+_SQUIGGLE = re.compile(r"^\s*~{6,}\s*$")
+
+
+def _has_orphan_fence(text: str) -> bool:
+    """Odd number of fence-marker lines. Runs of six or more tildes without an info string are
+    squiggle underlines (TypeScript error output inside a ``` block), not fences."""
+    n = sum(1 for ln in text.split("\n") if _FENCE.match(ln) and not _SQUIGGLE.match(ln))
+    return bool(n % 2)
+
+
 def test_no_odd_fence_counts(rows):
-    bad = [
-        (s, r["chunk_id"])
-        for s, r in rows
-        if sum(1 for ln in r["text"].split("\n") if _FENCE.match(ln)) % 2
-    ]
+    bad = [(s, r["chunk_id"]) for s, r in rows if _has_orphan_fence(r["text"])]
     assert not bad, f"{len(bad)} chunk(s) with an orphan fence, e.g. {bad[:5]}"
 
 

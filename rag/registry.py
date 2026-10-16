@@ -36,6 +36,7 @@ VALID_CLEAN_PROFILES = {
     "docusaurus",
     "myst",
     "mmlab",
+    "playwright",
 }
 VALID_TRUST_LEVELS = {"official", "curated", "community", "reference_only"}
 

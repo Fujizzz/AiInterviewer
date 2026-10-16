@@ -66,6 +66,14 @@ _BOILERPLATE_LINE_PATTERNS = [
 
 _FENCE_LINE_RE = re.compile(r"^(\s*)(```|~~~)")
 _FENCE_LINE_COUNT_RE = re.compile(r"^[ \t]*(```|~~~)", re.M)
+_BARE_FENCE_LINE_RE = re.compile(r"^\s*(`{3,}|~{3,})[ \t]*$")
+
+
+def _closes_fence_line(line: str, opener_line: str) -> bool:
+    """Closing fence = bare run of the opener's own character (`~~~~` squiggles inside a ``` block
+    are content)."""
+    m = _BARE_FENCE_LINE_RE.match(line)
+    return bool(m) and m.group(1)[0] == opener_line.lstrip()[0]
 _FENCE_PLACEHOLDER_TMPL = "\x00FENCE_BLOCK_{0}\x00"
 _FENCE_PLACEHOLDER_RE = re.compile(r"\x00FENCE_BLOCK_(\d+)\x00")
 
@@ -86,8 +94,9 @@ def protect_fences(text: str) -> tuple[str, dict[str, str]]:
     while i < n:
         if _FENCE_LINE_RE.match(lines[i]):
             fence_lines = [lines[i]]
+            opener_line = lines[i]
             i += 1
-            while i < n and not _FENCE_LINE_RE.match(lines[i]):
+            while i < n and not _closes_fence_line(lines[i], opener_line):
                 fence_lines.append(lines[i])
                 i += 1
             if i < n:
