@@ -50,7 +50,7 @@ async def test_general_limitations_do_not_block_grounded_goal_completion():
         ("exclusive", "clarifies", "disputes"),
         ("uncertain", "clarifies", "disputes"),
         ("compatible", "clarifies", "clarifies"),
-        ("exclusive", "supersedes", "supersedes"),
+        ("exclusive", "supersedes", "disputes"),
     ],
 )
 async def test_cross_thread_relations_resolve_original_segments_and_enforce_compatibility(
@@ -67,14 +67,16 @@ async def test_cross_thread_relations_resolve_original_segments_and_enforce_comp
     def model(prompt, data, schema):
         assert schema is CompactAnswerDecision
         assert "answer" not in data and "history" not in data and "relation_history" not in data
-        assert len(data["previous_answers"]) == 1
+        assert len(data["previous_segments"]) == 1
         return schema(
-            answer_relevance=1,
-            analysis=dict(status="substantive", scope="concrete", complete=True),
+            limits=[],
+            status="substantive",
+            scope="concrete",
+            complete=True,
             relations=[
                 dict(
-                    earlier_segment="old:s0",
-                    current_segment="current:s0",
+                    old=data["previous_segments"][0]["id"],
+                    current="s0",
                     kind=kind,
                     compatibility=compatible,
                 )
@@ -93,12 +95,13 @@ async def test_cross_thread_relations_resolve_original_segments_and_enforce_comp
 async def test_unknown_relation_segments_cannot_publish_candidate_conflict():
     def model(prompt, data, schema):
         return schema(
-            answer_relevance=1,
-            analysis=dict(status="substantive", scope="concrete"),
+            limits=[],
+            status="substantive",
+            scope="concrete",
             relations=[
                 dict(
-                    earlier_segment="foreign:s0",
-                    current_segment="current:s0",
+                    old="foreign:s0",
+                    current="s0",
                     kind="disputes",
                     compatibility="exclusive",
                 )
@@ -160,27 +163,16 @@ async def test_unrelated_conflict_does_not_block_a_separately_grounded_objective
 async def test_general_limitation_is_grounded_and_does_not_become_a_followup_gap():
     def model(prompt, data, schema):
         return schema(
-            answer_relevance=1,
-            analysis=dict(
-                status="substantive",
-                scope="concrete",
-                complete=True,
-                limitation_segments=["current:s1"],
-            ),
-            coverage=[
+            relations=[],
+            status="substantive",
+            scope="concrete",
+            complete=True,
+            limits=["s1"],
+            criteria=[
                 dict(
-                    objective_id="state",
+                    id=data["objectives"][0]["criteria"][0]["id"],
                     status="sufficient",
-                    segments=["current:s0"],
-                    criteria=[
-                        dict(
-                            criterion_id=data["objectives"][0]["completion_requirements"][0][
-                                "criterion_id"
-                            ],
-                            status="sufficient",
-                            segments=["current:s0"],
-                        )
-                    ],
+                    s=["s0"],
                 )
             ],
         )
@@ -219,14 +211,16 @@ async def test_accepted_old_evidence_remains_available_for_conflict_checks_after
     ]
 
     def model(prompt, data, schema):
-        assert any(a["answer_id"] == "old" for a in data["previous_answers"])
+        old_segment = next(s for s in data["previous_segments"] if s["text"] == old_text)
         return schema(
-            answer_relevance=1,
-            analysis=dict(status="substantive", scope="concrete", complete=True),
+            limits=[],
+            status="substantive",
+            scope="concrete",
+            complete=True,
             relations=[
                 dict(
-                    earlier_segment="old:s0",
-                    current_segment="current:s0",
+                    old=old_segment["id"],
+                    current="s0",
                     kind="disputes",
                     compatibility="exclusive",
                 )

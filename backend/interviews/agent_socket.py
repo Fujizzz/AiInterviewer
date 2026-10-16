@@ -647,7 +647,8 @@ async def agent_socket(scope, receive, send):
                     (
                         "The resume version does not exist, does not "
                         "belong to the current user, or has not finished "
-                        "parsing."
+                        "preparing interview details. Open your personal "
+                        "center and choose Prepare interview details / retry."
                     ),
                     incoming_id,
                 )

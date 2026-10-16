@@ -26,6 +26,20 @@ def leaks_interview_rules(text: str) -> bool:
     return bool(_INTERNAL_RULES.search(text))
 
 
+def offer_only_quote(text: str) -> bool:
+    """An offer to explain is not evidence that the requested explanation was supplied."""
+    return bool(
+        re.fullmatch(
+            r"\s*(?:(?:I|we)\s+(?:can|could|would be able to)\s+"
+            r"(?:explain|describe|discuss|elaborate)|"
+            r"(?:我|我们)(?:可以|能够|能)(?:解释|说明|介绍|讲解|描述))"
+            r"[^:：;；\n.!?。！？]*[.!。！]?\s*",
+            text,
+            re.IGNORECASE,
+        )
+    )
+
+
 class AnswerRequest(BaseModel):
     """The semantic reviewer identifies outputs, not the number of topic nouns."""
 
@@ -103,6 +117,12 @@ class GroundingCheck(BaseModel):
     sources: list[SourceReference] = Field(default_factory=list, max_length=6)
     reason: str = Field(min_length=1, max_length=500)
 
+    @field_validator("reason", mode="before")
+    @classmethod
+    def bound_explanation(cls, value):
+        # Rationale length must not invalidate a verdict with otherwise exact evidence.
+        return value.strip()[:500] if isinstance(value, str) else value
+
 
 class GroundingAdjudication(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -167,6 +187,13 @@ class QuestionQualityReview(BaseModel):
         ),
     )
     answer_units: list[AnswerRequest] = Field(default_factory=list, max_length=8)
+
+    @field_validator("answer_units", mode="before")
+    @classmethod
+    def empty_units(cls, value):
+        # Some JSON-mode models emit null for an empty optional collection. Overload
+        # findings still require distinct quoted units in consistent_verdict below.
+        return [] if value is None else value
 
     def consistent_verdict(self):
         """Reject inconsistent evidence instead of silently deleting a blocking issue."""
@@ -237,6 +264,55 @@ class QuestionQualityReview(BaseModel):
         return self
 
 
+class CompactQualityIssue(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    code: Literal[
+        "SEMANTIC_REPEAT",
+        "UNSUPPORTED_PREMISE",
+        "TOPIC_MISMATCH",
+        "ANSWER_HINT",
+        "INTERNAL_RULE_LEAK",
+        "OVERLOADED_QUESTION",
+    ]
+    question_quote: str = Field(min_length=1, max_length=600)
+    instruction: str = Field(min_length=1, max_length=300)
+    comparison_question_id: str | None = None
+    comparison_answer_quote: str = Field(
+        default="",
+        description="Shortest exact prior-answer excerpt proving this issue; max 500 characters.",
+        json_schema_extra={"maxLength": 500},
+    )
+    answer_coverage: Literal["direct", "related", "missing", "uncertain"] | None = None
+    answer_evidence_kind: (
+        Literal["concrete_answer", "summary_only", "offer_only", "uncertain"] | None
+    ) = Field(
+        default=None,
+        description="For already_answered: an actual answer, a list/summary, or merely an offer",
+    )
+    repeat_relation: (
+        Literal[
+            "already_answered",
+            "same_unanswered_request",
+            "narrower_unanswered_request",
+            "different_request",
+        ]
+        | None
+    ) = None
+    scope_relation: Literal["subgoal", "same_target", "outside_target"] | None = None
+    independent_requests: int = Field(default=0, ge=0, le=8)
+
+    @field_validator("instruction", mode="before")
+    @classmethod
+    def bound_instruction(cls, value):
+        # A verbose auxiliary note must not invalidate an otherwise usable verdict.
+        return value.strip()[:300] if isinstance(value, str) else value
+
+
+class CompactQualityReview(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    issues: list[CompactQualityIssue] = Field(max_length=4)
+
+
 def followup_brief(interview, *, text_limit=4000):
     """A small generation hint scoped to the active thread; never a new policy."""
     active = interview.active_thread
@@ -258,15 +334,15 @@ def followup_brief(interview, *, text_limit=4000):
         }
     analysis = latest.feedback.analysis
     progress = interview.topic_progress.get(active.topic_key)
-    objective_gaps = progress.missing_information if progress else []
+    from agents.planning.needs import askable_targets
+
+    objective_gaps = askable_targets(progress, analysis)
     return {
         "scope": "Only when continuing the active thread; ignore on topic/project switches",
         "answer_scope": analysis.answer_scope,
         "status": analysis.status,
         "latest_answer": latest.answer.text[:text_limit] if latest.answer else None,
-        "missing_information": [
-            item[:300] for item in (objective_gaps or analysis.missing_information)[:4]
-        ],
+        "missing_information": [item[:300] for item in objective_gaps[:4]],
         "objective_id": progress.objective_id if progress else None,
         "next_need_id": progress.next_need_id if progress else None,
         "objective_coverage": progress.coverage_status if progress else None,
@@ -290,7 +366,7 @@ class QuestionQualityGate:
         self._llm = llm
         self._settings = settings
 
-    def payload(self, question, interview, previous_questions=()):
+    def payload(self, question, interview, previous_questions=(), retrieved_evidence=()):
         limit = self._settings.question_agent.text_char_limit
         project = next(
             (
@@ -371,8 +447,21 @@ class QuestionQualityGate:
             for entry in entries
             if entry.answer
         )
+        sources.extend(
+            {
+                "source_id": f"knowledge:{chunk.chunk_id}",
+                "source_kind": "technical_reference",
+                "text": chunk.content[:limit],
+            }
+            for chunk in retrieved_evidence
+        )
         return {
             "grounding_sources": sources,
+            "question_purpose": (
+                "technical_knowledge"
+                if question.need_id.startswith("knowledge:")
+                else "project_experience"
+            ),
             "project_context": {
                 "project_id": project.project_id,
                 "name": project.name[:limit],
@@ -453,8 +542,13 @@ class QuestionQualityGate:
         step=None,
         deadline=None,
         review_feedback=None,
+        retrieved_evidence=(),
     ):
-        payload = self.payload(question, interview, previous_questions)
+        if self._settings.question_agent.quality_mode == "relaxed":
+            return await self._review_relaxed(
+                question, interview, previous_questions, retrieved_evidence, step, deadline
+            )
+        payload = self.payload(question, interview, previous_questions, retrieved_evidence)
         if review_feedback:
             payload["review_feedback"] = review_feedback
         disputed = review_feedback.get("disputed_review") if review_feedback else None
@@ -535,6 +629,116 @@ class QuestionQualityGate:
             evidence=review.model_dump(mode="json"),
         )
         return review
+
+    async def _review_relaxed(self, question, interview, previous, evidence, step, deadline):
+        from agents.question.compact import quality_payload
+
+        payload = quality_payload(question, interview, self._settings, previous, evidence)
+        raw = await run_model_call(
+            lambda: self._llm.generate_structured(
+                prompt_name="question_quality_relaxed_v1",
+                payload=payload,
+                response_model=CompactQualityReview,
+            ),
+            operation="question_quality",
+            question_id=question.question_id,
+            step=step,
+            timeout_seconds=self._settings.question_agent.quality_timeout_seconds,
+            turn_deadline=deadline,
+        )
+        raw = CompactQualityReview.model_validate(raw.model_dump())
+        prior = {p["question_id"]: p for p in payload["previous_questions"]}
+        issues, warnings = [], []
+        actions = {
+            "SEMANTIC_REPEAT": "narrow_unanswered_request",
+            "UNSUPPORTED_PREMISE": "remove_unfounded_premise",
+            "TOPIC_MISMATCH": "restore_intent",
+            "ANSWER_HINT": "remove_hint",
+            "INTERNAL_RULE_LEAK": "rephrase_within_intent",
+            "OVERLOADED_QUESTION": "focus_primary_request",
+        }
+        for item in raw.issues:
+            if item.question_quote not in (question.text or ""):
+                raise ReviewEvidenceError(["INVALID_DRAFT_QUOTE"])
+            if item.code == "TOPIC_MISMATCH" and item.scope_relation != "outside_target":
+                warnings.append(item.code)
+                continue
+            if item.code == "OVERLOADED_QUESTION" and item.independent_requests < 3:
+                warnings.append(item.code)
+                continue
+            if item.code == "SEMANTIC_REPEAT":
+                if len(item.comparison_answer_quote) > 500:
+                    # Retain the other independent findings. Truncation could
+                    # remove the evidence's qualifier or the actual limitation.
+                    warnings.append("REPEAT_QUOTE_TOO_LONG")
+                    continue
+                if item.repeat_relation not in {"already_answered", "same_unanswered_request"}:
+                    warnings.append(item.code)
+                    continue
+                if item.repeat_relation == "already_answered":
+                    if item.answer_coverage != "direct":
+                        warnings.append("ANSWERED_REPEAT_WITHOUT_DIRECT_COVERAGE")
+                        continue
+                    if item.answer_evidence_kind != "concrete_answer":
+                        warnings.append("ANSWERED_REPEAT_WITHOUT_CONCRETE_DETAIL")
+                        continue
+                source = prior.get(item.comparison_question_id)
+                if source is None:
+                    raise ReviewEvidenceError(["REPEAT_REQUIRES_RELEVANT_HISTORY"])
+                if item.repeat_relation == "already_answered" and not source.get("answer"):
+                    raise ReviewEvidenceError(["REPEAT_REQUIRES_ANSWER"])
+                if item.repeat_relation == "already_answered":
+                    quote = item.comparison_answer_quote
+                    # A related answer is not proof that the new requested detail was supplied.
+                    if not quote or quote not in source["answer"]:
+                        warnings.append("ANSWERED_REPEAT_WITHOUT_QUOTED_EVIDENCE")
+                        continue
+                    if offer_only_quote(quote):
+                        warnings.append("ANSWERED_REPEAT_CITES_OFFER_ONLY")
+                        continue
+                if item.repeat_relation == "same_unanswered_request" and source.get(
+                    "status"
+                ) not in {"explicit_unknown", "refusal"}:
+                    from agents.question.compact import terms
+
+                    quote = item.comparison_answer_quote
+                    limitations = source.get("limitations", [])
+                    # A local limitation (e.g. unavailable layer counts) is not a
+                    # refusal to discuss every validation/implementation detail.
+                    unavailable = (
+                        quote
+                        and quote in (source.get("answer") or "")
+                        and any(
+                            quote in limitation or limitation in quote for limitation in limitations
+                        )
+                    )
+                    if not unavailable or not (terms(item.question_quote) & terms(quote)):
+                        warnings.append("UNCERTAIN_UNAVAILABLE_SCOPE")
+                        continue
+            issues.append(
+                QualityIssue(
+                    code=item.code,
+                    instruction=item.instruction,
+                    question_quote=item.question_quote,
+                    repair_action=actions[item.code],
+                    comparison_question_id=item.comparison_question_id,
+                    repeat_relation=item.repeat_relation
+                    if item.code == "SEMANTIC_REPEAT"
+                    else None,
+                    scope_relation=item.scope_relation,
+                )
+            )
+        emit_trace(
+            "question.quality",
+            question_id=question.question_id,
+            mode="relaxed",
+            status="REVISE" if issues else "PASS",
+            issues=[i.code for i in issues],
+            warnings=warnings,
+            draft=question.text if issues else None,
+            evidence=raw.model_dump(mode="json"),
+        )
+        return QuestionQualityReview(issues=issues)
 
     async def _adjudicate_grounding(self, payload, disputed, question, step, deadline):
         original = QuestionQualityReview.model_validate(disputed).validate_evidence(payload)

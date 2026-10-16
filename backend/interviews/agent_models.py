@@ -180,8 +180,7 @@ class AgentQuestion(models.Model):
 
 
 class AgentAnswer(models.Model):
-    """Stores accepted answers; evaluation and submission versions are either both empty or both
-    present.
+    """Store accepted answers and their atomic commit; fixed introductions are explicitly unscored.
 
     question and request are one-to-one, preventing multiple answers per question or multiple
     answers per request; session ownership across tables is validated by transaction layer.
@@ -194,6 +193,7 @@ class AgentAnswer(models.Model):
     request = models.OneToOneField(AgentRequest, related_name="answer", on_delete=models.CASCADE)
     text = models.TextField()
     evaluation = models.JSONField(null=True, blank=True)
+    unscored_reason = models.CharField(max_length=32, blank=True)
     committed_state_version = models.PositiveIntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -204,11 +204,22 @@ class AgentAnswer(models.Model):
 
         constraints = [
             models.CheckConstraint(
-                condition=Q(evaluation__isnull=True, committed_state_version__isnull=True)
+                condition=Q(
+                    evaluation__isnull=True,
+                    committed_state_version__isnull=True,
+                    unscored_reason="",
+                )
                 | Q(
                     evaluation__isnull=False,
                     committed_state_version__isnull=False,
                     committed_state_version__gte=1,
+                    unscored_reason="",
+                )
+                | Q(
+                    evaluation__isnull=True,
+                    committed_state_version__isnull=False,
+                    committed_state_version__gte=1,
+                    unscored_reason="self_introduction",
                 ),
                 name="agent_answer_evidence",
             )

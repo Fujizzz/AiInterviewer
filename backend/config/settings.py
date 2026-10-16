@@ -70,10 +70,15 @@ INSTALLED_APPS = [
 INTERVIEW_REQUIRE_LOGIN = False
 # An absent switch preserves safety; malformed values cannot accidentally disable it. This setting
 # is fixed for the process lifetime and requires a backend restart after environment changes.
-AI_SECURITY_ENABLED = os.environ.get("AI_SECURITY_ENABLED", "true").strip().lower()
+AI_SECURITY_ENABLED = os.environ.get("AI_SECURITY_ENABLED", "false").strip().lower()
 if AI_SECURITY_ENABLED not in {"true", "false"}:
     raise ValueError("AI_SECURITY_ENABLED must be true or false")
 AI_SECURITY_ENABLED = AI_SECURITY_ENABLED == "true"
+AI_SECURITY_SEMANTIC_TIMEOUT_SECONDS = float(
+    os.environ.get("AI_SECURITY_SEMANTIC_TIMEOUT_SECONDS", "5")
+)
+if not 0 < AI_SECURITY_SEMANTIC_TIMEOUT_SECONDS <= 120:
+    raise ValueError("AI_SECURITY_SEMANTIC_TIMEOUT_SECONDS must be between 0 and 120")
 AI_SECURITY_MAX_SCAN_CHARS = int(os.environ.get("AI_SECURITY_MAX_SCAN_CHARS", "100000"))
 if not 0 < AI_SECURITY_MAX_SCAN_CHARS <= 1_000_000:
     raise ValueError("AI_SECURITY_MAX_SCAN_CHARS must be between 1 and 1000000")
@@ -141,5 +146,8 @@ LOGGING = {
 PDF_TASK_EXECUTION = os.environ.get("PDF_TASK_EXECUTION", "inline")
 if PDF_TASK_EXECUTION not in {"inline", "celery"}:
     raise ValueError("PDF_TASK_EXECUTION must be inline or celery")
+QUESTION_PREPARATION_EXECUTION = os.environ.get("QUESTION_PREPARATION_EXECUTION", "thread")
+if QUESTION_PREPARATION_EXECUTION not in {"thread", "celery", "disabled"}:
+    raise ValueError("QUESTION_PREPARATION_EXECUTION must be thread, celery or disabled")
 CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "redis://127.0.0.1:6379/0")
 PDF_TASK_REDIS_URL = os.environ.get("PDF_TASK_REDIS_URL", "redis://127.0.0.1:6379/1")

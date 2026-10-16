@@ -12,7 +12,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from shared.contracts.budgets import QuestionBudgets
-from shared.contracts.planning import TopicAllocation
+from shared.contracts.planning import NeedUpdate, TopicAllocation
 
 CONTRACT_VERSION = "2.0"
 
@@ -246,6 +246,8 @@ class AnswerAnalysis(BaseModel):
     contradictions: list[str] = Field(default_factory=list)
     uncertainties: list[str] = Field(default_factory=list)
     limitations: list[str] = Field(default_factory=list)
+    needs_assessed: bool = False
+    need_updates: list[NeedUpdate] = Field(default_factory=list)
     contradiction_evidence: list[ContradictionEvidence] = Field(default_factory=list)
     new_information: bool = False
     thread_complete: bool = False
@@ -331,6 +333,7 @@ class InitializeInterviewRequest(BaseModel):
     duration_seconds: int = Field(gt=0)
     enabled_stages: list[InterviewStage]
     planning_enabled: bool = False
+    include_introduction: bool = False
 
 
 class InitializeInterviewResponse(BaseModel):

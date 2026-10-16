@@ -1,10 +1,22 @@
 # Backend, MVP Agent and streaming diagnostics
 
+Optional RAG now warms up in a shared child process. ASGI startup and interview startup return
+without waiting for embedding models or database checks. While RAG is starting or unavailable,
+interviews continue with ordinary/cached questions; a ready cached knowledge question remains
+usable. A deferred live RAG question does not consume its project's retrieval attempt, so a later
+turn can use the same port once it is ready. Resume question preparation may explicitly wait for
+warmup. `RAG_ENABLED=false` disables the worker. Server shutdown also stops a still-loading worker.
+
+Resume parsing now schedules reviewed topic opening questions and project RAG questions in the
+background. Interviews reuse ready content with a compact dialogue check; dynamic follow-ups
+retain the original full review. See [prepared questions](docs/prepared-questions.md) for progress,
+retry, worker configuration and the limited real-API smoke test.
+
 Django and Django REST Framework provide question-bank, practice-session and per-question record APIs. Development uses SQLite; production explicitly uses PostgreSQL. Transport diagnostic media and counters stay in memory.
 
 The same ASGI service exposes WebSockets and browser diagnostic pages for ping/pong, binary chunks and audio/video transport. The root MVP Agent is available at `/ws/agent/`; its interview workspace is `/agent/`. The web and CLI clients share Plan and Execute: the default budget is 30 minutes, the Planner allocates goals/time and the Question Agent generates questions.
 
-Interview model output passes the behavioral safety gateway before delivery, including profile previews, question/assessment payloads, score events and final reports. Failed or timed-out checks stop the session; history exposes only checked responses. The gateway uses the existing project model and a five-second safety budget. See [the behavioral security contract](../docs/modules/AI_SECURITY_BEHAVIOR.md). Tool calls and internal assessment commits are outside that gateway.
+Interview model output passes the behavioral safety gateway before delivery, including profile previews, question/assessment payloads, score events and final reports. Failed or timed-out checks stop the session; history exposes only checked responses. The gateway uses the configured project model; `AI_SECURITY_SEMANTIC_TIMEOUT_SECONDS` defaults to five seconds and may need increasing for larger models. See [the behavioral security contract](../docs/modules/AI_SECURITY_BEHAVIOR.md). Tool calls and internal assessment commits are outside that gateway.
 
 `start.duration_minutes` defines the time budget. The three `max_questions*` parameters are safety limits. Timing starts when the first question is ready and includes later user input and model waits. Completion is checked after answer submission; active input is not forcibly interrupted. The separate practice APIs retain their ten-second preparation and ninety-second answer settings.
 

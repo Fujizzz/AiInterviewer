@@ -9,6 +9,7 @@ from agents.domain.models import (
     CommitTurnResult,
     InterviewContext,
 )
+from agents.question.introduction import validate_introduction_commit
 from evaluation.background import MemoryShadowRepository, validate_shadow_job
 from evaluation.persistence import EvaluationRecord, validate_turn_evaluation
 from shared.contracts import InterviewAction, PlannedQuestion
@@ -87,7 +88,8 @@ class InMemoryInterviewRepository(MemoryShadowRepository):
         saved_context.state.state_version = current_version + 1
         saved_context.pending_evaluation = None
         saved_context.pending_shadow_job = None
-        if request.feedback_request_id is not None:
+        saved_context.pending_introduction_answer = None
+        if request.feedback_request_id is not None and request.unscored_answer is None:
             saved_context.processed_feedback_ids = list(
                 dict.fromkeys([*stored.processed_feedback_ids, request.feedback_request_id])
             )
@@ -104,6 +106,7 @@ class InMemoryInterviewRepository(MemoryShadowRepository):
                 "Decision log state_version must match the committed state version"
             )
 
+        validate_introduction_commit(request, stored)
         evaluation_record = validate_turn_evaluation(
             request,
             stored,

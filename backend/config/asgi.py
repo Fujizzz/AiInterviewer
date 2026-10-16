@@ -4,7 +4,7 @@ interviews, speech recognition, and presentation signalling.
 Related Modules: config.settings initializes Django; interviews.session_socket, resource_gate,
 streaming, agent_socket, speech.socket, and avatar.socket handle protocol stages.
 Declaration Index:
-- handle_lifespan: Acknowledge ASGI startup and shutdown events; no persistent resources are held.
+- handle_lifespan: Launch optional RAG in a child process and release it at shutdown.
 - application: Apply WebSocket session authentication before service admission.
 - capacity_application: Apply resource admission after identity checks without changing limits.
 - route_application: Dispatch HTTP, WebSocket, and lifespan scopes to their existing handlers.
@@ -25,14 +25,20 @@ async def handle_lifespan(receive, send):
     """Functionality: Acknowledge ASGI startup and shutdown events.
     Inputs: ASGI receive and send callables.
     Outputs: Completes after sending the shutdown acknowledgement.
-    Logic: Read lifespan events and send the corresponding completion event.
-    Constraints: Holds no persistent resources and follows the ASGI event contract.
+    Logic: Launch background RAG without awaiting readiness, then acknowledge startup.
+    Constraints: RAG unavailability degrades to ordinary questions.
     """
     while True:
         message = await receive()
         if message["type"] == "lifespan.startup":
+            from app.adapters.rag import start_shared_rag
+
+            start_shared_rag()
             await send({"type": "lifespan.startup.complete"})
         elif message["type"] == "lifespan.shutdown":
+            from app.adapters.rag import close_shared_rag
+
+            await close_shared_rag()
             await send({"type": "lifespan.shutdown.complete"})
             return
 

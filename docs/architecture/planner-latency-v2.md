@@ -1,5 +1,49 @@
 # Planner 输入精简与重规划调度
 
+## Project continuity (2026-10-16)
+
+The compiler groups selected topics by project while retaining topic order within each
+project. After a project visit starts, its selected topics take priority before time
+allocation. This does not add every resume topic or extend exhausted threads. Execution
+also normalizes older interleaved agendas without another model request.
+
+Normal selection, local fallback and recovery exclude projects already left by default.
+Recovery prefers executable planned topics in the current project before other planned
+projects; question limits, unavailable needs and cached-question admission still apply.
+The final question-recording guard rejects accidental unapproved returns.
+
+A deliberate model replan can provide `revisit_projects={project_id: specific_gap_reason}`.
+The topic must still be eligible: this never overrides completion, refusal or question
+limits. Accepted grants are recorded in existing plan revision adjustments, last only
+for the current project visit, and survive local budget recompilation and reload. A
+background return proposal is discarded if its source project visit has changed.
+
+Visits are derived from durable closed/active threads rather than bounded answer history
+or the initially preselected project. No database migration, extra API call or retry is
+required. Coverage evidence and completion are not inferred from leaving a project.
+
+## Selectable goals and objective requirements (2026-10-16)
+
+`eligible_topics` is the sole selection allowlist. Each entry now states whether an
+accepted objective exists and lists the objective fields required for a new goal.
+`current_goals` contains only eligible existing goals. Ineligible goals are summarized
+under `historical_goals` with `selectable=false`, retaining their execution and coverage
+status without presenting their missing evidence as an invitation to ask again.
+Ineligibility alone never marks a goal completed or its evidence sufficient.
+
+The planner prompt and output schema explicitly require both objective and completion
+criteria for a new or replaced goal. Existing objective preservation, exact topic-key
+validation, stale-version checks, background acceptance and local fallback remain in
+force. This change adds no API calls or retries and requires no database migration.
+
+Validation: 97 related offline tests passed, including background adoption of corrected
+new-goal and ineligible-history cases. A two-request real API replay of the recorded
+turns 5 and 9 consumed 7,478 tokens. Turn 9 passed expansion; turn 5 supplied the new
+objectives but invented a topic key with a one-character project-ID typo and was rejected.
+Prompt clarity does not guarantee valid model output. The real replay checked payloads
+and proposal expansion only, without executing a full interview or writing database state.
+See `output/planning_contract_smoke_20261015T172637Z/result.json` for full results.
+
 Planner 只生成考察目标、优先级和深度，QuestionAgent 生成具体问题。本次优化不改变完成判定、证据保存、质量检查和安全上限的职责。
 
 ## 模型输入与输出

@@ -59,7 +59,14 @@ from interviews.agent_session import AgentSession
 from interviews.agent_socket import Answer, Finish, Skip, Start
 from interviews.evaluation_models import AgentAssessment, AgentEvaluation, AgentShadowJob
 
-from .agent_fixtures import ANSWER, RESUME, FixtureLLM, SafetyTestMixin, complete_fixture_request
+from .agent_fixtures import (
+    ANSWER,
+    RESUME,
+    FixtureLLM,
+    SafetyTestMixin,
+    complete_fixture_request,
+    enter_main_flow,
+)
 
 
 class EvaluationPersistenceTests(SafetyTestMixin, TransactionTestCase):
@@ -88,6 +95,7 @@ class EvaluationPersistenceTests(SafetyTestMixin, TransactionTestCase):
         await reserve_request(session.interview_id, command)
         result = await session.start(command)
         await complete_fixture_request(session.interview_id, command.request_id, result)
+        result = await enter_main_flow(session, result)
         return session, result
 
     def command(self, response):
@@ -172,7 +180,7 @@ class EvaluationPersistenceTests(SafetyTestMixin, TransactionTestCase):
                 await reserve_request(session.interview_id, first)
                 response = await session.answer(first)
                 await complete_fixture_request(session.interview_id, first.request_id, response)
-                await entered.wait()
+                await asyncio.wait_for(entered.wait(), 3)
                 self.assertEqual(response["last_evaluation"]["assessment_status"], "pending")
                 second = self.command(response)
                 await reserve_request(session.interview_id, second)
@@ -485,7 +493,7 @@ class EvaluationPersistenceTests(SafetyTestMixin, TransactionTestCase):
                 self.assertEqual(records[0], before[0])
                 self.assertEqual(finished["type"], "finished")
                 state = finished["result"]["interview_state"]
-                self.assertEqual(state["question_index"], 2)
+                self.assertEqual(state["question_index"], 3)
                 if include_answer:
                     self.assertEqual(records[-1].input.request_id, str(finish.request_id))
                     self.assertEqual(records[-1].base_state_version + 1, state["state_version"])

@@ -22,14 +22,48 @@ from tests.agent.mocks import InMemoryRepository, MockLLMAdapter
 class RejectedAgent:
     prompt_name = "question_react_v1"
 
-    def __init__(self, issue):
+    def __init__(self, issue, *, stop_reason="INVALID_OUTPUT", locked=True):
         self.issue, self.calls = issue, 0
+        self.stop_reason, self.locked = stop_reason, locked
 
     async def generate(self, plan, *args, **kwargs):
         self.calls += 1
         return QuestionAgentResult(
-            locked_intent=plan, blocking_issues=[self.issue], stop_reason="INVALID_OUTPUT"
+            locked_intent=plan if self.locked else None,
+            blocking_issues=[self.issue] if self.issue else [],
+            stop_reason=self.stop_reason,
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("locked", [False, True])
+@pytest.mark.parametrize(
+    "stop_reason", ["TIMEOUT", "GENERATION_UNAVAILABLE", "INVALID_OUTPUT", "QUALITY_CALL_LIMIT"]
+)
+async def test_failed_followup_switches_scope_without_repeating_its_goal(stop_reason, locked):
+    """Inject failed writer results; real recovery must preserve evidence and commit once."""
+    service, repo, _, initialized = await setup(None)
+    current = initialized.first_action.question
+    agent = RejectedAgent(None, stop_reason=stop_reason, locked=locked)
+    service._question_agent = agent
+    fb = feedback(current, complete=False)
+    action = await service.apply_evaluation_feedback(initialized.interview_id, fb)
+    assert action.type == InterviewActionType.ASK_QUESTION
+    assert action.question.topic_key != current.topic_key
+    assert action.question.dialogue_action in {"new_topic", "new_project"}
+    assert action.decision_trace.details["generation_reason"] == "NEXT_TOPIC_RECOVERY_UNREVIEWED"
+    saved = await repo.get_interview_context(initialized.interview_id)
+    progress = saved.topic_progress[current.topic_key]
+    assert progress.reason == "QUESTION_GENERATION_FAILED"
+    assert progress.coverage_status != "sufficient"
+    assert saved.state.status == "active"
+    assert saved.state.question_index == 2
+    assert len(saved.processed_feedback_ids) == 1
+    assert agent.calls == 1
+    snapshot = saved.model_dump()
+    assert await service.apply_evaluation_feedback(initialized.interview_id, fb) == action
+    assert (await repo.get_interview_context(initialized.interview_id)).model_dump() == snapshot
+    assert agent.calls == 1
 
 
 @pytest.mark.asyncio

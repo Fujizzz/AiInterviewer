@@ -82,6 +82,39 @@ Existing databases: `migrate` is additive. Migration 003 (candidate isolation) a
 `chunks.candidate_id` and a CHECK constraint; the adapter refuses to start (clear error) until it is
 applied.
 
+### Native Windows development runtime and live smoke test
+
+This checkout has a local PostgreSQL 16.15 + pgvector 0.8.6 development instance at
+`../.rag-runtime/` (outside Git), listening on `127.0.0.1:5432`. It uses the development credentials
+in the gitignored `rag/.env`. The Docker setup above remains available. The native binaries were
+installed into an isolated Conda environment from [conda-forge](https://anaconda.org/conda-forge/pgvector).
+`local_db.ps1` operates this already-initialized instance; it does not install or replace databases.
+
+From the repository root in PowerShell:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File rag/local_db.ps1 start
+.\.venv\Scripts\python.exe -m rag.smoke PagedAttention
+# Optional: stop this development database when finished.
+powershell -NoProfile -ExecutionPolicy Bypass -File rag/local_db.ps1 stop
+```
+
+`rag.smoke` uses a synthetic preceding project answer, then runs the production Agent's actual
+project-knowledge branch with real BGE-M3 embeddings, pgvector retrieval and the configured live
+question/quality models. It writes the committed question, retrieved chunks, confidence, source
+URLs and timing to `output/rag_live_smoke_*/result.json` and a short `report.md`. It fails if only an
+ordinary fallback question was returned. This tests the Agent core, not the browser or backend
+publication gateway, and uses the configured LLM API credentials.
+
+The initial local corpus contains 34 chunks from the PagedAttention paper, sufficient for this
+keyword smoke test; other project technologies need their own sources imported. To rebuild it:
+
+```powershell
+.\.venv\Scripts\python.exe -m rag.cli all --source paper-pagedattention-vllm
+.\.venv\Scripts\python.exe -m rag.cli embed --source paper-pagedattention-vllm --device cpu --batch-size 2 --no-fp16
+.\.venv\Scripts\python.exe -m rag.cli index --source paper-pagedattention-vllm
+```
+
 ## Environment variables
 
 All optional. Unset means the default. Parsed by `RAGSettings.from_env()`.
@@ -103,10 +136,11 @@ All optional. Unset means the default. Parsed by `RAGSettings.from_env()`.
 
 ## Wiring the adapter into the Agent
 
-Not wired in this change: `app/` and `backend/` belong to other teams, and `app/adapters/` has no RAG
-slot today (it has `llm`, `evaluation`, `repository`, ...). `InterviewAgentService` already accepts
-`rag: RAGPort | None = None`; both construction sites (`app/application.py`,
-`backend/interviews/agent_session.py`) simply do not pass it. The integrating team adds:
+CLI and backend now inject a shared, prewarmed adapter via `app/adapters/rag.py`.
+`RAG_ENABLED` defaults to `true`; set it to `false` to disable initialization. Missing dependencies,
+an unavailable database or failed warmup produce a warning and ordinary questions continue.
+Backend ASGI startup/shutdown warms/closes the shared adapter; CLI closes it when its run ends.
+For direct service construction, the equivalent wiring is:
 
 ```python
 from rag.adapter import RAGUnavailableError, create_rag_adapter
@@ -131,13 +165,18 @@ service = InterviewAgentService(
 
 Things the integrating team must know:
 
-* The Agent only calls RAG on the non-autonomous question path (`self._question_agent is None` in
-  `agents/orchestrator/service.py`). With the ReAct question agent enabled the adapter is never called.
+* With ReAct enabled, after an answered project question the controller attempts one technical
+  knowledge question in that project's current thread. It retrieves up to three technical chunks,
+  drops low-confidence/empty evidence, locks the target and runs ReAct in fixed-intent mode. Both
+  generation and quality review receive bounded reference text. Existing stop/time/question limits
+  still apply. Retrieval or generation failure falls back to ordinary questions without another
+  attempt for that project. Explicit unknown/refusal never triggers this extra follow-up.
+* `InterviewContext.project_knowledge` persists attempt status, committed question ID, chunk IDs and
+  source URLs with the turn; CLI results also expose it. Retrieval alone never marks a question asked.
 * `RAGRouter` bounds each call with `timeouts.rag_seconds` (default 2.0 s). Warm queries measured
   230-470 ms (Apple MPS, 16k chunks, hybrid, no rerank). A cold first query would time out, hence `warmup()`.
-* The default plan requests only `source=candidate` (`required_context_sources`), and there are no
-  candidate or job chunks in the index yet, so until resumes are ingested the Agent would receive
-  empty results from this adapter.
+* The legacy non-ReAct path still follows `required_context_sources` (normally `candidate`). The new
+  project knowledge question requests `technical`, so it does not require ingested resume chunks.
 * `candidate_id` in the request must equal the `candidate_id` the resume chunks were ingested under
   (`app/` uses `candidate-<interview_id>`).
 * Run `create_rag_adapter()` once per process and share the instance; it is safe for concurrent calls.
@@ -246,7 +285,7 @@ same assertions are repeated for the adapter in `tests/rag/test_adapter.py`.
 
 ## Known limitations
 
-* Not wired into the application; the index has technical (13,068) and question (3,311) chunks only,
+* The documented index has technical (13,068) and question (3,311) chunks only,
   no candidate, job or rubric data. `RetrievalSource` has no `RUBRIC`.
 * Query quality is the weakest link: `RAGRouter._query` builds terse strings
   (`"{topic} candidate project claims"`, `"{topic} {information_goal}"`) and paraphrase-style queries

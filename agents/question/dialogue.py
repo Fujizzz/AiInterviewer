@@ -6,8 +6,8 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from agents.planning.planner import execution_topics, planning_view
 from agents.planning.needs import open_needs
+from agents.planning.planner import execution_topics, planning_view
 from agents.policies.dialogue_controller import DialogueController
 from shared.contracts import PlannedQuestion, QuestionType
 
@@ -73,8 +73,14 @@ def dialogue_view(context, settings):
                 "questions_asked": controller.project_questions(project.project_id),
                 "question_limit": context.plan.max_questions_per_project,
                 "topics": [
-                    {"topic_key": key, "label": topic.topic[:100],
-                     "information_needs": [n.model_dump(mode="json") for n in open_needs(context.topic_progress.get(key), key)]}
+                    {
+                        "topic_key": key,
+                        "label": topic.topic[:100],
+                        "information_needs": [
+                            n.model_dump(mode="json")
+                            for n in open_needs(context.topic_progress.get(key), key)
+                        ],
+                    }
                     for key, (owner, topic) in topics.items()
                     if owner.project_id == project.project_id
                 ],
@@ -148,7 +154,17 @@ def writing_brief(context, view):
             "project_id": active.project_id,
             "topic_key": active.topic_key,
             "topic": active.topic,
-            "information_needs": [n.model_dump(mode="json") for n in open_needs(context.topic_progress.get(active.topic_key), active.topic_key)],
+            "information_needs": [
+                n.model_dump(mode="json")
+                for n in open_needs(context.topic_progress.get(active.topic_key), active.topic_key)
+            ],
+            "unavailable_information": [
+                {"target": n.target, "evidence": n.blocked_evidence}
+                for n in context.topic_progress.get(active.topic_key).information_needs
+                if n.status == "blocked"
+            ]
+            if context.topic_progress.get(active.topic_key)
+            else [],
         }
         if active and can_continue
         else None,
@@ -198,6 +214,8 @@ def resolve_selection(selection, context, settings, question_id=None):
             raise ValueError("INCORRECT_DIALOGUE_ACTION")
     progress = context.topic_progress.get(selection.topic_key)
     needs = open_needs(progress, selection.topic_key)
+    if progress and progress.needs_assessed and not needs:
+        raise ValueError("NO_ASKABLE_NEEDS")
     registered = {n.need_id: n for n in needs}
     if selection.need_id and selection.need_id not in registered:
         raise ValueError("UNKNOWN_INFORMATION_NEED")
@@ -213,7 +231,11 @@ def resolve_selection(selection, context, settings, question_id=None):
         raise ValueError("REPEATED_INFORMATION_GOAL")
     question_id = question_id or str(uuid4())
     normalized_goal = " ".join(goal.casefold().split())
-    need_id = need.need_id if need else "need:" + sha256(f"{selection.topic_key}:{normalized_goal}".encode()).hexdigest()[:20]
+    need_id = (
+        need.need_id
+        if need
+        else "need:" + sha256(f"{selection.topic_key}:{normalized_goal}".encode()).hexdigest()[:20]
+    )
     return PlannedQuestion(
         question_id=question_id,
         project_id=project_id,

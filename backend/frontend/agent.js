@@ -194,7 +194,7 @@ async function loadResumeVersions() {
         throw new Error(uiText(resumeSelectionMessage));
       }
       const data = await response.json();
-      for (const version of data.results) if (version.status === "ready") versions.push(version);
+      for (const version of data.results) if (version.status === "ready" && version.can_interview) versions.push(version);
       if (!data.next) break;
       page += 1;
     }

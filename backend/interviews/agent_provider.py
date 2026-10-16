@@ -143,6 +143,7 @@ class BackendLLM(OpenAILLM):
                 repair_codes,
             )
             result = super().__call__(prompt, data, schema)
+            # Control actions have no question text; normalize only the log metadata.
             text = getattr(result, "text", None) or ""
             logger.info(
                 "Agent model completed interview=%s schema=%s duration_ms=%d chars=%d words=%d",

@@ -167,7 +167,8 @@ async def test_cli_candidate_input_allows_background_scoring_to_run():
     def answer(_):
         nonlocal calls
         calls += 1
-        if calls == 2:
+        # Fixed introduction is unscored; scoring starts after the first technical answer.
+        if calls == 3:
             assert started.wait(timeout=2), "Synchronous candidate input blocked the worker"
         return "I profiled and fixed lock contention."
 

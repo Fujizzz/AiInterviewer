@@ -204,6 +204,7 @@ class AgentHistoryViewSet(
                         "text": answer.text,
                         "created_at": answer.created_at,
                         "evaluation": evaluation,
+                        "unscored_reason": answer.unscored_reason,
                         "committed_state_version": answer.committed_state_version,
                         "request_id": str(answer.request_id),
                     },

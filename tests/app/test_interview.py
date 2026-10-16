@@ -34,14 +34,16 @@ class InterviewTests(unittest.TestCase):
 
         self.assertTrue(result["interview_finished"])
         self.assertEqual(result["candidate_name"], "Alex Chen")
-        self.assertEqual(len(result["question_history"]), 5)
+        self.assertEqual(len(result["question_history"]), 6)
+        self.assertIsNone(result["question_history"][0]["evaluation"])
+        self.assertEqual(result["question_history"][0]["unscored_reason"], "self_introduction")
         self.assertGreater(result["interview_state"]["remaining_seconds"], 0)
         self.assertEqual(result["interview_plan"]["duration_seconds"], 1800)
         self.assertEqual(result["interview_state"]["status"], "finished")
         self.assertEqual(result["final_report"]["overall_score"], 3.0)
-        self.assertEqual(len(result["decision_logs"]), 6)
+        self.assertEqual(len(result["decision_logs"]), 7)
         self.assertTrue(
-            all(entry["evaluation"]["evidence_ids"] for entry in result["question_history"])
+            all(entry["evaluation"]["evidence_ids"] for entry in result["question_history"][1:])
         )
         profile = result["candidate_profile"]
         self.assertEqual(profile["contract_version"], "2.0")
@@ -52,7 +54,7 @@ class InterviewTests(unittest.TestCase):
         )
         self.assertIsNone(question_calls[0]["latest_turn"])
         latest = question_calls[1]["latest_turn"]
-        self.assertEqual(latest["answer"]["text"], result["question_history"][0]["answer"])
+        self.assertEqual(latest["answer"]["text"], result["question_history"][1]["answer"])
         self.assertEqual(latest["question"]["question_id"], latest["answer"]["question_id"])
 
     def test_question_safety_limit_does_not_determine_time_budget(self):
@@ -65,7 +67,7 @@ class InterviewTests(unittest.TestCase):
                     read_answer=lambda _: "A grounded technical answer with concrete evidence.",
                     write=lambda _: None,
                 )
-                self.assertEqual(len(result["question_history"]), limit)
+                self.assertEqual(len(result["question_history"]), limit + 1)
                 self.assertLess(result["interview_state"]["elapsed_seconds"], 120)
                 self.assertEqual(result["interview_plan"]["duration_seconds"], 1800)
                 self.assertEqual(
@@ -96,7 +98,9 @@ class InterviewTests(unittest.TestCase):
         )
 
     def test_cli_reprompts_empty_answer_and_prints_json(self):
-        answers = iter(["   ", "I built and validated the implementation."])
+        answers = iter(
+            ["   ", "I work on Python projects.", "I built and validated the implementation."]
+        )
         lines = []
         result = run_interview(
             build_application(FixtureLLM()),
@@ -105,7 +109,7 @@ class InterviewTests(unittest.TestCase):
             read_answer=lambda _: next(answers),
             write=lines.append,
         )
-        self.assertEqual(len(result["question_history"]), 1)
+        self.assertEqual(len(result["question_history"]), 2)
         self.assertIn("Please enter an answer", "\n".join(lines))
         self.assertIn('"overall_score": 3.0', lines[-1])
 

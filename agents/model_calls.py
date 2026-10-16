@@ -27,6 +27,10 @@ class QuestionCallBudgetExhausted(RuntimeError):
     pass
 
 
+class QualityCallBudgetExhausted(RuntimeError):
+    pass
+
+
 @dataclass
 class QuestionCallBudget:
     limit: int
@@ -40,6 +44,24 @@ class QuestionCallBudget:
 
 question_call_budget: ContextVar[QuestionCallBudget | None] = ContextVar(
     "question_call_budget", default=None
+)
+
+
+@dataclass
+class QualityCallBudget:
+    limit: int = 3
+    used: int = 0
+    recovery_reserve: int = 0
+    has_rejected_draft: bool = False
+
+    def consume(self):
+        if self.used >= self.limit:
+            raise QualityCallBudgetExhausted("QUALITY_CALL_BUDGET_EXHAUSTED")
+        self.used += 1
+
+
+quality_call_budget: ContextVar[QualityCallBudget | None] = ContextVar(
+    "quality_call_budget", default=None
 )
 
 
@@ -139,6 +161,11 @@ async def run_model_call(
     factory, *, operation, question_id=None, step=None, timeout_seconds, turn_deadline=None
 ):
     """A factory delays worker creation until the execution-local context is installed."""
+    quality_budget = quality_call_budget.get()
+    if quality_budget is not None and operation in {
+        "question_quality", "question_repeat_check", "question_issue_check", "prepared_question_use"
+    }:
+        quality_budget.consume()
     budget = question_call_budget.get()
     if budget is not None and operation in {
         "question",

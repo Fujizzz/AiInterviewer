@@ -86,6 +86,10 @@ class SecurityActivationTests(TransactionTestCase):
             rid = await send_command(comm, "start", resume_text=RESUME, max_questions=1)
             first = (await collect_until(comm, "question", rid))[-1]
             rid = await send_command(
+                comm, "answer", question_id=first["question"]["question_id"], answer_text=RESUME
+            )
+            first = (await collect_until(comm, "question", rid))[-1]
+            rid = await send_command(
                 comm, "answer", question_id=first["question"]["question_id"], answer_text=ANSWER
             )
             events = await collect_until(comm, "finished", rid)
@@ -94,7 +98,7 @@ class SecurityActivationTests(TransactionTestCase):
             await comm.wait()
             engine.assert_not_called()
         rows = [row async for row in AgentRequest.objects.filter(status="succeeded")]
-        self.assertEqual(len(rows), 3)
+        self.assertEqual(len(rows), 4)
         self.assertTrue(all(row.response["_security"]["status"] == "disabled" for row in rows))
         base = f"/api/agent-interviews/{first['interview_id']}/"
         with override_settings(AI_SECURITY_ENABLED=True):

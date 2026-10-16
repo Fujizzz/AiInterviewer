@@ -21,6 +21,8 @@ Declaration Index:
 - AgentTests.disconnect:
   Send disconnect and wait for local coroutine to finish, avoiding test leftovers with hanging
   tasks.
+- AgentTests.main_question:
+  Complete the fixed unscored opening before testing technical feedback and report behavior.
 - AgentTests.test_full_interview_matches_terminal_mvp:
   Compare public questions/report, completed score views and committed budgets against the terminal;
   verify finished responses omit internal plans, logs and competency state.
@@ -54,6 +56,8 @@ Declaration Index:
 - ProviderTests.test_provider_options_without_reloading_dotenv:
   Use only loaded environment; validate generation/resume budget and remaining deadline, maintain
   temperature and disable SDK retries.
+- ProviderTests.test_control_actions_without_question_text_return_unchanged:
+  Valid non-question actions survive backend logging without false failures or extra model calls.
 - ProviderTests.test_inflight_client_closed_only_after_call_returns:
   Cancellation does not break in-flight sync SDK; client and service slot released only after
   backend returns.
@@ -88,6 +92,7 @@ from asgiref.testing import ApplicationCommunicator
 from django.test import SimpleTestCase, TransactionTestCase
 
 from agents.model_calls import ModelCall, current_model_call
+from agents.question.react import QuestionAgentDecision
 from app.application import MVPInterviewApplication
 from app.providers.llm import LLMError, OpenAILLM
 from evaluation.assessment import assessed_report_context
@@ -149,6 +154,15 @@ class AgentTests(SafetyTestMixin, TransactionTestCase):
         await comm.send_input({"type": "websocket.disconnect", "code": 1000})
         await comm.wait()
 
+    async def main_question(self, comm, first):
+        """Complete the real fixed opening before testing technical feedback/report behavior."""
+        if first["question"]["intent"] == "SELF_INTRODUCTION":
+            await self.command(
+                comm, "answer", answer_text=RESUME, question_id=first["question"]["question_id"]
+            )
+            return await self.read(comm)
+        return first
+
     async def test_full_interview_matches_terminal_mvp(self):
         """Compare public questions/report and private scores/budget with the offline terminal.
 
@@ -186,7 +200,7 @@ class AgentTests(SafetyTestMixin, TransactionTestCase):
                 )
                 result = message["result"]
                 self.assertTrue(result["interview_finished"])
-                self.assertEqual(len(result["question_history"]), count)
+                self.assertEqual(len(result["question_history"]), count + 1)
                 repository = DjangoInterviewRepository(result["interview_id"])
                 context = await repository.get_interview_context(result["interview_id"])
                 # Workers append scores without mutating live CAS state. Compare
@@ -324,11 +338,12 @@ class AgentTests(SafetyTestMixin, TransactionTestCase):
             comm = await self.accepted()
             await self.command(comm, "start", resume_text=RESUME, max_questions=1)
             question = await self.read(comm)
+            question = await self.main_question(comm, question)
             await self.command(comm, "skip", question_id=question["question"]["question_id"])
             result = (await self.read(comm))["result"]
-            self.assertEqual(result["question_history"][0]["answer"], "")
+            self.assertEqual(result["question_history"][1]["answer"], "")
             self.assertEqual(
-                result["question_history"][0]["evaluation"]["analysis"]["status"], "non_answer"
+                result["question_history"][1]["evaluation"]["analysis"]["status"], "non_answer"
             )
             for key in ("interview_plan", "plan_history", "topic_progress", "decision_logs"):
                 self.assertNotIn(key, result)
@@ -396,6 +411,7 @@ class AgentTests(SafetyTestMixin, TransactionTestCase):
                 comm, "start", resume_text=RESUME, max_questions=1, keep_end_choice_open=True
             )
             question = await self.read(comm)
+            question = await self.main_question(comm, question)
             await self.command(
                 comm, "answer", question_id=question["question"]["question_id"], answer_text=ANSWER
             )
@@ -628,6 +644,51 @@ class ProviderTests(SimpleTestCase):
             with self.assertRaises(LLMError):
                 BackendLLM()
             sdk.assert_not_called()
+
+    @patch.dict(
+        "os.environ",
+        {
+            "LLM_PROVIDER": "openai",
+            "OPENAI_API_KEY": "test-only",
+            "OPENAI_MODEL": "configured-model",
+        },
+        clear=True,
+    )
+    def test_control_actions_without_question_text_return_unchanged(self):
+        """Mock only the SDK and parent invocation; valid control outputs must reach the caller.
+
+        Exercise retarget and tool actions with null text plus a final question. Assert one
+        parent call, unchanged output, successful metadata logging and balanced active-call state.
+        No provider requests or database writes occur.
+        """
+        decisions = [
+            QuestionAgentDecision(
+                action="request_retarget",
+                intent_id="intent-test",
+                retarget_reason="The candidate cannot provide this unavailable measurement.",
+            ),
+            QuestionAgentDecision(action="get_plan"),
+            QuestionAgentDecision(action="get_history", limit=3),
+            QuestionAgentDecision(action="get_project", project_id="project-test"),
+            QuestionAgentDecision(action="final", text="How did you validate the implementation?"),
+        ]
+        with patch("interviews.agent_provider.OpenAI"):
+            provider = BackendLLM(interview_id="test-control-actions")
+            self.addCleanup(provider.close)
+            for decision in decisions:
+                with (
+                    self.subTest(action=decision.action),
+                    patch.object(OpenAILLM, "__call__", return_value=decision) as invoke,
+                    self.assertLogs("interviews.agent_provider", level="INFO") as logs,
+                ):
+                    result = provider("test prompt", {}, QuestionAgentDecision)
+                    self.assertIs(result, decision)
+                    invoke.assert_called_once_with("test prompt", {}, QuestionAgentDecision)
+                    self.assertEqual(provider._active, 0)
+                    self.assertTrue(all(record.levelname == "INFO" for record in logs.records))
+                    if decision.action != "final":
+                        self.assertIsNone(result.text)
+                        self.assertIn("chars=0 words=0", logs.output[-1])
 
     @patch.dict(
         "os.environ",

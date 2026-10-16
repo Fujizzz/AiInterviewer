@@ -24,6 +24,7 @@ class AnswerDecision(OutputModel):
     answer_relevance: float | None = Field(default=None, ge=0, le=1)
     analysis: AnswerAnalysis | None = None
     objective_coverage: list[ObjectiveCoverage] | None = None
+    component_issues: list[str] = Field(default_factory=list)
 
     @field_validator("analysis", mode="before")
     @classmethod
@@ -47,62 +48,11 @@ class RealtimeDecisionAdapter(LLMEvaluationAdapter):
     deferred_assessment = True
 
     async def _analyze(self, request, context, segments, objectives, history, relation_history):
-        # Each original answer occurs once. Evidence views refer to these stable IDs.
-        prior = {e.answer.answer_id: e for e in [*relation_history, *history] if e.answer}
-        accepted_ids = {
-            proof["answer_id"]
-            for objective in objectives
-            for proof in objective["accepted_evidence"]
-        }
-        for entry in context.question_history:
-            if (
-                entry.answer
-                and entry.answer.answer_id in accepted_ids
-                and entry.question.project_id == request.question.project_id
-            ):
-                prior[entry.answer.answer_id] = entry
-        previous = [
-            {
-                "answer_id": key,
-                "thread_id": e.question.thread_id,
-                "segments": answer_segments(key, e.answer.text),
-            }
-            for key, e in prior.items()
-        ]
-        payload = {
-            "question": {
-                key: getattr(request.question, key)
-                for key in ("text", "information_goal", "answer_unit", "topic_key", "thread_id")
-            },
-            "answer_segments": segments,
-            "previous_answers": previous,
-            "objectives": [
-                {
-                    **o,
-                    "accepted_evidence": [
-                        {
-                            "answer_id": proof["answer_id"],
-                            "segments": proof["supporting_segment_ids"],
-                        }
-                        for proof in o["accepted_evidence"]
-                    ],
-                    "completion_requirements": [
-                        {
-                            **requirement,
-                            "evidence": [
-                                {
-                                    "answer_id": proof["answer_id"],
-                                    "segments": proof["supporting_segment_ids"],
-                                }
-                                for proof in requirement["evidence"]
-                            ],
-                        }
-                        for requirement in o["completion_requirements"]
-                    ],
-                }
-                for o in objectives
-            ],
-        }
+        from app.adapters.decision_context import DecisionContext
+
+        view = DecisionContext(request, context, segments, objectives, history)
+        prior = view.prior
+        payload = view.payload
         raw = await run_model_call(
             lambda: asyncio.to_thread(
                 self._llm,
@@ -114,6 +64,7 @@ class RealtimeDecisionAdapter(LLMEvaluationAdapter):
             question_id=request.question.question_id,
             timeout_seconds=load_agent_settings().timeouts.evaluation_seconds,
         )
+        raw = view.expand(raw)
         by_prior = {
             s["id"]: (key, s["text"])
             for key, e in prior.items()
@@ -162,8 +113,40 @@ class RealtimeDecisionAdapter(LLMEvaluationAdapter):
         state = raw.analysis
         if any(key not in by_current for key in state.limitation_segments):
             raise InvalidEvaluationEvidence("INVALID_LIMITATION_SEGMENT")
+        needs = []
+        for update in raw.needs:
+            if any(key not in by_current for key in update.segments) or (
+                update.status == "blocked" and not update.segments
+            ):
+                raise InvalidEvaluationEvidence("INVALID_NEED_EVIDENCE")
+            needs.append(
+                dict(
+                    target=update.target,
+                    status=update.status,
+                    need_id=update.need_id,
+                    supporting_segment_ids=update.segments,
+                    supporting_quotes=[by_current[key] for key in update.segments],
+                    answer_id=request.answer.answer_id,
+                )
+            )
+        # The model may identify a limitation but omit its blocked need entry.
+        # Persist the exact boundary deterministically rather than relying on it
+        # to repeat that fact in two separate fields correctly.
+        for key in state.limitation_segments:
+            if any(n["status"] == "blocked" and key in n["supporting_segment_ids"] for n in needs):
+                continue
+            needs.append(
+                dict(
+                    target=("Candidate boundary: " + by_current[key])[:500],
+                    status="blocked",
+                    supporting_segment_ids=[key],
+                    supporting_quotes=[by_current[key]],
+                    answer_id=request.answer.answer_id,
+                )
+            )
         return AnswerDecision(
             answer_relevance=raw.answer_relevance,
+            component_issues=view.issues,
             analysis=dict(
                 status=state.status,
                 answer_scope=state.scope,
@@ -174,6 +157,8 @@ class RealtimeDecisionAdapter(LLMEvaluationAdapter):
                 contradiction_evidence=conflicts,
                 contradictions=[c["explanation"] for c in conflicts],
                 limitations=[by_current[key] for key in dict.fromkeys(state.limitation_segments)],
+                needs_assessed=True,
+                need_updates=needs,
             ),
             objective_coverage=[
                 dict(

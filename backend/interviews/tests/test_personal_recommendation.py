@@ -50,7 +50,10 @@ from interviews.recommendation.runtime import ModelUnavailable, rank_pairs
 from interviews.recommendation.schemas import CandidateInput, JobInput
 from interviews.resume_models import ResumeVersion
 
+from .agent_fixtures import FixtureLLM
 
+
+@patch("interviews.resume_profile.OpenAILLM", FixtureLLM)
 class PersonalRecommendationTests(APITestCase):
     """Function: Integrated test for personal recommendations; Logic: Real permissions, ORM,
     directory, and sorting; Constraint: No reading or writing real user records.

@@ -6,8 +6,11 @@ snapshots.
 Declaration Index:
 - ResumeVersion: Stores input, parsing results, current selection, and failure codes.
 - ResumeVersion.Meta: Sorts by creation time and limits each user to at most one current version.
+- ResumeVersion.can_interview: Expose profile readiness independently of question preparation.
+- PreparedResumeQuestion: Store private version-bound reviewed questions and their references.
+- PreparedResumeQuestion.Meta: Enforce one row per scope and valid kind/status values.
 Variable Index:
-None
+- INTERVIEW_PROFILE_VERSION: Canonical parser/schema version required for profile reuse.
 
 Field and State Notes:
 ResumeVersion.id is the version UUID and owner is the owning user; label is the display label.
@@ -22,6 +25,8 @@ source_version references the root original version; edited_from references the 
 use PROTECT so referenced versions cannot be deleted.
 units stores user-authored section text; recommendation_slots stores confirmed recommendation
 fields; originals initialize these JSON fields as empty dictionaries.
+interview_profile stores the canonical CandidateProfile and candidate name for this immutable
+version; its separate status/error, text hash and parser version control interview readiness.
 """
 
 import uuid
@@ -29,6 +34,8 @@ import uuid
 from django.conf import settings
 from django.db import models
 from django.db.models import Q
+
+INTERVIEW_PROFILE_VERSION = "2.0:resume-profile-v1"
 
 
 class ResumeVersion(models.Model):
@@ -58,9 +65,28 @@ class ResumeVersion(models.Model):
     status = models.CharField(max_length=16, default="uploaded")
     extraction_mode = models.CharField(max_length=16, blank=True)
     error_code = models.CharField(max_length=64, blank=True)
+    interview_profile = models.JSONField(null=True, blank=True)
+    interview_profile_status = models.CharField(max_length=16, default="pending")
+    interview_profile_hash = models.CharField(max_length=64, blank=True)
+    interview_profile_version = models.CharField(max_length=64, blank=True)
+    interview_profile_error = models.CharField(max_length=64, blank=True)
+    question_preparation_status = models.CharField(max_length=16, default="pending")
+    question_preparation_version = models.CharField(max_length=64, blank=True)
+    question_preparation_error = models.CharField(max_length=64, blank=True)
+    question_preparation_run_id = models.UUIDField(null=True, editable=False)
+    question_preparation_started_at = models.DateTimeField(null=True, editable=False)
     is_current = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    @property
+    def can_interview(self):
+        """Cheap availability metadata; consumers validate the payload and text hash before use."""
+        return (
+            self.status == "ready"
+            and self.interview_profile_status == "ready"
+            and self.interview_profile_version == INTERVIEW_PROFILE_VERSION
+        )
 
     class Meta:
         """Function: Sorting and state constraint; logic: conditional uniqueness constraint limits
@@ -75,5 +101,52 @@ class ResumeVersion(models.Model):
             models.CheckConstraint(
                 condition=Q(status__in=["uploaded", "parsing", "ready", "failed", "interrupted"]),
                 name="resume_valid_status",
+            ),
+            models.CheckConstraint(
+                condition=Q(
+                    interview_profile_status__in=[
+                        "pending",
+                        "processing",
+                        "ready",
+                        "failed",
+                        "interrupted",
+                    ]
+                ),
+                name="resume_valid_profile_status",
+            ),
+        ]
+
+
+class PreparedResumeQuestion(models.Model):
+    """Private, version-bound standalone content; no interview or answer IDs are cached."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    resume_version = models.ForeignKey(
+        ResumeVersion, on_delete=models.CASCADE, related_name="prepared_questions"
+    )
+    project_id = models.CharField(max_length=255)
+    topic_key = models.TextField()
+    kind = models.CharField(max_length=16)
+    status = models.CharField(max_length=16, default="pending")
+    profile_hash = models.CharField(max_length=64)
+    review_version = models.CharField(max_length=64)
+    content = models.JSONField(null=True, blank=True)
+    error_code = models.CharField(max_length=128, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        """Keep reviewed content unique within a resume's project/topic and question kind."""
+        constraints = [
+            models.UniqueConstraint(
+                fields=["resume_version", "project_id", "topic_key", "kind"],
+                name="prepared_resume_question_scope",
+            ),
+            models.CheckConstraint(
+                condition=Q(status__in=["pending", "ready", "failed", "unavailable"]),
+                name="prepared_question_valid_status",
+            ),
+            models.CheckConstraint(
+                condition=Q(kind__in=["opening", "knowledge"]),
+                name="prepared_question_valid_kind",
             ),
         ]

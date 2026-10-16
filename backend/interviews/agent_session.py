@@ -4,8 +4,8 @@ progress events and persistence.
 Related Modules: agent_socket creates one session; agent_repository persists state; the MVP app
 performs parsing, evaluation, and reporting.
 
-Implementation: Optional pre-parsing caches candidate data for this connection only; stage events
-wrap real await, with scoring preceding report text transmission.
+Implementation: Selected versions load the canonical profile prepared at upload/save time. Legacy
+raw text keeps a connection-local cache; stage events wrap real awaits.
 Related Modules: agent_socket sets request-level emit_event; app provides parsing, evaluation, and
 reporting, while Agent maintains decision order.
 
@@ -20,8 +20,8 @@ Declaration Index:
   Initializes candidate, position, and Agent from a validated Start command, then returns the first
   actionable output.
 - AgentSession.prepare:
-  Parses or reuses identical resume text within the current connection, returning preview-ready
-  profile without consuming question budget.
+  Loads an owned, bound version's saved profile or parses legacy raw input, without consuming the
+  question budget.
 - AgentSession._stage:
   Wraps real asynchronous stages to send progress updates and record completion, cancellation, and
   failure durations, without modifying timeout or retry behavior.
@@ -55,8 +55,8 @@ history is display cache of submitted answers; action is most recent submitted A
 profile, candidate_name established in prepare; prepared_text used only for exact matching within
 this connection.
 job, service established in start; emit_event is current request’s async callback or None.
-Cache released upon connection closure; database history retained, but this module does not support
-reconnecting or re-executing requests.
+Connection-local cache is released upon closure; saved version profiles are reusable in new
+interviews. This module does not support reconnecting or re-executing requests.
 Parsing failure is not treated as successful reuse of cached data; request layer saves selected
 version and input snapshot,
 successful profile response and Agent context saved by database repository.
@@ -88,6 +88,8 @@ from shared.contracts import (
 from .agent_provider import BackendLLM
 from .agent_public_output import public_job_profile, public_question_history
 from .agent_repository import DjangoInterviewRepository
+from .question_preparation import load_bound_questions
+from .resume_profile import load_bound_profile
 
 logger = logging.getLogger(__name__)
 
@@ -162,15 +164,17 @@ class AgentSession:
             )
 
     async def prepare(self, command):
-        """Input is resume_text from command; parses into shared profile and returns prepared
-        preview; does not initialize Agent.
+        """Load a bound version's canonical profile; legacy raw text retains per-connection parsing.
 
-        Reuses only if text is exactly identical within same connection; changing text invalidates
-        old cache before calling existing parser.
-        Model exceptions preserved in propagation; does not auto-parse every edit in input. Protocol
-        layer saves successful response, not raw resume.
+        Bound version failures propagate without falling back to a paid parse at interview startup.
+        The protocol binds the owned version and immutable snapshot before this method runs.
         """
-        if self.prepared_text != command.resume_text:
+        cached = await load_bound_profile(self.interview_id, command.resume_text)
+        if cached is not None:
+            self.profile, self.candidate_name = cached
+            self.prepared_text = command.resume_text
+            logger.info("Agent saved resume profile loaded interview=%s", self.interview_id)
+        elif self.prepared_text != command.resume_text:
             self.prepared_text = None
             async with self._stage("resume_parsing"):
                 self.profile, self.candidate_name = await parse_resume_profile(
@@ -191,6 +195,7 @@ class AgentSession:
         plan → normalizes stage transition.
         Budget: Minutes duration converted to real time budget; number of questions only serves as
         safety upper limit, Planner determines goals and allocation.
+        RAG: Inject a shared background port without awaiting model or database warmup.
         Return: question response dict, or finished response dict if Agent ends immediately.
         Side effect: Invokes model and atomically writes to database context; interview shell
         created by protocol layer first, exceptions propagated upward.
@@ -209,12 +214,17 @@ class AgentSession:
             max_questions_per_project=command.max_questions_per_project,
             max_questions_per_topic=command.max_questions_per_topic,
         )
+        from app.adapters.rag import start_shared_rag
+
+        rag = self.app.rag if self.app.rag is not None else start_shared_rag()
         self.service = InterviewAgentService(
             repository=self.app.repository,
+            rag=rag,
             evaluation=self.app.evaluation,
             llm=self.app.agent_llm,
             settings=settings,
             background_replanning=True,
+            prepared_questions=await load_bound_questions(self.interview_id),
         )
         async with self._stage("question_generation"):
             initialized = await self.service.initialize_interview(
@@ -225,6 +235,7 @@ class AgentSession:
                     duration_seconds=command.duration_minutes * 60,
                     planning_enabled=True,
                     enabled_stages=[InterviewStage.PROJECT_DEEP_DIVE],
+                    include_introduction=True,
                 )
             )
         self.action = initialized.first_action
@@ -257,6 +268,28 @@ class AgentSession:
             text=command.answer_text,
         )
         await self.app.repository.accept_answer(command.request_id, answer)
+        if question.intent == "SELF_INTRODUCTION":
+            async with self._stage("next_action"):
+                self.action = await self.service.complete_introduction(
+                    self.interview_id,
+                    answer,
+                    request_id=command.request_id,
+                    finish=finishing,
+                )
+            self.history.append(
+                {
+                    "question_id": question.question_id,
+                    "question": question.text,
+                    "answer": answer.text,
+                    "topic": question.topic,
+                    "difficulty": question.difficulty,
+                    "dialogue_action": question.dialogue_action,
+                    "parent_question_id": None,
+                    "evaluation": None,
+                    "unscored_reason": "self_introduction",
+                }
+            )
+            return await self._response()
         async with self._stage("answer_evaluation"):
             feedback = (
                 EvaluationFeedback(

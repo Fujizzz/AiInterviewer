@@ -143,7 +143,7 @@ function renderHistoryDetail(detail) {
     historyParagraph(article, q.text, "history-question");
     article.append(historyElement("h5", reviewText("answer"))); historyParagraph(article, turn.answer?.text ?? reviewText("unanswered"));
     const evaluation = turn.answer?.evaluation;
-    if (!evaluation) historyParagraph(article, reviewText("unevaluated"), "history-meta");
+    if (!evaluation) historyParagraph(article, reviewText(turn.answer?.unscored_reason === "self_introduction" ? "intro_unscored" : "unevaluated"), "history-meta");
     else {
       const assessment = evaluation.assessment_status === "pending" ? reviewText("assessment_pending")
         : evaluation.assessment_status === "unavailable" ? reviewText("assessment_unavailable")

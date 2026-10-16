@@ -142,9 +142,13 @@ class LLMEvaluationAdapter:
         result = await self._analyze(
             request, context, segments, objectives, history, relation_history
         )
+        issues = list(getattr(result, "component_issues", []))
         if self.deferred_assessment:
-            result = AnswerEvidence(**result.model_dump(), dimensions=[], evidence_strength=0)
-        issues = []
+            result = AnswerEvidence(
+                **result.model_dump(exclude={"component_issues"}),
+                dimensions=[],
+                evidence_strength=0,
+            )
         analysis_status = "valid" if result.analysis is not None else "unavailable"
         if analysis_status == "unavailable":
             issues.append("INVALID_CONVERSATION_STRUCTURE")

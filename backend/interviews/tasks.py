@@ -15,6 +15,7 @@ Declaration Index:
 - parse_pdf_task: Celery synchronous task entry point, returns no body, does not retry.
 - worker_probe: Return empty result and write short-lived probe key, for deployment validation of
   real task consumption.
+- prepare_questions_task: Prepare reviewed questions for one committed, owned resume version.
 
 Variable Index:
 - logger: Logs only task ID, status, and exception type.
@@ -30,6 +31,14 @@ from config.celery import app
 from .pdf_queue import JOB_TTL, queue_key, redis_client
 
 logger = logging.getLogger(__name__)
+
+
+@app.task(name="interviews.prepare_questions", max_retries=0, ignore_result=True)
+def prepare_questions_task(version_id, owner_id):
+    """Consume a committed version ID using the same leased service as the local worker."""
+    from .question_preparation import prepare_questions
+
+    prepare_questions(version_id, owner_id)
 
 
 async def publish_events(redis, job_id, data, *, mode="traditional"):

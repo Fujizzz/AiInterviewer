@@ -26,6 +26,9 @@ Declaration Index:
 - ResumeVersionViewSet.finalize_response: Set no-cache for private responses.
 - ResumeVersionViewSet.create: Create immutable input version.
 - ResumeVersionViewSet.retrieve: Return personal version content and interview availability.
+- ResumeVersionViewSet.prepared_questions: Read owned question preparation status and content.
+- ResumeSummary.get_question_preparation_status: Report outdated reviewed content as pending.
+- ResumeVersionViewSet.prepare_interview: Prepare a profile and schedule missing reviewed questions.
 - ResumeVersionViewSet.current: Switch current version within transaction.
 - ResumeVersionViewSet.download: Return personal original PDF.
 - ResumeVersionViewSet.destroy: Reject deletion of referenced or parsing versions.
@@ -80,6 +83,7 @@ from ..resume_editor import (
 )
 from ..resume_models import ResumeVersion
 from ..resume_pdf import MAX_BYTES
+from ..resume_profile import prepare_profile, read_profile
 from ..resume_slots import collect_slots
 
 logger = logging.getLogger(__name__)
@@ -89,6 +93,18 @@ class ResumeSummary(serializers.ModelSerializer):
     """Function: metadata serialization; input is version record, output read-only fields;
     constraint: do not load list files or content.
     """
+
+    can_interview = serializers.ReadOnlyField()
+    question_preparation_status = serializers.SerializerMethodField()
+
+    def get_question_preparation_status(self, obj):
+        """Show pending when the cached questions were reviewed with obsolete prompts."""
+        from agents.question.prepared import review_version
+
+        if obj.question_preparation_status in {"ready", "partial"}:
+            if obj.question_preparation_version != review_version():
+                return "pending"
+        return obj.question_preparation_status
 
     class Meta:
         """Function: define public fields; logic: read-only version status; constraint: do not
@@ -103,6 +119,11 @@ class ResumeSummary(serializers.ModelSerializer):
             "status",
             "extraction_mode",
             "error_code",
+            "interview_profile_status",
+            "interview_profile_error",
+            "question_preparation_status",
+            "question_preparation_error",
+            "can_interview",
             "is_current",
             "source_version",
             "edited_from",
@@ -149,7 +170,9 @@ class ResumeVersionViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     file/stream; constraint: no anonymous versions or auto-retry.
     """
 
-    queryset = ResumeVersion.objects.defer("original_pdf", "text", "units", "recommendation_slots")
+    queryset = ResumeVersion.objects.defer(
+        "original_pdf", "text", "units", "recommendation_slots", "interview_profile"
+    )
     serializer_class = ResumeSummary
     permission_classes = [IsAuthenticated]
     parser_classes = [JSONParser, MultiPartParser]
@@ -172,11 +195,13 @@ class ResumeVersionViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
 
     def create(self, request):
         """Input bounded file or text; create new version and return 201 metadata, no implicit
-        current version switch or model invocation.
+        current version switch. Text input prepares the canonical Agent profile before returning.
         """
         serializer = ResumeInput(data=request.data)
         serializer.is_valid(raise_exception=True)
         version = ResumeVersion.objects.create(owner=request.user, **serializer.validated_data)
+        if version.status == "ready":
+            version = prepare_profile(version.pk, request.user.pk)
         logger.info(
             "Resume version created version=%s owner=%s status=%s",
             version.pk,
@@ -186,15 +211,37 @@ class ResumeVersionViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         return Response(ResumeSummary(version).data, status=201)
 
     def retrieve(self, request, pk=None):
-        """Return content and can_interview by personal version ID; ready only indicates text
-        availability, not structural parsing completion.
-        """
+        """Return personal text and separate text/profile readiness metadata."""
         version = self.get_object()
         return Response(
             {
                 **ResumeSummary(version).data,
                 "text": version.text,
-                "can_interview": version.status == "ready",
+            }
+        )
+
+    @action(detail=True, methods=["get"], url_path="prepared-questions")
+    def prepared_questions(self, request, pk=None):
+        """Owned preparation progress and reviewed content, without interview state."""
+        version = self.get_object()
+        return Response(
+            {
+                "status": ResumeSummary(version).data["question_preparation_status"],
+                "error": version.question_preparation_error,
+                "questions": [
+                    {
+                        "id": str(row.pk),
+                        "project_id": row.project_id,
+                        "topic_key": row.topic_key,
+                        "kind": row.kind,
+                        "status": row.status,
+                        "error": row.error_code,
+                        "content": row.content,
+                    }
+                    for row in version.prepared_questions.order_by(
+                        "project_id", "topic_key", "kind"
+                    )
+                ],
             }
         )
 
@@ -236,6 +283,8 @@ class ResumeVersionViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
             version = self.get_queryset().select_for_update().get(pk=self.get_object().pk)
             if (
                 version.status == "parsing"
+                or version.interview_profile_status == "processing"
+                or version.question_preparation_status == "processing"
                 or version.interviews.exists()
                 or version.editions.exists()
                 or version.derived_versions.exists()
@@ -265,6 +314,22 @@ class ResumeVersionViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         )
         response["X-Accel-Buffering"] = "no"
         return response
+
+    @action(detail=True, methods=["post"], url_path="prepare-interview")
+    def prepare_interview(self, request, pk=None):
+        """Backfill old versions or retry failed/stale profiles without re-extracting PDFs."""
+        if request.data:
+            raise ValidationError("No profile fields are accepted.")
+        version = self.get_object()
+        if version.status != "ready":
+            return Response({"code": "resume_not_ready"}, status=409)
+        version = prepare_profile(version.pk, request.user.pk)
+        status = (
+            200
+            if version.can_interview
+            else (409 if version.interview_profile_status == "processing" else 503)
+        )
+        return Response(ResumeSummary(version).data, status=status)
 
     @action(detail=True, methods=["get"])
     def editor(self, request, pk=None):
@@ -306,7 +371,7 @@ class ResumeVersionViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         """Input the user's ready baseline, unit, and confirmation slot; create a new ready snapshot
         within the transaction, without overwriting the original or draft. The source_version is
         fixed to the original root, and edited_from records the baseline; no PDF copying, no
-        automatic switching of current, or model invocation occurs.
+        automatic switching of current occurs. Prepare the new profile after releasing locks.
         """
         serializer = ResumeEditionInput(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -333,6 +398,7 @@ class ResumeVersionViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         logger.info(
             "Resume edition saved version=%s base=%s owner=%s", version.pk, base.pk, request.user.pk
         )
+        version = prepare_profile(version.pk, request.user.pk)
         return Response(ResumeSummary(version).data, status=201)
 
     @action(detail=True, methods=["get"], url_path="recommendation-profile")
@@ -450,6 +516,20 @@ async def version_events(version_id, data, *, mode="traditional"):
                         version_id,
                         "ready" if success else "failed",
                     )
+                    if success:
+                        yield (
+                            json.dumps({"type": "progress", "stage": "interview_profile"}) + "\n"
+                        ).encode()
+                        version = await sync_to_async(ResumeVersion.objects.only("owner_id").get)(
+                            pk=version_id
+                        )
+                        version = await sync_to_async(prepare_profile)(version.pk, version.owner_id)
+                        event.update(
+                            can_interview=version.can_interview,
+                            interview_profile_status=version.interview_profile_status,
+                            interview_profile_error=version.interview_profile_error,
+                        )
+                        line = (json.dumps(event, ensure_ascii=False) + "\n").encode("utf-8")
                 yield line
     except Exception as exc:
         logger.error("Resume parse failed version=%s exception=%s", version_id, type(exc).__name__)
@@ -471,10 +551,13 @@ def resolve_resume_version(command, owner_id):
     if version_id is None:
         return command
     version = (
-        ResumeVersion.objects.filter(pk=version_id, owner_id=owner_id, status="ready").first()
+        ResumeVersion.objects.defer("original_pdf", "units", "recommendation_slots")
+        .filter(pk=version_id, owner_id=owner_id, status="ready")
+        .first()
         if owner_id
         else None
     )
     if version is None:
         raise ValueError("Resume version unavailable")
+    read_profile(version, candidate_id=f"resume-{version.pk}")
     return command.model_copy(update={"resume_text": version.text, "resume_version_id": None})

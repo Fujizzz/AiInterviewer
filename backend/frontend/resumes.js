@@ -259,6 +259,8 @@ async function rmRequest(path = "", options = {}, base = RM_API) {
   if (!response.ok) {
     if (response.status === 401 || response.status === 403) throw new Error(rmText("rm_auth_error"));
     const data = await response.json();
+    if (data.interview_profile_error) throw new Error(rmText("rm_profile_failed"));
+    if (data.interview_profile_status === "processing") throw new Error(rmText("rm_profile_processing"));
     if (RM_RECOMMENDATION_ERRORS[data.code]) {
       const error = new Error(rmText(RM_RECOMMENDATION_ERRORS[data.code]));
       error.translationKey = RM_RECOMMENDATION_ERRORS[data.code];
@@ -316,6 +318,12 @@ function rmRender() {
     state.className = "badge";
     state.textContent = rmText("rm_status_" + version.status);
     card.append(title, state);
+    if (version.status === "ready" && !version.can_interview) {
+      const profileState = document.createElement("span");
+      profileState.className = "badge";
+      profileState.textContent = rmText(version.interview_profile_status === "processing" ? "rm_profile_processing" : "rm_profile_pending");
+      card.append(profileState);
+    }
     const kind = document.createElement("span");
     kind.className = "badge";
     kind.textContent = rmText(version.source_version ? "re_edited_kind" : "re_original_kind");
@@ -348,11 +356,18 @@ function rmRender() {
       exported.href = RM_API + encodeURIComponent(version.id) + "/export/";
       exported.textContent = rmText("re_download");
       secondary.append(exported);
+    }
+    if (version.can_interview) {
       const interview = document.createElement("a");
       interview.className = "nav-link";
       interview.href = "/agent/?resume_version_id=" + encodeURIComponent(version.id);
       interview.textContent = rmText("rm_use_interview");
       secondary.append(interview);
+      if (version.question_preparation_status && !["ready", "processing"].includes(version.question_preparation_status)) {
+        secondary.append(rmButton("prepare-interview", version.id, "rm_prepare_questions"));
+      }
+    } else if (version.status === "ready") {
+      secondary.append(rmButton("prepare-interview", version.id, "rm_prepare_interview"));
     }
     if (version.original_name) {
       const download = document.createElement("a");
@@ -361,7 +376,7 @@ function rmRender() {
       download.textContent = rmText("rm_download");
       secondary.append(download);
     }
-    if (version.status !== "parsing") secondary.append(rmButton("delete", version.id, "rm_delete"));
+    if (version.status !== "parsing" && version.interview_profile_status !== "processing" && version.question_preparation_status !== "processing") secondary.append(rmButton("delete", version.id, "rm_delete"));
     if (secondary.children.length) { more.append(summary, secondary); actions.append(more); }
     card.append(meta, actions);
     list.append(card);
@@ -540,10 +555,11 @@ async function rmSaveEdition(event) {
  *  Clear unsaved state only after successful POST, read the new draft as the baseline for next edit; retain original input on failure.
  */
   async function save() {
+    rmStatus(rmText("rm_profile_processing"));
     const version = await (await rmRequest(encodeURIComponent(base) + "/editions/", { method: "POST", headers: { "Content-Type": "application/json" }, body })).json();
     rmEditorDirty = false;
     await rmLoad(1); await rmPreview(version.id, true);
-    rmStatus(rmText("re_saved"));
+    rmStatus(rmText(version.can_interview ? "re_saved" : "rm_profile_failed"), !version.can_interview);
     if (returnToRecommendations) rmScroll("job-recommendations");
   }
   await rmRun(save);
@@ -757,7 +773,8 @@ async function rmUpload(event) {
     rmEl("version-label").value = ""; rmEl("resume-file").value = ""; rmEl("resume-text").value = "";
     await rmLoad(1); await rmPreview(version.id, true);
     if (version.status === "ready") rmReveal("resume-editor", true);
-    rmStatus(rmText("rm_saved"));
+    const profileFailed = version.status === "ready" && !version.can_interview;
+    rmStatus(rmText(profileFailed ? "rm_profile_failed" : "rm_saved"), profileFailed);
   }
   await rmRun(save);
 }
@@ -816,7 +833,7 @@ async function rmNext() {
  */
 function rmEvent(data) {
   if (data.type === "error") throw new Error(data.detail);
-  if (data.type === "progress") rmStatus(data.detail || rmText("rm_parsing"));
+  if (data.type === "progress") rmStatus(data.stage === "interview_profile" ? rmText("rm_profile_processing") : data.detail || rmText("rm_parsing"));
   else if (data.type === "result") {
     if (typeof data.text !== "string") throw new Error(rmText("rm_incomplete"));
     const notes = [];
@@ -836,6 +853,7 @@ async function rmParse(id) {
   let reader = null;
   let notes = null;
   let failure = null;
+  let persisted = null;
   try {
     rmStatus(rmText("rm_parsing"));
     const response = await rmRequest(encodeURIComponent(id) + "/parse/", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: rmEl("parse-mode").value }), signal: controller.signal });
@@ -868,7 +886,7 @@ async function rmParse(id) {
   }
   try {
     await rmLoad();
-    const persisted = await rmPreview(id, true);
+    persisted = await rmPreview(id, true);
     if (!failure && persisted?.status !== "ready") throw new Error(rmText("rm_incomplete"));
   }
   catch (error) {
@@ -878,7 +896,7 @@ async function rmParse(id) {
   if (failure) throw failure;
   rmEl("preview-notes").textContent = notes.join("\n");
   rmReveal("resume-editor", true);
-  rmStatus(rmText("rm_parsed"));
+  rmStatus(rmText(persisted.can_interview ? "rm_parsed" : "rm_profile_failed"), !persisted.can_interview);
 }
 /**
  *  Handle list click events with preview display in the edit area, operating only on loaded IDs; deletion requires explicit confirmation, and reference conflicts are maintained by the backend with HTTP 409.
@@ -900,6 +918,14 @@ async function rmAction(event) {
     else if (action === "current") {
       await rmRequest(encodeURIComponent(id) + "/current/", { method: "POST" });
       await rmLoad(); await rmPreview(id, true); rmStatus(rmText("rm_selected"));
+    } else if (action === "prepare-interview") {
+      rmStatus(rmText("rm_profile_processing"));
+      try {
+        await rmRequest(encodeURIComponent(id) + "/prepare-interview/", { method: "POST" });
+        rmStatus(rmText("rm_profile_ready"));
+      } finally {
+        await rmLoad();
+      }
     } else if (action === "delete") {
       await rmRequest(encodeURIComponent(id) + "/", { method: "DELETE" });
       if (rmSelected === id) {

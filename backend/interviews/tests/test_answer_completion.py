@@ -435,7 +435,8 @@ class CompletionMCPTests(SafetyTestMixin, TransactionTestCase):
             result = await read_json(comm)
             self.assertEqual(result["id"], identifier)
             self.assertEqual(result["result"]["structuredContent"]["type"], "question")
-            self.assertIsNotNone(result["result"]["structuredContent"]["last_evaluation"])
+            # The opening answer advances through the same MCP tool, without evaluation.
+            self.assertIsNone(result["result"]["structuredContent"]["last_evaluation"])
             calls = len(llm.calls)
             await send_json(comm, payload)
             self.assertEqual((await read_json(comm))["error"]["data"]["code"], "duplicate_request")

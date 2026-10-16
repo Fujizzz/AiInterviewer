@@ -20,7 +20,7 @@ class FixtureLLM:
         # Scripted semantic pass; this fixture does not evaluate question quality.
         if schema is CompactAnswerDecision:
             return compact_output(self(prompt, legacy_data(data), AnswerDecision).model_dump())
-        if schema.__name__ == "QuestionQualityReview":
+        if schema.__name__ in {"QuestionQualityReview", "CompactQualityReview"}:
             return schema(issues=[])
         self.calls.append((schema, data))
         if schema in SCHEMAS:
@@ -58,7 +58,10 @@ class FixtureLLM:
             }
         elif schema in (GeneratedText, QuestionAgentDecision):
             selection = selection_for(data) if "dialogue_state" in data else None
-            plan = plan_for(data, selection) if selection else data["question_plan"]
+            plan = (
+                plan_for(data, selection)
+                if selection else data.get("locked_intent", data.get("question_plan"))
+            )
             topic = str(plan["topic"]).rstrip(".,;:")
             output = {
                 "text": (

@@ -47,6 +47,7 @@ from interviews.agent_records import reserve_request
 from interviews.agent_socket import Start, agent_socket, parse_command
 from interviews.api.resume_versions import resolve_resume_version, version_events
 from interviews.resume_models import ResumeVersion
+from interviews.resume_profile import prepare_profile
 
 from .agent_fixtures import RESUME, FixtureLLM, SafetyTestMixin
 from .test_agent_progress import collect_until, disconnect, read, send_command
@@ -73,6 +74,7 @@ async def pending_fixture(data, *, mode="traditional"):
     yield b'{"type":"progress","stage":"rules"}'
 
 
+@patch("interviews.resume_profile.OpenAILLM", FixtureLLM)
 class ResumeVersionTests(APITestCase):
     """Function: Validate authorization and persistence; input is isolated account and database;
     constraint: no billing model calls are made.
@@ -143,6 +145,8 @@ class ResumeVersionTests(APITestCase):
         self.assertEqual(version.status, "ready")
         self.assertEqual(version.extraction_mode, "traditional")
         self.assertEqual(version.text, "Built Python APIs")
+        self.assertTrue(version.can_interview)
+        self.assertTrue(version.interview_profile["candidate_profile"]["projects"])
         self.assertEqual(self.client.post(url + "parse/").status_code, 409)
         advanced = ResumeVersion.objects.create(owner=self.owner, original_pdf=data)
         with (
@@ -168,6 +172,7 @@ class ResumeVersionTests(APITestCase):
         version = ResumeVersion.objects.create(
             owner=self.owner, text="Original input", status="ready"
         )
+        prepare_profile(version.pk, self.owner.pk, llm=FixtureLLM())
         command = Start(request_id=uuid4(), type="start", resume_version_id=version.pk)
         resolved = async_to_sync(resolve_resume_version)(command, self.owner.pk)
         interview_id = uuid4()
@@ -263,7 +268,15 @@ class VersionSocketTests(SafetyTestMixin, TransactionTestCase):
 
         owner = await sync_to_async(get_user_model().objects.create_user)(username="version-socket")
         version = await ResumeVersion.objects.acreate(owner=owner, text=RESUME, status="ready")
-        with patch("interviews.agent_session.BackendLLM", return_value=FixtureLLM()):
+        await sync_to_async(prepare_profile)(version.pk, owner.pk, llm=FixtureLLM())
+        interview_llm = FixtureLLM()
+        with (
+            patch("interviews.agent_session.BackendLLM", return_value=interview_llm),
+            patch(
+                "interviews.agent_session.parse_resume_profile",
+                side_effect=AssertionError("Unexpected parse"),
+            ),
+        ):
             comm = ApplicationCommunicator(
                 agent_socket,
                 {

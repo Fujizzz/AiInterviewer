@@ -121,6 +121,27 @@ async def complete_fixture_request(interview_id, request_id, result):
     )
 
 
+async def enter_main_flow(session, first, *, owner_id=None):
+    """Exercise the real unscored opening before a regression test targets technical questions."""
+    if first["question"]["intent"] != "SELF_INTRODUCTION":
+        return first
+    from uuid import uuid4
+
+    from interviews.agent_records import reserve_request
+    from interviews.agent_socket import Answer
+
+    command = Answer(
+        type="answer",
+        request_id=uuid4(),
+        question_id=first["question"]["question_id"],
+        answer_text=RESUME,
+    )
+    await reserve_request(session.interview_id, command, owner_id=owner_id)
+    result = await session.answer(command)
+    await complete_fixture_request(session.interview_id, command.request_id, result)
+    return result
+
+
 class FixtureLLM:
     """Functionality: Provide deterministic schema-valid model outputs for offline tests.
     Inputs: The per-call prompt, data, and requested Pydantic schema.
@@ -150,7 +171,7 @@ class FixtureLLM:
         # Scripted semantic pass; this fixture does not evaluate question quality.
         if schema is CompactAnswerDecision:
             return compact_output(self(prompt, legacy_data(data), AnswerDecision).model_dump())
-        if schema.__name__ == "QuestionQualityReview":
+        if schema.__name__ in {"QuestionQualityReview", "CompactQualityReview"}:
             return schema(issues=[])
         self.calls.append(schema)
         if schema in SCHEMAS:
@@ -172,7 +193,10 @@ class FixtureLLM:
             }
         elif schema in (GeneratedText, QuestionAgentDecision):
             selection = selection_for(data) if "dialogue_state" in data else None
-            plan = plan_for(data, selection) if selection else data["question_plan"]
+            plan = (
+                plan_for(data, selection)
+                if selection else data.get("locked_intent", data.get("question_plan"))
+            )
             topic = str(plan["topic"]).rstrip(".,;:")
             output = {"text": f"What did you personally implement for {topic}, and why?"}
         elif schema in (AnswerEvidence, AnswerDecision, AnswerAssessment):

@@ -60,7 +60,14 @@ from interviews.agent_records import reserve_request
 from interviews.agent_session import AgentSession
 from interviews.agent_socket import Answer, Start, agent_socket
 
-from .agent_fixtures import ANSWER, RESUME, FixtureLLM, SafetyTestMixin, complete_fixture_request
+from .agent_fixtures import (
+    ANSWER,
+    RESUME,
+    FixtureLLM,
+    SafetyTestMixin,
+    complete_fixture_request,
+    enter_main_flow,
+)
 
 
 async def connect():
@@ -238,6 +245,10 @@ class ProgressTests(SafetyTestMixin, TransactionTestCase):
                 rid = await send_command(comm, "start", resume_text=RESUME, max_questions=1)
                 first = (await collect_until(comm, "question", rid))[-1]
                 rid = await send_command(
+                    comm, "answer", answer_text=RESUME, question_id=first["question"]["question_id"]
+                )
+                first = (await collect_until(comm, "question", rid))[-1]
+                rid = await send_command(
                     comm, "answer", answer_text=ANSWER, question_id=first["question"]["question_id"]
                 )
                 events = await collect_until(comm, "assessment", rid)
@@ -269,6 +280,11 @@ class ProgressTests(SafetyTestMixin, TransactionTestCase):
             comm = await connect()
             try:
                 rid = await send_command(comm, "start", resume_text=RESUME, max_questions=1)
+                first = (await collect_until(comm, "question", rid))[-1]
+                self.assertEqual(first["question"]["intent"], "SELF_INTRODUCTION")
+                rid = await send_command(
+                    comm, "answer", answer_text=RESUME, question_id=first["question"]["question_id"]
+                )
                 first = (await collect_until(comm, "question", rid))[-1]
                 rid = await send_command(
                     comm, "answer", answer_text=ANSWER, question_id=first["question"]["question_id"]
@@ -361,6 +377,7 @@ class ProgressTests(SafetyTestMixin, TransactionTestCase):
         await reserve_request(session.interview_id, command)
         first = await session.start(command)
         await complete_fixture_request(session.interview_id, command.request_id, first)
+        first = await enter_main_flow(session, first)
         with self.assertLogs("interviews.agent_session", level="INFO") as captured:
             command = Answer(
                 request_id=uuid4(),

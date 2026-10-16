@@ -140,7 +140,11 @@ class ScriptedReviewer:
         )
 
 
-@override_settings(AI_SECURITY_ENABLED=True, AI_SECURITY_MAX_SCAN_CHARS=100000)
+@override_settings(
+    AI_SECURITY_ENABLED=True,
+    AI_SECURITY_MAX_SCAN_CHARS=100000,
+    AI_SECURITY_SEMANTIC_TIMEOUT_SECONDS=5,
+)
 class IOSafetyTests(TransactionTestCase):
     """Function: regression of real closed loop; logic: independent database and controllable port;
     constraint: no change to production model parameters or five-second budget.
@@ -186,6 +190,13 @@ class IOSafetyTests(TransactionTestCase):
         await comm.wait()
         self.assertTrue(comm.output_queue.empty())
 
+    async def main_question(self, comm, first):
+        """Complete the reviewed, unscored opening before exercising technical output checks."""
+        await send_command(
+            comm, "answer", question_id=first["question"]["question_id"], answer_text=RESUME
+        )
+        return await self.terminal(comm, "question")
+
     async def test_allowed_round_trip_and_sources(self):
         """Synthetic resume → two questions/evaluations → preliminary scoring → report; fully
         inspected text matches network/history, sources not confused. Public job data excludes
@@ -197,6 +208,7 @@ class IOSafetyTests(TransactionTestCase):
         self.assertEqual((await self.terminal(comm, "prepared"))["type"], "prepared")
         await send_command(comm, "start", resume_text=RESUME, max_questions=2)
         first = await self.terminal(comm, "question")
+        first = await self.main_question(comm, first)
         await send_command(
             comm, "answer", question_id=first["question"]["question_id"], answer_text=ANSWER
         )
@@ -214,11 +226,12 @@ class IOSafetyTests(TransactionTestCase):
                 "publish_prepared",
                 "publish_question",
                 "publish_question",
+                "publish_question",
                 "publish_assessment",
                 "publish_finished",
             ],
         )
-        question_check = self.reviewer.requests[2]
+        question_check = self.reviewer.requests[3]
         self.assertEqual(
             json.loads(question_check.proposal.content.text),
             {k: v for k, v in second.items() if k != "request_id"},
@@ -259,8 +272,9 @@ class IOSafetyTests(TransactionTestCase):
             },
         )
         public_history = reviewed_final["result"]["question_history"]
-        self.assertEqual(len(public_history), 2)
-        for entry in public_history:
+        self.assertEqual(len(public_history), 3)
+        self.assertEqual(public_history[0]["unscored_reason"], "self_introduction")
+        for entry in public_history[1:]:
             self.assertNotIn("thread_id", entry)
             self.assertNotIn("project_id", entry)
             self.assertEqual(
@@ -314,7 +328,7 @@ class IOSafetyTests(TransactionTestCase):
             self.assertTrue(report["explanation"]["competencies"])
 
         pending = second["last_evaluation"]
-        assessed = detail["questions"][0]["answer"]["evaluation"]
+        assessed = detail["questions"][1]["answer"]["evaluation"]
         self.assertEqual(pending["assessment_status"], "pending")
         self.assertEqual(pending["dimensions"], [])
         self.assertEqual(assessed["assessment_status"], "valid")
@@ -323,7 +337,7 @@ class IOSafetyTests(TransactionTestCase):
         )
         self.assertEqual(assessed["answer_relevance"], pending["answer_relevance"])
         self.assertEqual(assessed["dimensions"][0]["quote"], ANSWER)
-        self.assertEqual(assessed, finished["result"]["question_history"][0]["evaluation"])
+        self.assertEqual(assessed, finished["result"]["question_history"][1]["evaluation"])
         saved = await AgentRequest.objects.aget(id=rid)
         self.assertIn("_security", saved.response)
         public = (await self.async_client.get(f"{base}requests/{rid}/")).json()
@@ -341,6 +355,7 @@ class IOSafetyTests(TransactionTestCase):
         comm = await connect()
         await send_command(comm, "start", resume_text=RESUME, max_questions=1)
         first = await self.terminal(comm, "question")
+        first = await self.main_question(comm, first)
         rid = await send_command(
             comm, "answer", question_id=first["question"]["question_id"], answer_text=ANSWER
         )
@@ -386,6 +401,7 @@ class IOSafetyTests(TransactionTestCase):
             comm = await connect()
             await send_command(comm, "start", resume_text=RESUME, max_questions=1)
             first = await self.terminal(comm, "question")
+            first = await self.main_question(comm, first)
             rid = await send_command(
                 comm,
                 "answer",
@@ -416,7 +432,7 @@ class IOSafetyTests(TransactionTestCase):
         self.assertIsNone(public["response"])
         # Own submitted text remains readable; no generated report or evaluated
         # feedback may escape the failed publication receipt through history.
-        answer = detail["questions"][0]["answer"]
+        answer = detail["questions"][1]["answer"]
         self.assertEqual(answer["text"], f"{ANSWER} {marker}")
         self.assertIsNone(answer["evaluation"])
         self.assertNotIn(
@@ -440,6 +456,7 @@ class IOSafetyTests(TransactionTestCase):
             comm = await connect()
             await send_command(comm, "start", resume_text=RESUME, max_questions=1)
             first = await self.terminal(comm, "question")
+            first = await self.main_question(comm, first)
             rid = await send_command(
                 comm, "answer", question_id=first["question"]["question_id"], answer_text=ANSWER
             )
@@ -473,6 +490,7 @@ class IOSafetyTests(TransactionTestCase):
                 )
                 if kind in {"assessment", "finished"}:
                     first = await self.terminal(comm, "question")
+                    first = await self.main_question(comm, first)
                     rid = await send_command(
                         comm,
                         "answer",

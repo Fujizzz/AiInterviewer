@@ -26,6 +26,11 @@ class RAGRouter:
         self._rag = rag
         self._settings = settings or load_agent_settings()
 
+    @property
+    def is_ready(self) -> bool:
+        """Existing adapters are ready; background ports advertise their live readiness."""
+        return getattr(self._rag, "is_ready", True) is not False
+
     def build_requests(
         self,
         question_plan: PlannedQuestion,
