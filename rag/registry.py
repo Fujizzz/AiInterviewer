@@ -25,6 +25,17 @@ VALID_CLEAN_PROFILES = {
     "jekyll",
     "quarto",
     "notebook",
+    "writerside",
+    "docc",
+    "eleventy",
+    "doxygen",
+    "mkdocs",
+    "flecs",
+    "zola",
+    "xdoc",
+    "docusaurus",
+    "myst",
+    "mmlab",
 }
 VALID_TRUST_LEVELS = {"official", "curated", "community", "reference_only"}
 

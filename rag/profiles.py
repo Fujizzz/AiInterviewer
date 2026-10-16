@@ -79,7 +79,7 @@ _AUTODOC_BLOCK_RE = re.compile(
     r"^\[\[autodoc\]\][^\n]*\n(?:[ \t]+[^\n]*\n|[ \t]*\n(?=[ \t]+\S))*", re.M
 )
 _HF_WRAPPER_RE = re.compile(r"</?(?:hfoptions|hfoption|Tip|iframe|details)\b[^>]*>", re.I)
-_SUMMARY_RE = re.compile(r"<summary>(.*?)</summary>", re.S | re.I)
+_SUMMARY_RE = re.compile(r"<summary\b[^>]*>(.*?)</summary>", re.S | re.I)
 
 
 # Notebook-output HTML pasted into docs: pandas DataFrame tables and tqdm/Trainer
@@ -1300,6 +1300,8 @@ _INVISIBLE_BLOCK_RE = re.compile(
 
 
 def profile_rst(text: str, path: str = "") -> str:
+    if path.endswith((".md", ".mdx", ".markdown")):  # markdown pages inside an rst-profile source
+        return profile_markdown(text)
     text = _INVISIBLE_BLOCK_RE.sub(
         "", text
     )  # pytorch/tutorials: code that is executed but hidden in the rendered page
@@ -1946,6 +1948,560 @@ def profile_notebook(text: str) -> str:
     return strip_relative_links_and_images(profile_markdown(text))
 
 
+# ---------------------------------------------------------------------------
+# Writerside (Kotlin / Kotlin Multiplatform docs), DocC (Swift book), Eleventy (Flutter docs)
+# ---------------------------------------------------------------------------
+
+_WS_TITLE_RE = re.compile(r"\A\s*\[//\]: # \(title: (.*?)\)[ \t]*\n")
+_WS_COMMENT_RE = re.compile(r"^\[//\]: # .*$\n?", re.M)
+_WS_QUOTE_STYLE_RE = re.compile(
+    r"((?:^[ \t]*>[^\n]*\n)+)[ \t]*\{[ \t]*style[ \t]*=[ \t]*\"(note|tip|warning)\""
+    r"[ \t]*\}[ \t]*$\n?",
+    re.M,
+)
+_WS_ATTR_RE = r"\{(?:[ \t]*[\w-]+[ \t]*=[ \t]*(?:\"[^\"]*\"|[^\s}]+))+[ \t]*\}"
+_WS_ATTR_LINE_RE = re.compile(rf"^[ \t]*{_WS_ATTR_RE}[ \t]*$\n?", re.M)
+_WS_ATTR_INLINE_RE = re.compile(rf"(?<=[)\w\]`*]){_WS_ATTR_RE}")
+_WS_DROP_BLOCK_RE = re.compile(
+    r"<(?:web-summary|seealso|list|panels|compare|video|snippet)\b[^>]*?(?:/>|>.*?</(?:web-summary|seealso|list|panels|compare|video|snippet)>)",
+    re.S,
+)
+_WS_DROP_TAG_RE = re.compile(r"<(?:show-structure|no-index|include|anchor)\b[^>]*?/?>", re.S)
+_WS_SHORTCUT_RE = re.compile(r"</?(?:shortcut|code|control|ui-path|math)>")
+_WS_PROCEDURE_RE = re.compile(r"<procedure\b[^>]*?\btitle=\"([^\"]*)\"[^>]*>", re.S)
+_WS_STEP_RE = re.compile(r"</?(?:procedure|step|chapter|category|topic)\b[^>]*>", re.S)
+
+
+def _ws_quote(m: re.Match) -> str:
+    lines = m.group(1).rstrip("\n").split("\n")
+    while lines and lines[-1].strip() in (">", ""):
+        lines.pop()
+    if not lines:
+        return ""
+    first = re.sub(r"^([ \t]*>[ \t]?)", r"\1", lines[0])
+    first = (
+        first.replace(">", f"> **{m.group(2).title()}:**", 1)
+        if first.lstrip().startswith(">")
+        else first
+    )
+    return "\n".join([first, *lines[1:]]) + "\n"
+
+
+def _writerside_prose(seg: str) -> str:
+    seg = _WS_QUOTE_STYLE_RE.sub(_ws_quote, seg)
+    seg = _WS_DROP_BLOCK_RE.sub("", seg)
+    seg = _WS_DROP_TAG_RE.sub("", seg)
+    seg = _WS_PROCEDURE_RE.sub(lambda m: f"**{m.group(1)}**\n", seg)
+    seg = _WS_STEP_RE.sub("", seg)
+    seg = _WS_SHORTCUT_RE.sub("", seg)
+    return _WS_ATTR_INLINE_RE.sub("", _WS_ATTR_LINE_RE.sub("", seg))
+
+
+def profile_writerside(text: str) -> str:
+    m = _WS_TITLE_RE.match(text)
+    if m:
+        text = f"# {m.group(1).strip()}\n\n" + text[m.end() :]
+    text = _WS_COMMENT_RE.sub("", text)
+    text = _outside_fences(text, _park_inline_code(_writerside_prose))
+    return profile_markdown(text)
+
+
+_DOCC_LINK_RE = re.compile(r"<doc:([\w./-]+)(?:#([\w-]+))?>")
+
+
+def _docc_link(m: re.Match) -> str:
+    name = (m.group(2) or m.group(1).rsplit("/", 1)[-1]).replace("-", " ")
+    return re.sub(r"(?<=[a-z])(?=[A-Z])", " ", name)
+
+
+def profile_docc(text: str) -> str:
+    text = _outside_fences(text, lambda s: _DOCC_LINK_RE.sub(_docc_link, s))
+    text = re.sub(
+        r"^[ \t]*@(?:Comment|Metadata|Options)\b[^\n]*\{[^}]*\}[ \t]*$\n?", "", text, flags=re.M
+    )
+    return profile_markdown(text)
+
+
+_DASH_IMAGE_RE = re.compile(r"<DashImage\b((?:[^>\"']|\"[^\"]*\"|'[^']*')*?)/?>", re.S)
+_ELEVENTY_ATTR_RE = re.compile(r"\b(alt|caption)=\"([^\"]*)\"")
+_ELEVENTY_DROP_RE = re.compile(r"</?(?:noscript|YouTubeEmbed|Video|font)\b[^>]*?/?>", re.S)
+_CODE_EXCERPT_RE = re.compile(r"^[ \t]*<\?code-excerpt\b.*?\?>[ \t]*$\n?", re.M | re.S)
+_REF_DEF_RE = re.compile(r"^[ \t]*\[[^\]\n]+\]:[ \t]+\S+[^\n]*$\n?", re.M)
+_ELEVENTY_H_RE = re.compile(r"<h([1-6])>(.*?)</h\1>")
+_ELEVENTY_NOTE_RE = re.compile(
+    r"^[ \t]*:::(version-note|note|tip|warning|important|secondary)\b.*$", re.M
+)
+
+
+def _dash_image(m: re.Match) -> str:
+    attrs = dict(_ELEVENTY_ATTR_RE.findall(m.group(1)))
+    alt = (attrs.get("alt") or attrs.get("caption") or "").strip()
+    return f"*[figure: {alt}]*\n" if len(alt) > 12 else ""
+
+
+def profile_eleventy(text: str) -> str:
+    text = _outside_fences(text, _park_inline_code(lambda s: _DASH_IMAGE_RE.sub(_dash_image, s)))
+    text = _outside_fences(text, _park_inline_code(lambda s: _ELEVENTY_DROP_RE.sub("", s)))
+    text = _outside_fences(text, _park_inline_code(lambda s: _ELEVENTY_H_RE.sub(r"**\2**", s)))
+    text = _CODE_EXCERPT_RE.sub("", text)  # `<?code-excerpt "lib/main.dart (x)"?>` before a fence
+    text = _outside_fences(
+        text, lambda s: _REF_DEF_RE.sub("", s)
+    )  # `[Name]: /path` link definitions
+    text = _outside_fences(
+        text,
+        lambda s: _ELEVENTY_NOTE_RE.sub(
+            lambda m: f"**{m.group(1).replace('-', ' ').title()}:**", s
+        ),
+    )
+    return profile_jekyll(text)
+
+
+# ---------------------------------------------------------------------------
+# Doxygen-flavoured markdown (OpenCV tutorials, CMSIS pages)
+# ---------------------------------------------------------------------------
+
+_DOX_HEADING_ATTR_RE = re.compile(r"^(.+?)[ \t]*\{#[\w.-]+\}[ \t]*$", re.M)
+_DOX_SETEXT_RE = re.compile(r"^(?!#)(\S[^\n]*)\n(={3,}|-{3,})[ \t]*$", re.M)
+_DOX_MATH_BLOCK_RE = re.compile(r"[@\\]f\[(.*?)[@\\]f\]", re.S)
+_DOX_MATH_INLINE_RE = re.compile(r"[@\\]f\$(.*?)[@\\]f\$", re.S)
+_DOX_CODE_RE = re.compile(
+    r"^([ \t]*)[@\\]code(?:\{\.?([\w+-]*)\})?[ \t]*\n(.*?)^[ \t]*[@\\]endcode[ \t]*$", re.S | re.M
+)
+_DOX_DROP_LINE_RE = re.compile(
+    r"^[ \t]*[@\\](?:tableofcontents|prev_tutorial|next_tutorial|add_toc_entry|snippet|"
+    r"snippetlineno|"
+    r"include|includelineno|dontinclude|skip|until|line|subpage|ingroup|defgroup|anchor|cond|endcond|"
+    r"add_toggle\w*|end_toggle|tabs|endtabs|tab_ctab|htmlonly|endhtmlonly|latexonly|endlatexonly|"
+    r"image|dot|enddot|cite|file|mainpage|addtogroup|copydoc|ref_tutorial|youtube|htmlinclude)\b[^\n]*$\n?",
+    re.M,
+)
+_DOX_REF_RE = re.compile(r"[@\\]ref[ \t]+([\w:#./-]+)(?:[ \t]+\"([^\"]*)\")?")
+_DOX_LABEL_RE = re.compile(
+    r"^([ \t]*)[@\\](note|warning|attention|remark|sa|see|todo)\b[ \t]*", re.M
+)
+_DOX_INLINE_RE = re.compile(r"[@\\](?:b|em|a)[ \t]+(\S+)")
+_DOX_CODEWORD_RE = re.compile(r"[@\\](?:c|p)[ \t]+(\S+)")
+_DOX_SECTION_RE = re.compile(
+    r"^[ \t]*[@\\](page|section|subsection|subsubsection)[ \t]+[\w.-]+[ \t]+(.+)$", re.M
+)
+_DOX_NUMBERED_RE = re.compile(r"^([ \t]*)-#[ \t]+", re.M)
+_DOX_PAR_RE = re.compile(r"^[ \t]*[@\\](?:par|brief)[ \t]*(.*)$", re.M)
+
+
+def _dox_code(m: re.Match) -> str:
+    lang = {"py": "python", "cpp": "cpp", "c": "c"}.get(m.group(2) or "", m.group(2) or "")
+    body = textwrap.dedent(m.group(3)).strip("\n")
+    return f"```{lang}\n{body}\n```"
+
+
+def profile_doxygen(text: str) -> str:
+    text = _DOX_CODE_RE.sub(_dox_code, text)
+    text = _DOX_HEADING_ATTR_RE.sub(r"\1", text)
+    text = _DOX_SETEXT_RE.sub(
+        lambda m: ("# " if m.group(2)[0] == "=" else "## ") + m.group(1).strip(), text
+    )
+    math: list[str] = []
+
+    def _park_math(m: re.Match, display: bool) -> str:
+        body = " ".join(m.group(1).split())
+        math.append(f"\n\n$$ {body} $$\n\n" if display else f"${body}$")
+        return f"\x02M{len(math) - 1}\x02"
+
+    text = _DOX_MATH_BLOCK_RE.sub(lambda m: _park_math(m, True), text)
+    text = _DOX_MATH_INLINE_RE.sub(lambda m: _park_math(m, False), text)
+
+    def _prose(seg: str) -> str:
+        seg = _DOX_DROP_LINE_RE.sub("", seg)
+        seg = _DOX_SECTION_RE.sub(
+            lambda m: ("# " if m.group(1) == "page" else "## ") + m.group(2).strip(), seg
+        )
+        seg = _DOX_REF_RE.sub(lambda m: m.group(2) or m.group(1).split("_", 1)[-1], seg)
+        seg = _DOX_LABEL_RE.sub(lambda m: f"{m.group(1)}**{m.group(2).title()}:** ", seg)
+        seg = _DOX_PAR_RE.sub(
+            lambda m: f"**{m.group(1).strip()}**" if m.group(1).strip() else "", seg
+        )
+        seg = _DOX_NUMBERED_RE.sub(r"\g<1>1. ", seg)
+        seg = _DOX_INLINE_RE.sub(r"**\1**", seg)
+        return _DOX_CODEWORD_RE.sub(r"`\1`", seg)
+
+    text = _outside_fences(text, _park_inline_code(_prose))
+    text = re.sub(r"\x02M(\d+)\x02", lambda m: math[int(m.group(1))], text)
+    return profile_markdown(text)
+
+
+# ---------------------------------------------------------------------------
+# MkDocs Material (Ultralytics, ...): admonitions `!!! tip "Title"` and content tabs `=== "Python"`
+# ---------------------------------------------------------------------------
+
+_MKDOCS_OPEN_RE = re.compile(
+    r"^(?P<ind>[ \t]*)(?:(?P<adm>!!!|\?\?\?\+?)[ \t]*(?P<kind>[\w-]+)"
+    r"(?:[ \t]+\"(?P<title>[^\"]*)\")?"
+    r"|===\+?[ \t]+\"(?P<tab>[^\"]*)\")[ \t]*$"
+)
+
+
+def _mkdocs_blocks(text: str) -> str:
+    lines = text.split("\n")
+    out: list[str] = []
+    i, n = 0, len(lines)
+    in_fence = False
+    while i < n:
+        ln = lines[i]
+        if _FENCE_LINE.match(ln):
+            in_fence = not in_fence
+            out.append(ln)
+            i += 1
+            continue
+        m = None if in_fence else _MKDOCS_OPEN_RE.match(ln)
+        if not m:
+            out.append(ln)
+            i += 1
+            continue
+        base = len(m.group("ind").expandtabs(4))
+        j = i + 1
+        body: list[str] = []
+        while j < n:
+            cur = lines[j]
+            if cur.strip() == "":
+                body.append("")
+                j += 1
+                continue
+            if len(cur.expandtabs(4)) - len(cur.expandtabs(4).lstrip()) >= base + 4:
+                body.append(cur.expandtabs(4)[base + 4 :])
+                j += 1
+                continue
+            break
+        while body and body[-1] == "":
+            body.pop()
+        label = m.group("tab") or m.group("title") or (m.group("kind") or "").title()
+        head = f"**{label}**" if m.group("tab") else f"**{label}:**"
+        out.append(m.group("ind") + head)
+        out.append("")
+        out.extend(
+            (m.group("ind") + b) if b else "" for b in _mkdocs_blocks("\n".join(body)).split("\n")
+        )
+        out.append("")
+        i = j
+    return "\n".join(out)
+
+
+_JINJA_LINE_RE = re.compile(
+    r"^[ \t]*\{%-?[ \t]*(?:include|from|import|set|if|endif|for|endfor|macro|endmacro)\b"
+    r".*?%\}[ \t]*$\n?",
+    re.M,
+)
+
+
+_CANVAS_RE = re.compile(r"<canvas\b[^>]*>(?:</canvas>)?[ \t]*\n?", re.I)
+
+
+_MKDOCSTRINGS_BLOCK_RE = re.compile(r"^:::[ \t]*[\w.]+[ \t]*\n(?:[ \t]+[^\n]*\n|[ \t]*\n(?=[ \t]+\S))*", re.M)
+_ATTR_ONLY_LINE_RE = re.compile(r"^[ \t]*\{[ \t]*[.#][^}\n]*\}[ \t]*$\n?", re.M)
+
+
+def profile_mkdocs(text: str) -> str:
+    text = _outside_fences(
+        text,
+        lambda s: _MKDOCSTRINGS_BLOCK_RE.sub(
+            "",
+            _VIDEO_RE.sub(
+                "", _ATTR_ONLY_LINE_RE.sub("", _CANVAS_RE.sub("", _JINJA_LINE_RE.sub("", s)))
+            ),
+        ),
+    )
+    return profile_markdown(_mkdocs_blocks(text))
+
+
+# ---------------------------------------------------------------------------
+# Flecs docs: `<div class="flecs-snippet-tabs"><ul><li><b class="tab-title">C++</b> ...`
+# (one tab per language)
+# ---------------------------------------------------------------------------
+
+_FLECS_TABS_RE = re.compile(r"<div class=\"flecs-snippet-tabs\">(.*?)</ul>\s*</div>", re.S)
+_FLECS_TAB_RE = re.compile(r"<li><b class=\"tab-title\">([^<]*)</b>(.*?)</li>", re.S)
+
+
+def _flecs_tabs(m: re.Match) -> str:
+    tabs = _FLECS_TAB_RE.findall(m.group(1))
+    if not tabs:
+        return ""
+    pick = next((body for name, body in tabs if name.strip() == "C++"), tabs[0][1])
+    return "\n" + pick.strip() + "\n"
+
+
+def profile_flecs(text: str) -> str:
+    return profile_markdown(_FLECS_TABS_RE.sub(_flecs_tabs, text))
+
+
+# ---------------------------------------------------------------------------
+# Zola (Bevy website): `{% callout(type="warning") %} ... {% end %}`
+# ---------------------------------------------------------------------------
+
+_ZOLA_OPEN_RE = re.compile(r"^[ \t]*\{%[ \t]*callout\((?:type=\"(\w+)\")?\)[ \t]*%\}[ \t]*$", re.M)
+_ZOLA_END_RE = re.compile(r"^[ \t]*\{%[ \t]*end[ \t]*%\}[ \t]*$\n?", re.M)
+
+
+def profile_zola(text: str) -> str:
+    text = _outside_fences(
+        text,
+        lambda s: _ZOLA_END_RE.sub(
+            "", _ZOLA_OPEN_RE.sub(lambda m: f"**{(m.group(1) or 'note').title()}:**", s)
+        ),
+    )
+    return profile_hugo(text)
+
+
+# ---------------------------------------------------------------------------
+# Apache xdoc XML (JMeter user manual): <section name="..."> / <subsection> / <source> / <p>
+# ---------------------------------------------------------------------------
+
+_XDOC_ENTITY_RE = re.compile(r"&(?:sect-num|hellip|rarr|larr|nbsp|copy|reg|trade|ndash|mdash);")
+_XDOC_ENTITIES = {
+    "hellip": "...",
+    "rarr": " -> ",
+    "larr": " <- ",
+    "nbsp": " ",
+    "ndash": "-",
+    "mdash": "-",
+}
+
+
+def profile_xdoc(text: str, path: str = "", options: dict | None = None) -> str:
+    text = re.sub(r"<!DOCTYPE[^\[>]*(?:\[.*?\])?\s*>", "", text, flags=re.S)
+    text = re.sub(r"<!--.*?-->", "", text, flags=re.S)
+    text = _XDOC_ENTITY_RE.sub(lambda m: _XDOC_ENTITIES.get(m.group(0)[1:-1], ""), text)
+    title = ""
+    tm = re.search(r"<title>(.*?)</title>", text, re.S)
+    if tm:
+        title = re.sub(r"\s+", " ", tm.group(1)).strip()
+    text = re.sub(r"<properties>.*?</properties>", "", text, flags=re.S)
+
+    def _head(level: int):
+        def _f(m: re.Match) -> str:
+            name = re.sub(r"\s+", " ", m.group(1)).strip()
+            return f"<h{level}>{name}</h{level}>"
+
+        return _f
+
+    text = re.sub(r"<section\b[^>]*\bname=\"([^\"]*)\"[^>]*>", _head(2), text)
+    text = re.sub(r"<subsection\b[^>]*\bname=\"([^\"]*)\"[^>]*>", _head(3), text)
+    text = re.sub(r"<component\b[^>]*\bname=\"([^\"]*)\"[^>]*>", _head(3), text)
+    text = re.sub(r"</(?:section|subsection|component)>", "", text)
+    text = re.sub(r"<source\b[^>]*>", "<pre>", text).replace("</source>", "</pre>")
+    text = re.sub(
+        r"</?(?:description|properties|note|example|figure|complink|ch_title|ch_section)\b[^>]*>",
+        "",
+        text,
+    )
+    text = re.sub(r"<(?:img|complink|figure|link)\b[^>]*/?>", "", text)
+    md, _ = html_to_markdown(text, main_selectors=["body"])
+    md = re.sub(r"^(#{1,6}) [.\d]+[ \t]+", r"\1 ", md, flags=re.M)
+    if title and not re.match(r"\s*#{1,2}\s", md):
+        md = f"# {title}\n\n{md}"
+    return md
+
+
+# ---------------------------------------------------------------------------
+# Docusaurus MDX with React components (Cypress, Playwright, Testing Library)
+# ---------------------------------------------------------------------------
+
+_JSX_OPEN_RE = re.compile(r"<(/?)([A-Z]\w*)\b")
+_DOCUSAURUS_STD = {"tip", "note", "info", "warning", "danger", "caution", "important", "details"}
+_DOCUSAURUS_CUSTOM_RE = re.compile(r"^[ \t]*:::([a-z][\w-]*)[ \t]*$", re.M)
+
+
+def _jsx_tag_end(seg: str, i: int) -> int:
+    """Index just past the `>` closing a JSX tag that starts at `i` (quotes, {braces} respected)."""
+    depth, quote, n = 0, "", len(seg)
+    while i < n:
+        c = seg[i]
+        if quote:
+            if c == quote:
+                quote = ""
+        elif c in "\"'`":
+            quote = c
+        elif c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+        elif c == ">" and depth <= 0:
+            return i + 1
+        i += 1
+    return n
+
+
+def _strip_jsx_components(seg: str) -> str:
+    out: list[str] = []
+    pos = 0
+    for m in _JSX_OPEN_RE.finditer(seg):
+        if m.start() < pos:
+            continue
+        end = _jsx_tag_end(seg, m.end())
+        tag = seg[m.start() : end]
+        out.append(seg[pos : m.start()])
+        name = m.group(2)
+        repl = ""
+        if not m.group(1):
+            lab = re.search(r"\b(?:label|title|alt|callout)=(?:\"([^\"]*)\"|'([^']*)')", tag)
+            text = (lab.group(1) or lab.group(2)) if lab else ""
+            if name in ("TabItem", "Tab") and text:
+                repl = f"\n**{text}**\n"
+            elif name in ("DocsImage", "Icon", "DocsVideo") and len(text) > 12:
+                repl = f"*[figure: {text}]*"
+        out.append(repl)
+        pos = end
+    out.append(seg[pos:])
+    return "".join(out)
+
+
+_VIDEO_RE = re.compile(r"<video\b.*?</video>[ \t]*\n?", re.S | re.I)
+
+
+def profile_docusaurus(text: str) -> str:
+    text = _outside_fences(
+        text, _park_inline_code(lambda s: _VIDEO_RE.sub("", _strip_jsx_components(s)))
+    )
+    text = _outside_fences(
+        text,
+        lambda s: _DOCUSAURUS_CUSTOM_RE.sub(
+            lambda m: m.group(0) if m.group(1) in _DOCUSAURUS_STD else "", s
+        ),
+    )
+    return profile_markdown(text)
+
+
+# ---------------------------------------------------------------------------
+# MyST markdown (PyTorch docs, Pandera): {role}`text`, ```{directive}, :::{admonition}
+# ---------------------------------------------------------------------------
+
+_MYST_ROLE_RE = re.compile(r"\{(?:[\w:+-]+)\}`([^`\n]+)`")
+_MYST_LABEL_RE = re.compile(r"^\([\w.:-]+\)=[ \t]*$\n?", re.M)
+_MYST_FENCE_OPEN_RE = re.compile(r"^([ \t]*)(`{3,}|:{3,})\{([\w:-]+)\}[ \t]*(.*)$")
+_MYST_ADMONITIONS = {
+    "note",
+    "tip",
+    "warning",
+    "important",
+    "caution",
+    "attention",
+    "hint",
+    "danger",
+    "seealso",
+    "admonition",
+    "versionadded",
+    "versionchanged",
+    "deprecated",
+}
+_MYST_DROP = {
+    "toctree",
+    "eval-rst",
+    "autoclass",
+    "autofunction",
+    "automodule",
+    "autosummary",
+    "literalinclude",
+    "image",
+    "figure",
+    "contents",
+    "currentmodule",
+    "module",
+    "include",
+    "grid",
+    "grid-item-card",
+    "tab-set",
+    "tab-item",
+    "raw",
+    "only",
+    "testsetup",
+    "testcleanup",
+}
+
+
+def _myst_role(m: re.Match) -> str:
+    body = m.group(1).strip()
+    lab = re.match(r"^(.*?)\s*<([^>]+)>$", body, re.S)
+    if lab:
+        return lab.group(1)
+    return body.lstrip("~.")
+
+
+def _myst_blocks(text: str) -> str:
+    lines = text.split("\n")
+    out: list[str] = []
+    i, n = 0, len(lines)
+    while i < n:
+        m = _MYST_FENCE_OPEN_RE.match(lines[i])
+        if not m:
+            out.append(lines[i])
+            i += 1
+            continue
+        ind, fence, name, arg = m.groups()
+        closer = fence[0] * len(fence)
+        j = i + 1
+        body: list[str] = []
+        while j < n and not lines[j].strip().startswith(closer):
+            body.append(lines[j])
+            j += 1
+        i = j + 1
+        while body and re.match(r"^\s*:[\w-]+:", body[0]):
+            body.pop(0)  # directive options
+        if name in ("code-block", "code", "sourcecode", "code-cell", "highlight"):
+            out.append(f"{ind}```{arg.strip().split()[0] if arg.strip() else ''}")
+            out.extend(b for b in body if not re.match(r"^\s*:[\w-]+:", b))
+            out.append(f"{ind}```")
+        elif name.lower() in _MYST_ADMONITIONS:
+            label = arg.strip() if name == "admonition" and arg.strip() else name.title()
+            out.append(f"{ind}**{label}:**")
+            out.append("")
+            out.extend(_myst_blocks("\n".join(body)).split("\n"))
+            out.append("")
+        elif name in _MYST_DROP:
+            continue
+        else:
+            out.extend(_myst_blocks("\n".join(body)).split("\n"))
+    return "\n".join(out)
+
+
+def profile_myst(text: str) -> str:
+    text = _myst_blocks(text)
+    text = _MYST_LABEL_RE.sub("", text)
+    text = _outside_fences(text, lambda s: _MYST_ROLE_RE.sub(_myst_role, s))
+    return profile_markdown(text)
+
+
+# ---------------------------------------------------------------------------
+# OpenMMLab READMEs: drop model-zoo result tables (checkpoint / config download links)
+# ---------------------------------------------------------------------------
+
+_MMLAB_LINK_RE = re.compile(r"download\.openmmlab\.com|\]\(\./[\w./-]+\.py\)")
+
+
+def _drop_zoo_tables(seg: str) -> str:
+    lines = seg.split("\n")
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        if lines[i].lstrip().startswith("|"):
+            j = i
+            while j < len(lines) and lines[j].lstrip().startswith("|"):
+                j += 1
+            block = lines[i:j]
+            hits = sum(1 for ln in block if _MMLAB_LINK_RE.search(ln))
+            if hits and hits >= max(1, (len(block) - 2) // 2):
+                i = j
+                continue
+            out.extend(block)
+            i = j
+            continue
+        out.append(lines[i])
+        i += 1
+    return "\n".join(out)
+
+
+def profile_mmlab(text: str) -> str:
+    return profile_markdown(_outside_fences(text, _drop_zoo_tables))
+
+
 PROFILES = {
     "markdown": lambda text, path="", options=None: profile_markdown(text),
     "rst": lambda text, path="", options=None: profile_rst(text, path),
@@ -1959,6 +2515,17 @@ PROFILES = {
     "quarto": lambda text, path="", options=None: profile_quarto(text),
     "notebook": lambda text, path="", options=None: profile_notebook(text),
     "mdn": lambda text, path="", options=None: profile_mdn(text),
+    "writerside": lambda text, path="", options=None: profile_writerside(text),
+    "docc": lambda text, path="", options=None: profile_docc(text),
+    "eleventy": lambda text, path="", options=None: profile_eleventy(text),
+    "doxygen": lambda text, path="", options=None: profile_doxygen(text),
+    "mkdocs": lambda text, path="", options=None: profile_mkdocs(text),
+    "flecs": lambda text, path="", options=None: profile_flecs(text),
+    "zola": lambda text, path="", options=None: profile_zola(text),
+    "xdoc": profile_xdoc,
+    "docusaurus": lambda text, path="", options=None: profile_docusaurus(text),
+    "myst": lambda text, path="", options=None: profile_myst(text),
+    "mmlab": lambda text, path="", options=None: profile_mmlab(text),
 }
 
 

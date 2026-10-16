@@ -133,6 +133,27 @@ class Node:
         return "".join(out)
 
 
+_CLOSES_P = frozenset(
+    {
+        "pre",
+        "div",
+        "ul",
+        "ol",
+        "table",
+        "blockquote",
+        "dl",
+        "hr",
+        "figure",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+    }
+)
+
+
 class _TreeBuilder(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
@@ -141,6 +162,11 @@ class _TreeBuilder(HTMLParser):
 
     def handle_starttag(self, tag, attrs):
         node = Node(tag, {k: (v or "") for k, v in attrs}, self.cur)
+        # HTML5: a block-level start tag implicitly closes an open <p>
+        # (`<p><div></div><pre>` -> otherwise the code block is swallowed into the paragraph)
+        if tag in _CLOSES_P and self.cur.tag == "p":
+            self.cur = self.cur.parent or self.root
+            node.parent = self.cur
         # implicit closes for the common optional-end-tag cases
         if tag in ("li", "dt", "dd", "tr", "td", "th", "p"):
             self._implicit_close(tag)
@@ -207,7 +233,7 @@ def parse_html(markup: str) -> Node:
 # selectors
 # ---------------------------------------------------------------------------
 
-_SEL_RE = re.compile(r"^(?P<tag>[a-zA-Z][a-zA-Z0-9]*)?(?P<rest>(?:[#.][\w-]+)*)$")
+_SEL_RE = re.compile(r"^(?P<tag>[a-zA-Z][a-zA-Z0-9-]*)?(?P<rest>(?:[#.][\w-]+)*)$")
 
 
 def _match_simple(node: Node, sel: str) -> bool:
@@ -311,6 +337,7 @@ def _inline(node: Node, keep_links: bool = False) -> str:
                 out.append(inner)
         elif t == "img":
             alt = c.attrs.get("alt", "").strip()
+            alt = re.sub(r"<[^>]+>", "", alt)
             out.append(f"[image: {alt}]" if len(alt) > 8 else "")
         elif t in DEFAULT_STRIP_TAGS:
             continue
@@ -560,6 +587,8 @@ def _render_pre(node: Node) -> str:
         if m:
             lang = m.group(1)
             break
+    if not lang:  # Google devsite: <pre syntax="Kotlin">
+        lang = re.sub(r"[^\w+-]", "", (node.attrs.get("syntax") or "").lower())
     body = html_lib.unescape(code_node.text()).strip("\n").replace(" ", " ")
     fence = "```"
     while fence in body:
@@ -718,7 +747,16 @@ def _html_to_markdown(markup, main_selectors, strip_selectors, keep_links):
         strip_nodes(target, strip_selectors)
     else:
         strip_nodes(target, [])
+    _custom_elements_to_div(target)
     return node_to_markdown(target, keep_links), found
+
+
+def _custom_elements_to_div(root: Node) -> None:
+    """Web components (`<devsite-code>`, `<devsite-tabs>`) wrap real content; treat them as <div>
+    so that a `<pre>` inside is rendered as a code block instead of inline code."""
+    for n in root.iter_nodes():
+        if "-" in n.tag and n.tag.isascii() and not n.tag.startswith("svg"):
+            n.tag = "div"
 
 
 # ---------------------------------------------------------------------------
