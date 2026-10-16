@@ -207,7 +207,7 @@ class SecurityActivationTests(TransactionTestCase):
 
     def test_configuration_is_strict(self):
         """Import actual settings in subprocesses with dotenv loading suppressed and synthetic
-        Django secret. Verify true default and accepted literals; malformed values fail before
+        Django secret. Verify disabled default and explicit activation; malformed values fail before
         startup. Constraints: Do not read/print local secrets or mutate caller environment.
         """
         root = Path(__file__).resolve().parents[3]
@@ -217,10 +217,13 @@ class SecurityActivationTests(TransactionTestCase):
             "print(runpy.run_path('backend/config/settings.py')['AI_SECURITY_ENABLED'])"
         )
         for value, expected in (
-            (None, "True"),
+            (None, "False"),
             ("true", "True"),
+            ("TRUE", "True"),
+            (" true ", "True"),
             ("false", "False"),
             ("FALSE", "False"),
+            (" false ", "False"),
             ("", None),
             ("0", None),
             ("typo", None),
