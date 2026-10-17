@@ -265,6 +265,9 @@ licence rule in the same file (no ingestable source with ND / BUSL / unknown lic
   Since 2026-10-17 the lexical leg keeps at most 6 terms (`MAX_QUERY_TERMS` in `retrieval/sql.py`, was 12): nDCG@10
   0.602 -> 0.599 on gold v2; the latency effect is small and noisy (dev machine unchanged, 2-core server container
   p95 1,248 -> 805 ms in one run). 4 terms costs 0.014 nDCG and is not worth it.
+  The studies behind these numbers are reproducible: `python -m rag.eval.studies.<fusion_fix_eval|serving_latency_matrix|
+  unlabeled_top10_review|build_gold_v2>`, inputs in `data/eval/` (`gold_queries_v2.yaml` is a draft), write-up in
+  `docs/retrieval-tradeoff-study.md`.
 
 ### Retrieval after the expansion (batch 1)
 

@@ -346,4 +346,4 @@ chunks_embedding_hnsw` 会把刚去掉的 HNSW 索引重建出来（742 MB，占
 
 Agent 的超时是 2 s：服务器 A 上 p95 约 0.8–1.2 s，余量不大；服务器 B（1 核 / 700 MB）的 p95 已到 1.8–2.2 s，**不建议用**。
 峰值内存：容器 A 约 1.2 GiB，容器 B 约 0.55 GiB（再加检索进程约 0.8 GB）。
-上限 6 的取舍与完整矩阵见 `intellihire-data/RETRIEVAL_TRADEOFF_REPORT.md`（不在 Git 里）。
+上限 6 的取舍与完整矩阵见 `rag/docs/retrieval-tradeoff-study.md`；复现脚本在 `rag/eval/studies/`（`serving_latency_matrix`）。
