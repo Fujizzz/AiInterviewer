@@ -106,6 +106,7 @@ class RetrievalResult(list):
     confidence: str = "low"
     low_confidence: bool = True
     reasons: list[str]
+    encoder: str | None = None  # query-encoder trace label, e.g. "torch" or "onnx-int8/int8-pc"
 
     def __init__(
         self,
@@ -116,8 +117,10 @@ class RetrievalResult(list):
         lexical_hit=False,
         confidence="low",
         reasons=None,
+        encoder=None,
     ):
         super().__init__(passages)
+        self.encoder = encoder
         self.max_dense = max_dense
         self.max_rerank = max_rerank
         self.lexical_hit = lexical_hit
@@ -134,6 +137,7 @@ class RetrievalResult(list):
             lexical_hit=self.lexical_hit,
             confidence=self.confidence,
             reasons=self.reasons,
+            encoder=self.encoder,
         )
 
     def __getitem__(self, i):
@@ -154,4 +158,5 @@ class RetrievalResult(list):
             "confidence": self.confidence,
             "low_confidence": self.low_confidence,
             "reasons": self.reasons,
+            "encoder": self.encoder,
         }

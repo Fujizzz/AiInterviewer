@@ -11,6 +11,7 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from .index.encoders import ENCODER_CHOICES, ENCODER_TORCH, normalize_encoder
 from .retrieval.access import ROLE_NAMESPACES
 
 _TRUE = {"1", "true", "yes", "on"}
@@ -52,7 +53,11 @@ class RAGSettings:
     connect_timeout_seconds: float = 3.0  # RAG_CONNECT_TIMEOUT_SECONDS
     statement_timeout_ms: int = 2500  # RAG_STATEMENT_TIMEOUT_MS (a bit above RAGRouter's 2 s)
     lock_timeout_ms: int = 1000  # RAG_LOCK_TIMEOUT_MS
-    device: str | None = None  # RAG_DEVICE (cpu | mps | cuda; None => auto)
+    device: str | None = None  # RAG_DEVICE (cpu | mps | cuda; None => auto; torch encoder only)
+    encoder: str = ENCODER_TORCH  # RAG_ENCODER (torch | onnx-int8): the QUERY encoder backend
+    encoder_threads: int = 2  # RAG_ENCODER_THREADS (onnxruntime intra_op_num_threads)
+    encoder_model_dir: str | None = None  # RAG_ENCODER_MODEL_DIR (default rag/data/models/...)
+    encoder_verify: bool = True  # RAG_ENCODER_VERIFY (sha256 of the artifact at load)
     filter_difficulty: bool = True  # RAG_FILTER_DIFFICULTY (question source only)
     filter_competency: bool = False  # RAG_FILTER_COMPETENCY
     drop_low_confidence: bool = False  # RAG_DROP_LOW_CONFIDENCE
@@ -62,6 +67,12 @@ class RAGSettings:
             raise ValueError(f"unknown role {self.role!r}; known: {sorted(ROLE_NAMESPACES)}")
         if not 1 <= self.pool_min <= self.pool_max:
             raise ValueError("require 1 <= pool_min <= pool_max")
+        if self.encoder not in ENCODER_CHOICES:
+            raise ValueError(
+                f"encoder must be one of {list(ENCODER_CHOICES)}, got {self.encoder!r}"
+            )
+        if self.encoder_threads < 1:
+            raise ValueError("encoder_threads must be >= 1")
         if self.statement_timeout_ms <= 0 or self.lock_timeout_ms <= 0:
             raise ValueError("statement/lock timeouts must be positive milliseconds")
         if self.pool_timeout_seconds <= 0 or self.connect_timeout_seconds <= 0:
@@ -88,6 +99,10 @@ class RAGSettings:
             ),
             lock_timeout_ms=int(_number(env, "RAG_LOCK_TIMEOUT_MS", default.lock_timeout_ms, int)),
             device=(env.get("RAG_DEVICE") or "").strip() or None,
+            encoder=normalize_encoder(env.get("RAG_ENCODER")),
+            encoder_threads=int(_number(env, "RAG_ENCODER_THREADS", default.encoder_threads, int)),
+            encoder_model_dir=(env.get("RAG_ENCODER_MODEL_DIR") or "").strip() or None,
+            encoder_verify=_bool(env, "RAG_ENCODER_VERIFY", default.encoder_verify),
             filter_difficulty=_bool(env, "RAG_FILTER_DIFFICULTY", default.filter_difficulty),
             filter_competency=_bool(env, "RAG_FILTER_COMPETENCY", default.filter_competency),
             drop_low_confidence=_bool(env, "RAG_DROP_LOW_CONFIDENCE", default.drop_low_confidence),

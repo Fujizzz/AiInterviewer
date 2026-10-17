@@ -27,6 +27,7 @@ from .embed import (
     meta_compatible,
     read_chunks,
 )
+from .encoders import DERIVED_ENCODERS, ENCODER_CHOICES, ENCODER_TORCH
 
 
 class IndexError_(RuntimeError):
@@ -147,8 +148,32 @@ def sync_sources(conn: psycopg.Connection, sources: Iterable[Source]) -> int:
 _META_KEYS = ("model", "revision", "dim", "max_seq_length", "format_version")
 
 
+def _check_encoder(meta: dict, writes_index: bool) -> None:
+    """Rules for WHO is allowed to talk to the index.
+
+    A derived query encoder (onnx-int8: the same weights, quantized) reports the identity of its
+    BASE model (model, revision, dim, max_seq_length, format_version), so it is accepted exactly
+    when those equal what index_meta stores. It may only read: it must never initialise
+    index_meta or embed the corpus, because its vectors differ from the base model's by ~1e-2
+    cosine. Unknown encoder names are refused.
+    """
+    kind = meta.get("encoder", ENCODER_TORCH)
+    if kind not in ENCODER_CHOICES:
+        raise IndexError_(f"unknown query encoder {kind!r}; known: {list(ENCODER_CHOICES)}")
+    if kind in DERIVED_ENCODERS and writes_index:
+        raise IndexError_(
+            f"the {kind} query encoder cannot define or write the index; embed the corpus with "
+            "the torch encoder (python -m rag.cli embed / index)"
+        )
+
+
 def check_index_meta(conn: psycopg.Connection, meta: dict, set_if_empty: bool = True) -> None:
-    """Fail loudly if the stored embedding identity differs from `meta`."""
+    """Fail loudly if the stored embedding identity differs from `meta`.
+
+    `meta` may come from the corpus embedder (torch) or from a query encoder derived from the same
+    base model (see `_check_encoder`); only the identity keys in _META_KEYS are compared.
+    """
+    _check_encoder(meta, writes_index=set_if_empty)
     stored = dict(conn.execute("SELECT key, value FROM index_meta").fetchall())
     n_rows = conn.execute("SELECT count(*) FROM chunks").fetchone()[0]
     if not stored:
@@ -172,8 +197,13 @@ def check_index_meta(conn: psycopg.Connection, meta: dict, set_if_empty: bool = 
         raise IndexError_(
             "embedding identity differs from the one stored in the database: "
             + ", ".join(f"{k}: db={a!r} vs cache/query={b!r}" for k, (a, b) in diffs.items())
-            + ". Re-embed everything and rebuild the index (TRUNCATE chunks, clear index_meta) "
-            "instead of mixing vector spaces."
+            + (
+                ". This query encoder was built from a different base model/revision than the "
+                "index: rebuild it (python -m rag.cli encoder build-onnx) or use RAG_ENCODER=torch."
+                if meta.get("encoder", ENCODER_TORCH) in DERIVED_ENCODERS
+                else ". Re-embed everything and rebuild the index (TRUNCATE chunks, clear "
+                "index_meta) instead of mixing vector spaces."
+            )
         )
 
 

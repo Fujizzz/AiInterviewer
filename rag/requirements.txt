@@ -1,4 +1,4 @@
-# Responsibilities: optional dependencies of the retrieval layer (ingestion, embedding, pgvector, rerank).
+# Responsibilities: optional dependencies of the retrieval layer (ingestion, embedding, pgvector, rerank, onnx build).
 # Implementation: module-local manifest, NOT part of the root pyproject/uv.lock, so the Agent, app and
 # backend (and CI without a database) never install torch. Same pattern as backend/requirements.txt.
 # Install into the project environment:  uv pip install -r rag/requirements.txt
@@ -19,3 +19,9 @@ sentence-transformers>=3.0,<6
 # completion-gate extra (tokenizers==0.22.2). Keep transformers on 4.x so both extras can coexist.
 transformers>=4.51,<5
 huggingface-hub<1
+# ONNX int8 query encoder (RAG_ENCODER=onnx-int8; the pins equal the root completion-gate extra and the
+# deploy lock). `onnx` is only needed to BUILD the artifact (python -m rag.cli encoder build-onnx).
+# A server that only serves queries installs rag/requirements-serve.txt instead of this file.
+onnxruntime==1.23.2
+tokenizers==0.22.2
+onnx>=1.16

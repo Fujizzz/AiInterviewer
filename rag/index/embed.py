@@ -346,7 +346,7 @@ class Embedder:
         m = make_meta(self.model_name, self.revision, self.dim, self.max_seq_length)
         # informational only (not part of the compatibility check): fp16 vs fp32 vectors
         # differ by ~1e-4 cosine, far below retrieval noise.
-        m.update(fp16=self.fp16, device=self.device)
+        m.update(fp16=self.fp16, device=self.device, encoder="torch")
         return m
 
     def encode(self, texts: list[str], batch_size: int | None = None) -> np.ndarray:
