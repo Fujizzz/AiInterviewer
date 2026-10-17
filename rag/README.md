@@ -262,6 +262,9 @@ licence rule in the same file (no ingestable source with ND / BUSL / unknown lic
   (p95 165 -> 247). The tail is the lexical leg (p95 665 -> 1,034 ms): an OR of up to 12 terms matches
   ~35k of 95k rows, Postgres seq-scans and ranks every match with `ts_rank_cd`. The ~90-100 ms dense scan is
   not the problem; options are in `BACKLOG.md`.
+  Since 2026-10-17 the lexical leg keeps at most 6 terms (`MAX_QUERY_TERMS` in `retrieval/sql.py`, was 12): nDCG@10
+  0.602 -> 0.599 on gold v2; the latency effect is small and noisy (dev machine unchanged, 2-core server container
+  p95 1,248 -> 805 ms in one run). 4 terms costs 0.014 nDCG and is not worth it.
 
 ### Retrieval after the expansion (batch 1)
 
