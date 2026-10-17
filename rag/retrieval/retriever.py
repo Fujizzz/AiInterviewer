@@ -24,7 +24,14 @@ from .access import CANDIDATE_NAMESPACE, resolve_namespaces, scope_namespaces
 from .confidence import DEFAULT_RULE, ConfidenceRule, RetrievalResult, assess
 from .fusion import rrf_fuse
 from .intent import RetrievalIntent
-from .sql import FETCH_SQL, build_filter_clause, dense_sql, lexical_params, lexical_sql
+from .sql import (
+    FETCH_SQL,
+    build_filter_clause,
+    dense_sql,
+    extract_identifiers,
+    lexical_params,
+    lexical_sql,
+)
 from .types import Passage
 
 MODES = ("dense", "lexical", "hybrid")
@@ -38,6 +45,15 @@ DEFAULT_RRF_WEIGHTS = {"dense": 2.0, "lexical": 1.0}
 DEFAULT_STRICT_BONUS = 10.0
 DEFAULT_IDENT_BONUS = 0.0
 DEFAULT_RERANK_N = 10
+# Adaptive fusion (2026-10-16): when an identifier is found verbatim by the lexical leg AND the best
+# dense cosine is < 0.62 (dense is unsure), the lexical RRF weight goes 1 -> 3. Rare-token hit@10
+# 78/120 -> 117/120, gold-v2 nDCG@10 unchanged (0.604). Boosting without the dense condition costs
+# -0.02 nDCG (frequent names like PostgreSQL/FastAPI would outvote dense).
+DEFAULT_LEX_BOOST_WEIGHT = 3.0
+DEFAULT_LEX_BOOST_DENSE_BELOW = 0.62
+# Second trigger: dense has nothing (best cosine < 0.50, below every gold query's 0.56) but some
+# chunk matches ALL content terms (e.g. 'CORS preflight': an acronym is not identifier-shaped).
+DEFAULT_LEX_BOOST_STRICT_DENSE_BELOW = 0.50
 
 
 class Retriever:
@@ -63,6 +79,10 @@ class Retriever:
         check_model: bool = True,
         embed_kwargs: dict | None = None,
         connection: psycopg.Connection | None = None,
+        lex_boost_weight: float | None = DEFAULT_LEX_BOOST_WEIGHT,
+        lex_boost_dense_below: float | None = DEFAULT_LEX_BOOST_DENSE_BELOW,
+        lex_boost_strict_dense_below: float | None = DEFAULT_LEX_BOOST_STRICT_DENSE_BELOW,
+        absent_identifier_low: bool = True,
     ):
         self.dsn = dsn
         self._embedder = embedder
@@ -89,6 +109,16 @@ class Retriever:
         self.exact_dense = exact_dense
         self.check_model = check_model
         self.embed_kwargs = embed_kwargs or {}
+        # Adaptive fusion: lexical RRF weight used instead of rrf_weights["lexical"] when the
+        # lexical leg has a strong exact signal AND dense is unsure (None = off). Fixes rare/novel
+        # terms whose dense neighbours are noise but which lexical search finds exactly.
+        self.lex_boost_weight = lex_boost_weight
+        self.lex_boost_dense_below = lex_boost_dense_below
+        self.lex_boost_strict_dense_below = lex_boost_strict_dense_below
+        # A query identifier (TeaCache, HyperLogLog) that occurs verbatim in NO chunk means the
+        # corpus has no evidence: report low confidence, dense neighbours of an unknown name are
+        # noise.
+        self.absent_identifier_low = absent_identifier_low
         # An injected connection (e.g. checked out of a pool by the RAGPort adapter) is borrowed:
         # it must be autocommit, it is never replaced or closed here, and a Retriever bound to it
         # must not be shared between threads.
@@ -250,10 +280,25 @@ class Retriever:
         elif mode == "lexical":
             order = [(r[0], None) for r in lex_rows]
         else:
+            weights = self.rrf_weights
+            if self.lex_boost_weight is not None and dense_rows:
+                top_dense = float(dense_rows[0][1])
+                ident_hit = any(r[4] for r in lex_rows)
+                strict_hit = any(r[3] for r in lex_rows)
+                boost = ident_hit and (
+                    self.lex_boost_dense_below is None or top_dense < self.lex_boost_dense_below
+                )
+                boost = boost or (
+                    strict_hit
+                    and self.lex_boost_strict_dense_below is not None
+                    and top_dense < self.lex_boost_strict_dense_below
+                )
+                if boost:
+                    weights = {**weights, "lexical": self.lex_boost_weight}
             order = rrf_fuse(
                 {"dense": [c for c, _ in dense_rows], "lexical": [r[0] for r in lex_rows]},
                 k=self.rrf_k,
-                weights=self.rrf_weights,
+                weights=weights,
             )
         rrf_score = {cid: s for cid, s in order if s is not None}
 
@@ -301,7 +346,21 @@ class Retriever:
             n_terms + n_ids,
             intent.query.isascii(),
             self.confidence_rule,
+            ident_hit=any(r[4] for r in lex_rows),
         )
+        # hyphenated tokens are ordinary words ("low-dimensional"), not code identifiers
+        code_ids = [t for t in extract_identifiers(intent.query) if "-" not in t]
+        if (
+            self.absent_identifier_low
+            and mode != "dense"
+            and code_ids
+            and level != "low"
+            and not any(r[4] for r in lex_rows)
+        ):
+            level = "low"
+            reasons.append(
+                "query identifier not found verbatim in any chunk: no evidence in the corpus"
+            )
         if not intent.query.isascii() and n_terms + n_ids == 0:
             reasons.append("non-ASCII query: lexical search is ASCII-only, dense results only")
         return RetrievalResult(

@@ -667,7 +667,7 @@ def test_real_index_negative_queries_are_flagged_low():
         }
         low = sum(v == "low" for v in lv.values())
         assert "high" not in lv.values(), lv
-        assert low >= 15, (  # 18 -> 16 (batch 1) -> 15 (batch 2): rule not recalibrated
+        assert low >= 17, (  # 18 -> 16 (batch 1) -> 15 (batch 2) -> 18 (dense_low 0.55)
             f"only {low}/{len(lv)} negatives flagged low: {lv}"
         )  # measured 18/22 without rerank
         for q in (
@@ -678,6 +678,33 @@ def test_real_index_negative_queries_are_flagged_low():
             assert not r.retrieve(
                 RetrievalIntent(query=q, k=5), "question_planner"
             ).low_confidence, q
+    finally:
+        r.close()
+
+
+@pytest.mark.skipif(not _real_index_ready(), reason="real index not loaded")
+def test_real_index_rare_identifier_found_and_absent_identifier_is_low():
+    """Dense neighbours of an unfamiliar name are noise: a rare identifier that exists must still
+    surface (adaptive lexical weight), and one that exists nowhere must be flagged low."""
+    from rag.index.embed import Embedder
+
+    try:
+        emb = Embedder()
+    except Exception as exc:  # pragma: no cover - model not available offline
+        pytest.skip(f"embedding model unavailable: {exc}")
+    r = Retriever(dsn=BASE_DSN, embedder=emb)
+    try:
+        for q in ("HyperLogLog", "CORS preflight"):
+            res = r.retrieve(RetrievalIntent(query=q, k=10), "question_planner")
+            word = q.split()[0].lower()
+            assert any(word in p.text.lower() for p in res), q
+        res = r.retrieve(RetrievalIntent(query="TeaCache", k=10), "question_planner")
+        assert res.low_confidence and any("not found verbatim" in x for x in res.reasons)
+        # a hyphenated plain word is not a code identifier: no absent-identifier verdict
+        res = r.retrieve(
+            RetrievalIntent(query="low-dimensional adapter matrices", k=5), "question_planner"
+        )
+        assert not any("not found verbatim" in x for x in res.reasons)
     finally:
         r.close()
 

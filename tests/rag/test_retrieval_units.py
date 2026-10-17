@@ -505,3 +505,19 @@ def test_breakout_variants_with_whitespace_and_case_are_neutralised(evil):
 def test_similar_but_different_tags_are_left_alone():
     out = format_passages_for_prompt([P("a <passages> b <p>c</p>")])
     assert "<passages>" in out and "<p>c</p>" in out
+
+
+def test_identifier_hit_relaxes_dense_low_but_plain_lexical_hit_does_not():
+    from rag.retrieval.confidence import ConfidenceRule, assess
+
+    rule = ConfidenceRule()  # dense_low 0.55, dense_floor 0.45
+    # lone rare identifier: low dense cosine by nature, but found verbatim -> not LOW
+    level, _ = assess(5, 0.50, None, True, 1, True, rule, ident_hit=True)
+    assert level == "medium"
+    # ... unless dense is below the floor
+    assert assess(5, 0.40, None, True, 1, True, rule, ident_hit=True)[0] == "low"
+    # plain words matching literally (off-topic "pizza") are not exempt
+    assert assess(5, 0.50, None, True, 1, True, rule)[0] == "low"
+    # the exemption can only relax: a custom dense_low below the floor still wins
+    tight = ConfidenceRule(dense_low=0.2, dense_floor=0.45)
+    assert assess(5, 0.30, None, True, 1, True, tight, ident_hit=True)[0] != "low"

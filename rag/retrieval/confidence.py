@@ -18,7 +18,9 @@ Signals (all computed per call, see RetrievalResult):
 Rule (thresholds calibrated on the 40 draft gold queries + data/eval/negative_queries.yaml, see
 README):
   LOW     no results; or an ASCII query with no informative terms ("how does it work", "???");
-          or max_dense < DENSE_LOW (0.52); or (rerank ran and max_rerank < RERANK_LOW (0.30))
+          or max_dense < DENSE_LOW (0.55, or 0.45 when an identifier matched verbatim; raised from
+          0.52 on 2026-10-16 for the 95k-chunk corpus); or (rerank ran and max_rerank <
+          RERANK_LOW (0.30))
   HIGH    lexical_hit and max_dense >= DENSE_HIGH (0.62) [and, if rerank ran, max_rerank >=
   RERANK_HIGH (0.80)]
   MEDIUM  everything else (usable, but corroborate / expect partial answers)
@@ -35,7 +37,10 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class ConfidenceRule:
-    dense_low: float = 0.52
+    dense_low: float = 0.55
+    dense_floor: float = (
+        0.45  # with a verbatim identifier hit, only a dense score below this is LOW
+    )
     dense_high: float = 0.62
     rerank_low: float = 0.30
     rerank_high: float = 0.80
@@ -52,6 +57,7 @@ def assess(
     informative_terms: int,
     ascii_query: bool,
     rule: ConfidenceRule = DEFAULT_RULE,
+    ident_hit: bool = False,
 ) -> tuple[str, list[str]]:
     """Return (level, reasons)."""
     if n_passages == 0:
@@ -65,8 +71,13 @@ def assess(
             else ("low", ["lexical-only: no strict/identifier match"])
         )
     reasons: list[str] = []
-    if max_dense < rule.dense_low:
-        reasons.append(f"max_dense {max_dense:.3f} < {rule.dense_low}")
+    # A code-like identifier found verbatim (HyperLogLog, select_related) is evidence on its own: a
+    # lone rare identifier has a low dense cosine by nature, so dense_low only applies without one.
+    # Plain words matching all terms are NOT exempt: off-topic queries such as "pizza" also match
+    # literally.
+    dense_min = min(rule.dense_floor, rule.dense_low) if ident_hit else rule.dense_low
+    if max_dense < dense_min:
+        reasons.append(f"max_dense {max_dense:.3f} < {dense_min}")
     if max_rerank is not None and max_rerank < rule.rerank_low:
         reasons.append(f"max_rerank {max_rerank:.3f} < {rule.rerank_low}")
     if reasons:

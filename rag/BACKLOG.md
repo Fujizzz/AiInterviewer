@@ -96,9 +96,13 @@ licence, scope and counts: `data/sources.yaml` and the Corpus section of `README
   `clickhouse-docs`, `interpretable-ml-book`, `think-*` and `linux-insides` are NC (private use
   only); `ansible-docs` is GPL-3.0 and `grafana-docs` AGPL-3.0 (copyleft). `web-dev` is an archived
   repo (CC BY 3.0).
-- [ ] **Confidence rule not recalibrated** for the larger corpus: 16/22 negatives flagged low (18/22
-  before, after replacing four negatives that now have legitimate literal matches). Re-fit the
-  thresholds on a held-out negative set.
+- [x] Confidence rule recalibrated for the 95k corpus (2026-10-16): `dense_low` 0.52 -> 0.55 (0.45
+  when an identifier matched verbatim), 18/22 negatives flagged low (was 15/22), 0/40 gold false-low.
+  Thresholds were fit on the same gold/negative sets, so **re-check on a held-out negative set**.
+- [x] Rare/novel identifiers (HyperLogLog, CORS preflight) were pushed out of the top 10 by dense noise
+  (dense RRF weight 2x): lexical weight now 3 when an identifier matches verbatim and dense is unsure
+  (best cosine < 0.62), or dense < 0.50 with an all-terms match. Query identifiers found in no chunk
+  (TeaCache) now report low confidence. Rare-token hit@10 78/120 -> 117/120, gold nDCG@10 unchanged.
 - [ ] **HNSW index is unused** (exact dense search is the default). It is still built and maintained;
   drop it or rebuild it (`REINDEX` with `maintenance_work_mem=1GB`, `ef_search>=400`) when the corpus
   approaches ~300k rows. An incrementally built index was measurably worse than a rebuilt one.
@@ -132,7 +136,7 @@ licence, scope and counts: `data/sources.yaml` and the Corpus section of `README
   content exists. Same for long router-style queries dominated by a product name (q238 Unity, q109 LangChain).
 - [ ] **Acronym ambiguity** (information only): `ISR` (Next.js incremental static regeneration vs interrupt service
   routine) and `ROI` (RoI heads vs no clear sense) are ambiguous; `GC`, `HPA`, `TLS`, `NMS`, `DMA` resolve cleanly.
-- [ ] Confidence rule: 15/22 negatives flagged low after batch 2 (16 after batch 1); test threshold lowered, thresholds not recalibrated.
+- [x] Confidence rule: recalibrated, see above (18/22 negatives low; test threshold back to 17).
 - [ ] arXiv P0 papers (six) carry the non-exclusive licence; consider `reference_only`.
 - [ ] Not covered by open licences: SwiftUI, Apple Instruments/APNs, Unity DOTS/netcode, MISRA, Pact, k6.
   Apple/Unity topics rely on the Swift book, Swift Evolution, Wikipedia, Flecs, Godot, Colyseus.

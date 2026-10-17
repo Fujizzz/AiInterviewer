@@ -275,10 +275,11 @@ licence rule in the same file (no ingestable source with ND / BUSL / unknown lic
 * **Gold eval (40 queries) moved down a little**, because the gold relevance marks are the old chunk
   ids and new, equally relevant chunks count as misses. Hybrid, no rerank: Recall@10 0.664 -> 0.623,
   MRR@10 0.672 -> 0.612, nDCG@10 0.595 -> 0.550, Hit@10 0.850 -> 0.825.
-* The confidence rule was not recalibrated. Four "negative" queries gained legitimate literal hits
-  in Think Bayes / Think Stats / Wikipedia (World Cup problem, marathon record, basketball exercise,
-  a common-cold example) and were replaced in `data/eval/negative_queries.yaml`; 16 of 22 negatives
-  are still flagged low (18 of 22 before).
+* The confidence rule was recalibrated on 2026-10-16 (`dense_low` 0.55, 0.45 when an identifier matched
+  verbatim; query identifiers that occur in no chunk report low): 18 of 22 negatives are flagged low
+  (15 before). Four "negative" queries had earlier gained legitimate literal hits in Think Bayes /
+  Think Stats / Wikipedia and were replaced in `data/eval/negative_queries.yaml`. The thresholds were
+  fit on the same sets and still need a held-out check.
 
 ## Environment variables
 
