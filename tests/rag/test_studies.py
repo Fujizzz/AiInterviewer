@@ -42,3 +42,9 @@ def test_rare_token_set_is_a_list_of_distinct_identifiers():
 )
 def test_study_modules_import(mod):
     importlib.import_module(f"rag.eval.studies.{mod}")
+
+
+def test_random_term_candidates_are_distinct_and_unlabelled_by_corpus():
+    lines = (EVAL / "random_terms_candidates_300.txt").read_text(encoding="utf-8").splitlines()
+    terms = [x.strip() for x in lines if x.strip() and not x.startswith("#")]
+    assert len(terms) == len(set(terms)) == 300
