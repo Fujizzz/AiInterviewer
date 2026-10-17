@@ -301,29 +301,49 @@ chmod 0750 /var/lib/ai-interviewer/models/bge-m3-onnx-int8; chmod 0640 /var/lib/
 
 **导入数据要注意版本**：`intellihire-rag.dump` 是 PG17 的 `pg_dump -Fc` 产物，**PG14 的 `pg_restore` 读不了**
 （实测：`pg_restore: error: unsupported version (1.16) in file header`）。方案 A（PG17 容器）直接 `pg_restore` 即可；
-方案 B 需要先用 PG17 客户端转成纯 SQL，再用 psql 导入 PG14（实测可行：16,379 行和 12 个索引都恢复，之后 `rag.cli migrate`
-报 `schema already current`；唯一的报错是 PG17 才有的 `SET transaction_timeout`，可忽略）：
+方案 B（现有 PG14）请向 Member 2 要 **`intellihire-rag.pg14.sql.gz`**（约 492 MB，不在 Git 里，sha256 见随附的 `DEPLOY_NOTES.md`）：
+它是同一份数据的纯 SQL 版本，已去掉 PG17 才有的 `SET transaction_timeout`、`\restrict` 行，并且**不含 HNSW 索引**
+（742 MB；稠密检索是精确扫描，用不到它，在小机器上重建也很吃内存）。已在 `pgvector/pgvector:pg14`（PG 14.24）里用
+`ON_ERROR_STOP=1` 验证过：导入约 40 秒、零报错，95,053 行、246 个源、10 个普通索引：
 
 ```bash
-docker exec -i intellihire-pg pg_restore --no-owner --no-privileges -f - < intellihire-rag.dump > intellihire.sql
-psql "$RAG_DATABASE_URL" -v ON_ERROR_STOP=0 -q < intellihire.sql
+createdb ai_rag && psql -d ai_rag -c "CREATE EXTENSION vector; CREATE EXTENSION pg_trgm;"   # 需要 superuser
+gzip -dc intellihire-rag.pg14.sql.gz | psql -d ai_rag -v ON_ERROR_STOP=1 -q -1
 ```
 
-参数依据：库约 300–330 MB（表 151 MB + HNSW 128 MB），稠密检索现在是精确扫描（README「Known limitations」），
-热数据约 150 MB，所以 `shared_buffers=256MB` 够用；`work_mem` 只给 4 MB，连接数 ≤ 20（池最大 4）。
-`maintenance_work_mem=64MB` 只影响建索引（导入时），16k 行 HNSW 在 64 MB 下能建完（实测）。
-该容器在导入并跑完 100 次检索后占用 291 MiB（上限 700 MiB）。
+**导入后不要运行 `rag.cli migrate`**：它每次都会执行整份 `schema.sql`，其中的 `CREATE INDEX IF NOT EXISTS
+chunks_embedding_hnsw` 会把刚去掉的 HNSW 索引重建出来（742 MB，占用大量内存和几分钟）。转储里已带 `schema_migrations`
+记录，不需要迁移；应用代码本身从不调用 `migrate`。（仅方式 B「从数据源自己重建」需要先 `migrate` 建表。）
+
+参数依据（95k 行语料，2026-10-17 重测）：库约 955 MB（无 HNSW），表本身约 850 MB，精确稠密扫描每次要过一遍全部向量。
+这与上面 16k 行时期的估算（库 300 MB、`shared_buffers=256MB` 够用）**不再成立**：服务器规格容器里的实测见
+「6.8 服务器规格下的实测」，请按那里的数字规划内存。`work_mem` 仍给 4 MB，连接数 ≤ 20（池最大 4）。
 
 ### 6.6 预期占用
 
 检索进程（含 psycopg 池、encoder、tokenizer）**约 0.8 GB RSS**（Apple arm64 实测 0.78 GB；amd64 容器 0.76–0.80 GB；
 其中 `tokenizers` 的 XLM-R 词表约 0.39 GB，模型 mmap 约 0.34 GB）。对「可用约 2.3 GB」是可承受的，再加 Postgres
-（容器上限 700 MB，实测 291 MiB）仍有余量；torch 版则 > 2 GB（CPU fp32 仅编码器实测 2.05 GB 稳态；MPS 开发默认的瞬时峰值在不同次运行里是 2.3–3.8 GB，稳态 2.1 GB）。权重是可回收的 page cache，实测在 512 MB 的 cgroup 限制下也能跑完。
-延迟：arm64 单次编码约 13 ms（2 线程）、端到端检索约 80–150 ms；x86 **未实测**（只有 qemu 模拟，慢 100 倍以上，不能当数据），
-粗略按算力估计在 2 核 AVX2/VNNI 上每次几十到一百多毫秒，Agent 的 2 s 超时有很大余量——**请在服务器上跑
-`rag.index.encoder_commands verify --smoke` 得到真实数字**。
+（95k 行时实测：容器 `shared_buffers` 256 MB 时峰值约 475 MiB，768 MB 时约 943 MiB；合计约 1.3–1.8 GB，在 2.3 GB 内但余量只有 0.5–1 GB，应用高峰时要留意）；torch 版则 > 2 GB（CPU fp32 仅编码器实测 2.05 GB 稳态；MPS 开发默认的瞬时峰值在不同次运行里是 2.3–3.8 GB，稳态 2.1 GB）。权重是可回收的 page cache，实测在 512 MB 的 cgroup 限制下也能跑完。
+延迟：arm64 单次编码约 13–15 ms（2 线程）；端到端检索在 95k 行、精确稠密搜索下见 6.8（服务器规格容器约 510 ms p50 / 1–1.4 s p95，不是早先 16k 行时的 80–150 ms）；x86 **未实测**（只有 qemu 模拟，慢 100 倍以上，不能当数据）——**请在服务器上跑
+`rag.index.encoder_commands verify --smoke` 和一次检索冒烟测试得到真实数字**。
 
 ### 6.7 回退
 
 在服务器上没有「切回 torch」这个选项（没有 torch，也放不下）；出问题时的回退是不接 RAG：`create_rag_adapter()` 抛
 `RAGUnavailableError` 时 Agent 本来就无检索运行（第 2 节）。
+
+### 6.8 服务器规格下的实测（95k 行，2026-10-17）
+
+本机 Docker 里的 PG14.24 容器，团队代码 + `RAG_ENCODER=onnx-int8`，精确稠密搜索，40 条 gold v2 查询（草稿标注，nDCG 在三个环境里相同）。
+端到端延迟含 int8 编码（约 15 ms），每条查询跑 2 次取中位数，单位 ms。**本机是 arm，x86 服务器的数字没有测过，请在服务器上重跑；
+延迟有噪声（p95 在不同次运行里可差 30–60%），只有数量级可信。**
+
+| 配置 | nDCG@10 | 开发机 PG17 4 核 p50 / p95 | 服务器 A（2 核 / 1.5 GB / `shared_buffers` 768 MB）| 服务器 B（1 核 / 700 MB / 256 MB）|
+|---|---|---|---|---|
+| dense only | 0.578 | 198 / 227 | 431 / 483 | 514 / 556 |
+| hybrid，lexical 关键词上限 12（**代码当前默认**）| 0.602 | 282 / 766 | 573 / 1248 | 964 / 2194 |
+| hybrid，上限 6（报告推荐）| 0.599 | 283 / 758 | 340 / 805 | 999 / 1830 |
+
+Agent 的超时是 2 s：服务器 A 上 p95 约 0.8–1.2 s，余量不大；服务器 B（1 核 / 700 MB）的 p95 已到 1.8–2.2 s，**不建议用**。
+峰值内存：容器 A 约 1.2 GiB，容器 B 约 0.55 GiB（再加检索进程约 0.8 GB）。
+上限 6 的取舍与完整矩阵见 `intellihire-data/RETRIEVAL_TRADEOFF_REPORT.md`（不在 Git 里）。
