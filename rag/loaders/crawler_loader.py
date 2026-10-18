@@ -253,10 +253,16 @@ def apply_permalink(url: str, cfg: dict, version: str) -> str:
     integer
     part of the first number in `version` ("PostgreSQL 18.6" -> 18). If the version cannot be
     determined the URL is left alone (the e2e test then flags it) rather than guessed.
+
+    cfg["permalink"] = {"append": "#snapshot={version}"} (with cfg["static_version"]) is for sites
+    that have no versioned URLs (developer.android.com, learnopengl.com): the crawl date is kept
+    as doc_version and in the URL fragment, so a chunk can be traced to the snapshot it came from.
     """
     pl = cfg.get("permalink")
     if not pl:
         return url
+    if "append" in pl:  # unversioned sites: record the crawl snapshot in a URL fragment
+        return url + pl["append"].format(version=version)
     m = re.search(r"(\d+)", version or "")
     if not m or pl["match"] not in url:
         return url
@@ -269,6 +275,8 @@ def pages_to_docs(
     version_regex = cfg.get("version_regex")
     version_prefix = cfg.get("version_prefix", "")
     version = default_version
+    if cfg.get("static_version"):  # sites without a version string: pin to the crawl snapshot
+        version = f"{version_prefix}{cfg['static_version']}"
     if version_regex:
         for _, _, html in pages:
             m = re.search(version_regex, html)

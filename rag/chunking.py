@@ -27,6 +27,14 @@ MIN_TOKENS = 80
 MAX_TOKENS = 800
 
 _FENCE_RE = re.compile(r"^(```|~~~)")
+_BARE_FENCE_RE = re.compile(r"^(`{3,}|~{3,})[ \t]*$")
+
+
+def _closes_fence(stripped: str, opener: str) -> bool:
+    """A closing fence is a bare run of the opener's own character (so a `~~~~~~` squiggle line,
+    e.g. TypeScript error underlines, inside a ``` block does not end it)."""
+    m = _BARE_FENCE_RE.match(stripped)
+    return bool(m) and m.group(1)[0] == opener[0]
 _ATX_HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
 _TABLE_ROW_RE = re.compile(r"^\s*\|.*\|\s*$")
 _RST_UNDERLINE_RE = re.compile(r"^\s*([=\-~^\"#*+.:'`])\1{2,}\s*$")
@@ -55,6 +63,7 @@ def split_markdown_into_sections(text: str) -> list[Section]:
     stack: list[tuple] = []  # (level, heading_text)
     current_lines: list[str] = []
     in_fence = False
+    fence_opener = ""
     rst_level_for_char: dict = {}
 
     def flush():
@@ -68,8 +77,15 @@ def split_markdown_into_sections(text: str) -> list[Section]:
         line = lines[i]
         stripped = line.strip()
 
+        if in_fence:
+            if _closes_fence(stripped, fence_opener):
+                in_fence = False
+            current_lines.append(line)
+            i += 1
+            continue
         if _FENCE_RE.match(stripped):
-            in_fence = not in_fence
+            in_fence = True
+            fence_opener = stripped
             current_lines.append(line)
             i += 1
             continue
@@ -286,8 +302,9 @@ def split_into_blocks(text: str) -> list[str]:
         if _FENCE_RE.match(stripped):
             flush_buf()
             fence_lines = [line]
+            fence_opener = stripped
             i += 1
-            while i < n and not _FENCE_RE.match(lines[i].strip()):
+            while i < n and not _closes_fence(lines[i].strip(), fence_opener):
                 fence_lines.append(lines[i])
                 i += 1
             if i < n:

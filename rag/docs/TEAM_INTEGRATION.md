@@ -27,23 +27,29 @@ docker compose -f rag/docker-compose.yml up -d
 
 ### 方式 A：用现成的数据库导出（推荐，几分钟）
 
-找 Member 2 要 `intellihire-rag.dump`（约 81 MB，不在 Git 里），然后：
+找 Member 2 要 `intellihire-rag.dump`（约 493 MB，不在 Git 里；2026-10 第二批语料扩充后的版本；第一批的 333 MB / 64,250 条保留为 `intellihire-rag.batch1.dump`，更早的 84 MB / 16,379 条已作废），然后：
 
 ```bash
 docker exec -i intellihire-pg pg_restore -U intellihire -d intellihire \
   --no-owner --no-privileges --clean --if-exists < intellihire-rag.dump
 
-# 检查：应输出 16379
+# 检查：应输出 95053
 docker exec intellihire-pg psql -U intellihire -d intellihire -Atc "select count(*) from chunks"
 ```
 
-### 方式 B：从数据源自己重建（约 1 小时，需联网）
+### 方式 B：从数据源自己重建（约 2 小时，需联网）
 
 ```bash
 uv run python -m rag.cli migrate              # 建表
 uv run python -m rag.cli all --priority P0    # 拉取 → 清洗 → 切块（几十分钟，原始数据约 300 MB）
-uv run python -m rag.cli embed --all          # bge-m3 向量化（M 系列 Mac 约 13 分钟；首次下载模型约 2.3 GB）
+uv run python -m rag.cli embed --all          # bge-m3 向量化（M 系列 Mac P0 约 13 分钟；首次下载模型约 2.3 GB）
 uv run python -m rag.cli index --all          # 导入数据库
+
+# 语料扩充：第一批 93 个来源约 4.8 万条（embed 约 35 分钟）；第二批（移动端/嵌入式/游戏/CV 视频/测试/生成式与后训练）131 个来源约 3.1 万条（约 30 分钟）：
+# sources.yaml 里 priority 为 P1/P2 且 reference_only=false 的来源即是；按名字取子集，例如：
+uv run python -m rag.cli all --source kubernetes-website,wikipedia-security
+uv run python -m rag.cli embed --source kubernetes-website,wikipedia-security
+uv run python -m rag.cli index --source kubernetes-website,wikipedia-security
 ```
 
 两种方式都能用这条命令自测：
@@ -114,7 +120,7 @@ if rag is not None:
 
 | `RetrievalSource` | 状态 |
 |---|---|
-| `technical` | ✅ 13,068 条：vLLM、Transformers、LangGraph、LlamaIndex、PyTorch、d2l、FastAPI、Django、PostgreSQL、Redis、Kafka、System Design Primer、cp-algorithms、6 篇论文 |
+| `technical` | ✅ 91,742 条（243 个来源）。原有：vLLM、Transformers、LangGraph、LlamaIndex、PyTorch、d2l、FastAPI、Django、PostgreSQL、Redis、Kafka、System Design Primer、cp-algorithms、6 篇论文。2026-10 新增 93 个来源：前端（MDN、React、Vue、Angular、Next.js、TypeScript、webpack、Vite、Redux）、后端与数据库（Spring 全家、Python、Flask、Rails、.NET、Node、Express、Go、Rust、gRPC/protobuf、GraphQL、Azure 架构模式、RabbitMQ、OpenSearch、Cassandra、nginx）、DevOps（Kubernetes、Docker、Helm、Prometheus、OpenTelemetry、Istio、Argo CD、GitHub Actions、Ansible、OpenTofu、事故响应、计算机网络）、数据工程（Spark、Airflow、dbt、Flink、Iceberg、Delta、Parquet、Debezium、ClickHouse）、经典 ML 与统计（scikit-learn、XGBoost、pandas、statsmodels、OpenIntro、因果推断）、安全（OWASP 全系列、NIST 800-63、MITRE ATT&CK、密码学、TLS 1.3）、约 700 篇 Wikipedia 概念条目。2026-10 第二批新增 131 个来源（约 3.1 万条）：移动端（Android 文档、Kotlin/KMP、Swift、Flutter、React Native、FCM）、嵌入式（Zephyr、FreeRTOS 内核书、Yocto、Linux 内核文档与实验、devicetree、Embedded Rust）、游戏（Godot、Bevy、Flecs、Box2D、Colyseus、LearnOpenGL）、CV/视频（OpenCV、torchvision、Ultralytics、MMagic、scikit-image、CS231n、FFmpeg wiki、49 篇 CC 许可论文）、测试/QA（pytest、Playwright、JUnit 5、Cypress、Selenium、JMeter、Cucumber 等）、生成式/后训练（TRL、PEFT、Diffusers、课程）、约 560 篇新增 Wikipedia 条目；逐源明细见 `rag/docs/corpus-batch2.md`。数据库约 1.8 GB（检索延迟见 README） |
 | `question` | ✅ 3,311 条：LeetCode 题库（带难度）、Tech Interview Handbook |
 | `candidate` | ⏳ 空：需要接入简历入库 |
 | `job` | ⏳ 空：等 SkillsFuture / MyCareersFuture 岗位数据 |
@@ -136,7 +142,7 @@ if rag is not None:
 ## 5. 给 Member 2 自己：怎么导出数据库
 
 ```bash
-# 导出（自定义压缩格式，约 81 MB）
+# 导出（自定义压缩格式，约 333 MB）
 docker exec intellihire-pg pg_dump -U intellihire -d intellihire \
   -Fc --no-owner --no-privileges > intellihire-rag.dump
 
@@ -147,6 +153,8 @@ docker exec -i intellihire-pg pg_restore -U intellihire -d restore_check \
 docker exec intellihire-pg psql -U intellihire -d restore_check -Atc "select count(*) from chunks"
 docker exec intellihire-pg dropdb -U intellihire restore_check
 ```
+
+**检索说明**：稠密检索现在默认走精确扫描（`Retriever(exact_dense=True)`，约 90 ms / 6.4 万行），不依赖 HNSW 索引；原因和细节见 `rag/README.md` 的 "Retrieval after the expansion"。恢复库后不需要为此做任何额外操作。
 
 **分发方式**：用组内私下渠道发送，比如网盘、Teams 或微信群文件。**不要**放进 Git，也不要上传到公开的 GitHub Release：库里有第三方文档内容，部分来源的许可不允许公开再分发。数据更新后要重新导出。
 
@@ -293,29 +301,49 @@ chmod 0750 /var/lib/ai-interviewer/models/bge-m3-onnx-int8; chmod 0640 /var/lib/
 
 **导入数据要注意版本**：`intellihire-rag.dump` 是 PG17 的 `pg_dump -Fc` 产物，**PG14 的 `pg_restore` 读不了**
 （实测：`pg_restore: error: unsupported version (1.16) in file header`）。方案 A（PG17 容器）直接 `pg_restore` 即可；
-方案 B 需要先用 PG17 客户端转成纯 SQL，再用 psql 导入 PG14（实测可行：16,379 行和 12 个索引都恢复，之后 `rag.cli migrate`
-报 `schema already current`；唯一的报错是 PG17 才有的 `SET transaction_timeout`，可忽略）：
+方案 B（现有 PG14）请向 Member 2 要 **`intellihire-rag.pg14.sql.gz`**（约 492 MB，不在 Git 里，sha256 见随附的 `DEPLOY_NOTES.md`）：
+它是同一份数据的纯 SQL 版本，已去掉 PG17 才有的 `SET transaction_timeout`、`\restrict` 行，并且**不含 HNSW 索引**
+（742 MB；稠密检索是精确扫描，用不到它，在小机器上重建也很吃内存）。已在 `pgvector/pgvector:pg14`（PG 14.24）里用
+`ON_ERROR_STOP=1` 验证过：导入约 40 秒、零报错，95,053 行、246 个源、10 个普通索引：
 
 ```bash
-docker exec -i intellihire-pg pg_restore --no-owner --no-privileges -f - < intellihire-rag.dump > intellihire.sql
-psql "$RAG_DATABASE_URL" -v ON_ERROR_STOP=0 -q < intellihire.sql
+createdb ai_rag && psql -d ai_rag -c "CREATE EXTENSION vector; CREATE EXTENSION pg_trgm;"   # 需要 superuser
+gzip -dc intellihire-rag.pg14.sql.gz | psql -d ai_rag -v ON_ERROR_STOP=1 -q -1
 ```
 
-参数依据：库约 300–330 MB（表 151 MB + HNSW 128 MB），稠密检索现在是精确扫描（README「Known limitations」），
-热数据约 150 MB，所以 `shared_buffers=256MB` 够用；`work_mem` 只给 4 MB，连接数 ≤ 20（池最大 4）。
-`maintenance_work_mem=64MB` 只影响建索引（导入时），16k 行 HNSW 在 64 MB 下能建完（实测）。
-该容器在导入并跑完 100 次检索后占用 291 MiB（上限 700 MiB）。
+**导入后不要运行 `rag.cli migrate`**：它每次都会执行整份 `schema.sql`，其中的 `CREATE INDEX IF NOT EXISTS
+chunks_embedding_hnsw` 会把刚去掉的 HNSW 索引重建出来（742 MB，占用大量内存和几分钟）。转储里已带 `schema_migrations`
+记录，不需要迁移；应用代码本身从不调用 `migrate`。（仅方式 B「从数据源自己重建」需要先 `migrate` 建表。）
+
+参数依据（95k 行语料，2026-10-17 重测）：库约 955 MB（无 HNSW），表本身约 850 MB，精确稠密扫描每次要过一遍全部向量。
+这与上面 16k 行时期的估算（库 300 MB、`shared_buffers=256MB` 够用）**不再成立**：服务器规格容器里的实测见
+「6.8 服务器规格下的实测」，请按那里的数字规划内存。`work_mem` 仍给 4 MB，连接数 ≤ 20（池最大 4）。
 
 ### 6.6 预期占用
 
 检索进程（含 psycopg 池、encoder、tokenizer）**约 0.8 GB RSS**（Apple arm64 实测 0.78 GB；amd64 容器 0.76–0.80 GB；
 其中 `tokenizers` 的 XLM-R 词表约 0.39 GB，模型 mmap 约 0.34 GB）。对「可用约 2.3 GB」是可承受的，再加 Postgres
-（容器上限 700 MB，实测 291 MiB）仍有余量；torch 版则 > 2 GB（CPU fp32 仅编码器实测 2.05 GB 稳态；MPS 开发默认的瞬时峰值在不同次运行里是 2.3–3.8 GB，稳态 2.1 GB）。权重是可回收的 page cache，实测在 512 MB 的 cgroup 限制下也能跑完。
-延迟：arm64 单次编码约 13 ms（2 线程）、端到端检索约 80–150 ms；x86 **未实测**（只有 qemu 模拟，慢 100 倍以上，不能当数据），
-粗略按算力估计在 2 核 AVX2/VNNI 上每次几十到一百多毫秒，Agent 的 2 s 超时有很大余量——**请在服务器上跑
-`rag.index.encoder_commands verify --smoke` 得到真实数字**。
+（95k 行时实测：容器 `shared_buffers` 256 MB 时峰值约 475 MiB，768 MB 时约 943 MiB；合计约 1.3–1.8 GB，在 2.3 GB 内但余量只有 0.5–1 GB，应用高峰时要留意）；torch 版则 > 2 GB（CPU fp32 仅编码器实测 2.05 GB 稳态；MPS 开发默认的瞬时峰值在不同次运行里是 2.3–3.8 GB，稳态 2.1 GB）。权重是可回收的 page cache，实测在 512 MB 的 cgroup 限制下也能跑完。
+延迟：arm64 单次编码约 13–15 ms（2 线程）；端到端检索在 95k 行、精确稠密搜索下见 6.8（服务器规格容器约 510 ms p50 / 1–1.4 s p95，不是早先 16k 行时的 80–150 ms）；x86 **未实测**（只有 qemu 模拟，慢 100 倍以上，不能当数据）——**请在服务器上跑
+`rag.index.encoder_commands verify --smoke` 和一次检索冒烟测试得到真实数字**。
 
 ### 6.7 回退
 
 在服务器上没有「切回 torch」这个选项（没有 torch，也放不下）；出问题时的回退是不接 RAG：`create_rag_adapter()` 抛
 `RAGUnavailableError` 时 Agent 本来就无检索运行（第 2 节）。
+
+### 6.8 服务器规格下的实测（95k 行，2026-10-17）
+
+本机 Docker 里的 PG14.24 容器，团队代码 + `RAG_ENCODER=onnx-int8`，精确稠密搜索，40 条 gold v2 查询（草稿标注，nDCG 在三个环境里相同）。
+端到端延迟含 int8 编码（约 15 ms），每条查询跑 2 次取中位数，单位 ms。**本机是 arm，x86 服务器的数字没有测过，请在服务器上重跑；
+延迟有噪声（p95 在不同次运行里可差 30–60%），只有数量级可信。**
+
+| 配置 | nDCG@10 | 开发机 PG17 4 核 p50 / p95 | 服务器 A（2 核 / 1.5 GB / `shared_buffers` 768 MB）| 服务器 B（1 核 / 700 MB / 256 MB）|
+|---|---|---|---|---|
+| dense only | 0.578 | 198 / 227 | 431 / 483 | 514 / 556 |
+| hybrid，lexical 关键词上限 12（原默认）| 0.602 | 282 / 766 | 573 / 1248 | 964 / 2194 |
+| hybrid，上限 6（**代码当前默认**，`MAX_QUERY_TERMS`）| 0.599 | 283 / 758 | 340 / 805 | 999 / 1830 |
+
+Agent 的超时是 2 s：服务器 A 上 p95 约 0.8–1.2 s，余量不大；服务器 B（1 核 / 700 MB）的 p95 已到 1.8–2.2 s，**不建议用**。
+峰值内存：容器 A 约 1.2 GiB，容器 B 约 0.55 GiB（再加检索进程约 0.8 GB）。
+上限 6 的取舍与完整矩阵见 `rag/docs/retrieval-tradeoff-study.md`；复现脚本在 `rag/eval/studies/`（`serving_latency_matrix`）。

@@ -472,13 +472,23 @@ def resolve_snippet_includes(
 
 
 def fetch(source: Source, raw_dir: Path) -> FetchResult:
-    if not source.url or "github.com" not in source.url:
-        reason = f"git loader requires a github.com url, got {source.url!r}"
+    # Non-GitHub hosts (e.g. git.yoctoproject.org cgit) need an explicit permalink template:
+    #   options.permalink_template: "https://host/repo/tree/{rel}?id={commit}"
+    permalink_template = (source.options or {}).get("permalink_template")
+    if not source.url or ("github.com" not in source.url and not permalink_template):
+        reason = (
+            f"git loader requires a github.com url (or options.permalink_template), "
+            f"got {source.url!r}"
+        )
         print(f"[fetch] {reason}")
         return FetchResult(source_name=source.name, skipped=True, skip_reason=reason)
 
-    owner, repo = _owner_repo_from_url(source.url)
-    clone_url = f"https://github.com/{owner}/{repo}.git"
+    if permalink_template and "github.com" not in source.url:
+        owner, repo = "", source.name
+        clone_url = source.url
+    else:
+        owner, repo = _owner_repo_from_url(source.url)
+        clone_url = f"https://github.com/{owner}/{repo}.git"
     repo_dir = raw_dir / source.name / "_repo"
     raw_paths = source.paths if source.paths else ([source.path] if source.path else ["."])
     patterns = _sparse_patterns(raw_paths, source.exclude)
@@ -535,6 +545,8 @@ def fetch(source: Source, raw_dir: Path) -> FetchResult:
             continue
         if path.suffix not in allowed_exts:
             continue
+        if not path.exists():  # dangling symlink (target outside the sparse checkout)
+            continue
         rel = path.relative_to(repo_dir).as_posix()
         if not is_selected(rel, source.include, source.exclude):
             n_filtered += 1
@@ -549,13 +561,38 @@ def fetch(source: Source, raw_dir: Path) -> FetchResult:
             errors.append(f"{rel}: read failed ({e})")
             continue
 
+        if path.suffix == ".json" and source.options.get("stix"):
+            from .stix import bundle_major_version, parse_bundle
+
+            try:
+                stix_docs = parse_bundle(raw_text)
+                stix_version = bundle_major_version(raw_text)
+            except Exception as e:  # malformed bundle: report, keep going
+                errors.append(f"{rel}: STIX parse failed ({e})")
+                continue
+            for sd in stix_docs:
+                docs.append(
+                    RawDoc(
+                        path=f"{rel}#{sd.attack_id}",
+                        text=sd.text,
+                        doc_version=stix_version or commit,
+                        source_url=sd.url
+                        or f"https://github.com/{owner}/{repo}/blob/{commit}/{rel}",
+                        title=sd.title,
+                    )
+                )
+            continue
+
         if path.suffix == ".ipynb":
             raw_text = _extract_ipynb_markdown(raw_text)
 
         if not raw_text.strip():
             continue
 
-        permalink = f"https://github.com/{owner}/{repo}/blob/{commit}/{rel}"
+        if permalink_template:
+            permalink = permalink_template.format(rel=rel, commit=commit)
+        else:
+            permalink = f"https://github.com/{owner}/{repo}/blob/{commit}/{rel}"
         docs.append(RawDoc(path=rel, text=raw_text, doc_version=commit, source_url=permalink))
 
     if n_filtered or n_too_big:

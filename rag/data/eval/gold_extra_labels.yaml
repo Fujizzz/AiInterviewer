@@ -1,0 +1,35 @@
+# Extra relevance rules found by reviewing unlabeled top-10 hits (data/reports/unlabeled-top10-review.md).
+# NOTE: written after seeing retriever output (title + snippet), so mildly circular; rules are written as
+# source/heading patterns (not chunk ids), and still need human review. Merged by scripts/build_gold_v2.py.
+g02: [{source: wikipedia-distributed-systems, heading: "Multiversion concurrency control"}]
+g05: [{source: azure-architecture-center, heading: "Redis.*Data persistence"}]
+g06: [{source: wikipedia-distributed-systems, heading: "^Consistent hashing"},
+      {source: cassandra-docs, heading: "Consistent Hashing"},
+      {source: envoy-docs, heading: "Ring hash|Maglev"}]
+g08: [{source: wikipedia-distributed-systems, heading: "^(CAP theorem|PACELC)"},
+      {source: cassandra-docs, heading: "What is CAP"}]
+g10: [{source: cs231n-notes, heading: "Multi-Head"},
+      {source: wikipedia-generative-llm, heading: "Multi-head attention"},
+      {source: uva-dl-notebooks, heading: "Multi-Head Attention"},
+      {source: paper-detr, heading: "^Multi-head"}]
+g11: [{source: wikipedia-game-dev, heading: "Dijkstra"}, {source: wikipedia-algorithms-cs, heading: "Dijkstra"}]
+g12: [{source: wikipedia-distributed-systems, heading: "^PostgreSQL > Storage and replication > Indexes"}]
+g13: [{source: cs231n-notes, heading: "Regularization", text: ["L2"]}]
+g14: [{source: wikipedia-distributed-systems, heading: "^Database transaction$"}]
+g16: [{source: peft-docs, heading: "LoRA", text: ["\\b(rank|alpha)\\b"]},
+      {source: trl-docs, heading: "LoRA", text: ["\\b(rank|alpha)\\b"]},
+      {source: hf-llm-course-post-training, heading: "LoRA Configuration"},
+      {source: paper-qlora, heading: "Hyperparameters for QLoRA"}]
+g22: [{source: azure-architecture-center, heading: "leaderboard"},
+      {source: redis-docs-patterns, heading: "Secondary indexing", text: ["[Ss]orted [Ss]et"]}]
+g23: [{source: wikipedia-distributed-systems, heading: "ACID > Examples > Atomicity"}]
+g25: [{source: wikipedia-distributed-systems, heading: "^Multiversion concurrency control"}]
+g26: [{source: peft-docs, heading: "Adapter methods|^LoRA$"},
+      {source: paper-qlora, heading: "Low-rank Adapters"},
+      {source: hf-llm-course-post-training, heading: "Understanding LoRA"},
+      {source: wikipedia-generative-llm, heading: "Low-rank adaptation"},
+      {source: smol-course, heading: "Understanding LoRA"}]
+g31: [{source: azure-architecture-center, heading: "^Sharding pattern"},
+      {source: wikipedia-distributed-systems, heading: "^Consistent hashing"}]
+g32: [{source: langchain-docs, heading: "Human-in-the-loop"}]
+g33: [{source: wikipedia-ml-statistics, heading: "^Dropout"}]

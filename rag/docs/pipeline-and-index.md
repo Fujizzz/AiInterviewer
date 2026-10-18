@@ -488,3 +488,40 @@ rerank 变体（pool 10/20/30 × 直接替换 / 与 hybrid 再做 RRF）都落�
 - 置信度阈值在同一批 query 上校准，没有留出集；gold 最低 dense 0.528 离阈值 0.52 很近。纯中文 query 只有 dense，lexical_hit 恒为 False。
 - 超过 1024 个 XLM-R token 的 chunk 在 embedding 时被截断（最长约 1600 cl100k token，少数）。
 - rubric / candidate / job 命名空间暂无数据，对应路径只被合成数据测试过；`competency` 全为 null。
+
+---
+
+## Corpus expansion, batch 1 (2026-10; English addendum)
+
+This archived design note predates the expansion. What changed in the pipeline:
+
+- **New clean profiles** (`rag/profiles.py`): `mdn` (mdn/content `{{macros}}`, frontmatter title to H1,
+  empty reference sections dropped), `asciidoc` (Antora pages: Spring, Debezium, Cassandra, Hibernate),
+  `msdocs` (Microsoft Learn markdown: `> [!NOTE]`, `:::image:::`, `[!INCLUDE]`, pattern pages whose body is
+  in `*-content.md`), `jekyll` (Liquid tags, kramdown attribute lists, GitHub-docs product names),
+  `quarto` (R Markdown / Quarto books, code chunks dropped), `notebook`. Additions to existing
+  profiles: Kubernetes Hugo shortcodes keep their visible text, VitePress containers, MDX figure
+  components, JSX comments, inline `<tags>` in code spans are protected from the stripper.
+- **New loaders**: `loaders/wikipedia_loader.py` (MediaWiki Action API plain-text extracts, formulas
+  re-joined as inline TeX, one revision permalink per article) and `loaders/stix.py` (STIX 2.x bundle to
+  one document per ATT&CK technique / tactic, versioned `attack.mitre.org/versions/vNN/...` URLs).
+- **New registry options**: git `exts`, `stix`, `frontmatter_title`; see the header of `data/sources.yaml`.
+- **Retrieval**: dense search is exact by default (`Retriever(exact_dense=True)`). The incrementally
+  built HNSW index (m=16, ef_construction=64) had overlap@10 0.93 (min 0.2) against exact search once the
+  corpus passed ~60k rows; a one-pass REINDEX with `maintenance_work_mem=1GB` restored it, and
+  `ef_search=400` gives 0.999. See `rag/README.md`.
+- **Evaluation**: gold eval on the 64k-row index, hybrid no rerank: Recall@10 0.664 -> 0.623, MRR@10
+  0.672 -> 0.612, nDCG@10 0.595 -> 0.550, Hit@10 0.850 -> 0.825 (gold relevance marks are fixed old chunk
+  ids; new relevant chunks count as misses). `rag.cli eval` no longer crashes in the held-out step.
+
+
+## Corpus expansion, batch 2 (2026-10; English addendum)
+
+- **Profiles** (`rag/profiles.py`): writerside (Kotlin), docc (Swift book), eleventy (Flutter), doxygen (OpenCV),
+  mkdocs (admonitions, content tabs, jinja lines, mkdocstrings), flecs, zola, xdoc (JMeter XML), docusaurus (MDX
+  React components), myst, mmlab, playwright. The `rst` profile hands `.md` files to the markdown profile.
+- **Fences**: a fence is closed only by a bare run of its own character in the chunker, cleaner and profiles
+  (`~~~~~~` squiggles inside a ``` block no longer flip the state). Batch-1 chunks were not regenerated.
+- **htmlmd**: block start tags close an open `<p>`; custom elements (`devsite-code`) render as divs; `<pre syntax=>`.
+- **Loaders**: git `permalink_template`; dangling symlinks skipped; crawler `static_version` + `permalink.append`.
+- **Index**: 95,053 chunks, 1.8 GB; exact dense search kept. Latency and options: `rag/README.md`, `BACKLOG.md`.

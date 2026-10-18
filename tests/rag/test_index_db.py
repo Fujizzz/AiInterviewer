@@ -667,7 +667,7 @@ def test_real_index_negative_queries_are_flagged_low():
         }
         low = sum(v == "low" for v in lv.values())
         assert "high" not in lv.values(), lv
-        assert low >= 16, (
+        assert low >= 17, (  # 18 -> 16 (batch 1) -> 15 (batch 2) -> 18 (dense_low 0.55)
             f"only {low}/{len(lv)} negatives flagged low: {lv}"
         )  # measured 18/22 without rerank
         for q in (
@@ -678,6 +678,33 @@ def test_real_index_negative_queries_are_flagged_low():
             assert not r.retrieve(
                 RetrievalIntent(query=q, k=5), "question_planner"
             ).low_confidence, q
+    finally:
+        r.close()
+
+
+@pytest.mark.skipif(not _real_index_ready(), reason="real index not loaded")
+def test_real_index_rare_identifier_found_and_absent_identifier_is_low():
+    """Dense neighbours of an unfamiliar name are noise: a rare identifier that exists must still
+    surface (adaptive lexical weight), and one that exists nowhere must be flagged low."""
+    from rag.index.embed import Embedder
+
+    try:
+        emb = Embedder()
+    except Exception as exc:  # pragma: no cover - model not available offline
+        pytest.skip(f"embedding model unavailable: {exc}")
+    r = Retriever(dsn=BASE_DSN, embedder=emb)
+    try:
+        for q in ("HyperLogLog", "CORS preflight"):
+            res = r.retrieve(RetrievalIntent(query=q, k=10), "question_planner")
+            word = q.split()[0].lower()
+            assert any(word in p.text.lower() for p in res), q
+        res = r.retrieve(RetrievalIntent(query="TeaCache", k=10), "question_planner")
+        assert res.low_confidence and any("not found verbatim" in x for x in res.reasons)
+        # a hyphenated plain word is not a code identifier: no absent-identifier verdict
+        res = r.retrieve(
+            RetrievalIntent(query="low-dimensional adapter matrices", k=5), "question_planner"
+        )
+        assert not any("not found verbatim" in x for x in res.reasons)
     finally:
         r.close()
 
@@ -716,11 +743,12 @@ def test_real_index_capitalised_words_do_not_create_lexical_hits():
     not _real_index_ready(), reason="real index not loaded (plan depends on table size/stats)"
 )
 def test_real_index_dense_plan_is_pinned_to_exact_search():
-    """At ~16k rows and hnsw.ef_search=100 (production setting, applied by the same code path as
-    retrieve()), the planner chooses an EXACT scan + sort for the role-default dense query, not the
-    HNSW
-    index. This pins that so a planner flip is visible instead of silently making retrieval
-    approximate."""
+    """Production dense search is EXACT: `Retriever(exact_dense=True)` (the default) disables index
+    scans inside the dense transaction, so the role-default dense query is a sequential scan + sort
+    at any corpus size (at ~64k rows the planner would otherwise choose the incrementally built
+    HNSW index, whose overlap@10 with the exact result fell to 0.93). Applied by the same code
+    path as retrieve(); this pins it so a regression is visible instead of silently making
+    retrieval approximate."""
     from rag.retrieval.retriever import plan_scan_type
 
     r = Retriever(dsn=BASE_DSN, check_model=False)
@@ -731,8 +759,8 @@ def test_real_index_dense_plan_is_pinned_to_exact_search():
         msg = (
             "Dense plan for {what} is now {got!r}, expected {want!r}. If this is 'hnsw', "
             "production dense search "
-            "has become APPROXIMATE (measured overlap@10 0.98 / overlap@50 0.95 vs exact at "
-            "ef_search=100, gold queries). "
+            "has become APPROXIMATE (measured overlap@10 0.93, min 0.2 vs exact at "
+            "ef_search=100 on 64k rows). "
             "That may be fine, but update README + BACKLOG + this test deliberately.\nPlan:\n{plan}"
         )
         for role, want in (("question_planner", "seqscan"), ("evaluator", "seqscan")):

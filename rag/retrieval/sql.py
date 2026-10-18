@@ -175,7 +175,14 @@ def extract_identifiers(query: str, limit: int = 5) -> list[str]:
     return out[:limit]
 
 
-def content_terms(query: str, max_terms: int = 12) -> list[str]:
+# Informative query terms kept for the lexical leg (the OR query and the strict AND query). Was 12;
+# 6 costs 0.003 nDCG@10 on the 40 gold-v2 queries (0.602 -> 0.599) and 4 starts to hurt (0.588),
+# see the retrieval tradeoff study. The latency gain is within noise on a dev machine and only
+# plausible on the server.
+MAX_QUERY_TERMS = 6
+
+
+def content_terms(query: str, max_terms: int = MAX_QUERY_TERMS) -> list[str]:
     out: list[str] = []
     seen = set()
     for t in query_terms(query):

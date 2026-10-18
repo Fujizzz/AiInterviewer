@@ -63,6 +63,87 @@ candidate-isolation change (`tune.collect` built a filter that still contained t
   against 78 ms on a pg14 container with `shared_buffers=256MB` (different major version, not a controlled test).
   Check whether the dev default should be raised.
 
+## Corpus expansion, batch 1 (2026-10, branch `feat/rag-corpus-expansion`)
+
+Batch 1 added 93 technical-documentation sources (frontend, backend/web frameworks and databases,
+DevOps/SRE/cloud, data engineering, classic ML / data science, security): 47,871 chunks. Per-source
+licence, scope and counts: `data/sources.yaml` and the Corpus section of `README.md`. Open items:
+
+- [ ] **Held-out coverage is unmeasured.** The blind auditor's score on the held-out queries is the real
+  number; the dev self-check (57 of 66 batch-1 dev queries, up from 16) is indicative only. Re-run the
+  coverage audit after merge.
+- [ ] **Paraphrase queries are still the weak spot.** Two dev paraphrases miss although the content is in the
+  index (MDN "Debounce" for "stopping a search box from firing an API call on every keystroke",
+  Wikipedia "Infrastructure as code" for "describing servers in files..."). gold eval paraphrase nDCG@10 is
+  0.17. Query rewriting (see `contract-proposals.md`) is the lever, not more content.
+- [ ] **Batch 2: remaining domains** (mobile, algorithms/CS, deep learning research, LLM/agents,
+  embedded, AI infra, test/QA, game dev, CV/video). Registered-but-not-ingested P1/P2 sources still
+  exist for several of these (swift-book, kotlin-docs, flutter-website, react-native-website,
+  playwright-docs, pytest-docs, godot-docs, zephyr-docs, mcp-spec, ...). The `wikipedia` loader takes
+  a title list per domain.
+- [ ] **Interview Q&A banks are deliberately not ingested** (`front-end-interview-handbook`,
+  `devops-exercises`, `data-science-interviews`, `ml-interviews-*`, `android-interview-questions` are
+  `reference_only: true` with a note). The team generates questions with an LLM grounded in the
+  technical chunks. devops-exercises has no licence in the repo; the ML interview books are
+  all-rights-reserved or unspecified.
+- [ ] **Licence follow-ups.** `mongodb-docs` (no licence file; site licence not confirmed),
+  `elastic-docs-content` (CC BY-NC-ND), `mysql-innodb-docs` (Oracle proprietary), `terraform-docs`
+  (BUSL), `google-sre-book` / `bytebytego-system-design-101` (ND), `hudi-docs` (user docs repo not
+  located), javascript.info (permission required, not ingested), fpp3 (text not in the repo).
+  `owasp-community` rests on owasp.org's site-wide CC BY-SA 4.0 statement (the repo has no LICENSE
+  file); `networks-systems-approach`'s README says derivative works are "by arrangement" although
+  its LICENSE is CC BY 4.0: confirm with the authors if the dump is ever shared outside the team.
+  `clickhouse-docs`, `interpretable-ml-book`, `think-*` and `linux-insides` are NC (private use
+  only); `ansible-docs` is GPL-3.0 and `grafana-docs` AGPL-3.0 (copyleft). `web-dev` is an archived
+  repo (CC BY 3.0).
+- [x] Confidence rule recalibrated for the 95k corpus (2026-10-16): `dense_low` 0.52 -> 0.55 (0.45
+  when an identifier matched verbatim), 18/22 negatives flagged low (was 15/22), 0/40 gold false-low.
+  Thresholds were fit on the same gold/negative sets, so **re-check on a held-out negative set**.
+- [x] Rare/novel identifiers (HyperLogLog, CORS preflight) were pushed out of the top 10 by dense noise
+  (dense RRF weight 2x): lexical weight now 3 when an identifier matches verbatim and dense is unsure
+  (best cosine < 0.62), or dense < 0.50 with an all-terms match. Query identifiers found in no chunk
+  (TeaCache) now report low confidence. Rare-token hit@10 78/120 -> 117/120, gold nDCG@10 unchanged.
+- [ ] **HNSW index is unused** (exact dense search is the default). It is still built and maintained;
+  drop it or rebuild it (`REINDEX` with `maintenance_work_mem=1GB`, `ef_search>=400`) when the corpus
+  approaches ~300k rows. An incrementally built index was measurably worse than a rebuilt one.
+- [ ] **AsciiDoc sources lose code that lives in separate files** (`include-code::` / `include::`
+  in Spring Framework / Boot / Security / Data JPA docs): prose and inline code survive, many
+  examples do not. Resolving Antora `example$` targets would restore them.
+- [ ] **Quarto R chunks are dropped** (openintro-ims, interpretable-ml-book): prose and equations only.
+- [ ] **Wikipedia extracts**: formulas are re-joined from the MathML fallback heuristically (inline
+  `$...$`); long derivations can still read oddly. Articles were fetched once (revision permalinks
+  pin them); re-run `all --source wikipedia-*` to refresh.
+- [ ] **Known residue**: a few MDN pages whose blockquoted fences defeat fence detection and
+  Wikipedia pages that show HTML in plain text are whitelisted in `test_chunks_e2e.py`
+  (`LEGIT_HTML_IN_PROSE`); long unwrapped paragraphs in cnp3, Wikipedia and Debezium tables
+  (`long_line` in `rag.residue`).
+- [ ] **Chunks without a heading path** (page intro before the first heading) remain for sources whose
+  title is not in frontmatter; `options.frontmatter_title` fixes the rest.
+- [ ] **`rag.cli eval` crashed in its held-out step** on `main` (candidate namespace without
+  `candidate_id` in `rag/eval/tune.py`); fixed in this branch by scoping namespaces like the retriever.
+
+## Corpus expansion, batch 2 (2026-10, branch `feat/rag-corpus-expansion`)
+
+95,053 chunks / 246 sources now. Open items:
+
+- [ ] **Hybrid latency p95 1.2 s (target 300 ms), needs a decision.** Measured options on the lexical leg
+  (151 dev queries, p50/p95 ms; baseline 201/1004): ts_rank instead of ts_rank_cd 163/883; cap OR terms at 6
+  160/834, at 4 79/583; more parallel workers or forcing the GIN plan: no gain. Not tried: strict-AND first
+  with OR fallback (AND alone is 1 ms but has hits for only 15 of 151 queries), running dense and lexical on two
+  connections concurrently (total ~ max instead of sum), `shared_buffers` above the 128 MB default (the seq scan
+  reads ~100k buffers per query), halfvec embeddings, rebuilt HNSW (`maintenance_work_mem=1GB`, `ef_search>=400`).
+- [ ] **Cross-lingual queries are weak**: Chinese embedded/iOS dev queries (q046, q193) miss although the English
+  content exists. Same for long router-style queries dominated by a product name (q238 Unity, q109 LangChain).
+- [ ] **Acronym ambiguity** (information only): `ISR` (Next.js incremental static regeneration vs interrupt service
+  routine) and `ROI` (RoI heads vs no clear sense) are ambiguous; `GC`, `HPA`, `TLS`, `NMS`, `DMA` resolve cleanly.
+- [x] Confidence rule: recalibrated, see above (18/22 negatives low; test threshold back to 17).
+- [ ] arXiv P0 papers (six) carry the non-exclusive licence; consider `reference_only`.
+- [ ] Not covered by open licences: SwiftUI, Apple Instruments/APNs, Unity DOTS/netcode, MISRA, Pact, k6.
+  Apple/Unity topics rely on the Swift book, Swift Evolution, Wikipedia, Flecs, Godot, Colyseus.
+- [ ] Known residue: Playwright / LangChain tab blocks keep indented fences; Android code fences have no language;
+  OpenCV `@snippet` code is not inlined; Wikipedia long lines; 2 CJK mirror-link lines in basicsr-docs.
+- [ ] Chunks of batch-1 sources were not regenerated with the fence/rst fixes (char-aware fences, short rst titles).
+
 ## Data pipeline and index (carried over)
 
 P0 通过独立验收（报告 `data/reports/20261002-154629.md`，16,379 chunks，178 tests）。
