@@ -1027,3 +1027,75 @@ def test_warmup_touches_the_database_and_checks_the_index(pooled):
     pooled.warmup()
     assert pooled.known_domains()
     assert pooled._meta_checked
+
+
+def test_warmup_primes_caches_with_real_retrievals_without_the_statement_timeout(
+    pooled, monkeypatch
+):
+    import threading
+    import time
+
+    from rag.retrieval import pool as pool_module
+    from rag.retrieval.retriever import Retriever
+
+    seen: list[tuple[str, str]] = []
+    lock = threading.Lock()
+    active = {"now": 0, "max": 0}
+    real = Retriever.retrieve
+
+    def spy(self, intent, role, **kwargs):
+        with lock:
+            active["now"] += 1
+            active["max"] = max(active["max"], active["now"])
+        # what the cold scan would be cancelled by: the pool's own limit is 300 ms in this fixture
+        seen.append((intent.query, self.conn.execute("SHOW statement_timeout").fetchone()[0]))
+        time.sleep(0.2)  # long enough for the queries to overlap if they run in parallel
+        try:
+            return real(self, intent, role, **kwargs)
+        finally:
+            with lock:
+                active["now"] -= 1
+
+    monkeypatch.setattr(Retriever, "retrieve", spy)
+    pooled.warmup()
+    assert sorted(q for q, _ in seen) == sorted(pool_module.WARMUP_QUERIES)
+    assert {t for _, t in seen} == {"2min"}  # SET LOCAL statement_timeout = '120s'
+    assert active["max"] >= 2  # the warm-up queries overlap
+    with pooled._pool.connection() as conn:  # lifted for that transaction only
+        assert conn.execute("SHOW statement_timeout").fetchone()[0] == "300ms"
+
+
+def test_warmup_never_uses_more_connections_than_the_pool_has(loaded, caplog):
+    import logging
+
+    pytest.importorskip("psycopg_pool")
+    from rag.retrieval.pool import PooledRetriever
+
+    backend = PooledRetriever(loaded, pool_min=1, pool_max=1, statement_timeout_ms=300)
+    backend._embedder = FakeEmbedder()
+    backend.open(wait_timeout=5)
+    try:
+        with caplog.at_level(logging.INFO, logger="rag.retrieval.pool"):
+            backend.warmup()  # one connection: the queries run one after another, none time out
+    finally:
+        backend.close()
+    summary = [r.message for r in caplog.records if "cache warm-up:" in r.message]
+    assert summary and "(1 in parallel)" in summary[0] and summary[0].endswith("0 failed")
+
+
+def test_warmup_survives_a_failing_cache_priming_query(pooled, monkeypatch, caplog):
+    import logging
+
+    from rag.retrieval.retriever import Retriever
+
+    def boom(self, intent, role, **kwargs):
+        raise RuntimeError("cold scan failed")
+
+    monkeypatch.setattr(Retriever, "retrieve", boom)
+    with caplog.at_level(logging.WARNING, logger="rag.retrieval.pool"):
+        pooled.warmup()  # must not raise: RAG still starts
+    assert pooled.known_domains() and pooled._meta_checked
+    assert any("cache warm-up failed" in r.message for r in caplog.records)
+    with pooled._pool.connection() as conn:  # the failed transaction left a usable connection
+        assert conn.execute("SELECT 1").fetchone()[0] == 1
+        assert conn.execute("SHOW statement_timeout").fetchone()[0] == "300ms"
