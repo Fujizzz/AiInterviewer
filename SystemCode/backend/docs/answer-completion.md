@@ -55,6 +55,21 @@ Audio encoding, recording limits, interview budgets, scoring and provider deadli
 The regression test exercises both ASGI start modes through the real recognition adapter with a
 mocked SDK; it verifies provider arguments and cleanup, not real speech accuracy.
 
+Streaming captions can be revised before the provider finalizes a sentence. The caption view uses
+an English pending notice instead of rendering a draft containing Han-script characters, then
+shows the English correction when it arrives. A final Han-script result displays the explicit
+English notice `Transcription contains non-English text.` The caption element declares `lang=en`
+and `translate=no` to opt out of browser translation. This display policy does not translate,
+delete or replace the provider's answer, alter silence timing, or change automatic submission.
+Original final text and completion receipts retain their existing persistence/scoring contract.
+Han detection is a script guard for this observed issue, not a general language classifier.
+
+The speech adapter logs the provider request ID at startup and at most one Han-script warning per
+draft/sentence-final stage in a capture. Each warning contains the configured model/English hint,
+stage and total/Han character counts; it contains no transcript, audio or API key. This allows a
+future occurrence to be correlated with provider output while keeping answer content out of logs.
+Earlier recordings cannot be reconstructed from these new diagnostics.
+
 PCM 能量检测用于提前撤销决定，不是训练过的 VAD；背景噪声可能取消自动结束，低能量
 语音仍依靠随后到达的转写撤销。真实麦克风和供应商转写延迟需要在使用设备上验证。
 本地语义模型在每个 ASGI 进程内共享，CPU-only，每个编码器使用两条计算线程并串行执行。

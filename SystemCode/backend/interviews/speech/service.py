@@ -3,7 +3,8 @@ data temporarily in memory.
 Implementation: Resolve speech geography independently of the LLM HTTP endpoint while reusing the
 configured key. Missing SPEECH_REGION preserves Singapore; invalid values fail before SDK
 construction. All recognition sessions request English, independently of UI locale and completion
-detection. Model, voice, audio, and timeout defaults remain unchanged.
+detection. Sparse Han-script diagnostics preserve provider text while recording only request ID,
+stage and character counts. Model, voice, audio, and timeout defaults remain unchanged.
 Related Modules: speech.views serves synthesis audio; speech.socket bridges recognition to WebSocket
 clients.
 
@@ -64,20 +65,20 @@ Declaration Index:
 - RecognitionSession.__init__.Callback:
   Forward provider events without sending audio or secrets to logs.
 - RecognitionSession.__init__.Callback.on_event:
-  Forward text and sentence-final markers.
+  Forward unchanged text and sentence-final markers; log the first Han result at each stage.
 - RecognitionSession.__init__.Callback.on_error:
   Report a sanitised service error.
 - RecognitionSession.__init__.Callback.on_complete:
   Mark the final provider output boundary.
 - RecognitionSession.start:
-  Start SDK recognition on a worker thread.
+  Start SDK recognition on a worker thread and log its provider request ID.
 - RecognitionSession.feed:
   Queue validated raw PCM bytes for the provider.
 - RecognitionSession.stop:
   Signal end-of-input once and wait for provider completion.
 Variable Index:
 - logger:
-  Record resolved geography, model names and recognition language without credentials or text.
+  Record configuration, request IDs and sparse script counts without credentials or text.
 - SPEECH_REGION_ENDPOINTS:
   Supported regions mapped to public hosts and ASR workspace domain regions.
 - MAX_AUDIO_BYTES:
@@ -99,6 +100,7 @@ import os
 import re
 import threading
 import time
+import unicodedata
 import wave
 from collections import OrderedDict
 from dataclasses import dataclass
@@ -534,6 +536,8 @@ class RecognitionSession:
         Logic: validate credentials and construct English PCM recognition for the English interview
         flow. Log the model and language once, without audio, text or secrets. Completion detection
         observes the resulting text and cannot override the recognition language.
+        logged_han_stages limits diagnostics to one draft and one sentence-final warning per task.
+        Warnings record only provider request ID, model, stage and text/Han character counts.
         Constraints: model, sample rate and provider deadlines remain unchanged; no language retry
         or translation. Configuration errors propagate before provider startup.
         """
@@ -541,16 +545,42 @@ class RecognitionSession:
         from dashscope.audio.asr import Recognition, RecognitionCallback
 
         configure_sdk(config)
+        logged_han_stages = set()
 
         class Callback(RecognitionCallback):
             """Forward provider events without sending audio or secrets to logs.
             """
 
             def on_event(self, result):
-                """Forward text and sentence-final markers.
+                """Forward the SDK sentence unchanged while observing Han-script anomalies.
+
+                Inputs: provider result with text, segment boundary and request ID. Outputs: the
+                existing callback event, plus at most one warning per draft/sentence-final stage.
+                Count Unicode-named CJK ideographs including compatibility and supplementary forms.
+                Constraints: counts diagnose script, not language or accuracy; no text, audio or
+                credentials are logged. No retry, filtering or failure-semantics change occurs.
                 """
                 sentence = result.get_sentence()
                 if sentence and "text" in sentence:
+                    is_final = RecognitionResult.is_sentence_end(sentence)
+                    stage = "sentence_final" if is_final else "draft"
+                    han_chars = sum(
+                        unicodedata.name(char, "").startswith(
+                            ("CJK UNIFIED IDEOGRAPH-", "CJK COMPATIBILITY IDEOGRAPH-")
+                        )
+                        for char in sentence["text"]
+                    )
+                    if han_chars and stage not in logged_han_stages:
+                        logged_han_stages.add(stage)
+                        logger.warning(
+                            "STT Han script observed request_id=%s model=%s language_hints=en "
+                            "stage=%s chars=%d han_chars=%d; inspect provider language output",
+                            result.get_request_id(),
+                            config.stt_model,
+                            stage,
+                            len(sentence["text"]),
+                            han_chars,
+                        )
                     emit(
                         {
                             "type": "sentence",
@@ -558,7 +588,7 @@ class RecognitionSession:
                             "segment": str(
                                 sentence.get("sentence_id", sentence.get("begin_time", 0))
                             ),
-                            "is_final": RecognitionResult.is_sentence_end(sentence),
+                            "is_final": is_final,
                         }
                     )
 
@@ -591,9 +621,13 @@ class RecognitionSession:
         )
 
     def start(self):
-        """Start SDK recognition on a worker thread.
+        """Start the configured SDK task and log its request ID for correlation, never audio/text.
+
+        Inputs: this session's recognition object. Outputs: None; startup errors propagate to the
+        socket handler. The SDK request ID identifies provider events; no extra request is made.
         """
         self.recognition.start()
+        logger.info("STT started request_id=%s", self.recognition.get_last_request_id())
 
     def feed(self, pcm):
         """Queue validated raw PCM bytes for the provider.

@@ -11,7 +11,7 @@ Template Context:
 user and csrf_token come from Django; identity is escaped and version access is authenticated.
 Element Index:
 resume-select stores the version UUID; prepare-selected-resume explicitly invokes the existing CSRF-protected preparation API without starting; job/duration/limit/probes are preparation inputs; open-preparation/interview-settings opens settings; close/cancel-preparation retains settings while closing; start-form uses native validation; preparation-error/title identifies dialog feedback.
-question, answer-subtitle and report display current session output; avatar-view/connect-avatar controls avatar connection; answer-countdown shows preparation/inactivity; cancel-agent opens end-interview-dialog with end-and-save/end-without-save/continue-interview choices; answer-subtitles contains plain-text captions.
+question, answer-subtitle and report display current session output; avatar-view/connect-avatar controls avatar connection; answer-countdown shows preparation/inactivity; cancel-agent opens end-interview-dialog with end-and-save/end-without-save/continue-interview choices; answer-subtitles contains plain-text captions; answer-subtitle declares English and opts out of browser translation.
 interview-language selects UI copy; interview-progress/interview-topics displays budget/plan; interview-alert-panel shows existing anomalies.
 Page Regions:
 Shared navigation, question/avatar/answer main column, budget/topic/device sidebar, preparation/end-choice dialogs, assessment and report.
@@ -54,7 +54,7 @@ The page does not upload, extract PDFs, edit resume text or persist profiles in 
       <div id="camera-placeholder" class="camera-placeholder"><span aria-hidden="true">◎</span><p data-i18n="camera_off">Camera off</p></div>
       <span class="self-label"><span data-i18n="camera_label">You</span> <span data-i18n="camera_local">Local preview only</span></span>
     </aside>
-    <div id="answer-subtitles" class="answer-subtitles" hidden><span class="subtitle-label" data-i18n="answer_label">Your answer</span><p id="answer-subtitle" aria-live="polite" aria-atomic="true"></p></div>
+    <div id="answer-subtitles" class="answer-subtitles" hidden><span class="subtitle-label" data-i18n="answer_label">Your answer</span><p id="answer-subtitle" lang="en" translate="no" aria-live="polite" aria-atomic="true"></p></div>
     <div class="stage-bottom"><span data-i18n="agent_think">Take a moment to think before you answer.</span><span class="preview-badge" data-i18n="agent_preview">Visual preview</span></div>
   </section>
   <div class="camera-toolbar"><button id="camera-toggle" type="button" class="secondary" aria-pressed="false" aria-controls="self-video" data-i18n="camera_enable">Enable camera</button><span id="camera-status" role="status" data-i18n="camera_note">Camera is for self-preview only; nothing is recorded or uploaded.</span></div>

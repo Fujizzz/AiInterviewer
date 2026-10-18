@@ -80,6 +80,8 @@
  * - startCapture.page.captureType.prototype.start: Offline authorization and handshake complete without creating microphone track.
  * - startCapture.page.captureType.prototype.end: Offline end only sets collection flag; final text must be delivered separately by test, do not fabricate synchronous success.
  * - speechAnswerLifecycle: Validate two-phase boundary between explicit end and final text, plain text captions, duplicate prevention, and next-question cleanup.
+ * - englishSpeechCaptions: Replace transient Han captions with an English notice, recover on English
+ *   updates and flag final Han text while preserving submission, timing and stale-callback guards.
  * - speechAnswerBoundaries: Verify full final capture-limit text auto-submits, empty final speech records Skip, and recognition failures cannot submit late partial/final text.
  * - blockedResumeSelection: Prohibit start when no input available; failure does not select alternative version; these are simulated permission responses, not replacing real service permissions.
  * - interviewProgressLifecycle: Real page script with deterministic clock: progress will not automatically end interview; disconnection freezes, existing exceptions deduplicated and cleared without removing backend.
@@ -800,6 +802,47 @@ async function speechAnswerLifecycle() {
   assert.equal(page.el("answer-subtitles").hidden, true);
 }
 test("finish answer waits for final speech and submits once while subtitles remain visible", speechAnswerLifecycle);
+
+/**
+ * Exercise Chinese-to-English revisions through the real caption and submission callbacks.
+ * Inputs: synthetic provider drafts/finals; hardware and transport remain offline stubs.
+ * Outputs: assertions on English notices, raw final submission and inactivity/identity guards.
+ * Constraints: this tests display policy, not ASR accuracy. Han is not used as a language classifier;
+ * punctuation, accents, technical symbols and ordinary English remain intact.
+ */
+async function englishSpeechCaptions() {
+  assert.match(HTML, /id="answer-subtitle"[^>]*lang="en"[^>]*translate="no"/);
+  const page = await answeringPage();
+  const capture = await startCapture(page);
+  const originalDeadline = page.voice.deadline;
+  page.tick(1000);
+  for (const draft of ["我正在介绍项目", "I used Python 处理数据", "\u{20000}"]) {
+    capture.onPartial(draft);
+    assert.equal(page.el("answer-subtitle").textContent, "Transcribing English speech…");
+    assert.equal(page.el("answer-subtitles").hidden, false);
+    assert.equal(page.ws.sent.length, 1);
+  }
+  assert.ok(page.voice.deadline > originalDeadline, "hidden drafts still count as text activity");
+  const corrected = "I used Python, C++ and SQL for résumé data (95% accuracy).";
+  capture.onPartial(corrected);
+  assert.equal(page.el("answer-subtitle").textContent, corrected);
+  capture.onFinal(corrected, 10);
+  assert.equal(page.ws.sent.at(-1).answer_text, corrected);
+  assert.equal(page.el("answer-subtitle").textContent, corrected);
+  capture.onPartial("过期字幕");
+  assert.equal(page.el("answer-subtitle").textContent, corrected);
+
+  const finalMismatch = await answeringPage();
+  const mismatchCapture = await startCapture(finalMismatch);
+  const rawFinal = "I used Python 处理数据";
+  mismatchCapture.onFinal(rawFinal, 10);
+  assert.equal(finalMismatch.el("answer-subtitle").textContent, "Transcription contains non-English text.");
+  assert.equal(finalMismatch.ws.sent.at(-1).answer_text, rawFinal, "caption notice cannot rewrite the answer");
+  assert.equal(finalMismatch.ws.sent.length, 2);
+  finalMismatch.voice.subtitle("");
+  assert.equal(finalMismatch.el("answer-subtitles").hidden, true);
+}
+test("English captions suppress Han drafts without altering final answers or timing", englishSpeechCaptions);
 
 /**
  * Verify full final capture-limit text auto-submits, empty final speech records Skip, and recognition failures cannot submit late partial/final text.

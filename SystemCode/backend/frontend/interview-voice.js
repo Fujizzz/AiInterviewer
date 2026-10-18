@@ -1,7 +1,7 @@
 /**
  * @module interview-voice
  * Responsibilities: Coordinate playback/subtitles, 10-second preparation, automatic capture and five-second inactivity closure; never compute interview evaluation.
- * Implementation: Grant preparation after audible playback or an explicit voice fallback, preserving remaining preparation on replay. Isolate late events by epoch/capture identity; flush complete STT before automatic submission. A separate presentation controller supplies Agent facial dynamics with recorded fallback without delaying speech. Semantic receipts use MCP; inactivity/capture-limit closures use the normal answer boundary. Explicit end suspends submission.
+ * Implementation: Grant preparation after audible playback or an explicit voice fallback, preserving remaining preparation on replay. Isolate late events by epoch/capture identity; flush complete STT before automatic submission. Caption presentation replaces Han-script drafts with an English pending notice and flags a final Han-script result, preserving the raw submission text. A separate presentation controller supplies Agent facial dynamics with recorded fallback without delaying speech. Semantic receipts use MCP; inactivity/capture-limit closures use the normal answer boundary. Explicit end suspends submission.
  * Related Modules: SpeechCapture manages PCM/STT; agent.js provides submission callback and current question's answer eligibility; the pixel-player bundle exports PresentationController for bounded facial plans and loadAvatarConfiguration for approved transport settings.
  *
  * Declaration Index:
@@ -26,15 +26,17 @@
  * - InterviewVoice.takeFinalAnswer.callback1: Save finalization callbacks for this capture.
  * - InterviewVoice.resumeAnswer: Functionality: Resume an interview after dismissing the end dialog.
  * - InterviewVoice.updateControls: No parameters; read answer/playback/capture/finish state to update buttons, no network or submission side effects.
- * - InterviewVoice.subtitle: Input: current transcribed text; Output: none; textContent prevents transcription from being executed as HTML; empty text hides subtitles.
+ * - InterviewVoice.subtitle: Render English caption notices for Han-script drafts/finals without modifying answer text; empty text hides captions.
  * - InterviewVoice.finishAnswer: Inputs: source (default silence); five-second inactivity or backend completion closes capture. Outputs: None.
  * - InterviewVoice.submitTranscript: Inputs: Instance final transcript, eligibility and suspended state. Outputs: None.
  * - InterviewVoice.connectAvatar: Load approved connection settings and connect the official player.
- * - InterviewVoice.connectAvatar.object1.send: Deliver presentation messages through the current avatar player; an unready channel returns false.
+ * - InterviewVoice.connectAvatar.object2.send: Deliver presentation messages through the current avatar player; an unready channel returns false.
  * - InterviewVoice.connectAvatar.callback1: Route UE playback events through utterance identity checks.
  * - InterviewVoice.connectAvatar.callback2: Display connection status supplied by the avatar player.
  * - InterviewVoice.disconnectAvatar: Cancel pending connection work and release the stream without closing the page coordinator.
  * - InterviewVoice.waitForAvatar: Bound initial-stream readiness before selecting the existing voice fallback.
+ * - InterviewVoice.waitForAvatar.callback1: Register a readiness resolver owned by this coordinator.
+ * - InterviewVoice.waitForAvatar.callback1.callback1: Remove an expired waiter and resolve false.
  * - InterviewVoice.resolveAvatarReady: Release pending playback waits on readiness, failure or interview cleanup.
  * - InterviewVoice.avatarEvent: Accept current playback events and select voice fallback after a disconnect.
  * - InterviewVoice.avatarEvent.callback1: Release controls if a current UE playback exceeds its deadline.
@@ -237,11 +239,17 @@ export class InterviewVoice {
   }
 
   /**
- *  Input: current transcribed text; Output: none; textContent prevents transcription from being executed as HTML; empty text hides subtitles.
- * Long answers scroll independently within video stage, following latest text; subtitles are not persisted to browser storage.
- */ subtitle(text) {
+ * Inputs: current provider text and final flag (default false). Outputs: caption DOM only.
+ * Logic: Han-script drafts show a fixed English pending notice until corrected; final Han-script
+ * text shows an explicit English diagnostic. Other text is rendered verbatim with textContent.
+ * Constraints: This is a display policy, not language detection or translation. It never edits
+ * finalTranscript, completion receipts, activity timing or answer submission. Empty text hides
+ * captions; no old draft is presented as a corrected final answer. No browser storage is written.
+ */ subtitle(text, final = false) {
     const node = document.getElementById("answer-subtitle");
-    node.textContent = text;
+    node.textContent = /\p{Script=Han}/u.test(text)
+      ? (final ? "Transcription contains non-English text." : "Transcribing English speech…")
+      : text;
     document.getElementById("answer-subtitles").hidden = !text;
     node.scrollTop = node.scrollHeight;
   }
@@ -348,9 +356,9 @@ export class InterviewVoice {
   /** Wait only for a stream already being connected; timeout preserves the same WAV's voice fallback. */ waitForAvatar(timeoutMs = 8000) {
     if (this.player?.ready) return Promise.resolve(true);
     if (this.closed || (!this.avatarConnecting && !this.player?.player)) return Promise.resolve(false);
-    return new Promise((resolve) => {
+    return new Promise(/** Register a readiness resolver owned by this coordinator. */ (resolve) => {
       const waiter = { resolve, timer: null };
-      waiter.timer = setTimeout(() => {
+      waiter.timer = setTimeout(/** Remove an expired waiter and resolve false. */ () => {
         this.avatarReadyWaiters.delete(waiter);
         resolve(false);
       }, timeoutMs);
@@ -565,7 +573,7 @@ export class InterviewVoice {
         // inactivity/capture-limit answer route; final words still pass normal input/output review.
         this.finishRequested = true;
         console.info("Interview final speech received", { endRequested: this.finishRequested, textLength: this.finalTranscript?.length ?? 0 });
-        this.subtitle(this.finalTranscript ?? "");
+        this.subtitle(this.finalTranscript ?? "", true);
         if (!receipt) this.autoFinish = false;
         if (!this.finalTranscript) this.message(window.AppI18n?.t("voice_empty") ?? "No speech recognized; recording as unanswered.");
         this.finalWaiter?.resolve(this.finalTranscript);
