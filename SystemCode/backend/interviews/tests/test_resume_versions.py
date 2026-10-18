@@ -42,6 +42,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TransactionTestCase
 from rest_framework.test import APITestCase
 
+from app.parsing.resume import ResumeExtraction
 from interviews.agent_models import AgentInterview
 from interviews.agent_records import reserve_request
 from interviews.agent_socket import Start, agent_socket, parse_command
@@ -224,6 +225,22 @@ class ResumeVersionTests(APITestCase):
             400,
         )
 
+    def test_resume_commands_preserve_text_and_reject_blank_input(self):
+        text = " \t\r\n\u3000" + RESUME + "\n \t"
+        for kind in ("prepare", "start"):
+            with self.subTest(kind=kind):
+                raw = {"type": kind, "request_id": str(uuid4()), "resume_text": text}
+                command = parse_command(json.dumps(raw))
+                self.assertEqual(command.resume_text, text)
+                self.assertEqual(
+                    type(command).model_validate_json(command.model_dump_json()).resume_text, text
+                )
+                for blank in ("", " \t\r\n", "\u3000"):
+                    with self.subTest(blank=repr(blank)), self.assertRaises(ValueError):
+                        parse_command(json.dumps({**raw, "resume_text": blank}))
+        raw.update(type="start", job_title="  Software Engineer  ")
+        self.assertEqual(parse_command(json.dumps(raw)).job_title, "Software Engineer")
+
     async def test_failed_and_interrupted_parse(self):
         """Simulate existing error events and premature closure; real database state must not become
         ready, and external service failures are not validated.
@@ -264,10 +281,22 @@ class VersionSocketTests(SafetyTestMixin, TransactionTestCase):
         """Authenticate scope uses personal ready version; prepare/start both go through gateway.
         Structured data saved in context with fixed references.
         """
+        await self._check_version_start(RESUME, prepare=True)
+
+    async def test_saved_resume_whitespace_survives_prepare_and_direct_start(self):
+        for prepare in (True, False):
+            with self.subTest(prepare=prepare):
+                await self._check_version_start(
+                    " \t\r\n\u3000" + RESUME + "\r\n \t", prepare=prepare
+                )
+
+    async def _check_version_start(self, text, *, prepare):
         from asgiref.sync import sync_to_async
 
-        owner = await sync_to_async(get_user_model().objects.create_user)(username="version-socket")
-        version = await ResumeVersion.objects.acreate(owner=owner, text=RESUME, status="ready")
+        owner = await sync_to_async(get_user_model().objects.create_user)(
+            username=f"version-socket-{uuid4()}"
+        )
+        version = await ResumeVersion.objects.acreate(owner=owner, text=text, status="ready")
         await sync_to_async(prepare_profile)(version.pk, owner.pk, llm=FixtureLLM())
         interview_llm = FixtureLLM()
         with (
@@ -292,15 +321,21 @@ class VersionSocketTests(SafetyTestMixin, TransactionTestCase):
             self.assertEqual((await comm.receive_output())["type"], "websocket.accept")
             await read(comm)
             try:
-                rid = await send_command(comm, "prepare", resume_version_id=str(version.pk))
-                prepared = (await collect_until(comm, "prepared", rid))[-1]
+                if prepare:
+                    rid = await send_command(comm, "prepare", resume_version_id=str(version.pk))
+                    prepared = (await collect_until(comm, "prepared", rid))[-1]
                 rid = await send_command(comm, "start", resume_version_id=str(version.pk))
                 question = (await collect_until(comm, "question", rid))[-1]
                 interview = await AgentInterview.objects.aget(pk=question["interview_id"])
                 self.assertEqual(interview.resume_version_id, version.pk)
-                self.assertEqual(interview.resume_text_snapshot, RESUME)
-                self.assertEqual(
-                    interview.context["candidate_profile"], prepared["candidate_profile"]
-                )
+                self.assertEqual(interview.resume_text_snapshot, text)
+                self.assertEqual(question["question"]["intent"], "SELF_INTRODUCTION")
+                if prepare:
+                    self.assertEqual(
+                        interview.context["candidate_profile"], prepared["candidate_profile"]
+                    )
+                await version.arefresh_from_db()
+                self.assertEqual(version.text, text)
+                self.assertNotIn(ResumeExtraction, interview_llm.calls)
             finally:
                 await disconnect(comm)

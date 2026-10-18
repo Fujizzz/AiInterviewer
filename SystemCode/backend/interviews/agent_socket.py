@@ -82,10 +82,17 @@ passed to Agent to trigger fallback questioning.
 import asyncio
 import json
 import logging
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    ValidationError,
+    model_validator,
+)
 
 from .access import websocket_allowed
 from .agent_records import (
@@ -104,6 +111,11 @@ from .api.resume_versions import resolve_resume_version
 
 logger = logging.getLogger(__name__)
 MAX_MESSAGE_BYTES = 262144
+# Preserve the exact saved resume through gateway validation and version/hash binding.
+# Other command fields still trim whitespace; blank-only resumes remain invalid.
+ResumeText = Annotated[
+    str, StringConstraints(strip_whitespace=False, min_length=1, pattern=r"\S")
+]
 
 
 class Command(BaseModel):
@@ -122,7 +134,7 @@ class Prepare(Command):
     """
 
     type: Literal["prepare"]
-    resume_text: str | None = Field(default=None, min_length=1)
+    resume_text: ResumeText | None = None
     resume_version_id: UUID | None = None
 
     @model_validator(mode="after")
@@ -142,7 +154,7 @@ class Start(Command):
     """
 
     type: Literal["start"]
-    resume_text: str | None = Field(default=None, min_length=1)
+    resume_text: ResumeText | None = None
     resume_version_id: UUID | None = None
     duration_minutes: int = Field(default=30, ge=1)
     max_questions: int | None = Field(default=None, ge=1)
