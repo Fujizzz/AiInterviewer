@@ -5,12 +5,12 @@
 # Related Modules: rag/docs/TEAM_INTEGRATION.md (section 6), rag/index/onnx_encoder.py.
 # Declaration Index: None. Variable Index: pins marked "= lock" equal deploy/requirements-linux.lock.txt
 # (and the root completion-gate extra), so adding this file changes none of the deployed versions;
-# the two packages marked "NEW" are not in the lock and must be added to it by the deploy owner.
+# psycopg-pool and pgvector were added to the lock on 2026-10-18 (they were "NEW" before).
 numpy==2.0.2                  # = lock
 onnxruntime==1.23.2           # = lock (also the root completion-gate extra)
 tokenizers==0.22.2            # = lock (also the root completion-gate extra)
 psycopg==3.3.3                # = lock
 psycopg-binary==3.3.3         # = lock
 pydantic==2.13.5              # = lock; shared.contracts (the RAGPort models) needs it
-psycopg-pool>=3.2,<4          # NEW (tested 3.3.3): connection pool of the retrieval backend
-pgvector>=0.3,<0.6            # NEW (tested 0.5.1): vector type adapter for psycopg; needs numpy
+psycopg-pool>=3.2,<4          # lock: 3.3.3; connection pool of the retrieval backend
+pgvector>=0.3,<0.6            # lock: 0.5.1; vector type adapter for psycopg; needs numpy
