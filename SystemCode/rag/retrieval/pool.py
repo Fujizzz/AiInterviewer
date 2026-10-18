@@ -18,12 +18,28 @@ Requires psycopg_pool, psycopg, pgvector, numpy and the chosen encoder's runtime
 
 from __future__ import annotations
 
+import logging
 import threading
+import time
 from typing import Any
 
 from .confidence import RetrievalResult
 from .intent import RetrievalIntent
 from .lazy import LazySingleton, SerializedEmbedder, SerializedReranker
+
+logger = logging.getLogger(__name__)
+
+# Real retrievals run once at start-up so the first user request does not pay for cold caches. On
+# the 95k-chunk corpus a cold dense scan reads ~850 MB (4-25 s, against the pool's 2.5 s
+# statement_timeout and the Agent's 2 s RAG timeout); a warm one takes ~0.8 s. The identifier-shaped
+# query warms the trigram index used by `text ILIKE '%Identifier%'`, which plain words never touch.
+WARMUP_QUERIES = (
+    "how does a database index work",
+    "useState HashMap",
+    "explain the difference between a process and a thread",
+)
+WARMUP_ROLE = "question_planner"
+WARMUP_STATEMENT_TIMEOUT = "120s"
 
 
 def _build_embedder(
@@ -129,6 +145,8 @@ class PooledRetriever:
         reachable), caches the domain vocabulary, loads bge-m3, checks `index_meta` against the
         model and encodes one dummy string.
 
+        Then runs a few real retrievals (`_prime_caches`) so the database caches are warm too.
+
         Call this at application start-up: the first real query would otherwise pay the model
         load (seconds) and exceed the Agent's per-call RAG timeout.
         """
@@ -139,6 +157,33 @@ class PooledRetriever:
         self._embedder.encode(["warmup"])
         if self._rerank_available:
             self._reranker.score("warmup", ["warmup"])
+        self._prime_caches()
+
+    def _prime_caches(self) -> None:
+        """Run `WARMUP_QUERIES` through the normal retrieval path with the statement timeout lifted.
+
+        The pool's `statement_timeout` (2.5 s) would cancel a cold scan before it finished, leaving
+        the cache only partly warm and failing every request until it filled. `SET LOCAL` lifts the
+        limit for this one transaction only; the pooled connection keeps its normal timeout.
+        A failure here is logged and ignored: warm-up must never stop RAG from starting.
+        """
+        from .retriever import Retriever
+
+        started = time.perf_counter()
+        try:
+            with self._pool.connection() as conn, conn.transaction():
+                conn.execute(f"SET LOCAL statement_timeout = '{WARMUP_STATEMENT_TIMEOUT}'")
+                retriever = Retriever(embedder=self._embedder, connection=conn, check_model=False)
+                for query in WARMUP_QUERIES:
+                    retriever.retrieve(RetrievalIntent(query=query, k=5), WARMUP_ROLE)
+        except Exception:  # noqa: BLE001 - start-up must survive a failed warm-up query
+            logger.warning("RAG cache warm-up failed; first queries may be slow", exc_info=True)
+            return
+        logger.info(
+            "RAG cache warm-up: %d queries in %.1fs",
+            len(WARMUP_QUERIES),
+            time.perf_counter() - started,
+        )
 
     def known_domains(self) -> frozenset[str]:
         """Distinct non-null chunk.domain values (cached for the life of the process)."""
