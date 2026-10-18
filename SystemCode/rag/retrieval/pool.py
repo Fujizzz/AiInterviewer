@@ -160,30 +160,44 @@ class PooledRetriever:
         self._prime_caches()
 
     def _prime_caches(self) -> None:
-        """Run `WARMUP_QUERIES` through the normal retrieval path with the statement timeout lifted.
+        """Run `WARMUP_QUERIES` through the normal retrieval path, in parallel, timeout lifted.
 
         The pool's `statement_timeout` (2.5 s) would cancel a cold scan before it finished, leaving
         the cache only partly warm and failing every request until it filled. `SET LOCAL` lifts the
-        limit for this one transaction only; the pooled connection keeps its normal timeout.
+        limit for each warm-up transaction only; the pooled connections keep their normal timeout.
+        The queries run concurrently (one pooled connection each, never more than the pool allows)
+        so the cold dense scan and the index reads overlap instead of adding up.
         A failure here is logged and ignored: warm-up must never stop RAG from starting.
         """
-        from .retriever import Retriever
+        from concurrent.futures import ThreadPoolExecutor
 
         started = time.perf_counter()
+        workers = max(1, min(len(WARMUP_QUERIES), self._pool.max_size))
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="rag-warmup") as pool:
+            ok = list(pool.map(self._prime_one, WARMUP_QUERIES))
+        failed = ok.count(False)
+        logger.info(
+            "RAG cache warm-up: %d queries (%d in parallel) in %.1fs, %d failed",
+            len(WARMUP_QUERIES),
+            workers,
+            time.perf_counter() - started,
+            failed,
+        )
+
+    def _prime_one(self, query: str) -> bool:
+        from .retriever import Retriever
+
         try:
             with self._pool.connection() as conn, conn.transaction():
                 conn.execute(f"SET LOCAL statement_timeout = '{WARMUP_STATEMENT_TIMEOUT}'")
                 retriever = Retriever(embedder=self._embedder, connection=conn, check_model=False)
-                for query in WARMUP_QUERIES:
-                    retriever.retrieve(RetrievalIntent(query=query, k=5), WARMUP_ROLE)
+                retriever.retrieve(RetrievalIntent(query=query, k=5), WARMUP_ROLE)
         except Exception:  # noqa: BLE001 - start-up must survive a failed warm-up query
-            logger.warning("RAG cache warm-up failed; first queries may be slow", exc_info=True)
-            return
-        logger.info(
-            "RAG cache warm-up: %d queries in %.1fs",
-            len(WARMUP_QUERIES),
-            time.perf_counter() - started,
-        )
+            logger.warning(
+                "RAG cache warm-up failed for %r; first queries may be slow", query, exc_info=True
+            )
+            return False
+        return True
 
     def known_domains(self) -> frozenset[str]:
         """Distinct non-null chunk.domain values (cached for the life of the process)."""
