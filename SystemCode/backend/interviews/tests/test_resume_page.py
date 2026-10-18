@@ -1,8 +1,8 @@
 """Responsibilities: Verify login gateways, identity escaping, CSRF, and navigation for resume and
-standalone review pages; all user writes occur only in test database.
+standalone review/interview pages, including the saved-version preparation entry; all user writes occur only in test database.
 Implementation: Use real Django templates, sessions, and HTTP client; do not substitute permission
 middleware; disable global gateway but still protect personal pages locally.
-Related Modules: demo_asset, config.urls, resumes.html, interview-review.html; do not invoke model
+Related Modules: demo_asset, config.urls, resumes.html, agent.html, interview-review.html; do not invoke model
 or PDF parser.
 
 Declaration Index:
@@ -15,8 +15,8 @@ Declaration Index:
   independently without loading resume management.
 - ResumePageTests.test_navigation_from_existing_pages:
   Homepage, interview, resume, review, and diagnosis all share top task navigation.
-- ResumePageTests.test_interview_has_no_inline_maintenance: Interview only selects saved versions;
-  old maintenance resources removed.
+- ResumePageTests.test_interview_has_no_inline_maintenance: Interview exposes CSRF-protected saved-version preparation;
+  inline upload/raw-text controls and old maintenance resources remain removed.
 
 Variable Index:
 None
@@ -112,12 +112,16 @@ class ResumePageTests(TestCase):
             self.assertNotContains(response, 'href="/resumes/#interview-history"')
 
     def test_interview_has_no_inline_maintenance(self):
-        """Personal interview page retains only version selection; deleted scripts cannot be
-        accessed via whitelist; protocol text entry unchanged.
+        """Authenticated interview HTML exposes saved-version preparation and a CSRF token,
+        while raw uploads/text editing and the removed PDF script remain unavailable.
+        This checks the rendered template contract; model preparation is tested separately.
         """
         self.client.force_login(self.user)
         response = self.client.get("/agent/")
         self.assertContains(response, 'id="resume-select"')
+        self.assertContains(response, 'id="prepare-selected-resume"')
+        self.assertContains(response, 'id="csrf-token"')
+        self.assertIn("csrftoken", response.cookies)
         for name in ('id="pdf-file"', 'id="resume"', 'id="prepare-resume"', "resume-pdf.js"):
             self.assertNotContains(response, name)
         self.assertEqual(self.client.get("/stream-demo/resume-pdf.js").status_code, 404)

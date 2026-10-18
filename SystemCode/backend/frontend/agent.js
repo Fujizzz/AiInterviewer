@@ -1,7 +1,7 @@
 /**
  * @module agent
  * Responsibilities: Run voice interviews with a ready resume selected from the personal center and display actual stages, timing, scores, and reports.
- * Implementation: Confirm preparation before connecting and sending start; submit final automatic answers using MCP when receipt-backed and ordinary answer/skip otherwise; explicit end evaluates/saves or discards after its acknowledgement.
+ * Implementation: Show every saved version and explicitly prepare text-ready versions through the existing authenticated API before allowing start; submit final automatic answers using MCP when receipt-backed and ordinary answer/skip otherwise; explicit end evaluates/saves or discards after its acknowledgement.
  * Related Modules: agent.html, i18n.js, /api/resume-versions/, and /ws/agent/; resume maintenance is handled at /resumes/.
  * Declaration Index:
  * - el: Find a required page element by ID.
@@ -9,7 +9,12 @@
  * - uiText.callback1: Replace named parameters as plain text.
  * - controls: Update controls according to resume loading, request, and interview state.
  * - status: Display a plain-text status message.
- * - loadResumeVersions: Load the signed-in user's resume metadata and expose only ready versions; does not call a model.
+ * - selectedResume: Return the selected version from loaded metadata, or null.
+ * - resumeStatusKey: Map extraction/profile readiness to a localized option label.
+ * - resumeOptionLabel: Combine the saved name, readiness and current-version marker as plain text.
+ * - resumeHintKey: Explain the selected version's required next step without changing it.
+ * - loadResumeVersions: Load all owned version metadata and retain selection; does not call a model.
+ * - onPrepareResume: Explicitly prepare the selected text-ready version once, then refresh metadata; never starts an interview.
  * - onResumeSelect: Validate a manual selection and clear the previous interview display.
  * - updateClock: Display elapsed request and stage times.
  * - beginWait: Start the timer for the current request.
@@ -48,9 +53,11 @@
  * - pendingId: Current request UUID.
  * - pendingCommand: The single command waiting for hello.
  * - terminal: Whether the current connection was ended intentionally.
+ * - completedReport: Last completed report retained for language changes.
  * - interviewActive: Whether an interview has started.
  * - resumesLoading: Resume-list request lock that prevents start before loading completes.
- * - availableResumes: Metadata for the signed-in user's ready versions; contains no resume body.
+ * - resumePreparationPending: Locks selection/start while one explicit preparation request is outstanding.
+ * - availableResumes: All owned version metadata, including unprepared versions; contains no resume body.
  * - messageLimit: Maximum message size announced by the server.
  * - waitStarted: Start time of the current request.
  * - stageStarted: Start time of the current stage.
@@ -63,7 +70,7 @@
  * - mcpReady: Whether the connection completed MCP handshake; controls the automatic completion path.
  *
  * Constraints:
- * Does not upload or edit resumes or alter budgets/scores; has no resend, alternate-resume selection, or model-call fallback path.
+ * Does not upload or edit resume text or alter budgets/scores; preparation uses the existing owner/CSRF-checked endpoint only after a click, without automatic retries, alternate selection or automatic interview start.
  */
 import { renderEvaluationReport } from "./evaluation-report.js";
 import { InterviewVoice } from "./interview-voice.js";
@@ -84,13 +91,28 @@ const STAGES = {
 const FALLBACK_TEXT = {
   interview_discarded: "Interview ended. This interview was removed from history.",
   agent_resume_choice: "Select a saved resume",
-  agent_resume_select: "Select a ready resume version",
+  agent_resume_select: "Select a saved resume version",
   agent_manage_profile: "Manage profile and resumes in your personal center ↗",
   agent_resumes_loading: "Loading saved resumes…",
   agent_resumes_failed: "Could not load resumes. Click Refresh to check again.",
   agent_resume_unavailable: "The requested or previously selected resume is unavailable. Select a ready version.",
   agent_resumes_ready: "Select the version to use for this interview. Upload, extract and maintain information in your personal center.",
-  agent_resumes_empty: "No ready resumes. Upload and finish extraction in your personal center.",
+  agent_resumes_empty: "No saved resumes. Upload a resume in My resumes.",
+  agent_resumes_choose: "Select a saved resume. Versions marked Needs preparation can be prepared here.",
+  agent_resume_prepare: "Prepare selected resume / retry",
+  agent_resume_ready: "Ready for interview",
+  agent_resume_needs_preparation: "Needs preparation",
+  agent_resume_preparing: "Preparing interview details",
+  agent_resume_preparation_failed: "Preparation incomplete",
+  agent_resume_prepare_hint: "Your saved resume is still here. Click Prepare selected resume / retry to extract interview details with the model. This does not start an interview.",
+  agent_resume_preparing_request: "Preparing interview details. Please wait; your saved resume will not change.",
+  agent_resume_processing_hint: "Interview details are being prepared. Click Refresh to check again; no duplicate request will be sent.",
+  agent_resume_extract_hint: "This version needs successful text extraction before interview preparation. Open My resumes to check its status.",
+  agent_resume_prepare_failed: "The preparation response could not be confirmed. Check the refreshed resume status; retry only if preparation is still needed. Your saved resume is unchanged.",
+  rm_status_uploaded: "Awaiting extraction",
+  rm_status_parsing: "Extracting text",
+  rm_status_failed: "Extraction failed",
+  rm_status_interrupted: "Extraction interrupted",
   agent_resume_required: "Select a ready resume and enter the target role.",
   agent_unexpected_close: "The connection closed unexpectedly. The current operation is incomplete and will not be resent automatically.",
   agent_message_limit: "The message exceeds the server limit. Shorten the answer or check your interview settings.",
@@ -144,6 +166,7 @@ let terminal = false;
 let completedReport = null;
 let interviewActive = false;
 let resumesLoading = false;
+let resumePreparationPending = false;
 let availableResumes = [];
 let messageLimit = null;
 let waitStarted = null;
@@ -159,9 +182,13 @@ let ending = null;
  */
 function controls() {
   const busy = pendingId !== null || pendingCommand !== null;
+  const version = selectedResume();
+  const locked = busy || interviewActive || resumesLoading || resumePreparationPending;
   for (const id of ["open-preparation", "interview-settings"]) el(id).disabled = busy || interviewActive;
-  el("start-agent").disabled = busy || interviewActive || resumesLoading || !el("resume-select").value;
-  for (const id of ["resume-select", "refresh-resumes"]) el(id).disabled = busy || interviewActive || resumesLoading;
+  el("start-agent").disabled = locked || version?.status !== "ready" || !version?.can_interview;
+  for (const id of ["resume-select", "refresh-resumes"]) el(id).disabled = locked;
+  el("prepare-selected-resume").hidden = !version || version.status !== "ready" || Boolean(version.can_interview);
+  el("prepare-selected-resume").disabled = locked || !version || version.status !== "ready" || Boolean(version.can_interview) || version.interview_profile_status === "processing";
   for (const id of ["job", "duration", "limit", "probes"]) el(id).disabled = interviewActive;
   const answering = interviewActive && questionId !== null && !busy;
   el("cancel-agent").disabled = socket === null || ending !== null;
@@ -173,12 +200,49 @@ function controls() {
  */
 function status(text) { el("agent-status").textContent = text; }
 /**
+ * Functionality: Resolve the chosen UUID against owned metadata. Inputs: Current select value and availableResumes.
+ * Outputs: Matching metadata or null. Logic: Exact ID match; Constraints: No request, state mutation or implicit selection.
+ */
+function selectedResume() {
+  for (const version of availableResumes) if (version.id === el("resume-select").value) return version;
+  return null;
+}
+/**
+ * Functionality: Describe version availability. Inputs: Resume metadata. Outputs: Localization key.
+ * Logic: Text extraction precedes profile preparation; Constraints: Question-cache readiness does not gate interview eligibility.
+ */
+function resumeStatusKey(version) {
+  if (version.status !== "ready") return `rm_status_${version.status}`;
+  if (version.can_interview) return "agent_resume_ready";
+  if (version.interview_profile_status === "processing") return "agent_resume_preparing";
+  if (["failed", "interrupted"].includes(version.interview_profile_status)) return "agent_resume_preparation_failed";
+  return "agent_resume_needs_preparation";
+}
+/**
+ * Functionality: Render an option label. Inputs: Owned version metadata. Outputs: Plain name/status/current-marker text.
+ * Logic: Retain the supplied label or filename; Constraints: Never insert HTML or change the underlying UUID.
+ */
+function resumeOptionLabel(version) {
+  return (version.label || version.original_name || uiText("rm_unnamed")) + " · " + uiText(resumeStatusKey(version)) + (version.is_current ? " · " + uiText("rm_current") : "");
+}
+/**
+ * Functionality: Explain the next explicit action. Inputs: Selected metadata, or null, and loaded version count.
+ * Outputs: Localization key. Logic: Distinguish absent data, extraction, profile preparation and ready state.
+ * Constraints: Does not initiate model calls or reinterpret incomplete profiles as ready.
+ */
+function resumeHintKey(version) {
+  if (!version) return availableResumes.length ? "agent_resumes_choose" : "agent_resumes_empty";
+  if (version.status !== "ready") return "agent_resume_extract_hint";
+  if (version.can_interview) return "agent_resumes_ready";
+  return version.interview_profile_status === "processing" ? "agent_resume_processing_hint" : "agent_resume_prepare_hint";
+}
+/**
  * Read own pagination metadata, return none; first use specifies ID or current, refresh maintains original selection.
- * Only provide ready versions; if specified or currently selected version disappears, explicitly require reselection, do not silently switch to another version, do not invoke model.
+ * Show every saved version with readiness; if specified or currently selected version disappears, explicitly require reselection, do not silently switch to another version, do not invoke model.
  * On failure, clear selection, record exception type, allow explicit refresh; do not send repeated requests if interview already started or loading.
  */
 async function loadResumeVersions() {
-  if (resumesLoading || interviewActive || pendingId || pendingCommand) return;
+  if (resumesLoading || resumePreparationPending || interviewActive || pendingId || pendingCommand) return;
   const previous = el("resume-select").value;
   const requested = new URLSearchParams(location.search).get("resume_version_id");
   resumesLoading = true; controls();
@@ -194,7 +258,7 @@ async function loadResumeVersions() {
         throw new Error(uiText(resumeSelectionMessage));
       }
       const data = await response.json();
-      for (const version of data.results) if (version.status === "ready" && version.can_interview) versions.push(version);
+      versions.push(...data.results);
       if (!data.next) break;
       page += 1;
     }
@@ -206,15 +270,15 @@ async function loadResumeVersions() {
     let current = "";
     for (const version of versions) {
       const option = document.createElement("option"); option.value = version.id;
-      option.textContent = version.label || version.original_name || uiText("rm_unnamed");
-      if (version.is_current) { current = version.id; option.textContent += " · " + uiText("rm_current"); }
+      option.textContent = resumeOptionLabel(version);
+      if (version.is_current) current = version.id;
       select.append(option);
     }
     const selected = previous || requested || current;
     let found = false;
     for (const version of versions) if (version.id === selected) found = true;
     select.value = found ? selected : "";
-    resumeSelectionMessage = selected && !found ? "agent_resume_unavailable" : versions.length ? "agent_resumes_ready" : "agent_resumes_empty";
+    resumeSelectionMessage = selected && !found ? "agent_resume_unavailable" : resumeHintKey(selectedResume());
     el("resume-selection-status").textContent = uiText(resumeSelectionMessage);
   } catch (error) {
     availableResumes = [];
@@ -226,9 +290,56 @@ async function loadResumeVersions() {
   } finally { resumesLoading = false; controls(); }
 }
 /**
+ * Functionality: Prepare one explicitly selected text-ready resume using the existing API.
+ * Inputs: Loaded metadata, rendered CSRF token and current operation locks. Outputs: Promise<void>; refreshed metadata and localized feedback.
+ * Logic: Lock controls, send one owner-scoped POST, then GET the authoritative list even after failure; validate successful response identity/readiness.
+ * Constraints: No text edit, automatic retry, alternate version, interview/socket creation or timeout change. Logs contain only version ID, HTTP status and exception type.
+ */
+async function onPrepareResume() {
+  const version = selectedResume();
+  if (resumesLoading || resumePreparationPending || interviewActive || pendingId || pendingCommand || !version || version.status !== "ready" || version.can_interview || version.interview_profile_status === "processing") return;
+  resumePreparationPending = true;
+  resumeSelectionMessage = "agent_resume_preparing_request";
+  el("resume-selection-status").textContent = uiText(resumeSelectionMessage);
+  el("preparation-error").textContent = "";
+  controls();
+  let failureKey = null;
+  let httpStatus = null;
+  try {
+    const response = await fetch(`/api/resume-versions/${encodeURIComponent(version.id)}/prepare-interview/`, {
+      method: "POST", credentials: "same-origin", headers: { "X-CSRFToken": el("csrf-token").content },
+    });
+    httpStatus = response.status;
+    if (response.status === 401 || response.status === 403) failureKey = "rm_auth_error";
+    else {
+      const data = await response.json();
+      if (!response.ok || data.id !== version.id || data.status !== "ready" || !data.can_interview) {
+        failureKey = response.status === 409 && data.interview_profile_status === "processing" ? "agent_resume_processing_hint" : "agent_resume_prepare_failed";
+      }
+    }
+    if (failureKey) console.error("Interview resume preparation rejected", version.id, httpStatus);
+  } catch (error) {
+    failureKey = "agent_resume_prepare_failed";
+    console.error("Interview resume preparation failed", version.id, httpStatus, error.name);
+  } finally {
+    resumePreparationPending = false;
+    await loadResumeVersions();
+    if (failureKey) {
+      resumeSelectionMessage = failureKey;
+      el("resume-selection-status").textContent = uiText(failureKey);
+    }
+    controls();
+  }
+}
+/**
  * Manual selection updates only current interview input and clears old display, does not modify backend current version or invoke model.
  */
-function onResumeSelect() { el("preparation-error").textContent = ""; clearResults(); controls(); }
+function onResumeSelect() {
+  el("preparation-error").textContent = ""; clearResults();
+  resumeSelectionMessage = resumeHintKey(selectedResume());
+  el("resume-selection-status").textContent = uiText(resumeSelectionMessage);
+  controls();
+}
 /**
  * Read monotonic clock to update actual seconds; not used as condition for budget, timeout, completion, or retry.
  */
@@ -466,11 +577,11 @@ function dispatch(command) {
  */
 function onStart(event) {
   event.preventDefault();
-  if (!el("preparation-dialog").open || pendingId || pendingCommand || interviewActive || resumesLoading) return;
+  if (!el("preparation-dialog").open || pendingId || pendingCommand || interviewActive || resumesLoading || resumePreparationPending) return;
   const id = el("resume-select").value;
   const job = el("job").value.trim();
-  let ready = false;
-  for (const version of availableResumes) if (version.id === id) ready = true;
+  const version = selectedResume();
+  const ready = version?.status === "ready" && version.can_interview;
   if (!ready || !job) {
     el("preparation-error").textContent = uiText("agent_resume_required");
     return;
@@ -531,7 +642,7 @@ function onPreparationLanguage() {
   for (const option of el("resume-select").children) {
     if (!option.value) option.textContent = uiText("agent_resume_select");
     else for (const version of availableResumes) if (version.id === option.value) {
-      option.textContent = (version.label || version.original_name || uiText("rm_unnamed")) + (version.is_current ? " · " + uiText("rm_current") : "");
+      option.textContent = resumeOptionLabel(version);
     }
   }
   if (resumeSelectionMessage) el("resume-selection-status").textContent = uiText(resumeSelectionMessage);
@@ -662,6 +773,7 @@ el("preparation-dialog").addEventListener("keydown", onPreparationKeydown);
 el("interview-language").addEventListener("change", onPreparationLanguage);
 el("resume-select").addEventListener("change", onResumeSelect);
 el("refresh-resumes").addEventListener("click", loadResumeVersions);
+el("prepare-selected-resume").addEventListener("click", onPrepareResume);
 el("cancel-agent").addEventListener("click", onCancel);
 el("end-and-save").addEventListener("click", onEndSave);
 el("end-without-save").addEventListener("click", onEndDiscard);
