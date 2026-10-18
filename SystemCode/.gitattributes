@@ -1,0 +1,22 @@
+# Responsibilities: Preserve deployment line endings, Unreal LFS assets, and release exclusions.
+# Implementation: Paths are relative to SystemCode, which becomes the root of backend release
+# archives; the independently distributed Unreal project remains excluded from those archives.
+# Related Modules: ../.github/workflows/deploy.yml exports the SystemCode subtree.
+# Declaration Index: None.
+# Variable Index: text/eol enforce LF; export-ignore excludes DigitalHuman from archives;
+# filter/diff/merge select Git LFS for Unreal source assets without text conversion.
+deploy/*.sh text eol=lf
+deploy/*.py text eol=lf
+deploy/*.service text eol=lf
+deploy/*.timer text eol=lf
+deploy/*.conf text eol=lf
+deploy/*.example text eol=lf
+deploy/*.env text eol=lf
+deploy/pixel-streaming/** text eol=lf
+
+# Unreal source assets are stored in Git LFS; generated builds stay ignored.
+/DigitalHuman export-ignore
+DigitalHuman/**/*.uasset filter=lfs diff=lfs merge=lfs -text
+DigitalHuman/**/*.umap filter=lfs diff=lfs merge=lfs -text
+DigitalHuman/**/*.ubulk filter=lfs diff=lfs merge=lfs -text
+DigitalHuman/**/*.uexp filter=lfs diff=lfs merge=lfs -text

@@ -155,7 +155,7 @@ question_agent:
 ### 7.1 安装依赖
 
 ```powershell
-Set-Location D:\Interview\AiInterviewer
+Set-Location D:\Interview\AiInterviewer\SystemCode
 
 # 当前项目已有 .venv 时跳过创建；没有时使用本机 Python 3.11+ 创建。
 if (-not (Test-Path .\.venv\Scripts\python.exe)) {
@@ -170,14 +170,14 @@ if (-not (Test-Path .\.venv\Scripts\python.exe)) {
 ### 7.2 配置网页端模型
 
 ```powershell
-Set-Location D:\Interview\AiInterviewer
+Set-Location D:\Interview\AiInterviewer\SystemCode
 if (-not (Test-Path .\.env)) {
     Copy-Item .\.env.example .\.env
 }
 notepad .\.env
 ```
 
-编辑 仓库根目录 `.env`，例如使用项目已有的千问配置：
+编辑 运行项目根目录（`SystemCode/`） `.env`，例如使用项目已有的千问配置：
 
 ```dotenv
 LLM_PROVIDER=dashscope
@@ -187,14 +187,14 @@ DASHSCOPE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 OPENAI_TEMPERATURE=0
 ```
 
-模型名和区域地址应对应你的供应商账户。网页后端、终端和安全传输共用仓库根目录 `.env`。进程环境变量优先于文件，修改配置后重启服务。
+模型名和区域地址应对应你的供应商账户。网页后端、终端和安全传输共用运行项目根目录（`SystemCode/`） `.env`。进程环境变量优先于文件，修改配置后重启服务。
 
 ### 7.3 初始化数据库并启动
 
 在同一个 PowerShell 窗口执行：
 
 ```powershell
-Set-Location D:\Interview\AiInterviewer\backend
+Set-Location D:\Interview\AiInterviewer\SystemCode\backend
 $env:DJANGO_SECRET_KEY = & ..\.venv\Scripts\python.exe -c "import secrets; print(secrets.token_urlsafe(48))"
 ..\.venv\Scripts\python.exe manage.py migrate
 ..\.venv\Scripts\python.exe -m uvicorn config.asgi:application --host 127.0.0.1 --port 8765 --ws websockets-sansio
@@ -202,7 +202,7 @@ $env:DJANGO_SECRET_KEY = & ..\.venv\Scripts\python.exe -c "import secrets; print
 
 先在 **http://127.0.0.1:8765/resumes/** 上传、解析并保存简历，再在 **http://127.0.0.1:8765/agent/** 选择已保存版本、岗位与面试参数。此入口会使用默认启用的 ReAct 出题流程。
 
-`DJANGO_SECRET_KEY` 是 Django 应用密钥，与模型 API key 不同。上面的随机值只对当前 shell 有效；也可自行生成后保存在 仓库根目录 `.env` 中供后续启动使用。
+`DJANGO_SECRET_KEY` 是 Django 应用密钥，与模型 API key 不同。上面的随机值只对当前 shell 有效；也可自行生成后保存在 运行项目根目录（`SystemCode/`） `.env` 中供后续启动使用。
 
 面试使用 WebSocket，需使用上述 ASGI 启动命令，不能用 `manage.py runserver` 替代。结束服务按 Ctrl+C。
 
@@ -210,10 +210,10 @@ $env:DJANGO_SECRET_KEY = & ..\.venv\Scripts\python.exe -c "import secrets; print
 
 ### 7.4 仅运行终端面试
 
-先编辑 `D:\Interview\AiInterviewer\.env`，填写模型配置，然后运行：
+先编辑 `D:\Interview\AiInterviewer\SystemCode\.env`，填写模型配置，然后运行：
 
 ```powershell
-Set-Location D:\Interview\AiInterviewer
+Set-Location D:\Interview\AiInterviewer\SystemCode
 .\.venv\Scripts\python.exe main.py .\Wang_Shunyao_CV.pdf --max-questions 8 --max-questions-per-project 4 --max-questions-per-topic 2 --job-title "AI Engineer"
 ```
 
@@ -307,7 +307,7 @@ $detail.latest_action.decision_trace.details.question_agent_stop_reason
 原命令直接可用：
 
 ```powershell
-Set-Location D:\Interview\AiInterviewer
+Set-Location D:\Interview\AiInterviewer\SystemCode
 .\.venv\Scripts\python.exe main.py .\Wang_Shunyao_CV.pdf --max-questions 5 --max-follow-up-per-topic 2 --job-title "AI Engineer"
 ```
 
@@ -338,7 +338,7 @@ for log in result["decision_logs"]:
 ## 9. 离线测试命令
 
 ```powershell
-Set-Location D:\Interview\AiInterviewer
+Set-Location D:\Interview\AiInterviewer\SystemCode
 .\.venv\Scripts\python.exe -m pip install "pytest>=8,<10" "pytest-asyncio>=0.24,<2" "ruff>=0.11,<1"
 .\.venv\Scripts\python.exe -m pytest tests\agent\integration\test_question_react.py -q
 .\.venv\Scripts\python.exe -m pytest -q

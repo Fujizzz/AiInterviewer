@@ -1,5 +1,10 @@
 # Backend, MVP Agent and streaming diagnostics
 
+This directory is now `SystemCode/backend/` in the submission repository. Application-root
+references below mean `SystemCode/`; the shared private configuration is `SystemCode/.env`.
+The existing Windows interpreter can remain in the Git-root `.venv/`: activate it before
+entering this directory, or invoke `../../.venv/Scripts/python.exe` explicitly.
+
 Optional RAG now warms up in a shared child process. ASGI startup and interview startup return
 without waiting for embedding models or database checks. While RAG is starting or unavailable,
 interviews continue with ordinary/cached questions; a ready cached knowledge question remains

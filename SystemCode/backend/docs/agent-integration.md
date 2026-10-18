@@ -9,7 +9,7 @@ PDF 在个人中心经 HTTP 保存、传统提取或可选视觉校对；面试�
 
 ## API key 存放位置
 
-在 **仓库根目录 `AiInterviewer/.env`** 中填写密钥，终端 MVP 和后端共用该文件。首次配置可以复制模板：
+在 **运行项目根目录（`SystemCode/`） `AiInterviewer/SystemCode/.env`** 中填写密钥，终端 MVP 和后端共用该文件。首次配置可以复制模板：
 
 ```powershell
 # 在 backend 目录执行；已有根目录 .env 时不要覆盖，直接编辑。
@@ -36,7 +36,7 @@ OPENAI_TEMPERATURE=0
 ```
 
 千问地址需与你的 key 所属区域一致。供应商、模型和 key 均须显式填写；缺少配置时返回 `configuration_error`，不会启用模型替身。
-后端自动读取仓库根目录 `.env`，读取路径不依赖启动时所在目录；已存在的进程环境变量优先，修改文件后需要重启。
+后端自动读取运行项目根目录（`SystemCode/`） `.env`，读取路径不依赖启动时所在目录；已存在的进程环境变量优先，修改文件后需要重启。
 仓库现有 `.gitignore` 已忽略 `.env`，只提交根目录无密钥的 `.env.example`。密钥不放在浏览器代码或 WebSocket 请求中。
 
 `DJANGO_SECRET_KEY` 是独立的 Django 应用密钥，不是模型 API key。可在当前 PowerShell 中生成，或把随机值写入根目录 `.env`：

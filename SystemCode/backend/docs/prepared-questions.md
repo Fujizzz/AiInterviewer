@@ -57,7 +57,7 @@ cache, the existing live RAG branch remains best effort. Projects without releva
 not guaranteed a RAG question. The local database currently indexes only two papers; restoring the
 team corpus is a separate operation described in rag/docs/TEAM_INTEGRATION.md.
 
-Commands from the repository root:
+Commands from the application root (`SystemCode/`):
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests/agent/integration/test_prepared_questions.py

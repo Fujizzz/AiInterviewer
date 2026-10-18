@@ -52,7 +52,7 @@ Epic 的组装/绑定入口见 [MetaHuman Creator 入门](https://dev.epicgames.
 组装完成后，打开 UE 的 Output Log，将命令输入模式切换为 Python，运行：
 
 ```python
-exec(open(r"D:\_Project\AiInterviewer\DigitalHuman\Tools\setup_scene.py", encoding="utf-8").read())
+exec(open(r"D:\_Project\AiInterviewer\SystemCode\DigitalHuman\Tools\setup_scene.py", encoding="utf-8").read())
 ```
 
 脚本复用已经创建的地图和控制器，不重建现有布景。只有一个 MetaHuman 文件夹下的 `BP_` 角色时会自动选择。
@@ -61,7 +61,7 @@ exec(open(r"D:\_Project\AiInterviewer\DigitalHuman\Tools\setup_scene.py", encodi
 ```python
 import os
 os.environ["INTERVIEWER_AVATAR_ASSET"] = "/Game/MetaHumans/YourCharacter/BP_YourCharacter"
-exec(open(r"D:\_Project\AiInterviewer\DigitalHuman\Tools\setup_scene.py", encoding="utf-8").read())
+exec(open(r"D:\_Project\AiInterviewer\SystemCode\DigitalHuman\Tools\setup_scene.py", encoding="utf-8").read())
 ```
 
 把示例路径替换成内容浏览器中角色 Blueprint 的实际路径。也可以直接打开 `L_Interview`，放入角色，将它赋给 `InterviewerController` 的 **Avatar**。
@@ -141,7 +141,7 @@ TTS 与 ASR 单独计费和核算额度，ASR 额度不能用于文字转语音�
 音色必须匹配模型，可参考 [Qwen-Audio 音色列表](https://help.aliyun.com/en/model-studio/qwen-audio-tts-voice-list) 和 [Qwen3 音色列表](https://help.aliyun.com/en/model-studio/qwen-tts-voice-list)。
 参考 [Qwen realtime TTS SDK](https://www.alibabacloud.com/help/en/model-studio/qwen-tts-realtime-python-sdk)、[Qwen streaming ASR SDK](https://docs.modelstudio.console.alibabacloud.com/en/model-studio/qwen-audio-asr-streaming-python-sdk)、[免费额度说明](https://www.alibabacloud.com/help/en/model-studio/new-free-quota)。
 
-在仓库根目录启动后端：
+在运行项目根目录（`SystemCode/`）启动后端：
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
@@ -154,7 +154,7 @@ TTS 与 ASR 单独计费和核算额度，ASR 额度不能用于文字转语音�
 
 ## 启动 UE 与网页
 
-需要 Node.js 22+、pnpm、Git 和本机 UE/Visual Studio C++ 工具链。首次构建串流依赖，在仓库根目录执行：
+需要 Node.js 22+、pnpm、Git 和本机 UE/Visual Studio C++ 工具链。首次构建串流依赖，在运行项目根目录（`SystemCode/`）执行：
 
 ```powershell
 .\DigitalHuman\Tools\setup-streaming.ps1
@@ -162,7 +162,7 @@ TTS 与 ASR 单独计费和核算额度，ASR 额度不能用于文字转语音�
 
 脚本安装 UE 5.8 官方 Infrastructure 的 Common/Signalling 库，并构建网页 SDK 包。
 网页播放器源码、构建配置和测试统一维护在 `backend/frontend/digital-human/`；后续由后端团队迁入根目录 `frontend/`。
-只重建播放器时，在仓库根目录执行 `pnpm --dir backend/frontend/digital-human run build`，
+只重建播放器时，在运行项目根目录（`SystemCode/`）执行 `pnpm --dir backend/frontend/digital-human run build`，
 语音前端测试执行 `pnpm --dir backend/frontend/digital-human test`。
 本次使用的官方源码版本为 `6b8cfb460bda09703e85178f1f77aa6faec9e890`。
 下载目录、node_modules、打包输出和 UE 缓存均被 Git 忽略。
@@ -189,7 +189,7 @@ TTS 与 ASR 单独计费和核算额度，ASR 额度不能用于文字转语音�
 ### 本机 GPU 接入已部署网页
 
 服务器端信令与 TURN 配置见 [部署说明](../../deploy/README.md)。完成配置后，渲染电脑
-不需要再启动本机后端或本机信令；在仓库根目录的两个终端分别运行：
+不需要再启动本机后端或本机信令；在运行项目根目录（`SystemCode/`）的两个终端分别运行：
 
 ```powershell
 # 终端 1：保持 SSH 隧道运行，服务端的 UE 信令端口仍只监听回环地址。
@@ -281,7 +281,7 @@ Qwen 适配迁移后重新运行后端测试；前端 PCM/生命周期的 6 项�
 测试音频与识别结果位于 `DigitalHuman/Saved/SpeechValidation`，该目录不进入 Git。
 
 离线音频测试需要停止真实后端，另开终端运行 `DigitalHuman/Tools/audio_smoke_fixture.py`，然后对 Windows Development 包运行该 Automation 测试。
-在仓库根目录运行：
+在运行项目根目录（`SystemCode/`）运行：
 
 ```powershell
 # 终端 1：专用离线音频端点，不能与真实后端同时占用 8765。
@@ -294,7 +294,7 @@ Qwen 适配迁移后重新运行后端测试；前端 PCM/生命周期的 6 项�
 $audioTestArgs = @(
     '-RenderOffscreen', '-AudioMixer', '-ResX=1920', '-ResY=1080', '-Windowed',
     '-ExecCmds="t.MaxFPS 30,Automation RunTests Interviewer.FaceTransition+Interviewer.AvatarBinding+Interviewer.FaceSpeechPlayback+Interviewer.NativeAudioSmoke,Automation Quit"',
-    '-ReportExportPath=D:/_Project/AiInterviewer/DigitalHuman/Saved/NativeAudioTest'
+    '-ReportExportPath=D:/_Project/AiInterviewer/SystemCode/DigitalHuman/Saved/NativeAudioTest'
 )
 $audioTestProcess = Start-Process -FilePath '.\DigitalHuman\BuildOutput\Windows\DigitalHuman\Binaries\Win64\DigitalHuman.exe' -ArgumentList $audioTestArgs -WindowStyle Hidden -Wait -PassThru
 $audioTestProcess.ExitCode

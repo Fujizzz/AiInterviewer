@@ -64,7 +64,7 @@ import without the extra, so the adapter unit tests run everywhere. `create_rag_
 
 ## Setup (once per machine)
 
-Run from the repository root.
+Run from the application root (`SystemCode/`).
 
 ```bash
 cp rag/.env.example rag/.env                          # dev-only defaults; the file is gitignored
@@ -98,16 +98,16 @@ applied.
 ### Native Windows development runtime and live smoke test
 
 This checkout has a local PostgreSQL 16.15 + pgvector 0.8.6 development instance at
-`../.rag-runtime/` (outside Git), listening on `127.0.0.1:5432`. It uses the development credentials
+`../../.rag-runtime/` (outside Git), listening on `127.0.0.1:5432`. It uses the development credentials
 in the gitignored `rag/.env`. The Docker setup above remains available. The native binaries were
 installed into an isolated Conda environment from [conda-forge](https://anaconda.org/conda-forge/pgvector).
 `local_db.ps1` operates this already-initialized instance; it does not install or replace databases.
 
-From the repository root in PowerShell:
+Activate your Python environment first, then run from the application root (`SystemCode/`) in PowerShell:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File rag/local_db.ps1 start
-.\.venv\Scripts\python.exe -m rag.smoke PagedAttention
+python -m rag.smoke PagedAttention
 # Optional: stop this development database when finished.
 powershell -NoProfile -ExecutionPolicy Bypass -File rag/local_db.ps1 stop
 ```
@@ -123,9 +123,9 @@ The initial local corpus contains 34 chunks from the PagedAttention paper, suffi
 keyword smoke test; other project technologies need their own sources imported. To rebuild it:
 
 ```powershell
-.\.venv\Scripts\python.exe -m rag.cli all --source paper-pagedattention-vllm
-.\.venv\Scripts\python.exe -m rag.cli embed --source paper-pagedattention-vllm --device cpu --batch-size 2 --no-fp16
-.\.venv\Scripts\python.exe -m rag.cli index --source paper-pagedattention-vllm
+python -m rag.cli all --source paper-pagedattention-vllm
+python -m rag.cli embed --source paper-pagedattention-vllm --device cpu --batch-size 2 --no-fp16
+python -m rag.cli index --source paper-pagedattention-vllm
 ```
 
 ## Corpus

@@ -37,7 +37,7 @@ python -m uvicorn config.asgi:application --host 127.0.0.1 --port 8765 --ws webs
 版本的已保存槽位，使用相同 `rank_pairs` 与冻结模型粗排，再调用一次 LLM 精排。自动提取建议、
 未保存文本和账号联系方式不参与调用。接口强制登录、本人归属、Session CSRF，并禁止缓存响应。
 
-维护者在 仓库根目录 `.env` 显式设置 `RECOMMENDATION_JOB_CATALOG` 为岗位 JSON 的绝对路径；
+维护者在 运行项目根目录（`SystemCode/`） `.env` 显式设置 `RECOMMENDATION_JOB_CATALOG` 为岗位 JSON 的绝对路径；
 默认未配置，返回 `503/job_catalog_not_configured`，不自动启用研究数据或生成岗位。
 目录必须明确来源，`source_kind` 为 `live` 或 `experience`；实验数据在界面标注“非实时招聘职位”。
 示例仅说明格式，不会自动装入系统：

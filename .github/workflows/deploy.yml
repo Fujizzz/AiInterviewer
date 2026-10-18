@@ -1,7 +1,11 @@
-# 职责：main 推送后测试并自动部署至既有 Ubuntu 服务器。
-# 实现：runner 构建/验证数字人播放器并保存同 run artifact；受限 SSH 上传源码与已验证 bundle。
-# 关联：deploy-release.py 为服务器 root 固定入口；私钥和 known_hosts 存于 Actions secrets。
-# 目录：verify、deploy 两个 job。变量索引：secrets.DEPLOY_SSH_KEY/DEPLOY_KNOWN_HOSTS 为访问凭据。
+# Responsibilities: Verify SystemCode and deploy main to the existing Ubuntu service.
+# Implementation: Run commands from SystemCode; export that Git subtree as the release root,
+# then append the exact browser bundle verified in this workflow run. Server paths stay stable.
+# Related Modules: SystemCode/deploy/deploy-release.py and SystemCode/deploy/smoke.py.
+# Declaration Index: None.
+# Variable Index: defaults.run.working-directory selects the application root; verify/deploy
+# are jobs; REVISION selects the immutable source tree; DEPLOY_SSH_KEY/DEPLOY_KNOWN_HOSTS
+# are secret SSH credentials and host identity, never printed to the workflow log.
 name: Verify and deploy
 on:
   push:
@@ -12,6 +16,9 @@ permissions:
 concurrency:
   group: production-main
   cancel-in-progress: false
+defaults:
+  run:
+    working-directory: SystemCode
 jobs:
   verify:
     runs-on: ubuntu-22.04
@@ -36,7 +43,7 @@ jobs:
           .runtime/bin/python -m pip install pytest==9.1.1 pytest-asyncio==1.4.0
           echo "$PWD/.runtime/bin" >> "$GITHUB_PATH"
       - name: Build locked avatar browser module
-        working-directory: backend/frontend/digital-human
+        working-directory: SystemCode/backend/frontend/digital-human
         run: |
           pnpm install --frozen-lockfile
           pnpm run build
@@ -46,7 +53,7 @@ jobs:
       - name: Core tests
         run: python -m pytest -q
       - name: Backend tests
-        working-directory: backend
+        working-directory: SystemCode/backend
         run: python manage.py test interviews --noinput
       - name: Browser client tests
         run: node --test backend/tests/*.test.mjs backend/frontend/digital-human/tests/*.test.mjs
@@ -54,7 +61,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: digital-human-player-${{ github.sha }}
-          path: backend/frontend/digital-human/dist/pixel-player.js
+          path: SystemCode/backend/frontend/digital-human/dist/pixel-player.js
           if-no-files-found: error
           retention-days: 7
   deploy:
@@ -68,7 +75,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: digital-human-player-${{ github.sha }}
-          path: backend/frontend/digital-human/dist
+          path: SystemCode/backend/frontend/digital-human/dist
       - name: Assemble verified release archive
         env:
           REVISION: ${{ github.sha }}
@@ -76,7 +83,7 @@ jobs:
         run: |
           set -euo pipefail
           python deploy/smoke.py --check-frontend-bundle
-          git archive --format=tar --output="$RUNNER_TEMP/source.tar" "$REVISION"
+          git -C "$GITHUB_WORKSPACE" archive --format=tar --output="$RUNNER_TEMP/source.tar" "$REVISION:SystemCode"
           tar --append --file="$RUNNER_TEMP/source.tar" -- backend/frontend/digital-human/dist/pixel-player.js
           python deploy/smoke.py --check-release-bundle "$RUNNER_TEMP/source.tar"
       - name: Deploy verified commit

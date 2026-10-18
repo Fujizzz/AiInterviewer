@@ -1,7 +1,14 @@
+# Responsibilities: Exclude private/local state and generated artifacts from the submission repo.
+# Implementation: Generic rules apply at every depth; module-specific rules use SystemCode paths.
+# Related Modules: SystemCode/.gitattributes controls source-archive and LFS behavior.
+# Declaration Index: None.
+# Variable Index: SystemCode/backend, SystemCode/DigitalHuman and SystemCode/rag patterns cover
+# application databases, generated Unreal assets, and local corpus/model artifacts respectively.
 .env
 .env.*
 !.env.example
 .venv/
+.runtime/
 .idea/
 .DS_Store
 __pycache__/
@@ -20,33 +27,33 @@ output/
 Wang_Shunyao_CV.pdf
 
 # Backend development database and runtime artifacts
-backend/*.sqlite3
-backend/*.sqlite3-*
-backend/test-results/
-backend/.capacity/
+SystemCode/backend/*.sqlite3
+SystemCode/backend/*.sqlite3-*
+SystemCode/backend/test-results/
+SystemCode/backend/.capacity/
 
 # Unreal generated files; Content assets and project source remain versioned.
-DigitalHuman/Binaries/
-DigitalHuman/Plugins/**/Binaries/
-DigitalHuman/Plugins/**/Intermediate/
-DigitalHuman/Intermediate/
-DigitalHuman/Saved/
-DigitalHuman/DerivedDataCache/
-DigitalHuman/BuildOutput/
-DigitalHuman/.vs/
-DigitalHuman/*.sln
-DigitalHuman/*.suo
-DigitalHuman/Tools/PixelStreamingInfrastructure/
+SystemCode/DigitalHuman/Binaries/
+SystemCode/DigitalHuman/Plugins/**/Binaries/
+SystemCode/DigitalHuman/Plugins/**/Intermediate/
+SystemCode/DigitalHuman/Intermediate/
+SystemCode/DigitalHuman/Saved/
+SystemCode/DigitalHuman/DerivedDataCache/
+SystemCode/DigitalHuman/BuildOutput/
+SystemCode/DigitalHuman/.vs/
+SystemCode/DigitalHuman/*.sln
+SystemCode/DigitalHuman/*.suo
+SystemCode/DigitalHuman/Tools/PixelStreamingInfrastructure/
 
 # Local server credentials supplied by the user; never include in source archives.
 server_info.txt
 
 # RAG module: generated pipeline data, caches and local model weights stay out of Git.
-# (rag/data/sources.yaml, rag/data/eval/ and small markdown reports are versioned.)
-rag/data/raw/
-rag/data/clean/
-rag/data/chunks/
-rag/data/embeddings/
-rag/data/reports/*.json
-rag/data/reports/dropped/
-rag/data/models/
+# (SystemCode/rag/data/sources.yaml, data/eval/ and small markdown reports are versioned.)
+SystemCode/rag/data/raw/
+SystemCode/rag/data/clean/
+SystemCode/rag/data/chunks/
+SystemCode/rag/data/embeddings/
+SystemCode/rag/data/reports/*.json
+SystemCode/rag/data/reports/dropped/
+SystemCode/rag/data/models/

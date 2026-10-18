@@ -1,5 +1,17 @@
 # 单机生产部署与维护
 
+## 提交模板整理后的路径
+
+本目录位于 `SystemCode/deploy/`；开发命令以 `SystemCode/` 为运行根目录。
+GitHub Actions 仍位于仓库根目录 `.github/workflows/deploy.yml`，其 shell 步骤默认在
+`SystemCode/` 执行，上传和下载 artifact 的路径显式包含 `SystemCode/`。
+打包使用 `git archive <提交SHA>:SystemCode`，将子树内容直接作为发布包根目录，再追加同次
+CI 验证的播放器文件。因此服务器的 `current/backend`、`current/deploy` 和 `.venv` 路径
+保持原样，现有 systemd 单元及固定部署入口无需随源码外层目录迁移。
+
+应用归档属性位于 `SystemCode/.gitattributes`，仍将独立 UE 工程排除在后端发布包之外。
+仅同步提交结构不会发布到服务器；后续推送 main 时才按既有 workflow 执行验证和部署。
+
 应用部署到 `https://47.239.50.129/`，文字面试入口为 `/agent/`。
 主页公开；通过 `/register/` 注册、`/login/` 登录，每个账号的面试与练习记录独立，题库共用。
 账号仅需非空用户名与密码，无邮箱、验证码或密码复杂度要求。
@@ -46,7 +58,7 @@ Redis/Celery 接入不修改模型、采样参数、评分策略、推荐权重�
 未增加自动区域切换或改变供应商模型/期限，修改前的私有环境备份保存在
 `/etc/ai-interviewer/app.env.before-completion-20261003` 和
 `/etc/ai-interviewer/app.env.before-speech-20261003`；原始文件权限保持 `0600`。
-当前机器的 SSH 管理信息按用户要求保存在仓库根目录 `server_info.txt`，已加入 Git 忽略，
+当前机器的 SSH 管理信息按用户要求保存在运行项目根目录 `SystemCode/server_info.txt`，已加入 Git 忽略，
 不进入 Git 提交、Kaggle 数据或源码发布归档。真实麦克风及完整设备体验仍须现场验证。
 
 2026-10-05 已完成安全引擎连接保活专项更新：私有 `app.env` 显式配置
@@ -55,9 +67,10 @@ Redis/Celery 接入不修改模型、采样参数、评分策略、推荐权重�
 `/var/backups/ai-interviewer/security-network-20261005-181442/`，目录 0700、备份 0600。
 当前整版本标识仍是 `c3d96fd617419f96ef0e44d2845b63ab1e710339`，专项文件哈希另存回执；
 本地代码尚未提交推送，后续整版本发布必须包含本次修复，避免覆盖已生效的传输代码。
-当前服务器的 324 次完整安全回归/稳定性/并发检查均通过原门槛，部署后 5 次实际安装
-引擎检查均正确。数据、原失败记录边界及运行环境见
-[安全引擎网络连接优化](../security_evaluation/network_optimization/README.md)。
+原部署记录称服务器的 324 次完整安全回归/稳定性/并发检查均通过原门槛，部署后 5 次实际安装
+引擎检查均正确。该记录引用的专项文档 `security_evaluation/network_optimization/README.md`
+当前未包含在仓库中，上述部署结论仍需对照原回执复核。其他已归档实验见
+[安全评测目录](../security_evaluation/README.md)，不将其作为这次专项部署的替代证据。
 本次同时合并远程 main 的 Plan and Execute 版本；面试时长和题数安全上限沿用该远程版本。
 生产配置通过 `DJANGO_SETTINGS_MODULE=config.production` 显式启用；默认开发启动仍使用 SQLite。
 PostgreSQL 配置不全或连接失败时明确报错，不回退到 SQLite。
