@@ -2,7 +2,8 @@
 data temporarily in memory.
 Implementation: Resolve speech geography independently of the LLM HTTP endpoint while reusing the
 configured key. Missing SPEECH_REGION preserves Singapore; invalid values fail before SDK
-construction. Model, voice, audio, and timeout defaults remain unchanged.
+construction. All recognition sessions request English, independently of UI locale and completion
+detection. Model, voice, audio, and timeout defaults remain unchanged.
 Related Modules: speech.views serves synthesis audio; speech.socket bridges recognition to WebSocket
 clients.
 
@@ -27,6 +28,13 @@ Declaration Index:
   Select a supported synthesis protocol and return bounded WAV for the UE bridge.
 - _synthesize_flash_pcm:
   Collect Qwen-Audio Flash PCM with a synchronous deadline and explicit completion.
+- _synthesize_flash_pcm.Callback: Collect bounded PCM and preserve the first terminal outcome.
+- _synthesize_flash_pcm.Callback.__init__: Initialize synchronized collection and completion state.
+- _synthesize_flash_pcm.Callback.fail: Preserve the first failure and wake the waiter.
+- _synthesize_flash_pcm.Callback.on_data: Validate and append PCM only before completion or failure.
+- _synthesize_flash_pcm.Callback.on_complete: Mark completion unless a failure was stored.
+- _synthesize_flash_pcm.Callback.on_error: Sanitize a provider error and retain the first failure.
+- _synthesize_flash_pcm.Callback.on_close: Reject early closure without replacing a terminal result.
 - _wav_from_pcm:
   Validate complete PCM and wrap the shared 24 kHz mono 16-bit WAV format.
 - synthesize.Callback:
@@ -52,7 +60,7 @@ Declaration Index:
 - RecognitionSession:
   Wrap one SDK recognition task; callbacks hand data to the ASGI event loop.
 - RecognitionSession.__init__:
-  Validate credentials and construct PCM recognition with default or explicit language hints.
+  Validate credentials and construct English PCM recognition with sanitized configuration logging.
 - RecognitionSession.__init__.Callback:
   Forward provider events without sending audio or secrets to logs.
 - RecognitionSession.__init__.Callback.on_event:
@@ -69,15 +77,16 @@ Declaration Index:
   Signal end-of-input once and wait for provider completion.
 Variable Index:
 - logger:
-  Record resolved geography and model names without credentials or question text.
+  Record resolved geography, model names and recognition language without credentials or text.
 - SPEECH_REGION_ENDPOINTS:
   Supported regions mapped to public hosts and ASR workspace domain regions.
 - MAX_AUDIO_BYTES:
   Maximum PCM bytes for a 120-second TTS utterance.
 - TTS_TIMEOUT_SECONDS:
   Total synthesis deadline including WebSocket connection and audio collection.
-- QWEN_AUDIO_FLASH_MODEL / QWEN_AUDIO_FLASH_VOICE / QWEN_AUDIO_FLASH_INSTRUCTION:
-  Supported inference model and its matching default voice and English interviewer style.
+- QWEN_AUDIO_FLASH_MODEL: Supported inference-protocol speech synthesis model.
+- QWEN_AUDIO_FLASH_VOICE: Matching default voice for inference-protocol synthesis.
+- QWEN_AUDIO_FLASH_INSTRUCTION: English interviewer delivery instruction for synthesis.
 - audio_store:
   Process-local bounded WAV cache shared by synthesis and download routes.
 """
@@ -356,6 +365,7 @@ def _synthesize_flash_pcm(config, text):
         """Collect bounded bytes and preserve the first actionable failure."""
 
         def __init__(self):
+            """Initialize the lock, completion event, PCM buffer and exclusive terminal state."""
             self.lock = threading.RLock()
             self.done = threading.Event()
             self.pcm = bytearray()
@@ -363,12 +373,14 @@ def _synthesize_flash_pcm(config, text):
             self.finished = False
 
         def fail(self, error):
+            """Store the first safe error before successful completion and release the waiter."""
             with self.lock:
                 if self.error is None and not self.finished:
                     self.error = error
                     self.done.set()
 
         def on_data(self, data):
+            """Append bounded PCM bytes under the lock; reject invalid data before completion."""
             with self.lock:
                 if self.error is not None or self.finished:
                     return
@@ -380,15 +392,18 @@ def _synthesize_flash_pcm(config, text):
                     self.pcm.extend(data)
 
         def on_complete(self):
+            """Mark successful completion and release the waiter only if no error was stored."""
             with self.lock:
                 if self.error is None:
                     self.finished = True
                     self.done.set()
 
         def on_error(self, message):
+            """Sanitize the provider message before storing a terminal failure."""
             self.fail(provider_error(message))
 
         def on_close(self):
+            """Report premature closure; fail preserves any prior error or successful completion."""
             self.fail(SpeechError("speech_connection_closed", "Speech connection closed early."))
 
     configure_sdk(config)
@@ -511,14 +526,16 @@ audio_store = AudioStore()
 
 
 class RecognitionSession:
-    """Wrap one SDK recognition task; callbacks hand data to the ASGI event loop.
+    """Wrap one English SDK recognition task; callbacks hand data to the ASGI event loop.
     """
 
-    def __init__(self, emit, language_hints=None):
-        """Inputs: SDK event callback and optional explicit language hints; output isolated task.
-        Logic: validate credentials then construct PCM recognition; legacy callers keep English
-        hints. The completion branch explicitly supplies Chinese/English for spoken end phrases.
-        Constraints: model, sample rate and provider deadlines remain unchanged; no language retry.
+    def __init__(self, emit):
+        """Inputs: SDK event callback and process speech configuration; output an isolated task.
+        Logic: validate credentials and construct English PCM recognition for the English interview
+        flow. Log the model and language once, without audio, text or secrets. Completion detection
+        observes the resulting text and cannot override the recognition language.
+        Constraints: model, sample rate and provider deadlines remain unchanged; no language retry
+        or translation. Configuration errors propagate before provider startup.
         """
         config = SpeechConfig.load()
         from dashscope.audio.asr import Recognition, RecognitionCallback
@@ -563,11 +580,15 @@ class RecognitionSession:
             format="pcm",
             sample_rate=16000,
             api_key=config.api_key,
-            language_hints=["en"] if language_hints is None else language_hints,
+            language_hints=["en"],
             request_timeout=140,
             callback=Callback(),
         )
         self.stopped = False
+        logger.info(
+            "STT initialized model=%s language_hints=en format=pcm sample_rate=16000",
+            config.stt_model,
+        )
 
     def start(self):
         """Start SDK recognition on a worker thread.

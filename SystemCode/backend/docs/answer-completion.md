@@ -37,9 +37,23 @@
 这些示例只是模型上下文，不参与本地发送判断；模型可能误判，少量样例不能证明其可靠性。
 项目仍在进行不等于回答仍在继续；提示分别识别项目和本人回答的指代对象。
 后文明确继续解释/补充会覆盖前面的可能结束语，双重否定也按全句意图判断。
-新的结束检测分支
-显式使用 `zh/en` ASR 提示；旧 STT 客户端仍保持原来的英文提示。语音模型、音频编码、
-录音上限、面试预算、评分及主 Agent 模型参数沿用原配置。
+
+### Recognition language
+
+All speech sessions use `language_hints=["en"]` for the English interview flow, whether answer
+completion detection is enabled or disabled. UI language selection changes interface labels only;
+it does not select the spoken interview language. The Qwen ASR API accepts `en` as the English
+audio language ([provider reference](https://www.alibabacloud.com/help/en/model-studio/qwen-audio-asr-streaming-python-sdk)).
+This is a recognition hint, not a translation step or a guarantee against every transcription error.
+
+Previously, completion-enabled sessions overrode the shared English hint with `["zh", "en"]`.
+Removing that override changes the expected input to English; use English spoken answers and end
+phrases. The transcript observer retains its existing multilingual classification logic, model,
+prompts and thresholds. Historical synthetic bilingual ASR results describe the previous language
+configuration and must not be presented as validation of the current English-only configuration.
+Audio encoding, recording limits, interview budgets, scoring and provider deadlines are unchanged.
+The regression test exercises both ASGI start modes through the real recognition adapter with a
+mocked SDK; it verifies provider arguments and cleanup, not real speech accuracy.
 
 PCM 能量检测用于提前撤销决定，不是训练过的 VAD；背景噪声可能取消自动结束，低能量
 语音仍依靠随后到达的转写撤销。真实麦克风和供应商转写延迟需要在使用设备上验证。
