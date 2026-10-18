@@ -7,6 +7,8 @@ An AI-assisted interview practice and feedback system.
 **IRS Practice Module · AIS08 FT · Group 9 · Course start: 2026-08-17**
 
 Submission name: `IRS-PM-2026-08-17-AIS08FT-GRP-9-IntelliHire-AI`.
+
+Official repository: [IRS-PM-2026-08-17-AIS08FT-GRP-9-IntelliHire-AI](https://github.com/Fujizzz/IRS-PM-2026-08-17-AIS08FT-GRP-9-IntelliHire-AI).
 This repository follows the [IRS project submission template](https://github.com/IRS-PM/Workshop-Project-Submission-Template).
 
 ## SECTION 2 : EXECUTIVE SUMMARY / PAPER ABSTRACT
@@ -56,7 +58,9 @@ The detailed [development guide](SystemCode/README.md), [backend guide](SystemCo
 
 Application commands are run from **`SystemCode/`**, or from `SystemCode/backend/` when a command
 explicitly targets Django. Git operations are run from the repository root. The local checkout
-directory and existing remote URL remain unchanged to preserve existing development paths.
+directory may remain `AiInterviewer` to preserve existing development paths; `origin` points
+to the official repository URL above. See [contribution instructions](CONTRIBUTING.md) to
+update an existing clone.
 
 ## SECTION 6 : PROJECT REPORT / PAPER
 
