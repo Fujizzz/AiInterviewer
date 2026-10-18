@@ -41,6 +41,9 @@ def test_rare_token_set_is_a_list_of_distinct_identifiers():
     ],
 )
 def test_study_modules_import(mod):
+    # the deploy lock environment has neither package; the studies need them (rag.index.db)
+    pytest.importorskip("pgvector")
+    pytest.importorskip("psycopg_pool")
     importlib.import_module(f"rag.eval.studies.{mod}")
 
 
