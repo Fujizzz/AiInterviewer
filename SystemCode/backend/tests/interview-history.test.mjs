@@ -40,6 +40,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import vm from "node:vm";
+const POLL_SOURCE = readFileSync(new URL("../frontend/evaluation-poll.js", import.meta.url), "utf8");
 const REPORT_SOURCE = readFileSync(new URL("../frontend/evaluation-report.js", import.meta.url), "utf8");
 const HISTORY_SOURCE = readFileSync(new URL("../frontend/interview-history.js", import.meta.url), "utf8");
 const PRESENTATION_SOURCE = readFileSync(new URL("../frontend/interview-progress.js", import.meta.url), "utf8");
@@ -112,7 +113,7 @@ function historyTestPage() {
  */
   function selectors() { return []; }
   const context = vm.createContext({ document: { getElementById: node, createElement: create, querySelectorAll: selectors }, window: { addEventListener: silent }, fetch, console: { error: silent }, Date, encodeURIComponent });
-  const script = REPORT_SOURCE.replaceAll("export function", "function") + PRESENTATION_SOURCE.replaceAll("export function", "function").replace("export class", "class") + HISTORY_SOURCE.replace('import { renderEvaluationReport } from "./evaluation-report.js";', "").replace('import { reviewText, reviewTopics } from "./interview-progress.js";', "");
+  const script = POLL_SOURCE.replaceAll("export function", "function") + REPORT_SOURCE.replaceAll("export function", "function") + PRESENTATION_SOURCE.replaceAll("export function", "function").replace("export class", "class") + HISTORY_SOURCE.replace('import { pollEvaluationReport } from "./evaluation-poll.js";', "").replace('import { renderEvaluationReport } from "./evaluation-report.js";', "").replace('import { reviewText, reviewTopics } from "./interview-progress.js";', "");
   vm.runInContext(script, context); return { node, requests, context };
 }
 /**

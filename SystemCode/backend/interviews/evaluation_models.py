@@ -33,6 +33,7 @@ class AgentShadowJob(models.Model):
     base_state_version = models.PositiveIntegerField()
     committed_state_version = models.PositiveIntegerField()
     payload = models.JSONField()
+    stage_journal = models.JSONField(default=dict)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -57,6 +58,24 @@ class AgentAssessment(models.Model):
 
     class Meta:
         ordering = ["job__committed_state_version"]
+
+
+class AgentEvaluationRun(models.Model):
+    """Persistent queue/lease and the latest separately released report; no browser ownership."""
+
+    interview = models.OneToOneField(
+        "AgentInterview", primary_key=True, related_name="evaluation_run", on_delete=models.CASCADE
+    )
+    status = models.CharField(max_length=24, default="pending")
+    lease_token = models.CharField(max_length=64, blank=True)
+    lease_until = models.DateTimeField(null=True, blank=True)
+    recovery_used = models.PositiveIntegerField(default=0)
+    recovery_limit = models.PositiveIntegerField(default=3)
+    report = models.JSONField(null=True, blank=True)
+    report_receipt = models.JSONField(null=True, blank=True)
+    report_version = models.PositiveIntegerField(default=0)
+    publication_attempts = models.PositiveIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
 
 
 class AgentEvaluation(models.Model):

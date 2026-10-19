@@ -115,6 +115,12 @@ class AgentSession:
         self.app = MVPInterviewApplication(
             self.llm, repository=DjangoInterviewRepository(self.interview_id)
         )
+        from django.conf import settings
+
+        from .evaluation_queue import QueuedEvaluationAdapter
+
+        if settings.EVALUATION_USE_WORKER:
+            self.app.evaluation = QueuedEvaluationAdapter(self.app.evaluation)
         self.history = []
         self.action = None
         self.prepared_text = None
@@ -431,8 +437,9 @@ class AgentSession:
             }
         if self.action.type != InterviewActionType.FINISH:
             raise RuntimeError("Agent returned an unexpected action.")
+        scoring_complete = True
         if hasattr(self.app.evaluation, "drain"):
-            await self.app.evaluation.drain(self.interview_id)
+            scoring_complete = await self.app.evaluation.drain(self.interview_id)
         if context.assessment_feedback_ids:
             context = await assessed_report_context(self.app.repository, context)
             update_display_history(self.history, context)
@@ -525,6 +532,7 @@ class AgentSession:
                 ),
                 "interview_finished": context.state.status == "finished",
                 "final_report": report.model_dump(mode="json"),
+                "evaluation_status": "completed" if scoring_complete else "pending",
                 "report_narrative_status": narrative_status,
             },
         }

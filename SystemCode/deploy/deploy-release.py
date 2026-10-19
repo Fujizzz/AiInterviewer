@@ -202,6 +202,8 @@ def main():
         run(["bash", str(release / "deploy/backup-postgresql.sh")])
         # ASGI 先停止接收/取消流，worker 再退出；升级不保留未确认的业务操作。
         run(["systemctl", "stop", "ai-interviewer"])
+        if Path("/etc/systemd/system/ai-interviewer-evaluation.service").exists():
+            run(["systemctl", "stop", "ai-interviewer-evaluation"])
         if Path("/etc/systemd/system/ai-interviewer-celery.service").exists():
             run(["systemctl", "stop", "ai-interviewer-celery"])
         app_command(release, ["manage.py", "migrate", "--noinput"])
@@ -211,6 +213,7 @@ def main():
         for source, name in [
             ("ai-interviewer.service", "ai-interviewer.service"),
             ("celery.service", "ai-interviewer-celery.service"),
+            ("evaluation-worker.service", "ai-interviewer-evaluation.service"),
         ]:
             run(
                 [
@@ -222,7 +225,16 @@ def main():
                 ]
             )
         run(["systemctl", "daemon-reload"])
-        run(["systemctl", "enable", "--now", "ai-interviewer-celery", "ai-interviewer"])
+        run(
+            [
+                "systemctl",
+                "enable",
+                "--now",
+                "ai-interviewer-celery",
+                "ai-interviewer-evaluation",
+                "ai-interviewer",
+            ]
+        )
         # Type=simple 只确认进程已启动；有界等待安全 GET 就绪，再执行一次完整业务验收。
         wait_for_http_ready()
         app_command(release, [str(release / "deploy/smoke.py")])

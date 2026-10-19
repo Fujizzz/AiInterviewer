@@ -33,6 +33,7 @@
  *
  */
 import { renderEvaluationReport } from "./evaluation-report.js";
+import { pollEvaluationReport } from "./evaluation-poll.js";
 import { reviewText, reviewTopics } from "./interview-progress.js";
 let historyPage = 1;
 let historyListing = null;
@@ -41,6 +42,7 @@ let historyListRequest = 0;
 let historyDetailRequest = 0;
 let historyInvoker = null;
 let historyBusy = false;
+let cancelHistoryPolling = null;
 /**
  * Returns node given input template ID; fails at call site if template is missing, does not silently hide functionality.
  */
@@ -164,6 +166,7 @@ function renderHistoryDetail(detail) {
  * Given personal list UUID and invoking button; opens read-only popup and loads detail, rejects late results after close or new request.
  */
 async function openHistory(id, invoker) {
+  cancelHistoryPolling?.(); cancelHistoryPolling = null;
   const request = ++historyDetailRequest; historyDetail = null; historyInvoker = invoker;
   historyNode("history-detail-body").replaceChildren(historyElement("p", reviewText("loading")));
   if (!historyNode("history-dialog").open) historyNode("history-dialog").showModal();
@@ -172,12 +175,19 @@ async function openHistory(id, invoker) {
     const result = await historyFetch(`/api/agent-interviews/${encodeURIComponent(id)}/`);
     if (request !== historyDetailRequest || !historyNode("history-dialog").open) return;
     historyDetail = result; renderHistoryDetail(result);
+    if (["pending", "running", "idle"].includes(result.evaluation_status)) {
+      historyParagraph(historyNode("history-detail-body"), "评分仍在后台进行，报告将自动更新。", "history-notice");
+      cancelHistoryPolling = pollEvaluationReport({ interviewId: id,
+        onUpdate(detail) { if (request === historyDetailRequest) { historyDetail = detail; renderHistoryDetail(detail); } },
+        onError() { if (request === historyDetailRequest) historyParagraph(historyNode("history-detail-body"), "请稍后重新打开历史记录查看报告。", "history-notice"); },
+      });
+    }
   } catch (error) { if (request === historyDetailRequest) historyNode("history-detail-body").replaceChildren(historyElement("p", reviewText("failed"))); console.error("Interview history detail failed", { error: error.name, httpStatus: error.status ?? null }); }
 }
 /**
  * On close, clears detail memory and body, invalidates late requests, and restores focus to invoking button; does not delete database records.
  */
-function closeHistory() { historyDetailRequest++; historyDetail = null; historyNode("history-detail-body").replaceChildren(); historyInvoker?.focus(); historyInvoker = null; }
+function closeHistory() { cancelHistoryPolling?.(); cancelHistoryPolling = null; historyDetailRequest++; historyDetail = null; historyNode("history-detail-body").replaceChildren(); historyInvoker?.focus(); historyInvoker = null; }
 /**
  * Given button event; only reads its list UUID, does not infer other user content from URL.
  */

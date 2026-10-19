@@ -54,7 +54,7 @@ from evaluation.persistence import EvaluationRecord, validate_turn_evaluation
 from shared.contracts import InterviewAction, PlannedQuestion
 
 from .agent_models import AgentAnswer, AgentInterview, AgentQuestion, AgentRequest, AgentTurn
-from .evaluation_models import AgentAssessment, AgentEvaluation, AgentShadowJob
+from .evaluation_models import AgentAssessment, AgentEvaluation, AgentEvaluationRun, AgentShadowJob
 
 logger = logging.getLogger(__name__)
 
@@ -113,12 +113,81 @@ class DjangoInterviewRepository:
         self._scope(interview_id)
         return self._shadow_jobs()
 
+    def _lock_evaluation_run(self):
+        from django.conf import settings
+
+        # Serialize reservations on the interview row, also on SQLite.
+        if (
+            AgentInterview.objects.filter(id=self.interview_id).update(updated_at=timezone.now())
+            != 1
+        ):
+            raise InvalidAgentState("Evaluation interview no longer exists")
+        run, _ = AgentEvaluationRun.objects.get_or_create(interview_id=self.interview_id)
+        if settings.EVALUATION_USE_WORKER and (
+            run.lease_token != getattr(self, "evaluation_lease", None)
+            or run.lease_until is None
+            or run.lease_until <= timezone.now()
+        ):
+            raise StateConflictError("Evaluation worker lease expired")
+        return run
+
+    @sync_to_async
+    def reserve_evaluation_stage(self, job, key, stage):
+        from evaluation.recovery import reserve_stage
+
+        self._scope(job.request.interview_id)
+        with transaction.atomic():
+            run = self._lock_evaluation_run()
+            row = AgentShadowJob.objects.get(
+                interview_id=self.interview_id, feedback_request_id=job.request.request_id
+            )
+            if row.payload != job.model_dump(mode="json"):
+                raise InvalidAgentState("Evaluation checkpoint source mismatch")
+            entry, run.recovery_used = reserve_stage(
+                row.stage_journal,
+                key,
+                stage,
+                recovery_used=run.recovery_used,
+                recovery_limit=run.recovery_limit,
+            )
+            row.save(update_fields=["stage_journal"])
+            run.save(update_fields=["recovery_used"])
+            return entry
+
+    @sync_to_async
+    def complete_evaluation_stage(self, job, key, stage, result):
+        self._scope(job.request.interview_id)
+        with transaction.atomic():
+            self._lock_evaluation_run()
+            row = AgentShadowJob.objects.get(
+                interview_id=self.interview_id, feedback_request_id=job.request.request_id
+            )
+            entry = row.stage_journal[stage]
+            if entry["key"] != key:
+                raise StateConflictError("Evaluation checkpoint changed")
+            entry["result"] = result
+            row.save(update_fields=["stage_journal"])
+
     def _shadow_jobs(self):
         jobs = []
         for row in AgentShadowJob.objects.filter(interview_id=self.interview_id).select_related(
             "answer__question", "feedback_request"
         ):
             job = ShadowJob.model_validate(row.payload)
+            stored_feedback = row.answer.evaluation
+            if isinstance(stored_feedback, dict) and isinstance(
+                stored_feedback.get("analysis"), dict
+            ):
+                # Earlier receipts predate these two optional planning fields. Add only
+                # their absent defaults in memory; preserve every stored value/extra key.
+                stored_feedback = {
+                    **stored_feedback,
+                    "analysis": {
+                        "needs_assessed": False,
+                        "need_updates": [],
+                        **stored_feedback["analysis"],
+                    },
+                }
             if (
                 job.request.interview_id != self.interview_id
                 or job.request.request_id != str(row.feedback_request_id)
@@ -127,7 +196,7 @@ class DjangoInterviewRepository:
                 or row.answer.text != job.request.answer.text
                 or str(row.answer.question_id) != job.request.question.question_id
                 or row.answer.question.payload != job.request.question.model_dump(mode="json")
-                or row.answer.evaluation != job.feedback.model_dump(mode="json")
+                or stored_feedback != job.feedback.model_dump(mode="json")
                 or row.answer.committed_state_version != row.committed_state_version
                 or str(row.answer.request_id) != str(row.feedback_request_id)
                 or str(row.feedback_request.interview_id) != self.interview_id
@@ -158,6 +227,10 @@ class DjangoInterviewRepository:
     def append_assessment_record(self, job, result):
         self._scope(job.request.interview_id)
         with transaction.atomic():
+            from django.conf import settings
+
+            if settings.EVALUATION_USE_WORKER:
+                self._lock_evaluation_run()
             changed = AgentInterview.objects.filter(id=self.interview_id).update(
                 updated_at=timezone.now()
             )
@@ -188,6 +261,10 @@ class DjangoInterviewRepository:
     def append_shadow_record(self, job, result):
         self._scope(job.request.interview_id)
         with transaction.atomic():
+            from django.conf import settings
+
+            if settings.EVALUATION_USE_WORKER:
+                self._lock_evaluation_run()
             # Serialize result publication only. Never advance live state or await a model here.
             changed = AgentInterview.objects.filter(id=self.interview_id).update(
                 updated_at=timezone.now()
@@ -425,6 +502,15 @@ class DjangoInterviewRepository:
                             committed_state_version=version + 1,
                             payload=shadow_job.model_dump(mode="json"),
                         )
+                        from django.conf import settings
+
+                        if settings.EVALUATION_USE_WORKER:
+                            run, _ = AgentEvaluationRun.objects.get_or_create(
+                                interview_id=self.interview_id
+                            )
+                            if run.status != "running":
+                                run.status = "pending"
+                                run.save(update_fields=["status", "updated_at"])
                     answer.evaluation = feedback.model_dump(mode="json")
                     answer.committed_state_version = version + 1
                     answer.save(update_fields=["evaluation", "committed_state_version"])

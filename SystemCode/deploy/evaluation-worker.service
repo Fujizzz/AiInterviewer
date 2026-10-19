@@ -1,0 +1,29 @@
+[Unit]
+Description=AI Interviewer durable evaluation worker
+After=network.target postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=aiinterviewer
+Group=aiinterviewer
+WorkingDirectory=/opt/ai-interviewer/current/backend
+EnvironmentFile=/etc/ai-interviewer/app.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/ai-interviewer/current/.venv/bin/python manage.py evaluation_worker
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=45
+UMask=0077
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/ai-interviewer
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

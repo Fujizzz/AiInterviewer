@@ -126,6 +126,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import vm from "node:vm";
+const POLL_SOURCE = readFileSync(new URL("../frontend/evaluation-poll.js", import.meta.url), "utf8");
 const REPORT_SOURCE = readFileSync(new URL("../frontend/evaluation-report.js", import.meta.url), "utf8");
 
 const SCRIPT = readFileSync(new URL("../frontend/agent.js", import.meta.url), "utf8");
@@ -298,11 +299,11 @@ async function makePage(options = {}) {
   async function loadAvatarModule() {
     return { async loadAvatarConfiguration() { return { enabled: false }; } };
   }
-  const clientScript = REPORT_SOURCE.replaceAll("export function", "function") + PROGRESS_SCRIPT.replaceAll("export function", "function").replace("export class InterviewProgress", "class InterviewProgress")
+  const clientScript = POLL_SOURCE.replaceAll("export function", "function") + REPORT_SOURCE.replaceAll("export function", "function") + PROGRESS_SCRIPT.replaceAll("export function", "function").replace("export class InterviewProgress", "class InterviewProgress")
     + CAPTURE_SCRIPT.replace("export class SpeechCapture", "class SpeechCapture")
     + VOICE_SCRIPT.replace('import { SpeechCapture } from "./speech-capture.js";', "").replace("export class InterviewVoice", "class InterviewVoice")
       .replace('import("/stream-demo/pixel-player.js")', "loadAvatarModule()")
-    + SCRIPT.replace('import { renderEvaluationReport } from "./evaluation-report.js";', "").replace('import { InterviewVoice } from "./interview-voice.js";', "").replace('import { InterviewProgress, reviewScore } from "./interview-progress.js";', "");
+    + SCRIPT.replace('import { pollEvaluationReport } from "./evaluation-poll.js";', "").replace('import { renderEvaluationReport } from "./evaluation-report.js";', "").replace('import { InterviewVoice } from "./interview-voice.js";', "").replace('import { InterviewProgress, reviewScore } from "./interview-progress.js";', "");
   const context = vm.createContext({
     document: { getElementById: getElement, createElement },
     window: { addEventListener: addPageListener, dispatchEvent: dispatchPageEvent },

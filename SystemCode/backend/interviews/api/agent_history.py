@@ -164,6 +164,20 @@ class AgentHistoryViewSet(
                 state = result.get("interview_state")
                 latest_action = {"type": "finish", "question": None}
                 progress = {key: result.get(key) for key in progress}
+        from interviews.evaluation_models import AgentEvaluationRun
+        from interviews.evaluation_worker import verified_report
+
+        evaluation_run = (
+            AgentEvaluationRun.objects.select_related("interview").filter(pk=interview.pk).first()
+        )
+        evaluation_status = result.get("evaluation_status")
+        if evaluation_run is not None:
+            released = verified_report(evaluation_run)
+            if released is not None:
+                result = {**result, **released}
+                evaluation_status = released.get("evaluation_status", "completed")
+            else:
+                evaluation_status = evaluation_run.status
         questions = []
         final_feedback = {
             entry.get("question_id"): entry for entry in result.get("question_history", [])
@@ -232,6 +246,7 @@ class AgentHistoryViewSet(
                 "latest_action": latest_action,
                 "questions": questions,
                 "final_report": result.get("final_report"),
+                "evaluation_status": evaluation_status,
                 "report_narrative_status": result.get("report_narrative_status"),
                 "processing": RequestSummary(
                     interview.requests.order_by("-created_at", "-id").first()

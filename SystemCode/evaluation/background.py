@@ -89,6 +89,29 @@ def shadow_input(job, records):
 class MemoryShadowRepository:
     """Shared memory-adapter behavior; publication methods contain no await point."""
 
+    async def reserve_evaluation_stage(self, job, key, stage):
+        from copy import deepcopy
+
+        from evaluation.recovery import reserve_stage
+
+        if not hasattr(self, "_evaluation_journals"):
+            self._evaluation_journals, self._evaluation_recoveries = {}, {}
+        interview_id, request_id = job.request.interview_id, job.request.request_id
+        journal = self._evaluation_journals.setdefault(request_id, {})
+        entry, used = reserve_stage(
+            journal, key, stage, recovery_used=self._evaluation_recoveries.get(interview_id, 0)
+        )
+        self._evaluation_recoveries[interview_id] = used
+        return deepcopy(entry)
+
+    async def complete_evaluation_stage(self, job, key, stage, result):
+        from copy import deepcopy
+
+        entry = self._evaluation_journals[job.request.request_id][stage]
+        if entry["key"] != key:
+            raise StateConflictError("Evaluation checkpoint changed")
+        entry["result"] = deepcopy(result)
+
     async def get_shadow_jobs(self, interview_id):
         if interview_id not in self.contexts:
             raise InvalidAgentState("Interview context was not found")

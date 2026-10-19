@@ -141,6 +141,7 @@ class ScriptedReviewer:
 
 
 @override_settings(
+    EVALUATION_USE_WORKER=False,
     AI_SECURITY_ENABLED=True,
     AI_SECURITY_MAX_SCAN_CHARS=100000,
     AI_SECURITY_SEMANTIC_TIMEOUT_SECONDS=5,
@@ -256,6 +257,7 @@ class IOSafetyTests(TransactionTestCase):
                 "interview_finished",
                 "final_report",
                 "report_narrative_status",
+                "evaluation_status",
             },
         )
         self.assertEqual(

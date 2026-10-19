@@ -9,6 +9,7 @@ from evaluation.aggregation import ScoredEvaluation
 from evaluation.background import DeferredShadowFeedback, ShadowJob, shadow_input
 from evaluation.contracts import EvaluationResult
 from evaluation.persistence import EvaluationRecord
+from evaluation.recovery import recovery_scope
 from shared.contracts import AnswerAnalysis, EvaluationFeedback
 
 
@@ -95,7 +96,7 @@ class BackgroundShadowEvaluationAdapter:
                             break
                         inputs = shadow_input(job, records)
                         prepared[key] = asyncio.create_task(
-                            self.formal.prepare(inputs, job.feedback), name=f"extract:{key}"
+                            self._prepare(job, inputs), name=f"extract:{key}"
                         )
                     if wake_version == self._wake_versions[interview_id]:
                         return
@@ -107,6 +108,10 @@ class BackgroundShadowEvaluationAdapter:
                 interview_id=interview_id,
                 error_type=type(error).__name__,
             )
+
+    async def _prepare(self, job, inputs):
+        with recovery_scope(self.repository, job):
+            return await self.formal.prepare(inputs, job.feedback)
 
     async def _run_assessment(self, interview_id):
         try:
@@ -178,9 +183,10 @@ class BackgroundShadowEvaluationAdapter:
                     await self._prepare_available(interview_id)
                     task = self._prepared.get(interview_id, {}).get(job.request.request_id)
                     prepared = await task if task is not None else None
-                    scored = await self.formal._score(
-                        context, inputs, records, job.feedback, prepared
-                    )
+                    with recovery_scope(self.repository, job):
+                        scored = await self.formal._score(
+                            context, inputs, records, job.feedback, prepared
+                        )
                 except Exception:
                     scored = ScoredEvaluation(
                         evaluation=EvaluationResult(

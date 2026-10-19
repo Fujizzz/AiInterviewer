@@ -226,7 +226,20 @@ class MVPInterviewApplication:
                     f"Interview stopped with unexpected action {action.type.value!r}."
                 )
             if hasattr(self.evaluation, "drain"):
-                await self.evaluation.drain(interview_id)
+                # The terminal has no separate report reader; keep pending scoring alive.
+                # Stage retries remain bounded by the persistent per-interview budget.
+                while not await self.evaluation.drain(interview_id):
+                    workers = [
+                        *getattr(self.evaluation, "_workers", {}).values(),
+                        *getattr(self.evaluation, "_assessment_workers", {}).values(),
+                    ]
+                    if not any(not task.done() for task in workers):
+                        raise RuntimeError(
+                            "Scoring could not be persisted; interview data retained"
+                        )
+                    write(
+                        "Interview ended. Scoring is still running; waiting for the final report."
+                    )
             context = await self.repository.get_interview_context(interview_id)
             if context.assessment_feedback_ids:
                 context = await assessed_report_context(self.repository, context)

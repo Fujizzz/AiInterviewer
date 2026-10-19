@@ -48,7 +48,7 @@ from .test_agent_progress import collect_until, connect, disconnect, read, send_
 from .test_agent_safety import ScriptedReviewer
 
 
-@override_settings(AI_SECURITY_ENABLED=False)
+@override_settings(AI_SECURITY_ENABLED=False, EVALUATION_USE_WORKER=False)
 class SecurityActivationTests(TransactionTestCase):
     """Functionality: Verify development suspension without external model calls.
     Logic: Keep real gateway, protocol, database and history; replace only business models.

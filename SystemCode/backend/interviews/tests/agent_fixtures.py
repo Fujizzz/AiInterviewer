@@ -96,6 +96,13 @@ class SafetyTestMixin:
         Constraints: The patch is scoped to the test and is always restored by cleanup.
         """
         super().setUp()
+        from django.test import override_settings
+
+        evaluation_settings = override_settings(
+            EVALUATION_USE_WORKER=getattr(self, "use_durable_worker", False)
+        )
+        evaluation_settings.enable()
+        self.addCleanup(evaluation_settings.disable)
         patcher = patch("interviews.agent_safety.create_behavior_reviewer", FixtureBehaviorReviewer)
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -195,7 +202,8 @@ class FixtureLLM:
             selection = selection_for(data) if "dialogue_state" in data else None
             plan = (
                 plan_for(data, selection)
-                if selection else data.get("locked_intent", data.get("question_plan"))
+                if selection
+                else data.get("locked_intent", data.get("question_plan"))
             )
             topic = str(plan["topic"]).rstrip(".,;:")
             output = {"text": f"What did you personally implement for {topic}, and why?"}

@@ -38,7 +38,7 @@ from ai_security.errors import SecurityContextChanged
 
 from .agent_models import AgentAnswer, AgentInterview, AgentRequest, AgentTurn
 from .agent_safety import make_output_receipt
-from .evaluation_models import AgentEvaluation, AgentShadowJob
+from .evaluation_models import AgentEvaluation, AgentEvaluationRun, AgentShadowJob
 from .resume_models import ResumeVersion
 
 logger = logging.getLogger(__name__)
@@ -188,6 +188,23 @@ def complete_request(interview_id, request_id, response, *, receipt, owner_id=No
             AgentInterview.objects.filter(id=interview_id, status="active").update(
                 status="completed", closed_at=now, updated_at=now
             )
+            run = AgentEvaluationRun.objects.filter(pk=interview_id).first()
+            if run is not None:
+                if response["result"].get("evaluation_status") == "completed":
+                    run.report, run.report_receipt, run.report_version = response, receipt, version
+                    if run.status != "running":
+                        run.status = "completed"
+                elif run.status != "running":
+                    run.status = "pending"
+                run.save(
+                    update_fields=[
+                        "report",
+                        "report_receipt",
+                        "report_version",
+                        "status",
+                        "updated_at",
+                    ]
+                )
     logger.info(
         "Agent request saved interview=%s request=%s review_status=%s",
         interview_id,
@@ -244,5 +261,8 @@ def interrupt_interview(interview_id):
         changed = AgentInterview.objects.filter(
             id=interview_id, status__in=["preparing", "active"]
         ).update(status="interrupted", closed_at=now, updated_at=now)
+        AgentEvaluationRun.objects.filter(pk=interview_id, status="idle").update(
+            status="pending", updated_at=now
+        )
     if changed:
         logger.info("Agent interview interrupted interview=%s", interview_id)

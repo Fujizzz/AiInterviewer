@@ -30,6 +30,17 @@ class EvaluationModelClient:
         self._timeout_seconds = timeout_seconds
 
     async def call(self, *, stage: str, prompt: str, payload: dict, schema: type[T]) -> T:
+        from evaluation.recovery import recovered_call
+
+        return await recovered_call(
+            lambda: self._call_once(stage=stage, prompt=prompt, payload=payload, schema=schema),
+            stage=stage,
+            prompt=prompt,
+            payload=payload,
+            schema=schema,
+        )
+
+    async def _call_once(self, *, stage, prompt, payload, schema):
         try:
             result = await run_model_call(
                 lambda: asyncio.to_thread(self._llm, prompt, payload, schema),

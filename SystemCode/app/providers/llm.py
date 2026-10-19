@@ -124,6 +124,8 @@ class OpenAILLM:
 
     def _qwen(self, prompt: str, data: dict, schema: type[T]) -> T:
         """Request JSON output, validate it, and retry invalid structure once."""
+        from evaluation.recovery import managed_evaluation_call
+
         messages = [
             {
                 "role": "system",
@@ -153,6 +155,7 @@ class OpenAILLM:
                 "prepared_question_use",
             }
             or schema.__name__ == "CompactAnswerDecision"
+            or managed_evaluation_call.get()
             else 2
         )
         for attempt in range(attempts):

@@ -66,6 +66,7 @@
  * Does not upload or edit resumes or alter budgets/scores; has no resend, alternate-resume selection, or model-call fallback path.
  */
 import { renderEvaluationReport } from "./evaluation-report.js";
+import { pollEvaluationReport } from "./evaluation-poll.js";
 import { InterviewVoice } from "./interview-voice.js";
 import { InterviewProgress, reviewScore } from "./interview-progress.js";
 
@@ -142,6 +143,7 @@ let pendingId = null;
 let pendingCommand = null;
 let terminal = false;
 let completedReport = null;
+let cancelReportPolling = null;
 let interviewActive = false;
 let resumesLoading = false;
 let availableResumes = [];
@@ -267,6 +269,7 @@ function endWait() {
  * Clear old Q&A, report, and time display, retain saved version selection and job, no network operation.
  */
 function clearResults() {
+  cancelReportPolling?.(); cancelReportPolling = null;
   completedReport = null;
   progress.reset();
   voice.reset();
@@ -424,6 +427,22 @@ function onMessage(event) {
       el("report-summary").hidden = report.scoring_source === "formal_evaluation" && !summaryPrefix;
       renderEvaluationReport(el("report"), report);
       stop(uiText("agent_finished"));
+      if (message.result.evaluation_status === "pending") {
+        status("面试已结束，评分仍在后台进行，报告将自动更新。");
+        cancelReportPolling?.();
+        cancelReportPolling = pollEvaluationReport({
+          interviewId: message.result.interview_id,
+          onUpdate(detail) {
+            if (detail.final_report) {
+              completedReport = detail.final_report;
+              renderEvaluationReport(el("report"), completedReport);
+            }
+            if (["completed", "completed_with_errors"].includes(detail.evaluation_status)) status(uiText("agent_finished"));
+            else if (detail.evaluation_status === "failed") status("评分处理未完成，请稍后在面试历史查看结果。");
+          },
+          onError() { status("报告仍可在面试历史中查看，请稍后刷新。"); },
+        });
+      }
     } else if (message.type === "discarded") { stop(uiText("interview_discarded")); clearResults(); }
     else if (message.type === "cancelled") stop(uiText("agent_cancelled"));
     else throw new Error(uiText("agent_unknown_response"));
@@ -650,7 +669,7 @@ function onClear() { stop(uiText("agent_cleared")); clearResults(); }
 /**
  *  Stop connection and interval after page leaves; do not use browser persistent storage to restore session.
  */
-function onPageHide() { stop(uiText("agent_page_left")); voice.close(); }
+function onPageHide() { cancelReportPolling?.(); stop(uiText("agent_page_left")); voice.close(); }
 
 el("start-form").addEventListener("submit", onStart);
 el("open-preparation").addEventListener("click", onOpenPreparation);

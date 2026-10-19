@@ -68,6 +68,10 @@ INSTALLED_APPS = [
     "interviews",
 ]
 INTERVIEW_REQUIRE_LOGIN = False
+EVALUATION_USE_WORKER = os.environ.get("EVALUATION_USE_WORKER", "true").lower() == "true"
+EVALUATION_FINAL_WAIT_SECONDS = float(os.environ.get("EVALUATION_FINAL_WAIT_SECONDS", "3"))
+if not 0 <= EVALUATION_FINAL_WAIT_SECONDS <= 60:
+    raise ValueError("EVALUATION_FINAL_WAIT_SECONDS must be between 0 and 60")
 # Review is disabled by default for the current interview flow; explicit true restores it.
 # Invalid values fail startup. Environment changes require a backend restart.
 AI_SECURITY_ENABLED = os.environ.get("AI_SECURITY_ENABLED", "false").strip().lower()

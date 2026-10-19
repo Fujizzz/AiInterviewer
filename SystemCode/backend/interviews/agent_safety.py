@@ -493,7 +493,8 @@ class InterviewIOGateway:
                             ],
                             "introduction_answer": (
                                 context.introduction_answer.model_dump(mode="json")
-                                if context.introduction_answer is not None else None
+                                if context.introduction_answer is not None
+                                else None
                             ),
                             "current_question": (stored["latest_action"] or {}).get("question"),
                             "formal_scores": stored.get("formal_scores"),
@@ -562,6 +563,9 @@ class InterviewIOGateway:
             ),
         )
 
+    async def _read_snapshot(self):
+        return await read_io_snapshot(self.interview_id, self._command.request_id, self.owner_id)
+
     async def publish(self, payload, delivery):
         """Publish a response dictionary through an async delivery(body, receipt) callback and
         return its result.
@@ -577,9 +581,7 @@ class InterviewIOGateway:
             raise IOSafetyError("output without active input boundary")
         try:
             frozen = json.loads(canonical_json(payload))
-            stored = await read_io_snapshot(
-                self.interview_id, self._command.request_id, self.owner_id
-            )
+            stored = await self._read_snapshot()
             if not self.enabled:
                 self._validate_output(frozen, stored)
                 receipt = make_output_receipt(
@@ -600,9 +602,7 @@ class InterviewIOGateway:
                 """Rebind the immutable closure body to a request built from the latest database
                 state.
                 """
-                latest = await read_io_snapshot(
-                    self.interview_id, self._command.request_id, self.owner_id
-                )
+                latest = await self._read_snapshot()
                 return self._request(frozen, latest)
 
             async def deliver(checked):
