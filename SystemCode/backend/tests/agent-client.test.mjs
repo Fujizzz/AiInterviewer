@@ -22,7 +22,7 @@
  * - Socket.send: Input: Encoded JSON; parse and save to assert command content.
  * - Socket.close: Mark connection as closed; no implicit emission of other events.
  * - Socket.emit: Input: Event payload and optional event name (default: message); currentTarget fixed to this connection.
- * - makePage: Input: Synthesized versions/search/failure options; execute real script and wait for initial load; output test page and isolated capture class, enabling device boundary replacement, no real network.
+ * - makePage: Execute the real client with paginated metadata and an optional explicit preparation-response provider; return observations without real network/model calls.
  * - makePage.addPageListener: Save event name and callback, allowing real voice coordinator to receive client eligibility.
  * - makePage.dispatchPageEvent: Deliver test CustomEvent; do not send network or capture media.
  * - makePage.getElement: Input: Template ID; return corresponding element; client referencing non-existent element fails.
@@ -32,17 +32,41 @@
  * - makePage.uuid: Return unique test request identifier within page; do not simulate backend UUID validation.
  * - makePage.ignoreEvent: Input: Page event registration parameters; test does not create real page lifecycle.
  * - makePage.tick: Input: Milliseconds to advance test clock; then execute current display callbacks.
- * - makePage.fetch: Input: Request URL; output combined paginated JSON; fail with real HTTP status, no implicit downgrade.
- * - makePage.fetch.object1.json: Return corresponding synthesized page; one record per page ensures test coverage of current on subsequent pages.
+ * - makePage.fetch: Return configured preparation responses or paginated metadata, recording explicit POST options separately.
+ * - makePage.fetch.object3.json: Return the scripted preparation response without model calls.
+ * - makePage.fetch.object4.json: Return one metadata record per page to exercise pagination.
  * - makePage.createElement: Input: Tag name; output option node; no real window side effects.
  * - makePage.ignoreError: Receive diagnostic logs without printing synthesized version or voice content.
  * - makePage.loadAvatarModule: Supply disabled offline avatar configuration at the dynamic module boundary; no renderer or network is created.
+ * - makePage.loadAvatarModule.object1.loadAvatarConfiguration: Return a disabled renderer configuration without external access.
  * - hello: Input connection and optional test message limit, simulate hello, return command ID sent by client or undefined.
  * - startPrepared: Input loaded page, explicitly open preparation and confirm; do not override business handlers or create additional connections.
  * - preparationInteraction: Real script paired with native dialog stub; preserve settings toggle, no network, confirm once then close and disable all preparation entry points.
  * - preparationBoundaries: Submissions outside popups cannot connect; invalid inputs remain in popup; source failure still allows opening and shows clear guidance.
  * - callback1: After metadata readiness, start only sends version ID; maintain phase timing and original budget, do not send name/email/content.
- * - callback2: current may be located on subsequent pages; unready versions do not enter options, explicitly specified unavailable versions do not auto-select others.
+ * - callback2: Later pages and unprepared versions remain visible; nonexistent explicit IDs never select an alternative.
+ * - legacyResumePreparation: Verify old versions remain visible, one CSRF-protected preparation unlocks only the selected version, and no interview starts automatically.
+ * - legacyResumePreparation.prepare: Hold the explicit POST until the test releases it, then publish ready metadata.
+ * - legacyResumePreparation.prepare.callback1: Capture the resolver for the in-flight preparation response.
+ * - resumePreparationFailures: Verify HTTP/network failures, processing and raw-PDF states remain blocked with explicit recovery and no retries.
+ * - resumePreparationFailures.prepare: Return scripted HTTP metadata without real parsing.
+ * - resumePreparationFailures.networkFailure: Throw an explicit network failure without mutating the fixture.
+ * - resumeReadinessLanguage: Verify localization redraw preserves version identity and status labels without a request.
+ * - resumeReadinessLanguage.translate: Substitute Chinese readiness text without changing metadata.
+ * - observeAvatarLifecycle.page.voice.connectAvatar: Create observable in-memory renderer resources.
+ * - observeAvatarLifecycle.page.voice.connectAvatar.this.player.send: Record a renderer message locally.
+ * - observeAvatarLifecycle.page.voice.connectAvatar.this.player.close: Mark the stub player closed and count cleanup.
+ * - observeAvatarLifecycle.page.voice.connectAvatar.this.presentation.setActive: Accept activity without animation.
+ * - observeAvatarLifecycle.page.voice.connectAvatar.this.presentation.setState: Accept state without animation.
+ * - observeAvatarLifecycle.page.voice.connectAvatar.this.presentation.setQuestion: Accept question state without rendering.
+ * - observeAvatarLifecycle.page.voice.connectAvatar.this.presentation.clear: Accept clearing without DOM effects.
+ * - observeAvatarLifecycle.page.voice.connectAvatar.this.presentation.endListeningCapture: Accept capture cleanup without hardware.
+ * - observeAvatarLifecycle.page.voice.connectAvatar.this.presentation.close: Count presentation cleanup.
+ * - avatarStartBoundary.callback1: Check that lifecycle tests made only version requests.
+ * - avatarTerminalCleanup.callback1: Verify one terminal event releases renderer resources and timers.
+ * - avatarTerminalCleanup.callback1.callback1: Reject unexpected HTTP requests during terminal cleanup.
+ * - callback11: Verify a finished report replaces preliminary assessment in the actual client.
+ * - callback11.contents: Collect descendant text from the DOM substitute for report assertions.
  * - callback3: Cancelled late events do not resume interview; selected version remains, timer cleared.
  * - callback4: Disconnection during initial scoring without text report retains score and clearly indicates incomplete, stops timer.
  * - callback5: First question allows answer and stops timer; after final round report success, retain real summary and restore start button.
@@ -56,6 +80,8 @@
  * - startCapture.page.captureType.prototype.start: Offline authorization and handshake complete without creating microphone track.
  * - startCapture.page.captureType.prototype.end: Offline end only sets collection flag; final text must be delivered separately by test, do not fabricate synchronous success.
  * - speechAnswerLifecycle: Validate two-phase boundary between explicit end and final text, plain text captions, duplicate prevention, and next-question cleanup.
+ * - englishSpeechCaptions: Replace transient Han captions with an English notice, recover on English
+ *   updates and flag final Han text while preserving submission, timing and stale-callback guards.
  * - speechAnswerBoundaries: Verify full final capture-limit text auto-submits, empty final speech records Skip, and recognition failures cannot submit late partial/final text.
  * - blockedResumeSelection: Prohibit start when no input available; failure does not select alternative version; these are simulated permission responses, not replacing real service permissions.
  * - interviewProgressLifecycle: Real page script with deterministic clock: progress will not automatically end interview; disconnection freezes, existing exceptions deduplicated and cleared without removing backend.
@@ -111,6 +137,7 @@
  * - syntheticPCMSemanticEnd.callback1: Sum original and flushed tail PCM bytes.
  * - syntheticPCMEarlyEnd: Verify saving during real PCM capture preserves final ASR text, while discard sends no answer or report.
  * Variable Index:
+ * - REPORT_SOURCE: Real report renderer loaded into the isolated client VM.
  * - SCRIPT: Real client source code to be validated.
  * - HTML: Actual interview and shared navigation templates, used to verify client element references.
  * - VOICE_SCRIPT: Real voice coordinator source code, executed in isolated VM.
@@ -221,7 +248,8 @@ class Socket {
 }
 
 /**
- * Input: Synthesized versions/search/failure options; execute real script and wait for initial load; output test page and isolated capture class, enabling device boundary replacement, no real network.
+ * Inputs: Versions/search/failure options and an optional prepare(url, options) response provider. Outputs: VM page and request observations.
+ * Logic: Execute real client code with paginated GET metadata and explicit POST interception. Constraints: No real network/model calls; state changes belong to test fixtures only.
  */
 async function makePage(options = {}) {
   const elements = new Map();
@@ -272,13 +300,25 @@ async function makePage(options = {}) {
   getElement("limit").value = "5";
   getElement("duration").value = "30";
   getElement("probes").value = "2";
+  getElement("csrf-token").content = "fixture-csrf";
   const requests = [];
+  const writes = [];
   const versions = options.versions || [{id:"version-a",status:"ready",can_interview:true,label:"Current resume",is_current:true}];
   /**
- * Input: Request URL; output combined paginated JSON; fail with real HTTP status, no implicit downgrade.
+ * Input: URL and optional request options; return paginated fixture metadata or a configured preparation response.
+ * POST calls are separately recorded and must be explicitly configured; no real network or automatic retry.
  */
-  async function fetch(url) {
+  async function fetch(url, init = {}) {
     requests.push(url);
+    if (init.method === "POST") {
+      writes.push({ url, ...init });
+      assert.ok(options.prepare, "Unexpected preparation POST");
+      const response = await options.prepare(url, init);
+      return { ok: response.status >= 200 && response.status < 300, status: response.status,
+        /** Return only the explicit preparation fixture payload; no model or database work. */
+        async json() { return response.data; },
+      };
+    }
     const page = Number(new URL(url, "http://localhost").searchParams.get("page"));
     return { ok: !options.failure, status: options.failure || 200,
       /**
@@ -297,7 +337,10 @@ async function makePage(options = {}) {
   function ignoreError() {}
   /** Return an explicitly unavailable renderer without importing the browser-only vendor player. */
   async function loadAvatarModule() {
-    return { async loadAvatarConfiguration() { return { enabled: false }; } };
+    return {
+      /** Return a disabled renderer configuration; no vendor import or network access. */
+      async loadAvatarConfiguration() { return { enabled: false }; },
+    };
   }
   const clientScript = POLL_SOURCE.replaceAll("export function", "function") + REPORT_SOURCE.replaceAll("export function", "function") + PROGRESS_SCRIPT.replaceAll("export function", "function").replace("export class InterviewProgress", "class InterviewProgress")
     + CAPTURE_SCRIPT.replace("export class SpeechCapture", "class SpeechCapture")
@@ -316,7 +359,7 @@ async function makePage(options = {}) {
   await vm.runInContext(clientScript, context);
   const voice = vm.runInContext("voice", context);
   const captureType = vm.runInContext("SpeechCapture", context);
-  return { el: getElement, tick, timers, requests, voice, captureType, context };
+  return { el: getElement, tick, timers, requests, writes, voice, captureType, context };
 }
 
 /**
@@ -415,16 +458,148 @@ test("selected ready version starts once with original budget and real timing", 
 });
 
 /**
- *  current may be located on subsequent pages; unready versions do not enter options, explicitly specified unavailable versions do not auto-select others.
+ * Current may occur on later pages; all statuses remain visible, and nonexistent explicit IDs do not select another version.
  */
 test("selection includes later pages and rejects an unavailable explicit version", async () => {
   const versions=[{id:"pending",status:"uploaded"},{id:"version-b",status:"ready",can_interview:true,is_current:true}];
   const page=await makePage({versions});
   assert.equal(page.el("resume-select").value,"version-b");assert.equal(page.requests.length,2);
-  const missing=await makePage({versions,search:"?resume_version_id=pending"});
+  assert.equal(page.el("resume-select").children.length,3);
+  const unprepared=await makePage({versions,search:"?resume_version_id=pending"});
+  assert.equal(unprepared.el("resume-select").value,"pending");
+  assert.equal(unprepared.el("start-agent").disabled,true);
+  assert.match(unprepared.el("resume-selection-status").textContent,/extraction/);
+  const missing=await makePage({versions,search:"?resume_version_id=deleted"});
   assert.equal(missing.el("resume-select").value,"");assert.equal(missing.el("start-agent").disabled,true);
   assert.match(missing.el("resume-selection-status").textContent,/unavailable/);
 });
+
+/**
+ * Functionality: Reproduce legacy pending metadata and explicitly repair one selected version.
+ * Inputs: Paginated fixtures and a held POST response. Outputs: Assertions about visible options, CSRF, locks and start commands.
+ * Logic: Keep a preparation in flight while duplicate clicks/start/refresh are attempted, then return ready metadata.
+ * Constraints: Provider and DOM are simulated; this proves client orchestration, not real model quality or browser layout.
+ */
+async function legacyResumePreparation() {
+  const versions = [
+    { id: "legacy", label: "Saved resume", status: "ready", can_interview: false, interview_profile_status: "pending", is_current: true },
+    { id: "failed-pdf", label: "Original PDF", status: "failed", can_interview: false },
+    { id: "other", label: "Other ready resume", status: "ready", can_interview: true },
+  ];
+  let release;
+  /** Hold a single fixture POST; after release, update only its version's readiness, retaining saved identity and label. */
+  async function prepare() {
+    await new Promise(/** Capture the resolver so assertions can inspect the request while it is outstanding. */ (resolve) => { release = resolve; });
+    Object.assign(versions[0], { can_interview: true, interview_profile_status: "ready" });
+    return { status: 200, data: versions[0] };
+  }
+  const page = await makePage({ versions, prepare });
+  const connections = Socket.instances.length;
+  assert.equal(page.el("resume-select").children.length, 4);
+  assert.match(page.el("resume-select").children[1].textContent, /Saved resume.*Needs preparation/);
+  assert.match(page.el("resume-select").children[2].textContent, /Extraction failed/);
+  assert.equal(page.el("resume-select").value, "legacy");
+  assert.equal(page.el("start-agent").disabled, true);
+  assert.equal(page.el("prepare-selected-resume").hidden, false);
+  assert.equal(page.writes.length, 0);
+  startPrepared(page);
+  assert.equal(Socket.instances.length, connections);
+  const pending = page.el("prepare-selected-resume").fire("click");
+  assert.equal(page.el("prepare-selected-resume").disabled, true);
+  assert.equal(page.el("resume-select").disabled, true);
+  assert.equal(page.el("refresh-resumes").disabled, true);
+  await page.el("prepare-selected-resume").fire("click");
+  await page.el("refresh-resumes").fire("click");
+  startPrepared(page);
+  assert.equal(page.writes.length, 1);
+  assert.equal(Socket.instances.length, connections);
+  assert.equal(page.writes[0].url, "/api/resume-versions/legacy/prepare-interview/");
+  assert.equal(page.writes[0].headers["X-CSRFToken"], "fixture-csrf");
+  assert.equal(page.writes[0].credentials, "same-origin");
+  assert.equal(page.writes[0].body, undefined);
+  release();
+  await pending;
+  assert.equal(page.el("resume-select").value, "legacy");
+  assert.equal(page.el("start-agent").disabled, false);
+  assert.equal(page.el("prepare-selected-resume").hidden, true);
+  assert.equal(Socket.instances.length, connections);
+  startPrepared(page);
+  const socket = Socket.instances.at(-1);
+  hello(socket);
+  assert.equal(socket.sent[0].resume_version_id, "legacy");
+  assert.equal("resume_text" in socket.sent[0], false);
+}
+test("legacy resumes stay visible and preparation is explicit, CSRF-protected and serialized", legacyResumePreparation);
+
+/**
+ * Functionality: Keep unsuccessful preparation and extraction states explicit and non-startable.
+ * Inputs: HTTP/auth/processing/identity-mismatch fixtures and an explicit network rejection.
+ * Outputs: Assertions that only one POST occurs and no WebSocket opens. Logic: Refresh metadata after failure without retrying or selecting another version.
+ * Constraints: No live authentication or model calls; server authorization remains independently enforced.
+ */
+async function resumePreparationFailures() {
+  const connections = Socket.instances.length;
+  for (const response of [
+    { status: 403, state: "pending", message: /Sign in again/ },
+    { status: 503, state: "failed", message: /could not be confirmed/ },
+    { status: 409, state: "processing", message: /being prepared/ },
+    { status: 200, state: "pending", message: /could not be confirmed/ },
+    { status: 200, state: "pending", id: "foreign", can_interview: true, message: /could not be confirmed/ },
+  ]) {
+    const version = { id: "legacy", status: "ready", can_interview: false, interview_profile_status: "pending", is_current: true };
+    /** Return fixed HTTP metadata and persist only the fixture's profile state, without preparing a real resume. */
+    async function prepare() {
+      version.interview_profile_status = response.state;
+      return { status: response.status, data: { ...version, id: response.id || version.id, can_interview: Boolean(response.can_interview) } };
+    }
+    const page = await makePage({ versions: [version], prepare });
+    await page.el("prepare-selected-resume").fire("click");
+    assert.equal(page.writes.length, 1);
+    assert.equal(page.el("start-agent").disabled, true);
+    assert.match(page.el("resume-selection-status").textContent, response.message);
+    assert.equal(page.el("prepare-selected-resume").disabled, response.state === "processing");
+    startPrepared(page);
+    assert.equal(Socket.instances.length, connections);
+  }
+  /** Reject the explicit POST at the network boundary; no metadata mutation or hidden response. */
+  async function networkFailure() { throw new TypeError("fixture network failure"); }
+  const failed = await makePage({ versions: [{ id: "legacy", status: "ready", can_interview: false, is_current: true }], prepare: networkFailure });
+  await failed.el("prepare-selected-resume").fire("click");
+  assert.equal(failed.writes.length, 1);
+  assert.match(failed.el("resume-selection-status").textContent, /could not be confirmed/);
+  assert.equal(failed.el("start-agent").disabled, true);
+  for (const state of ["uploaded", "parsing", "failed", "interrupted"]) {
+    const page = await makePage({ versions: [{ id: "pdf", status: state, can_interview: false, is_current: true }] });
+    assert.equal(page.el("prepare-selected-resume").hidden, true);
+    await page.el("prepare-selected-resume").fire("click");
+    assert.equal(page.writes.length, 0);
+    assert.equal(page.el("start-agent").disabled, true);
+    assert.match(page.el("resume-selection-status").textContent, /text extraction/);
+  }
+}
+test("preparation failures and incomplete PDFs cannot bypass readiness or trigger retries", resumePreparationFailures);
+
+/**
+ * Functionality: Preserve selected legacy metadata while redrawing translated labels.
+ * Inputs: A pending version and translation substitute. Outputs: Stable UUID, translated readiness, unchanged request count.
+ * Logic: Dispatch the real language handler and manual selection. Constraints: Translation dictionary parity is tested separately by i18n.test.mjs.
+ */
+async function resumeReadinessLanguage() {
+  const page = await makePage({ versions: [{ id: "legacy", label: "Saved name", status: "ready", can_interview: false, is_current: true }] });
+  const count = page.requests.length;
+  /** Map the readiness key to Chinese while leaving other fixture keys distinguishable; no network or persistence. */
+  function translate(key) { return key === "agent_resume_needs_preparation" ? "待准备" : key; }
+  page.context.window.AppI18n = { t: translate };
+  page.el("interview-language").fire("change");
+  assert.match(page.el("resume-select").children[1].textContent, /Saved name.*待准备/);
+  assert.equal(page.el("resume-select").value, "legacy");
+  assert.equal(page.requests.length, count);
+  page.el("resume-select").value = "";
+  page.el("resume-select").fire("change");
+  assert.equal(page.el("prepare-selected-resume").hidden, true);
+  assert.equal(page.el("start-agent").disabled, true);
+}
+test("resume language changes preserve identity and unready start guards", resumeReadinessLanguage);
 
 /**
  *  Cancelled late events do not resume interview; selected version remains, timer cleared.
@@ -628,6 +803,47 @@ async function speechAnswerLifecycle() {
   assert.equal(page.el("answer-subtitles").hidden, true);
 }
 test("finish answer waits for final speech and submits once while subtitles remain visible", speechAnswerLifecycle);
+
+/**
+ * Exercise Chinese-to-English revisions through the real caption and submission callbacks.
+ * Inputs: synthetic provider drafts/finals; hardware and transport remain offline stubs.
+ * Outputs: assertions on English notices, raw final submission and inactivity/identity guards.
+ * Constraints: this tests display policy, not ASR accuracy. Han is not used as a language classifier;
+ * punctuation, accents, technical symbols and ordinary English remain intact.
+ */
+async function englishSpeechCaptions() {
+  assert.match(HTML, /id="answer-subtitle"[^>]*lang="en"[^>]*translate="no"/);
+  const page = await answeringPage();
+  const capture = await startCapture(page);
+  const originalDeadline = page.voice.deadline;
+  page.tick(1000);
+  for (const draft of ["我正在介绍项目", "I used Python 处理数据", "\u{20000}"]) {
+    capture.onPartial(draft);
+    assert.equal(page.el("answer-subtitle").textContent, "Transcribing English speech…");
+    assert.equal(page.el("answer-subtitles").hidden, false);
+    assert.equal(page.ws.sent.length, 1);
+  }
+  assert.ok(page.voice.deadline > originalDeadline, "hidden drafts still count as text activity");
+  const corrected = "I used Python, C++ and SQL for résumé data (95% accuracy).";
+  capture.onPartial(corrected);
+  assert.equal(page.el("answer-subtitle").textContent, corrected);
+  capture.onFinal(corrected, 10);
+  assert.equal(page.ws.sent.at(-1).answer_text, corrected);
+  assert.equal(page.el("answer-subtitle").textContent, corrected);
+  capture.onPartial("过期字幕");
+  assert.equal(page.el("answer-subtitle").textContent, corrected);
+
+  const finalMismatch = await answeringPage();
+  const mismatchCapture = await startCapture(finalMismatch);
+  const rawFinal = "I used Python 处理数据";
+  mismatchCapture.onFinal(rawFinal, 10);
+  assert.equal(finalMismatch.el("answer-subtitle").textContent, "Transcription contains non-English text.");
+  assert.equal(finalMismatch.ws.sent.at(-1).answer_text, rawFinal, "caption notice cannot rewrite the answer");
+  assert.equal(finalMismatch.ws.sent.length, 2);
+  finalMismatch.voice.subtitle("");
+  assert.equal(finalMismatch.el("answer-subtitles").hidden, true);
+}
+test("English captions suppress Han drafts without altering final answers or timing", englishSpeechCaptions);
 
 /**
  * Verify full final capture-limit text auto-submits, empty final speech records Skip, and recognition failures cannot submit late partial/final text.
@@ -893,17 +1109,30 @@ test("final report race preserves the user's end choice", completedDuringChoice)
  */
 function observeAvatarLifecycle(page) {
   const observations = { connections: 0, resources: [] };
+  /** Allocate only in-memory player/presentation observations; preserve the real coordinator's cleanup methods. */
   page.voice.connectAvatar = async function () {
     observations.connections += 1;
     const resource = { playerCloses: 0, presentationCloses: 0, sent: [] };
     observations.resources.push(resource);
     this.player = {
       ready: true,
+      /** Record the outgoing renderer message and acknowledge local acceptance without transport. */
       send(message) { resource.sent.push(message); return true; },
+      /** Mark this stub closed and record exactly how often cleanup is requested. */
       close() { this.ready = false; resource.playerCloses += 1; },
     };
     this.presentation = {
-      setActive() {}, setState() {}, setQuestion() {}, clear() {}, endListeningCapture() {},
+      /** Accept activity updates without creating an animation. */
+      setActive() {},
+      /** Accept interview state without changing renderer resources. */
+      setState() {},
+      /** Accept question presentation without displaying content. */
+      setQuestion() {},
+      /** Accept display clearing without a browser DOM. */
+      clear() {},
+      /** Accept capture cleanup without microphone access. */
+      endListeningCapture() {},
+      /** Count presentation closure for the real coordinator's lifecycle assertions. */
       close() { resource.presentationCloses += 1; },
     };
   };
@@ -934,7 +1163,7 @@ async function avatarStartBoundary() {
     question: { question_id: "avatar-q", text: "Describe your contribution.", difficulty: 1 } });
   assert.equal(observation.connections, 1);
   assert.equal(ws.sent.length, 1);
-  assert.ok(page.requests.every((url) => url.startsWith("/api/resume-versions/")));
+  assert.ok(page.requests.every(/** Check that the fixture used only version requests. */ (url) => url.startsWith("/api/resume-versions/")));
   discardPage(page, ws);
 }
 test("avatar connects once only after confirmed valid interview start", avatarStartBoundary);
@@ -942,7 +1171,7 @@ test("avatar connects once only after confirmed valid interview start", avatarSt
 /** Check the actual terminal cleanup for completion, discard, cancellation and agent transport errors. */
 async function avatarTerminalCleanup(t) {
   for (const cause of ["finished", "discarded", "cancelled", "error", "close"]) {
-    await t.test(cause, async () => {
+    await t.test(cause, /** Verify this terminal event releases each offline resource and timer once. */ async () => {
       const page = await makePage();
       const observation = observeAvatarLifecycle(page);
       startPrepared(page);
@@ -966,7 +1195,7 @@ async function avatarTerminalCleanup(t) {
       assert.ok(page.voice.avatarConnectionEpoch > epoch);
       assert.equal(page.voice.closed, false);
       assert.equal(page.timers.size, 0);
-      assert.ok(page.requests.every((url) => url.startsWith("/api/resume-versions/")));
+      assert.ok(page.requests.every(/** Reject unexpected network activity during cleanup. */ (url) => url.startsWith("/api/resume-versions/")));
     });
   }
 }
@@ -1226,6 +1455,7 @@ async function syntheticPCMEarlyEnd() {
 test("synthetic PCM supports both evaluated early end and discard without extra answers", syntheticPCMEarlyEnd);
 
 
+/** Verify a receipt-shaped finished fixture renders its report and replaces preliminary assessment; no backend scoring is invoked. */
 test("finished evaluation renders a readable report and hides preliminary assessment", async () => {
   const page = await makePage(); startPrepared(page);
   const ws = Socket.instances.at(-1); const id = hello(ws);
@@ -1234,6 +1464,7 @@ test("finished evaluation renders a readable report and hides preliminary assess
     competencies: { ownership: { score: 3, coverage: .5, evidence_count: 1 } },
     unscored_answer_count: 1, summary: "Original backend summary",
   } } });
+  /** Collect plain descendant text from the DOM substitute without interpreting HTML. */
   function contents(node) { return node.textContent + node.children.map(contents).join(" "); }
   assert.match(contents(page.el("report")), /面试能力评估报告/);
   assert.match(contents(page.el("report")), /未计入本次结果/);

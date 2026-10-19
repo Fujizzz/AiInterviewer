@@ -23,7 +23,13 @@ the verified player bundle. Existing server-side `backend/`, `deploy/`, service 
 environment paths therefore retain their previous layout. Unreal LFS/archive rules moved
 with their source tree; backend archives continue to exclude the independent Unreal project.
 
-The local checkout name `AiInterviewer`, existing Git remote, and root `.venv/` were retained.
+The initial structural migration retained the local checkout name `AiInterviewer`, its Git
+remote and root `.venv/`. A subsequent repository rename uses the formal submission name
+`IRS-PM-2026-08-17-AIS08FT-GRP-9-IntelliHire-AI` at
+<https://github.com/Fujizzz/IRS-PM-2026-08-17-AIS08FT-GRP-9-IntelliHire-AI>, and local `origin` is updated to its `.git` URL.
+The existing local checkout and virtual environment paths remain in place. The workflow uses
+`GITHUB_WORKSPACE` and a `SystemCode` subtree archive, so the GitHub name does not determine
+server paths, service names or application package identifiers.
 Private `.env`, local databases, generated files and runtime data moved with their owning
 application directories. The configured recommendation-catalog path was updated to refer to
 the same relocated file; no credentials are recorded in this document. A private ignored

@@ -4,6 +4,9 @@
 [`../README.md`](../README.md)，报告、视频与补充材料位于仓库根目录的同名目录。
 本指南及各模块指南中的相对路径以 `SystemCode/` 为基准；启动前请先进入本目录。
 
+正式仓库：[IRS-PM-2026-08-17-AIS08FT-GRP-9-IntelliHire-AI](https://github.com/Fujizzz/IRS-PM-2026-08-17-AIS08FT-GRP-9-IntelliHire-AI)。
+已有克隆按[协作说明](../CONTRIBUTING.md)更新 `origin`；现有本地目录和虚拟环境继续使用原路径。
+
 现有 Windows 环境 `.venv/` 保留在上一级仓库目录，先在上一级激活再进入本目录即可；
 也可以从本目录使用 `..\.venv\Scripts\python.exe`。新机器按下面步骤在本目录创建环境。
 私有配置随应用迁入本目录 `.env`，现有数据库、模型与本地资源随所属模块保留。

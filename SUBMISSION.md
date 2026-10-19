@@ -8,6 +8,7 @@
 | Team | Group 9; filename token `GRP-9` |
 | Project | IntelliHire AI; filename token `IntelliHire-AI` |
 | Submission basename | `IRS-PM-2026-08-17-AIS08FT-GRP-9-IntelliHire-AI` |
+| GitHub repository | [IRS-PM-2026-08-17-AIS08FT-GRP-9-IntelliHire-AI](https://github.com/Fujizzz/IRS-PM-2026-08-17-AIS08FT-GRP-9-IntelliHire-AI) |
 
 The local course specification v2.16, pages 9–10, requires the template repository plus a
 separate Canvas delivery package. Page 14 lists the deadline as **2026-10-25 23:59**.
@@ -22,7 +23,7 @@ The repository template is <https://github.com/IRS-PM/Workshop-Project-Submissio
 - [ ] Complete the final group report and MR/RS/CGS functionality mapping.
 - [ ] Record both five-minute videos and link them from the README.
 - [ ] Complete full member names, student IDs and agreed work allocations.
-- [ ] Confirm the final GitHub repository URL; the existing remote has not been renamed.
+- [x] GitHub repository renamed to the formal submission name; use the URL above in `member-github.txt`.
 - [ ] Obtain required external models/data and verify installation on the demonstration machine.
 
 ## Canvas group delivery

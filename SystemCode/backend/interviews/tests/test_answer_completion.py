@@ -1,6 +1,7 @@
 """Offline STT completion/MCP integration tests; no model or microphone access.
 
-Responsibilities: verify server silence, flush revocation, signed receipts and real Agent dispatch.
+Responsibilities: verify English recognition routing, server silence, flush revocation, signed
+receipts and real Agent dispatch.
 Implementation: Replace only ASR, classifier, and business-provider boundaries; run actual ASGI
 socket handlers in process, along with completion state, MCP validation, safety gateway, and
 isolated database persistence.
@@ -12,12 +13,16 @@ Declaration Index:
 - send_json: Send one encoded ASGI text message.
 - initialize_mcp: Perform the actual connection-level MCP handshake.
 - EndRecognition: Offline ASR fixture with independently controlled supplementary text.
-- EndRecognition.__init__: Store callback and bilingual hints, never construct SDK.
+- EndRecognition.__init__: Store the callback and reset the frame count, never construct SDK.
 - EndRecognition.start: Complete offline startup without I/O.
 - EndRecognition.feed: Emit one final end-intent utterance, then optional supplemental draft.
 - EndRecognition.stop: Optionally append late finalized words before provider completion.
 - CompletionSpeechTests: Run real STT socket/observer with an explicit binary classifier double.
 - CompletionSpeechTests.capture: Start opt-in ASR and consume its initial final-sentence draft.
+- CompletionSpeechTests.test_recognition_language_remains_english_for_both_modes: Verify both
+  ASGI start modes reach the real adapter with English-only SDK hints and unchanged audio limits.
+- CompletionSpeechTests.test_han_diagnostics_are_sparse_and_preserve_provider_text: Verify bounded
+  script warnings retain correlation metadata, omit content and forward every original result.
 - CompletionSpeechTests.test_three_second_silence_issues_bound_final_receipt: Verify real timer and
   text receipt.
 - CompletionSpeechTests.test_paraphrase_is_sent_without_keyword_filtering: Verify unrestricted final
@@ -37,6 +42,8 @@ Declaration Index:
   -> next step.
 - CompletionMCPTests.test_invalid_receipt_never_starts_business_model: Verify admission before
   billable execution.
+- CompletionMCPTests.test_rejected_next_target_returns_question_instead_of_finishing: Verify a
+  rejected generation target does not prematurely end the interview through MCP.
 
 Variable Index:
 None
@@ -48,9 +55,10 @@ changing production thresholds; temporary Django test database prevents changes 
 
 import asyncio
 import json
+import os
 import time
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 from uuid import uuid4
 
 from asgiref.testing import ApplicationCommunicator
@@ -63,6 +71,7 @@ from interviews.answer_mcp import (
     issue_completion_receipt,
     verify_completion_receipt,
 )
+from interviews.speech.service import RecognitionSession
 from interviews.speech.socket import stt_socket
 from interviews.tests.agent_fixtures import ANSWER, RESUME, FixtureLLM, SafetyTestMixin
 
@@ -129,12 +138,9 @@ class EndRecognition:
     draft_on_feed = True
     utterance = "I built it. That's all."
 
-    def __init__(self, emit, language_hints=None):
-        """Inputs: callback/hints. Outputs: isolated frame counter; verify bilingual opt-in
-        hints.
-        """
+    def __init__(self, emit):
+        """Inputs: SDK-compatible callback. Outputs: isolated frame counter; no provider calls."""
         self.emit, self.frames = emit, 0
-        assert language_hints == ["zh", "en"]
 
     def start(self):
         """Inputs: fixture state. Outputs: None; explicitly avoid SDK/network startup."""
@@ -174,6 +180,103 @@ class CompletionSpeechTests(SimpleTestCase):
     Constraints: no database, paid calls or hardware; production silence interval is
     preserved.
     """
+
+    def test_han_diagnostics_are_sparse_and_preserve_provider_text(self):
+        """Exercise real SDK callbacks with synthetic result objects, without provider access.
+
+        Inputs: repeated Han drafts, a Han sentence final and its English correction. Outputs:
+        unchanged emitted text and exactly two warning records, one per stage. Verify supplementary
+        ideographs are counted and only request ID/model/stage/counts are logged, never content/key.
+        Constraints: this establishes observability and event preservation, not model accuracy.
+        """
+        settings = {
+            "SPEECH_ENABLED": "true",
+            "SPEECH_REGION": "beijing",
+            "DASHSCOPE_API_KEY": "fixture-key-never-log",
+            "DASHSCOPE_SPEECH_WORKSPACE_ID": "",
+            "SPEECH_STT_MODEL": "qwen-audio-3.1-asr-flash-streaming",
+        }
+        emit = Mock()
+        result = Mock()
+        result.get_request_id.return_value = "fixture-asr-request"
+        han_text = "我\U00020000 built Python."
+        texts = [han_text, han_text, han_text, "I built Python."]
+        with patch.dict(os.environ, settings), patch("dashscope.audio.asr.Recognition") as sdk:
+            RecognitionSession(emit)
+            callback = sdk.call_args.kwargs["callback"]
+            with self.assertLogs("interviews.speech.service", level="WARNING") as captured:
+                for text, end_time in zip(texts, [None, None, 100, 100], strict=True):
+                    result.get_sentence.return_value = {
+                        "text": text, "begin_time": 0, "end_time": end_time
+                    }
+                    callback.on_event(result)
+        self.assertEqual([call.args[0]["text"] for call in emit.call_args_list], texts)
+        self.assertEqual(
+            [call.args[0]["is_final"] for call in emit.call_args_list], [False, False, True, True]
+        )
+        self.assertEqual(len(captured.output), 2)
+        self.assertIn("stage=draft", captured.output[0])
+        self.assertIn("stage=sentence_final", captured.output[1])
+        for entry in captured.output:
+            self.assertIn("request_id=fixture-asr-request", entry)
+            self.assertIn("language_hints=en", entry)
+            self.assertIn("han_chars=2", entry)
+            self.assertNotIn(han_text, entry)
+            self.assertNotIn("built Python", entry)
+            self.assertNotIn(settings["DASHSCOPE_API_KEY"], entry)
+
+    async def test_recognition_language_remains_english_for_both_modes(self):
+        """Verify the real socket-to-SDK language contract with completion off and on.
+
+        Inputs: synthetic local ASGI starts and explicit speech configuration. Outputs: assertions
+        on provider arguments and cleanup. Logic: mock only the external ASR SDK and classifier;
+        retain RecognitionSession so a completion-specific language override fails this test.
+        Constraints: no audio, network, model inference or database writes; this tests routing,
+        not recognition accuracy. Always disconnect before checking the captured SDK options.
+        """
+        settings = {
+            "SPEECH_ENABLED": "true",
+            "SPEECH_REGION": "beijing",
+            "DASHSCOPE_API_KEY": "test-key",
+            "DASHSCOPE_SPEECH_WORKSPACE_ID": "",
+            "SPEECH_STT_MODEL": "qwen-audio-3.1-asr-flash-streaming",
+        }
+        for enabled in (False, True):
+            classifier = SimpleNamespace(classify=AsyncMock(), close=AsyncMock())
+            with (
+                self.subTest(completion_detection=enabled),
+                patch.dict(os.environ, settings),
+                patch("dashscope.audio.asr.Recognition") as sdk,
+                patch(
+                    "interviews.speech.socket.FlashCompletionClassifier", return_value=classifier
+                ),
+            ):
+                comm = ApplicationCommunicator(stt_socket, socket_scope("/ws/speech/stt/"))
+                await comm.send_input({"type": "websocket.connect"})
+                await comm.receive_output()
+                await read_json(comm)
+                command = {"type": "start"}
+                if enabled:
+                    command.update(completion_detection=True, question_id="q1")
+                try:
+                    await send_json(comm, command)
+                    self.assertEqual((await read_json(comm))["type"], "started")
+                finally:
+                    await comm.send_input({"type": "websocket.disconnect"})
+                    await comm.wait(timeout=3)
+                options = sdk.call_args.kwargs
+                self.assertEqual(options["language_hints"], ["en"])
+                self.assertEqual(options["model"], settings["SPEECH_STT_MODEL"])
+                self.assertEqual(options["format"], "pcm")
+                self.assertEqual(options["sample_rate"], 16000)
+                self.assertEqual(options["request_timeout"], 140)
+                sdk.return_value.start.assert_called_once()
+                sdk.return_value.stop.assert_called_once()
+                classifier.classify.assert_not_awaited()
+                if enabled:
+                    classifier.close.assert_awaited_once()
+                else:
+                    classifier.close.assert_not_awaited()
 
     async def capture(self):
         """Inputs: patched providers. Outputs: running communicator with cue admitted at

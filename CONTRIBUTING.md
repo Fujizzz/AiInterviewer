@@ -5,6 +5,20 @@ change inside that boundary. See [the repository layout](SystemCode/docs/REPOSIT
 for dependency direction and upload rules. Reports, videos and supplementary submission material
 belong in `ProjectReport/`, `Video/` and `Miscellaneous/` respectively.
 
+## Repository address
+
+The official repository is [IRS-PM-2026-08-17-AIS08FT-GRP-9-IntelliHire-AI](https://github.com/Fujizzz/IRS-PM-2026-08-17-AIS08FT-GRP-9-IntelliHire-AI).
+From an existing clone, update the remote before fetching or pushing:
+
+```bash
+git remote set-url origin https://github.com/Fujizzz/IRS-PM-2026-08-17-AIS08FT-GRP-9-IntelliHire-AI.git
+git fetch origin
+git remote -v
+```
+
+Keep an existing checkout directory and populated virtual environment at their current paths.
+The repository name is independent of local folder names, Python packages and production services.
+
 For Python changes run:
 
 ```bash

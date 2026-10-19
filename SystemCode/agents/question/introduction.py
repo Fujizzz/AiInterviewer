@@ -3,7 +3,7 @@
 from agents.domain.errors import InvalidAgentState
 from shared.contracts import InterviewStage
 
-INTRODUCTION_TEXT = "请先做一个简短的自我介绍，包括你的技术背景、相关经历，以及你最熟悉的项目。"
+INTRODUCTION_TEXT = "Please briefly introduce yourself."
 INTRODUCTION_TOPIC = "Self introduction"
 
 

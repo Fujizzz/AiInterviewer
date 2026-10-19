@@ -2,7 +2,9 @@
 data temporarily in memory.
 Implementation: Resolve speech geography independently of the LLM HTTP endpoint while reusing the
 configured key. Missing SPEECH_REGION preserves Singapore; invalid values fail before SDK
-construction. Model, voice, audio, and timeout defaults remain unchanged.
+construction. All recognition sessions request English, independently of UI locale and completion
+detection. Sparse Han-script diagnostics preserve provider text while recording only request ID,
+stage and character counts. Model, voice, audio, and timeout defaults remain unchanged.
 Related Modules: speech.views serves synthesis audio; speech.socket bridges recognition to WebSocket
 clients.
 
@@ -27,6 +29,13 @@ Declaration Index:
   Select a supported synthesis protocol and return bounded WAV for the UE bridge.
 - _synthesize_flash_pcm:
   Collect Qwen-Audio Flash PCM with a synchronous deadline and explicit completion.
+- _synthesize_flash_pcm.Callback: Collect bounded PCM and preserve the first terminal outcome.
+- _synthesize_flash_pcm.Callback.__init__: Initialize synchronized collection and completion state.
+- _synthesize_flash_pcm.Callback.fail: Preserve the first failure and wake the waiter.
+- _synthesize_flash_pcm.Callback.on_data: Validate and append PCM only before completion or failure.
+- _synthesize_flash_pcm.Callback.on_complete: Mark completion unless a failure was stored.
+- _synthesize_flash_pcm.Callback.on_error: Sanitize a provider error and retain the first failure.
+- _synthesize_flash_pcm.Callback.on_close: Reject early closure without replacing a terminal result.
 - _wav_from_pcm:
   Validate complete PCM and wrap the shared 24 kHz mono 16-bit WAV format.
 - synthesize.Callback:
@@ -52,32 +61,33 @@ Declaration Index:
 - RecognitionSession:
   Wrap one SDK recognition task; callbacks hand data to the ASGI event loop.
 - RecognitionSession.__init__:
-  Validate credentials and construct PCM recognition with default or explicit language hints.
+  Validate credentials and construct English PCM recognition with sanitized configuration logging.
 - RecognitionSession.__init__.Callback:
   Forward provider events without sending audio or secrets to logs.
 - RecognitionSession.__init__.Callback.on_event:
-  Forward text and sentence-final markers.
+  Forward unchanged text and sentence-final markers; log the first Han result at each stage.
 - RecognitionSession.__init__.Callback.on_error:
   Report a sanitised service error.
 - RecognitionSession.__init__.Callback.on_complete:
   Mark the final provider output boundary.
 - RecognitionSession.start:
-  Start SDK recognition on a worker thread.
+  Start SDK recognition on a worker thread and log its provider request ID.
 - RecognitionSession.feed:
   Queue validated raw PCM bytes for the provider.
 - RecognitionSession.stop:
   Signal end-of-input once and wait for provider completion.
 Variable Index:
 - logger:
-  Record resolved geography and model names without credentials or question text.
+  Record configuration, request IDs and sparse script counts without credentials or text.
 - SPEECH_REGION_ENDPOINTS:
   Supported regions mapped to public hosts and ASR workspace domain regions.
 - MAX_AUDIO_BYTES:
   Maximum PCM bytes for a 120-second TTS utterance.
 - TTS_TIMEOUT_SECONDS:
   Total synthesis deadline including WebSocket connection and audio collection.
-- QWEN_AUDIO_FLASH_MODEL / QWEN_AUDIO_FLASH_VOICE / QWEN_AUDIO_FLASH_INSTRUCTION:
-  Supported inference model and its matching default voice and English interviewer style.
+- QWEN_AUDIO_FLASH_MODEL: Supported inference-protocol speech synthesis model.
+- QWEN_AUDIO_FLASH_VOICE: Matching default voice for inference-protocol synthesis.
+- QWEN_AUDIO_FLASH_INSTRUCTION: English interviewer delivery instruction for synthesis.
 - audio_store:
   Process-local bounded WAV cache shared by synthesis and download routes.
 """
@@ -90,6 +100,7 @@ import os
 import re
 import threading
 import time
+import unicodedata
 import wave
 from collections import OrderedDict
 from dataclasses import dataclass
@@ -356,6 +367,7 @@ def _synthesize_flash_pcm(config, text):
         """Collect bounded bytes and preserve the first actionable failure."""
 
         def __init__(self):
+            """Initialize the lock, completion event, PCM buffer and exclusive terminal state."""
             self.lock = threading.RLock()
             self.done = threading.Event()
             self.pcm = bytearray()
@@ -363,12 +375,14 @@ def _synthesize_flash_pcm(config, text):
             self.finished = False
 
         def fail(self, error):
+            """Store the first safe error before successful completion and release the waiter."""
             with self.lock:
                 if self.error is None and not self.finished:
                     self.error = error
                     self.done.set()
 
         def on_data(self, data):
+            """Append bounded PCM bytes under the lock; reject invalid data before completion."""
             with self.lock:
                 if self.error is not None or self.finished:
                     return
@@ -380,15 +394,18 @@ def _synthesize_flash_pcm(config, text):
                     self.pcm.extend(data)
 
         def on_complete(self):
+            """Mark successful completion and release the waiter only if no error was stored."""
             with self.lock:
                 if self.error is None:
                     self.finished = True
                     self.done.set()
 
         def on_error(self, message):
+            """Sanitize the provider message before storing a terminal failure."""
             self.fail(provider_error(message))
 
         def on_close(self):
+            """Report premature closure; fail preserves any prior error or successful completion."""
             self.fail(SpeechError("speech_connection_closed", "Speech connection closed early."))
 
     configure_sdk(config)
@@ -511,29 +528,59 @@ audio_store = AudioStore()
 
 
 class RecognitionSession:
-    """Wrap one SDK recognition task; callbacks hand data to the ASGI event loop.
+    """Wrap one English SDK recognition task; callbacks hand data to the ASGI event loop.
     """
 
-    def __init__(self, emit, language_hints=None):
-        """Inputs: SDK event callback and optional explicit language hints; output isolated task.
-        Logic: validate credentials then construct PCM recognition; legacy callers keep English
-        hints. The completion branch explicitly supplies Chinese/English for spoken end phrases.
-        Constraints: model, sample rate and provider deadlines remain unchanged; no language retry.
+    def __init__(self, emit):
+        """Inputs: SDK event callback and process speech configuration; output an isolated task.
+        Logic: validate credentials and construct English PCM recognition for the English interview
+        flow. Log the model and language once, without audio, text or secrets. Completion detection
+        observes the resulting text and cannot override the recognition language.
+        logged_han_stages limits diagnostics to one draft and one sentence-final warning per task.
+        Warnings record only provider request ID, model, stage and text/Han character counts.
+        Constraints: model, sample rate and provider deadlines remain unchanged; no language retry
+        or translation. Configuration errors propagate before provider startup.
         """
         config = SpeechConfig.load()
         from dashscope.audio.asr import Recognition, RecognitionCallback
 
         configure_sdk(config)
+        logged_han_stages = set()
 
         class Callback(RecognitionCallback):
             """Forward provider events without sending audio or secrets to logs.
             """
 
             def on_event(self, result):
-                """Forward text and sentence-final markers.
+                """Forward the SDK sentence unchanged while observing Han-script anomalies.
+
+                Inputs: provider result with text, segment boundary and request ID. Outputs: the
+                existing callback event, plus at most one warning per draft/sentence-final stage.
+                Count Unicode-named CJK ideographs including compatibility and supplementary forms.
+                Constraints: counts diagnose script, not language or accuracy; no text, audio or
+                credentials are logged. No retry, filtering or failure-semantics change occurs.
                 """
                 sentence = result.get_sentence()
                 if sentence and "text" in sentence:
+                    is_final = RecognitionResult.is_sentence_end(sentence)
+                    stage = "sentence_final" if is_final else "draft"
+                    han_chars = sum(
+                        unicodedata.name(char, "").startswith(
+                            ("CJK UNIFIED IDEOGRAPH-", "CJK COMPATIBILITY IDEOGRAPH-")
+                        )
+                        for char in sentence["text"]
+                    )
+                    if han_chars and stage not in logged_han_stages:
+                        logged_han_stages.add(stage)
+                        logger.warning(
+                            "STT Han script observed request_id=%s model=%s language_hints=en "
+                            "stage=%s chars=%d han_chars=%d; inspect provider language output",
+                            result.get_request_id(),
+                            config.stt_model,
+                            stage,
+                            len(sentence["text"]),
+                            han_chars,
+                        )
                     emit(
                         {
                             "type": "sentence",
@@ -541,7 +588,7 @@ class RecognitionSession:
                             "segment": str(
                                 sentence.get("sentence_id", sentence.get("begin_time", 0))
                             ),
-                            "is_final": RecognitionResult.is_sentence_end(sentence),
+                            "is_final": is_final,
                         }
                     )
 
@@ -563,16 +610,24 @@ class RecognitionSession:
             format="pcm",
             sample_rate=16000,
             api_key=config.api_key,
-            language_hints=["en"] if language_hints is None else language_hints,
+            language_hints=["en"],
             request_timeout=140,
             callback=Callback(),
         )
         self.stopped = False
+        logger.info(
+            "STT initialized model=%s language_hints=en format=pcm sample_rate=16000",
+            config.stt_model,
+        )
 
     def start(self):
-        """Start SDK recognition on a worker thread.
+        """Start the configured SDK task and log its request ID for correlation, never audio/text.
+
+        Inputs: this session's recognition object. Outputs: None; startup errors propagate to the
+        socket handler. The SDK request ID identifies provider events; no extra request is made.
         """
         self.recognition.start()
+        logger.info("STT started request_id=%s", self.recognition.get_last_request_id())
 
     def feed(self, pcm):
         """Queue validated raw PCM bytes for the provider.

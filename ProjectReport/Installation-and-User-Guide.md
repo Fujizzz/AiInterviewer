@@ -7,9 +7,10 @@ Actions. **`SystemCode/` is the application root** and contains the complete pre
 layout. Paths such as `backend/`, `rag/`, `.env` and `pyproject.toml` in module guides are relative
 to `SystemCode/` unless an explicit repository-root path is shown.
 
-The existing local checkout is still named `AiInterviewer`. Its project/submission name is
-`IntelliHire AI`; changing the local checkout directory or remote repository is not required to
-use this layout.
+The official GitHub repository is [IRS-PM-2026-08-17-AIS08FT-GRP-9-IntelliHire-AI](https://github.com/Fujizzz/IRS-PM-2026-08-17-AIS08FT-GRP-9-IntelliHire-AI).
+The existing local checkout remains `AiInterviewer` to preserve installed environment paths.
+Its local folder name is independent of the remote repository name; update existing clones
+using the commands in [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## Existing Windows development environment
 
@@ -35,8 +36,15 @@ If activation is restricted, call the interpreter explicitly from `SystemCode/`:
 
 ## Fresh installation
 
-Clone the repository with Git and install Git LFS if the digital-human source is needed. Obtain
-the LFS content with `git lfs pull`. A downloaded Git source archive excludes the independent
+Install Git and Git LFS, then clone the official repository:
+
+```powershell
+git clone https://github.com/Fujizzz/IRS-PM-2026-08-17-AIS08FT-GRP-9-IntelliHire-AI.git
+Set-Location .\IRS-PM-2026-08-17-AIS08FT-GRP-9-IntelliHire-AI
+git lfs pull
+```
+
+Git LFS content is required for the digital-human source. A downloaded Git source archive excludes the independent
 Unreal project under the existing archive policy, so use a full clone for that component.
 
 Use Python 3.12 for the backend. From the repository root, create a fresh environment **inside

@@ -1,7 +1,8 @@
 """Responsibilities: Run one bounded speech-to-text task with an opt-in independent completion
 observer.
 
-Implementation: copy transcripts to an observer which coalesces settled final snapshots;
+Implementation: use the shared English ASR configuration regardless of completion opt-in;
+copy transcripts to an observer which coalesces settled final snapshots;
 Model semantics determine end intent; PCM/text changes revoke it. After three silent seconds
 ask the browser to flush; issue an MCP receipt only if the final transcript remains unchanged.
 Related Modules: answer_completion classifies intent; answer_mcp signs the final transcript
@@ -9,7 +10,7 @@ boundary.
 
 Declaration Index:
 - stt_socket:
-  Bridge PCM and SDK callbacks, returning final text after stop; the UI owns answer confirmation.
+  Bridge English ASR and SDK callbacks, returning final text after stop; the UI owns submission.
 - stt_socket.output:
   Send one UTF-8 JSON event, with no original audio payload.
 - stt_socket.enqueue:
@@ -57,7 +58,7 @@ def pcm_has_voice(pcm):
 
 async def stt_socket(scope, receive, send):
     """Inputs: authenticated ASGI scope/receive/send. Outputs: drafts/final/optional end events.
-    Logic: retain original ASR limits; opt-in start with question_id creates an independent
+    Logic: use English ASR for both start modes; opt-in question_id creates an independent
     classifier. Transcript changes or >=50ms audible PCM revoke completion; final receipt
     requires unchanged text after flush. Manual stop still returns the original final contract.
     Constraints: no answer evaluation here; observer/configuration failure is explicit and terminal
@@ -153,11 +154,8 @@ async def stt_socket(scope, receive, send):
                 ) from exc
         elif "question_id" in command:
             raise SpeechError("invalid_start", "question_id requires completion_detection.", 400)
-        session = (
-            RecognitionSession(emit, language_hints=["zh", "en"])
-            if completion is not None
-            else RecognitionSession(emit)
-        )
+        # End-intent observation consumes transcript copies; it must not change ASR language.
+        session = RecognitionSession(emit)
         await asyncio.wait_for(asyncio.to_thread(session.start), 15)
         await output({"type": "started"})
         receive_task = asyncio.create_task(receive())

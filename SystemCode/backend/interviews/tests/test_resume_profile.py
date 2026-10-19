@@ -18,7 +18,7 @@ from interviews.agent_session import AgentSession
 from interviews.agent_socket import Start
 from interviews.api.resume_versions import resolve_resume_version
 from interviews.resume_models import ResumeVersion
-from interviews.resume_profile import prepare_profile, read_profile
+from interviews.resume_profile import load_bound_profile, prepare_profile, read_profile
 
 from .agent_fixtures import RESUME, FixtureLLM
 
@@ -203,6 +203,17 @@ class ResumeProfileTests(APITestCase):
                 async_to_sync(session.prepare)(command)
             parser.assert_not_called()
         session.close()
+
+    def test_bound_profile_still_rejects_modified_resume_text(self):
+        version, _ = self.upload()
+        interview = AgentInterview.objects.create(
+            owner=self.owner, resume_version=version, resume_text_snapshot=version.text
+        )
+        for changed in (" " + version.text, version.text + " changed"):
+            with self.subTest(changed=changed[-10:]), self.assertRaisesRegex(
+                ValueError, "Resume version binding changed"
+            ):
+                async_to_sync(load_bound_profile)(str(interview.pk), changed)
 
     def test_unready_pdf_cannot_prepare(self):
         version = ResumeVersion.objects.create(owner=self.owner, original_pdf=b"%PDF-test")
