@@ -327,7 +327,10 @@ def test_new_release_waits_before_single_full_smoke(deploy, release_context, mon
     deploy.main()
 
     full_smoke = [str(context.release / "deploy/smoke.py")]
-    start = ["systemctl", "enable", "--now", "ai-interviewer-celery", "ai-interviewer"]
+    start = [
+        "systemctl", "enable", "--now", "ai-interviewer-celery",
+        "ai-interviewer-evaluation", "ai-interviewer",
+    ]
     assert events.index(start) < events.index("ready") < events.index(full_smoke)
     assert events.count(full_smoke) == 1
     assert events.count("ready") == 1
