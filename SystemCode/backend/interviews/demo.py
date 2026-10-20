@@ -44,6 +44,7 @@ ASSETS = {
     "account.css",
     "interview-voice.js",
     "speech-capture.js",
+    "speech-playback.js",
     "speech-worklet.js",
     "pcm-resampler.js",
     "pixel-player.js",

@@ -1,8 +1,8 @@
 /**
  * @module interview-voice
  * Responsibilities: Coordinate playback/subtitles, 10-second preparation, automatic capture and five-second inactivity closure; never compute interview evaluation.
- * Implementation: Grant preparation after audible playback or an explicit voice fallback, preserving remaining preparation on replay. Isolate late events by epoch/capture identity; flush complete STT before automatic submission. Caption presentation replaces Han-script drafts with an English pending notice and flags a final Han-script result, preserving the raw submission text. A separate presentation controller supplies Agent facial dynamics with recorded fallback without delaying speech. Semantic receipts use MCP; inactivity/capture-limit closures use the normal answer boundary. Explicit end suspends submission.
- * Related Modules: SpeechCapture manages PCM/STT; agent.js provides submission callback and current question's answer eligibility; the pixel-player bundle exports PresentationController for bounded facial plans and loadAvatarConfiguration for approved transport settings.
+ * Implementation: Stream PCM for direct browser playback; preserve complete-WAV playback for an active or connecting UE renderer. Grant preparation after audible playback or an explicit voice fallback, preserving remaining preparation on replay. Isolate late events by epoch/capture identity; flush complete STT before automatic submission. Caption presentation replaces Han-script drafts with an English pending notice and flags a final Han-script result, preserving the raw submission text. A separate presentation controller supplies Agent facial dynamics with recorded fallback without delaying speech. Semantic receipts use MCP; inactivity/capture-limit closures use the normal answer boundary. Explicit end suspends submission.
+ * Related Modules: SpeechCapture manages PCM/STT; speech-playback validates NDJSON and schedules browser audio; agent.js provides submission callback and current question's answer eligibility; the pixel-player bundle exports PresentationController for bounded facial plans and loadAvatarConfiguration for approved transport settings.
  *
  * Declaration Index:
  * - InterviewVoice: Functionality: Coordinate automatic answering and safe final transcripts. Logic: Bind clocks/callbacks to the current capture and suspend during early-end choices. Constraints: No evaluation or capture retry.
@@ -43,9 +43,18 @@
  * - InterviewVoice.setQuestion: Reset stale resources and await question playback before granting a full 10-second preparation period.
  * - InterviewVoice.setState: Send presentation state without changing interview scoring or answers.
  * - InterviewVoice.avatarPreparationTimeout: Derive a bounded UE readiness deadline from trusted WAV duration metadata, preserving legacy defaults.
- * - InterviewVoice.speak: Request a complete WAV and choose exactly one UE or browser playback path.
+ * - InterviewVoice.speak: Choose browser PCM streaming or retain the active renderer's complete-WAV contract.
  * - InterviewVoice.speak.callback1: Abort only this TTS request when its deadline expires.
  * - InterviewVoice.speak.callback2: Cancel stalled UE preparation before switching to browser audio.
+ * - InterviewVoice.speakStream: Stream one browser utterance with epoch fencing and explicit failure.
+ * - InterviewVoice.speakStream.callback1: Abort only this stream when synthesis exceeds its request budget.
+ * - InterviewVoice.speakStream.object1.onStarted: Update reading state and first-playback timing.
+ * - InterviewVoice.speakStream.object1.onStarted.callback1: Stop a stalled browser playback at the existing limit.
+ * - InterviewVoice.speakStream.object1.onEnded: Start preparation only after actual audio drain.
+ * - InterviewVoice.speakStream.object1.onError: Stop and report an underrun without replay.
+ * - InterviewVoice.speakStream.object3.onStart: Bind the validated stream identifier to the current question.
+ * - InterviewVoice.speakStream.object3.onAudio: Queue current PCM and record first-audio timing.
+ * - InterviewVoice.speakStream.object3.onEnd: Confirm input completion separately from playback completion.
  * - InterviewVoice.fallbackAudio: Play voice-only audio when the avatar cannot render the current question.
  * - InterviewVoice.fallbackAudio.audio.onended: Restore answering after the current browser audio completes.
  * - InterviewVoice.fallbackAudio.audio.onerror: Release controls and report a current audio download failure.
@@ -65,6 +74,7 @@
  * None
  */
 import { SpeechCapture } from "./speech-capture.js";
+import { PcmStreamPlayer, readSpeechStream } from "./speech-playback.js";
 
 /**
  *  Functionality: Coordinate automatic answering and safe final transcripts. Logic: Bind clocks/callbacks to the current capture and suspend during early-end choices. Constraints: No evaluation or capture retry.
@@ -72,7 +82,7 @@ import { SpeechCapture } from "./speech-capture.js";
 export class InterviewVoice {
   /**
  *  Inputs: onAnswer(text, receipt) callback. Outputs: Coordinator; callback receives full final text, including empty text for explicit unanswered closure, with optional semantic receipt.
- * Initial state: no question/capture/confirmation; register playback and answer eligibility listeners without requesting device or network. State includes phase/deadline/answerTimer, suspended end choice, and finalWaiter for an explicit report flush.
+ * Initial state: no question/capture/confirmation; register playback and answer eligibility listeners without requesting device or network. State includes phase/deadline/answerTimer, suspended end choice, and finalWaiter for an explicit report flush. audioStream owns one browser PCM player; epoch and abort fence its request, while audio retains the renderer's existing WAV fallback.
  */ constructor(onAnswer) {
     this.onAnswer = onAnswer;
     this.finalTranscript = null;
@@ -97,6 +107,7 @@ export class InterviewVoice {
     this.presentation = null;
     this.presentationActive = false;
     this.audio = null;
+    this.audioStream = null;
     this.abort = null;
     this.utteranceId = null;
     this.playbackTimer = null;
@@ -441,8 +452,13 @@ export class InterviewVoice {
     return Math.min(125000, Math.max(18000, 15000 + 1.5 * durationMs));
   }
 
-  /** Request a complete WAV and choose exactly one UE or browser playback path. */ async speak() {
+  /** Choose one playback target before synthesis: direct browser uses PCM streaming;
+   * an active/connecting renderer keeps its existing complete-WAV protocol.
+   * Inputs: Current question and connection/capture state. Outputs: Playback attempt.
+   * Constraints: Never send streamed PCM to an unmodified UE renderer or switch targets midstream.
+   */ async speak() {
     if (!this.question || this.capture || this.finalTranscript !== null || this.finishRequested || this.suspended) return;
+    if (!this.player?.ready && !this.player?.player && !this.avatarConnecting) return this.speakStream();
     this.pausePreparation();
     this.stopPlayback(false);
     const epoch = ++this.epoch;
@@ -500,6 +516,101 @@ export class InterviewVoice {
     } finally { clearTimeout(timeout); }
   }
 
+  /** Functionality: Play streamed browser speech before complete synthesis.
+   * Inputs: Current question and UI state, already checked by speak.
+   * Outputs: One cancellable fetch plus browser playback; preparation begins only after audio ends.
+   * Logic: Resume Web Audio before requesting speech, fence every callback by epoch,
+   * and distinguish synthesis completion from actual playback completion.
+   * Constraints: Existing model/voice/text are unchanged. Failure stops queued audio
+   * immediately and never retries or replays a partially heard question.
+   */
+  async speakStream() {
+    this.pausePreparation();
+    this.stopPlayback(false);
+    const epoch = ++this.epoch;
+    this.busy = true;
+    this.phase = "generating";
+    this.updateControls();
+    this.message(window.AppI18n?.t("voice_question_generating") ?? "Generating English speech…");
+    this.setState("thinking");
+    const started = performance.now();
+    let firstAudio = false;
+    const abort = new AbortController();
+    this.abort = abort;
+    const timeout = setTimeout(/** Abort this synthesis request without starting another. */ () => abort.abort(), 50000);
+    const playback = new PcmStreamPlayer({
+      /** Mark audible reading and report the elapsed startup delay for this question only. */
+      onStarted: () => {
+        if (epoch !== this.epoch) return;
+        this.playbackStarted = true;
+        this.phase = "reading";
+        this.setState("speaking");
+        this.message(window.AppI18n?.t("voice_mode_reading") ?? "Voice mode: reading the question…");
+        this.playbackTimer = setTimeout(/** Release controls if the audio clock stops making progress. */ () => {
+          if (epoch !== this.epoch) return;
+          this.stopPlayback();
+          this.message(window.AppI18n?.t("voice_avatar_timeout") ?? "Question playback timed out. Prepare your answer using the visible question.");
+        }, 125000);
+        const ms = Math.round(performance.now() - started);
+        document.getElementById("speech-metrics").textContent += ` · ${window.AppI18n?.t("voice_stream_playback", { ms }) ?? `Playback ${ms} ms`}`;
+      },
+      /** Release preparation only when the final scheduled audio buffer has actually ended. */
+      onEnded: () => { if (epoch === this.epoch) this.stopPlayback(); },
+      /** Stop queued audio and the producer after an audible interruption, without fallback replay. */
+      onError: (error) => {
+        if (epoch !== this.epoch) return;
+        this.stopPlayback();
+        this.message(window.AppI18n?.t("voice_question_unavailable", { message: error.message }) ?? `Question playback failed: ${error.message}`);
+        console.warn("Interview speech playback failed", { epoch, name: error.name });
+      },
+    });
+    this.audioStream = playback;
+    try {
+      await playback.prepare(abort.signal);
+      if (epoch !== this.epoch) return;
+      const headers = { "Content-Type": "application/json" };
+      const csrf = document.getElementById("csrf-token")?.content;
+      if (csrf) headers["X-CSRFToken"] = csrf;
+      const response = await fetch("/api/speech/tts/stream/", {
+        method: "POST", headers,
+        body: JSON.stringify({ text: this.question.text }), signal: abort.signal,
+      });
+      await readSpeechStream(response, {
+        signal: abort.signal,
+        /** Bind only the validated identifier of this still-current stream. */
+        onStart: (event) => {
+          if (epoch !== this.epoch) throw new DOMException("Speech cancelled.", "AbortError");
+          this.utteranceId = event.utterance_id;
+        },
+        /** Schedule bounded PCM and report first data separately from model completion. */
+        onAudio: (pcm) => {
+          if (epoch !== this.epoch) throw new DOMException("Speech cancelled.", "AbortError");
+          playback.append(pcm);
+          if (!firstAudio) {
+            firstAudio = true;
+            const ms = Math.round(performance.now() - started);
+            document.getElementById("speech-metrics").textContent = window.AppI18n?.t("voice_stream_first_audio", { ms }) ?? `First audio ${ms} ms`;
+            console.info("Interview speech stream first audio", { epoch, firstAudioMs: ms });
+          }
+        },
+        /** Mark validated input end; leave playback and preparation clocks owned by audio drain. */
+        onEnd: (event) => {
+          if (epoch !== this.epoch) return;
+          playback.finish();
+          document.getElementById("speech-metrics").textContent += ` · ${window.AppI18n?.t("voice_stream_complete", { ms: event.generation_ms }) ?? `Synthesis complete ${event.generation_ms} ms`}`;
+        },
+      });
+    } catch (error) {
+      if (epoch === this.epoch) {
+        this.stopPlayback();
+        this.message(window.AppI18n?.t("voice_question_unavailable", { message: error.message }) ?? `Question playback failed: ${error.message}`);
+        console.warn("Interview speech stream failed", { epoch, name: error.name });
+      }
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
   /** Play voice-only audio when the avatar cannot render the current question. */ fallbackAudio(url, epoch) {
     if (epoch !== this.epoch || !url) return;
     clearTimeout(this.playbackTimer);
@@ -533,6 +644,8 @@ export class InterviewVoice {
     this.avatarRequestedAt = null;
     this.audio?.pause();
     this.audio = null;
+    this.audioStream?.stop();
+    this.audioStream = null;
     this.player?.send({ type: "stop" });
     this.busy = false;
     this.setState("listening");
