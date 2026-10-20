@@ -71,3 +71,38 @@ def test_all_projects_and_original_answers_survive_compaction():
         item.evidence.evidence_id for item in (first, second, current)
     }
     assert [row["episode"] for row in payload["history"]] == ["g0", "g1"]
+
+
+async def test_distinct_fact_in_same_episode_keeps_link_and_does_not_add_independence():
+    old = source("diagnosis", "I reproduced the log pipeline memory failure with a 10GB file.")
+    new = source("fix", "For that same incident I added a bounded queue.")
+    prior = resolve((old, decision(old)))
+
+    def provider(prompt, payload, schema):
+        return schema(decisions=[{
+            "evidence_id": payload["current_evidence"][0]["evidence_id"],
+            "relation": "new",
+            "related_evidence_ids": [],
+            "independence": "same_episode",
+            "same_episode_as": [payload["history"][0]["evidence_id"]],
+            "concise_rationale": "A separate action during the explicitly same incident.",
+        }])
+
+    actual = await EvidenceResolver(provider).resolve(
+        context(new), (new.evidence,), history=prior.history
+    )
+    assert len({e.independence_group_id for e in actual.evidence_items}) == 1
+    assert actual.history.decisions[-1].same_episode_as == (old.evidence.evidence_id,)
+    assert actual.history.decisions[-1].related_evidence_ids == ()
+    assert all(s.status == "eligible" for s in actual.states)
+
+
+def test_same_episode_with_empty_link_is_rejected_even_for_new_atomic_fact():
+    # Captured failure shape from the live contrast experiment. Do not silently
+    # infer an episode from prose or weaken the gate to get a numeric score.
+    with pytest.raises(ValueError, match="same_episode requires existing episode references"):
+        ResolutionDraft(decisions=[{
+            "evidence_id": "e1", "relation": "new", "related_evidence_ids": [],
+            "independence": "same_episode", "same_episode_as": [],
+            "concise_rationale": "A distinct fact within the same incident.",
+        }])

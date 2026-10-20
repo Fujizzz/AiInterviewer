@@ -161,7 +161,9 @@ class GroupedJudgeDraft(EvaluationModel):
 
 def evidence_groups(resolution):
     groups = {}
-    for item in sorted(resolution.evidence_items, key=lambda e: e.evidence_id):
+    # Replay preserves source order. Hash IDs include answer identity, so sorting
+    # by them needlessly shuffles identical evidence in a fresh interview.
+    for item in resolution.evidence_items:
         groups.setdefault(item.independence_group_id, []).append(item)
     return groups
 
@@ -194,13 +196,15 @@ def grouped_payload(resolution, rubric, pending):
     groups = evidence_groups(resolution)
     states = {s.evidence_id: s for s in resolution.states}
     items = {e.evidence_id: e for e in resolution.evidence_items}
+    source_order = {eid: index for index, eid in enumerate(items)}
     aliases, payload_groups = {}, []
-    for index, group in enumerate(sorted(pending), 1):
+    for index, group in enumerate((g for g in groups if g in pending), 1):
         key = f"g{index}"
         local = {f"e{i}": e.evidence_id for i, e in enumerate(groups[group], 1)}
         external = sorted(
             {c for eid in local.values() for c in states[eid].counter_evidence_ids}
-            - set(local.values())
+            - set(local.values()),
+            key=source_order.__getitem__,
         )
         counters = {f"c{i}": eid for i, eid in enumerate(external, 1)}
         aliases[key] = (local, {**local, **counters})
@@ -369,7 +373,7 @@ class RubricJudge:
             payload, aliases = grouped_payload(resolution, rubric, pending)
             output = await self._client.call(
                 stage="judge",
-                prompt=load_prompt("rubric_judge_v2"),
+                prompt=load_prompt("rubric_judge_v3"),
                 schema=GroupedJudgeDraft,
                 payload=payload,
             )

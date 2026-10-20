@@ -256,7 +256,7 @@ def replay_resolution(history: ResolutionHistory) -> EvidenceResolution:
 class EvidenceResolver:
     def __init__(self, llm: StructuredLLM, *, timeout_seconds: float = 30) -> None:
         self._client = EvaluationModelClient(llm, timeout_seconds=timeout_seconds)
-        self._prompt = load_prompt("evidence_resolver_v2")
+        self._prompt = load_prompt("evidence_resolver_v3")
 
     async def resolve(
         self,

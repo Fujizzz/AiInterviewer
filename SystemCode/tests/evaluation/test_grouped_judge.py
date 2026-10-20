@@ -2,11 +2,49 @@
 
 import pytest
 
-from evaluation.judge import GroupedJudgeDraft, RubricJudge, validate_judgement
+from evaluation.judge import (
+    GroupedJudgeDraft,
+    RubricJudge,
+    expand_groups,
+    grouped_payload,
+    validate_judgement,
+)
 from evaluation.model_calls import EvaluationStageError
 from evaluation.rubric import load_rubric_pack
 from tests.evaluation.port_helpers import evaluation_output
 from tests.evaluation.resolver_helpers import decision, resolve, source
+
+
+def test_judge_payload_is_invariant_to_answer_ids_and_keeps_source_order():
+    """Fresh interviews must not reshuffle the same grounded facts by hash ID."""
+    rubric = load_rubric_pack()
+    payloads = []
+    for run in range(4):
+        first = source(f"{run}-first", "I profiled the original memory failure.")
+        detail = source(f"{run}-detail", "I then bounded the queue in that same incident.")
+        second = source(f"{run}-second", "In a separate incident I measured disk waits.")
+        resolution = resolve(
+            (first, decision(first)),
+            (detail, decision(detail, same=(first,))),
+            (second, decision(second)),
+        )
+        pending = {e.independence_group_id for e in resolution.evidence_items}
+        payload, aliases = grouped_payload(resolution, rubric, pending)
+        payloads.append(payload)
+        assert [
+            [e["quotes"][0] for e in g["evidence"]] for g in payload["groups"]
+        ] == [[first.turn.answer.text, detail.turn.answer.text], [second.turn.answer.text]]
+        output = evaluation_output("", payload, GroupedJudgeDraft)
+        assessments, _ = expand_groups(output, aliases, rubric)
+        assert [a.evidence_ids[0] for a in assessments] == [
+            first.evidence.evidence_id, second.evidence.evidence_id,
+        ]
+        # Incremental scoring still sends only the changed episode.
+        one, _ = grouped_payload(
+            resolution, rubric, {resolution.evidence_items[-1].independence_group_id}
+        )
+        assert one["groups"][0]["evidence"][0]["quotes"] == [second.turn.answer.text]
+    assert all(payload == payloads[0] for payload in payloads[1:])
 
 
 async def test_five_independent_sources_cannot_be_combined_into_one_rating():
