@@ -13,9 +13,12 @@ and cleanup can add elapsed time around the provider completion wait.
 
 ## Routing and playback
 
-- With no active or connecting avatar transport, `InterviewVoice.speak` selects
-  browser streaming. An active/connecting renderer retains the complete-WAV
-  protocol and its existing fallback behavior; no UE source is changed.
+- `InterviewVoice.speak` selects browser streaming unless the renderer controller
+  is already ready at the start of that utterance. Pending configuration,
+  connecting/unready transport, or a failed renderer never delay initial audio.
+  An already-ready renderer retains the complete-WAV protocol and its existing
+  recovery behavior; no UE source is changed. A late renderer connection or
+  disconnect cannot take over or interrupt browser-owned PCM.
 - Authentication and CSRF remain enforced by Django middleware. The stream
   response is `application/x-ndjson`, `Cache-Control: no-store`, and
   `X-Accel-Buffering: no`. The existing Nginx configuration already disables
@@ -30,8 +33,12 @@ and cleanup can add elapsed time around the provider completion wait.
   scheduling lead. This is an **audio-duration reserve**, not a fixed 240 ms
   wall-clock delay. Adjacent buffers share the same sample clock. Shorter
   utterances start after verified input completion.
-- Browser onset, first received audio and server synthesis completion are
-  separate UI metrics. The ten-second answer preparation period begins only
+- Scheduled browser onset, first received audio and server synthesis completion
+  are separate UI metrics; question-generation wait remains visible. Sparse
+  console logs include route selection, audio-context readiness, response headers,
+  first PCM, scheduled onset and terminal input, with an utterance identifier but
+  no text/audio payloads. Scheduled onset excludes physical device latency.
+  The ten-second answer preparation period begins only
   after scheduled audio drains, or after the existing explicit failure/stop
   handling releases playback.
 - Replay, question replacement and page cleanup stop queued sources and abort
@@ -143,3 +150,42 @@ now passes **177 tests** locally. The documentation checker completes with
 test. Manual documentation review, a token comparison excluding comments
 (only the playback import/binding changes), and `git diff --check` also pass.
 These offline tests do not prove production deployment or audible device output.
+
+## Startup routing correction on 2026-10-21
+
+The first implementation's route condition was too broad: any connecting renderer
+or allocated transport selected complete-WAV synthesis, even without a ready UE
+controller. Because the interview page automatically attempts a renderer connection,
+the browser could wait for complete synthesis and then up to eight more seconds
+for readiness before its existing WAV fallback started. A ready renderer's own
+audio/animation preparation remains a separate, unchanged path.
+
+Before this correction, production logs showed three successful WAV POSTs and
+their three subsequent audio downloads; the only successful streaming request in
+that diagnostic window was the earlier deployment acceptance. Thus the original
+endpoint acceptance did not prove that normal interview startup selected streaming.
+The corrected selection and ownership rules above address that frontend cause.
+
+One fixed 208-character request consumed on the Windows development machine
+through production's public HTTPS endpoint measured:
+
+| Stage | Elapsed time |
+| --- | ---: |
+| HTTP response headers at client | 149.5 ms |
+| First complete PCM record at client | 626.2 ms |
+| Initial 240 ms audio reserve at client | 658.5 ms |
+| Complete stream at client | 2,648.7 ms |
+| First PCM reported by server | 446 ms |
+| Synthesis completion reported by server | 2,430 ms |
+
+This is an actual WAN transport measurement, not a speaker-onset measurement or
+a latency guarantee. The difference between client/server timers includes request
+setup, round-trip transport, framing and measurement overhead; it is not solely
+network propagation. The model, region, voice and text remain unchanged. Temporary
+test credentials were held in memory, and their account/session were deleted.
+
+The complete browser suite now passes **178 tests**, including pending
+configuration/transport/controller/failure cases, scheduling before EOF, late
+renderer events, retained ready-renderer behavior, and actual mixed-script caption
+text. Documentation checking still reports **363 existing issues in other files**
+and none in the four changed code files. No UE engine validation is performed.

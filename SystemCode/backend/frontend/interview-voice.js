@@ -1,7 +1,7 @@
 /**
  * @module interview-voice
  * Responsibilities: Coordinate playback/subtitles, 10-second preparation, automatic capture and five-second inactivity closure; never compute interview evaluation.
- * Implementation: Stream PCM for direct browser playback; preserve complete-WAV playback for an active or connecting UE renderer. Grant preparation after audible playback or an explicit voice fallback, preserving remaining preparation on replay. Isolate late events by epoch/capture identity; flush complete STT before automatic submission. Caption presentation replaces Han-script drafts with an English pending notice and flags a final Han-script result, preserving the raw submission text. A separate presentation controller supplies Agent facial dynamics with recorded fallback without delaying speech. Semantic receipts use MCP; inactivity/capture-limit closures use the normal answer boundary. Explicit end suspends submission.
+ * Implementation: Stream PCM unless the UE controller is already ready when speech starts; only that ready renderer retains complete-WAV playback. Grant preparation after audible playback or an explicit voice fallback, preserving remaining preparation on replay. Isolate late events by epoch/capture identity; flush complete STT before automatic submission. Captions display actual partial/final recognition text verbatim, with operational notices confined to the separate status region. A separate presentation controller supplies Agent facial dynamics with recorded fallback without delaying speech. Semantic receipts use MCP; inactivity/capture-limit closures use the normal answer boundary. Explicit end suspends submission.
  * Related Modules: SpeechCapture manages PCM/STT; speech-playback validates NDJSON and schedules browser audio; agent.js provides submission callback and current question's answer eligibility; the pixel-player bundle exports PresentationController for bounded facial plans and loadAvatarConfiguration for approved transport settings.
  *
  * Declaration Index:
@@ -26,7 +26,7 @@
  * - InterviewVoice.takeFinalAnswer.callback1: Save finalization callbacks for this capture.
  * - InterviewVoice.resumeAnswer: Functionality: Resume an interview after dismissing the end dialog.
  * - InterviewVoice.updateControls: No parameters; read answer/playback/capture/finish state to update buttons, no network or submission side effects.
- * - InterviewVoice.subtitle: Render English caption notices for Han-script drafts/finals without modifying answer text; empty text hides captions.
+ * - InterviewVoice.subtitle: Render actual recognition text safely and verbatim; empty text hides captions.
  * - InterviewVoice.finishAnswer: Inputs: source (default silence); five-second inactivity or backend completion closes capture. Outputs: None.
  * - InterviewVoice.submitTranscript: Inputs: Instance final transcript, eligibility and suspended state. Outputs: None.
  * - InterviewVoice.connectAvatar: Load approved connection settings and connect the official player.
@@ -38,23 +38,23 @@
  * - InterviewVoice.waitForAvatar.callback1: Register a readiness resolver owned by this coordinator.
  * - InterviewVoice.waitForAvatar.callback1.callback1: Remove an expired waiter and resolve false.
  * - InterviewVoice.resolveAvatarReady: Release pending playback waits on readiness, failure or interview cleanup.
- * - InterviewVoice.avatarEvent: Accept current playback events and select voice fallback after a disconnect.
+ * - InterviewVoice.avatarEvent: Handle renderer-owned playback events without interrupting an independent browser stream.
  * - InterviewVoice.avatarEvent.callback1: Release controls if a current UE playback exceeds its deadline.
  * - InterviewVoice.setQuestion: Reset stale resources and await question playback before granting a full 10-second preparation period.
  * - InterviewVoice.setState: Send presentation state without changing interview scoring or answers.
  * - InterviewVoice.avatarPreparationTimeout: Derive a bounded UE readiness deadline from trusted WAV duration metadata, preserving legacy defaults.
- * - InterviewVoice.speak: Choose browser PCM streaming or retain the active renderer's complete-WAV contract.
+ * - InterviewVoice.speak: Select browser PCM immediately unless the renderer controller is already ready.
  * - InterviewVoice.speak.callback1: Abort only this TTS request when its deadline expires.
  * - InterviewVoice.speak.callback2: Cancel stalled UE preparation before switching to browser audio.
  * - InterviewVoice.speakStream: Stream one browser utterance with epoch fencing and explicit failure.
  * - InterviewVoice.speakStream.callback1: Abort only this stream when synthesis exceeds its request budget.
- * - InterviewVoice.speakStream.object1.onStarted: Update reading state and first-playback timing.
- * - InterviewVoice.speakStream.object1.onStarted.callback1: Stop a stalled browser playback at the existing limit.
- * - InterviewVoice.speakStream.object1.onEnded: Start preparation only after actual audio drain.
- * - InterviewVoice.speakStream.object1.onError: Stop and report an underrun without replay.
- * - InterviewVoice.speakStream.object3.onStart: Bind the validated stream identifier to the current question.
- * - InterviewVoice.speakStream.object3.onAudio: Queue current PCM and record first-audio timing.
- * - InterviewVoice.speakStream.object3.onEnd: Confirm input completion separately from playback completion.
+ * - InterviewVoice.speakStream.object2.onStarted: Update reading state and log scheduled browser playback timing.
+ * - InterviewVoice.speakStream.object2.onStarted.callback1: Stop a stalled browser playback at the existing limit.
+ * - InterviewVoice.speakStream.object2.onEnded: Start preparation only after actual audio drain.
+ * - InterviewVoice.speakStream.object2.onError: Stop and report an underrun without replay.
+ * - InterviewVoice.speakStream.object4.onStart: Bind the validated stream identifier to the current question.
+ * - InterviewVoice.speakStream.object4.onAudio: Queue current PCM and record first-audio timing.
+ * - InterviewVoice.speakStream.object4.onEnd: Confirm input completion separately from playback completion.
  * - InterviewVoice.fallbackAudio: Play voice-only audio when the avatar cannot render the current question.
  * - InterviewVoice.fallbackAudio.audio.onended: Restore answering after the current browser audio completes.
  * - InterviewVoice.fallbackAudio.audio.onerror: Release controls and report a current audio download failure.
@@ -250,17 +250,14 @@ export class InterviewVoice {
   }
 
   /**
- * Inputs: current provider text and final flag (default false). Outputs: caption DOM only.
- * Logic: Han-script drafts show a fixed English pending notice until corrected; final Han-script
- * text shows an explicit English diagnostic. Other text is rendered verbatim with textContent.
- * Constraints: This is a display policy, not language detection or translation. It never edits
- * finalTranscript, completion receipts, activity timing or answer submission. Empty text hides
- * captions; no old draft is presented as a corrected final answer. No browser storage is written.
- */ subtitle(text, final = false) {
+ * Functionality: Display only the actual current recognition text.
+ * Inputs: Provider partial text or the accepted final transcript string. Outputs: Caption DOM only.
+ * Logic: Assign textContent verbatim, hide empty captions and scroll to the latest words.
+ * Constraints: No language filtering, translation, status placeholders or HTML interpretation.
+ * Does not edit finalTranscript, receipts, silence timing or submission; status/errors use message().
+ */ subtitle(text) {
     const node = document.getElementById("answer-subtitle");
-    node.textContent = /\p{Script=Han}/u.test(text)
-      ? (final ? "Transcription contains non-English text." : "Transcribing English speech…")
-      : text;
+    node.textContent = text;
     document.getElementById("answer-subtitles").hidden = !text;
     node.scrollTop = node.scrollHeight;
   }
@@ -385,7 +382,11 @@ export class InterviewVoice {
     this.avatarReadyWaiters.clear();
   }
 
-  /** Accept current playback events and select voice fallback after a disconnect. */ avatarEvent(event) {
+  /** Handle renderer events while preserving playback ownership.
+   * Inputs: Renderer event and current utterance/player state. Outputs: Presentation and playback transitions.
+   * Logic: Resolve renderer readiness independently; a disconnect can affect only renderer-owned WAV playback.
+   * Constraints: A late renderer connection or failure must never stop, replay or take over browser PCM.
+   */ avatarEvent(event) {
     this.presentation?.onAvatarEvent(event);
     if (event.type === "avatar_ready") {
       this.resolveAvatarReady(this.player?.ready === true && !event.detail);
@@ -400,7 +401,7 @@ export class InterviewVoice {
       const waitingForAvatar = this.avatarReadyWaiters.size > 0;
       this.resolveAvatarReady(false);
       // The pending speak continuation owns fallback while waiting; do not start it twice.
-      if (waitingForAvatar) return;
+      if (waitingForAvatar || this.audioStream) return;
       if (this.busy) {
         if (this.playbackStarted) { this.stopPlayback(); this.message(window.AppI18n?.t("voice_avatar_disconnected") ?? "The avatar disconnected. The question is visible; replay it or answer directly."); }
         else if (this.audioUrl && !this.audio) { this.fallbackAudio(this.audioUrl, this.epoch); }
@@ -452,13 +453,19 @@ export class InterviewVoice {
     return Math.min(125000, Math.max(18000, 15000 + 1.5 * durationMs));
   }
 
-  /** Choose one playback target before synthesis: direct browser uses PCM streaming;
-   * an active/connecting renderer keeps its existing complete-WAV protocol.
+  /** Choose one playback target before synthesis: only a ready renderer uses complete WAV.
    * Inputs: Current question and connection/capture state. Outputs: Playback attempt.
-   * Constraints: Never send streamed PCM to an unmodified UE renderer or switch targets midstream.
+   * Logic: Pending configuration, transport or controller readiness immediately selects browser PCM.
+   * Log the selected route without question text to distinguish buffering from provider/network delay.
+   * Constraints: Never wait for initial renderer readiness, send PCM to unmodified UE, or switch targets midstream.
    */ async speak() {
     if (!this.question || this.capture || this.finalTranscript !== null || this.finishRequested || this.suspended) return;
-    if (!this.player?.ready && !this.player?.player && !this.avatarConnecting) return this.speakStream();
+    const rendererReady = this.player?.ready === true;
+    console.info("Interview speech playback selected", {
+      mode: rendererReady ? "avatar_wav" : "browser_stream", rendererReady,
+      rendererConnecting: this.avatarConnecting, rendererTransport: !!this.player?.player,
+    });
+    if (!rendererReady) return this.speakStream();
     this.pausePreparation();
     this.stopPlayback(false);
     const epoch = ++this.epoch;
@@ -520,7 +527,9 @@ export class InterviewVoice {
    * Inputs: Current question and UI state, already checked by speak.
    * Outputs: One cancellable fetch plus browser playback; preparation begins only after audio ends.
    * Logic: Resume Web Audio before requesting speech, fence every callback by epoch,
-   * and distinguish synthesis completion from actual playback completion.
+   * and distinguish context readiness, response headers, first PCM, scheduled onset and audio drain.
+   * Timing logs use epoch/utterance identifiers without question text or audio; scheduled onset
+   * does not measure device-output latency. UI retains the independent question-generation wait.
    * Constraints: Existing model/voice/text are unchanged. Failure stops queued audio
    * immediately and never retries or replays a partially heard question.
    */
@@ -535,11 +544,13 @@ export class InterviewVoice {
     this.setState("thinking");
     const started = performance.now();
     let firstAudio = false;
+    let audioContextReadyMs = null, responseHeadersMs = null;
+    const questionTiming = this.backendWaitMs === null ? "" : `${window.AppI18n?.t("voice_question_wait", { ms: Math.round(this.backendWaitMs) }) ?? `Question wait ${Math.round(this.backendWaitMs)} ms`} · `;
     const abort = new AbortController();
     this.abort = abort;
     const timeout = setTimeout(/** Abort this synthesis request without starting another. */ () => abort.abort(), 50000);
     const playback = new PcmStreamPlayer({
-      /** Mark audible reading and report the elapsed startup delay for this question only. */
+      /** Mark reading at scheduled onset and log elapsed startup for this question, excluding device latency. */
       onStarted: () => {
         if (epoch !== this.epoch) return;
         this.playbackStarted = true;
@@ -553,6 +564,7 @@ export class InterviewVoice {
         }, 125000);
         const ms = Math.round(performance.now() - started);
         document.getElementById("speech-metrics").textContent += ` · ${window.AppI18n?.t("voice_stream_playback", { ms }) ?? `Playback ${ms} ms`}`;
+        console.info("Interview speech stream playback started", { epoch, utteranceId: this.utteranceId, playbackMs: ms });
       },
       /** Release preparation only when the final scheduled audio buffer has actually ended. */
       onEnded: () => { if (epoch === this.epoch) this.stopPlayback(); },
@@ -568,6 +580,7 @@ export class InterviewVoice {
     try {
       await playback.prepare(abort.signal);
       if (epoch !== this.epoch) return;
+      audioContextReadyMs = Math.round(performance.now() - started);
       const headers = { "Content-Type": "application/json" };
       const csrf = document.getElementById("csrf-token")?.content;
       if (csrf) headers["X-CSRFToken"] = csrf;
@@ -575,6 +588,7 @@ export class InterviewVoice {
         method: "POST", headers,
         body: JSON.stringify({ text: this.question.text }), signal: abort.signal,
       });
+      responseHeadersMs = Math.round(performance.now() - started);
       await readSpeechStream(response, {
         signal: abort.signal,
         /** Bind only the validated identifier of this still-current stream. */
@@ -589,8 +603,10 @@ export class InterviewVoice {
           if (!firstAudio) {
             firstAudio = true;
             const ms = Math.round(performance.now() - started);
-            document.getElementById("speech-metrics").textContent = window.AppI18n?.t("voice_stream_first_audio", { ms }) ?? `First audio ${ms} ms`;
-            console.info("Interview speech stream first audio", { epoch, firstAudioMs: ms });
+            document.getElementById("speech-metrics").textContent = questionTiming + (window.AppI18n?.t("voice_stream_first_audio", { ms }) ?? `First audio ${ms} ms`);
+            console.info("Interview speech stream first audio", {
+              epoch, utteranceId: this.utteranceId, firstAudioMs: ms, audioContextReadyMs, responseHeadersMs,
+            });
           }
         },
         /** Mark validated input end; leave playback and preparation clocks owned by audio drain. */
@@ -598,6 +614,10 @@ export class InterviewVoice {
           if (epoch !== this.epoch) return;
           playback.finish();
           document.getElementById("speech-metrics").textContent += ` · ${window.AppI18n?.t("voice_stream_complete", { ms: event.generation_ms }) ?? `Synthesis complete ${event.generation_ms} ms`}`;
+          console.info("Interview speech stream input completed", {
+            epoch, utteranceId: event.utterance_id, serverFirstAudioMs: event.first_audio_ms,
+            serverGenerationMs: event.generation_ms, receivedMs: Math.round(performance.now() - started),
+          });
         },
       });
     } catch (error) {
@@ -686,7 +706,7 @@ export class InterviewVoice {
         // inactivity/capture-limit answer route; final words still pass normal input/output review.
         this.finishRequested = true;
         console.info("Interview final speech received", { endRequested: this.finishRequested, textLength: this.finalTranscript?.length ?? 0 });
-        this.subtitle(this.finalTranscript ?? "", true);
+        this.subtitle(this.finalTranscript ?? "");
         if (!receipt) this.autoFinish = false;
         if (!this.finalTranscript) this.message(window.AppI18n?.t("voice_empty") ?? "No speech recognized; recording as unanswered.");
         this.finalWaiter?.resolve(this.finalTranscript);

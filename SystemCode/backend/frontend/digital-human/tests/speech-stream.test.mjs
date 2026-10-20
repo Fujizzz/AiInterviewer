@@ -52,6 +52,11 @@
  * - callback6.callback2: Clear coordinator timers and sources after each isolated question.
  * - callback7: Midstream failure or a new question must stop queued audio, fence late callbacks and avoid another TTS call.
  * - callback7.callback1: Supply exactly one controllable utterance.
+ * - pendingRendererStream: Verify pending configuration/transport/controller states choose immediate browser streaming and retain ownership.
+ * - pendingRendererStream.callback1: Capture the sole stream request without network or provider calls.
+ * - pendingRendererStream.renderer.send: Record renderer commands and reject delivery until explicitly ready.
+ * - pendingRendererStream.renderer.close: Accept cleanup without allocating real renderer resources.
+ * - pendingRendererStream.callback2: Detect any forbidden renderer speech command during browser ownership.
  * Variable Index:
  * - ID: Fixed utterance identity shared by the offline protocol fixtures.
  * - START: Required PCM format declaration.
@@ -281,3 +286,70 @@ test("provider failure and question replacement stop partial audio without repla
     } finally { voice.close(); }
   }
 });
+
+/** Functionality: Verify normal interview startup streams despite pending renderer readiness.
+ * Inputs: Real coordinator/parser/player with controlled HTTP and audio-clock doubles.
+ * Outputs: Assertions on request selection, pre-completion scheduling, timing display and ownership.
+ * Logic: Cover configuration loading, active unready transport and failed transport; deliver
+ * late readiness/disconnect before and after scheduled onset, then drain the same utterance.
+ * Constraints: No network, model, microphone or UE calls. Already-ready renderer WAV tests remain separate.
+ */
+async function pendingRendererStream(t) {
+  await player(t);
+  for (const stage of ["configuration", "transport", "controller", "failed"]) {
+    page();
+    const wire = new Wire(), requests = [], commands = [];
+    t.mock.method(globalThis, "fetch",
+      /** Capture the sole stream request without network or provider calls. */
+      async (url, options) => { requests.push({ url, options }); return wire.response; });
+    const renderer = {
+      ready: false, player: stage === "failed" ? null : {},
+      /** Record commands and reject delivery until the test announces controller readiness. */
+      send(message) { commands.push(message); return this.ready; },
+      /** Accept cleanup without renderer resources. */ close() {},
+    };
+    const voice = new InterviewVoice();
+    voice.eligible = true;
+    voice.backendWaitMs = 1234;
+    voice.question = { text: "Describe your contribution." };
+    voice.avatarConnecting = stage === "configuration" || stage === "transport";
+    voice.player = stage === "configuration" ? null : renderer;
+    try {
+      const speaking = voice.speak();
+      await flush();
+      assert.equal(requests.length, 1, stage);
+      assert.equal(requests[0].url, "/api/speech/tts/stream/", stage);
+      assert.equal(voice.avatarReadyWaiters.size, 0, "No initial readiness delay is permitted");
+      wire.send(START, audio(), audio(1));
+      await flush();
+      const playback = voice.audioStream;
+      assert.equal(playback.context.sources.length, 2, "Schedule before synthesis completion");
+      assert.match(document.getElementById("speech-metrics").textContent, /Question wait 1234 ms.*First audio/);
+      voice.avatarEvent({ type: "avatar_disconnected" });
+      assert.equal(playback.stopped, false, "Renderer failure cannot stop browser-owned audio");
+      voice.player = renderer;
+      renderer.ready = true;
+      voice.avatarConnecting = false;
+      voice.avatarEvent({ type: "avatar_ready" });
+      playback.onStarted();
+      assert.equal(voice.phase, "reading");
+      voice.avatarEvent({ type: "avatar_disconnected" });
+      assert.equal(playback.stopped, false, "Disconnect after onset still belongs to the renderer");
+      assert.equal(voice.busy, true);
+      assert.equal(requests[0].options.signal.aborted, false);
+      assert.equal(commands.some(
+        /** Detect any forbidden renderer speech command during browser ownership. */
+        message => message.type === "speak"), false);
+      wire.send(end(16384)); wire.close();
+      await speaking;
+      assert.equal(requests.length, 1, "No duplicated synthesis or full-WAV replay");
+      assert.equal(voice.deadline, null);
+      for (const source of playback.context.sources) source.onended();
+      assert.equal(voice.busy, false);
+      assert.ok(voice.deadline > performance.now());
+    } finally {
+      voice.close();
+    }
+  }
+}
+test("pending renderer never delays browser streaming or takes over a playing utterance", pendingRendererStream);
