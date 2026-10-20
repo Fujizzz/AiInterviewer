@@ -126,3 +126,20 @@ After integration:
 Implementation, tests, comments and declaration indexes are included together
 in the streaming commit. Production deployment and UE changes are outside this
 integration.
+
+## Full browser suite before deployment on 2026-10-21
+
+The first deployment workflow passed its build, core tests and backend tests,
+but the complete browser suite exposed three failures in the separate avatar
+lifecycle VM harness. That harness now binds the real `PcmStreamPlayer` and
+`readSpeechStream` exports when loading the voice coordinator. Assertions,
+fixtures and application behavior are unchanged; the test file's comments and
+declaration/variable indexes are updated in the same change.
+
+From `SystemCode`,
+`node --test backend/tests/*.test.mjs backend/frontend/digital-human/tests/*.test.mjs`
+now passes **177 tests** locally. The documentation checker completes with
+**363 pre-existing issues in other files**, and none in the changed lifecycle
+test. Manual documentation review, a token comparison excluding comments
+(only the playback import/binding changes), and `git diff --check` also pass.
+These offline tests do not prove production deployment or audible device output.
