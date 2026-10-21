@@ -55,14 +55,13 @@ Audio encoding, recording limits, interview budgets, scoring and provider deadli
 The regression test exercises both ASGI start modes through the real recognition adapter with a
 mocked SDK; it verifies provider arguments and cleanup, not real speech accuracy.
 
-Streaming captions can be revised before the provider finalizes a sentence. The caption view uses
-an English pending notice instead of rendering a draft containing Han-script characters, then
-shows the English correction when it arrives. A final Han-script result displays the explicit
-English notice `Transcription contains non-English text.` The caption element declares `lang=en`
-and `translate=no` to opt out of browser translation. This display policy does not translate,
-delete or replace the provider's answer, alter silence timing, or change automatic submission.
-Original final text and completion receipts retain their existing persistence/scoring contract.
-Han detection is a script guard for this observed issue, not a general language classifier.
+Streaming captions can be revised before the provider finalizes a sentence. The caption view
+renders the actual partial and final text verbatim using `textContent`, including mixed-script
+results. It hides empty text and never replaces recognized words with processing or language
+notices; operational status/errors belong to the separate voice-status region. The caption
+element declares the expected `lang=en` and `translate=no` to opt out of browser translation.
+This changes display only: English recognition hints, silence timing, final-text submission,
+completion receipts, persistence and scoring retain their existing contracts.
 
 The speech adapter logs the provider request ID at startup and at most one Han-script warning per
 draft/sentence-final stage in a capture. Each warning contains the configured model/English hint,
