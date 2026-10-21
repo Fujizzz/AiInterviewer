@@ -3,12 +3,10 @@ data temporarily in memory.
 Implementation: Resolve speech geography independently of the LLM HTTP endpoint while reusing the
 configured key. Missing SPEECH_REGION preserves Singapore; invalid values fail before SDK
 construction. All recognition sessions request English, independently of UI locale and completion
-detection. Optional PCM delivery and cancellation let the browser stream the same synthesis call;
-complete WAV callers retain their existing result and provider completion boundary.
-Sparse Han-script diagnostics preserve provider text while recording only request ID,
+detection. Sparse Han-script diagnostics preserve provider text while recording only request ID,
 stage and character counts. Model, voice, audio, and timeout defaults remain unchanged.
-Related Modules: speech.views serves complete synthesis audio; speech.streaming consumes optional
-PCM fragments; speech.socket bridges recognition to WebSocket clients.
+Related Modules: speech.views serves synthesis audio; speech.socket bridges recognition to WebSocket
+clients.
 
 Resolve explicit speech geography independently of the LLM HTTP endpoint, reusing
 the existing key. Missing SPEECH_REGION preserves Singapore; invalid values fail
@@ -28,9 +26,7 @@ Declaration Index:
 - configure_sdk:
   Set the speech endpoint independently of the existing OpenAI-compatible LLM URL.
 - synthesize:
-  Return bounded WAV and optionally deliver PCM incrementally with explicit cancellation.
-- _forward_pcm: Deliver validated provider bytes and preserve a downstream failure.
-- _wait_synthesis: Observe completion, cancellation and the original total deadline.
+  Select a supported synthesis protocol and return bounded WAV for the UE bridge.
 - _synthesize_flash_pcm:
   Collect Qwen-Audio Flash PCM with a synchronous deadline and explicit completion.
 - _synthesize_flash_pcm.Callback: Collect bounded PCM and preserve the first terminal outcome.
@@ -236,61 +232,11 @@ def configure_sdk(config):
     dashscope.base_websocket_api_url = config.endpoint
 
 
-def _forward_pcm(collector, on_pcm, chunk):
-    """Functionality: Deliver a PCM fragment without hiding delivery failures.
-    Inputs: Provider collector, optional synchronous consumer, and bounded bytes.
-    Outputs: None; a failed consumer records the first terminal collector error.
-    Logic: Complete-WAV callers have no consumer; streaming callers receive each
-    fragment after its byte bound is checked. The final WAV still validates alignment.
-    Constraints: No retries or fallback; callback exceptions never escape the SDK
-    thread or expose provider credentials through the public error contract.
-    """
-    if on_pcm is None:
-        return
-    try:
-        on_pcm(chunk)
-    except SpeechError as exc:
-        collector.fail(exc)
-    except Exception as exc:
-        logger.error("Speech PCM delivery failed exception_type=%s", type(exc).__name__)
-        collector.fail(SpeechError("speech_delivery_failed", "Speech delivery failed."))
-
-
-def _wait_synthesis(collector, deadline, cancelled):
-    """Functionality: Wait within the existing synthesis deadline.
-    Inputs: Collector completion event, monotonic deadline, optional threading.Event.
-    Outputs: None on completion; SpeechError on cancellation or timeout.
-    Logic: Retain one blocking wait for complete-WAV callers; streaming callers
-    poll cancellation at most every 100 ms so disconnect closes the SDK promptly.
-    Constraints: Does not change the 45-second budget or interpret partial PCM as success.
-    """
-    while True:
-        if cancelled is not None and cancelled.is_set():
-            raise SpeechError("speech_cancelled", "Speech playback was cancelled.", status=499)
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise SpeechError("speech_timeout", "Speech synthesis timed out; retry or use text.")
-        if collector.done.wait(min(0.1, remaining) if cancelled is not None else remaining):
-            return
-        if cancelled is None:
-            raise SpeechError("speech_timeout", "Speech synthesis timed out; retry or use text.")
-
-
-def synthesize(text, *, on_pcm=None, cancelled=None):
-    """Functionality: Synthesize English speech using the configured protocol.
-    Inputs: Text, optional synchronous PCM consumer, optional cancellation event.
-    Outputs: Complete validated WAV, with incremental PCM delivery when requested.
-    Logic: Preserve model, voice, 24 kHz mono format and provider completion rules;
-    streaming delivery occurs before completion, while the same bounded PCM builds WAV.
-    Constraints: Callers must stop playback on any terminal error after partial
-    delivery. Cancellation is observed before connect and during the completion wait;
-    the SDK's in-progress connection remains subject to its existing timeout.
-    """
-    if cancelled is not None and cancelled.is_set():
-        raise SpeechError("speech_cancelled", "Speech playback was cancelled.", status=499)
+def synthesize(text):
+    """Return complete bounded WAV through the configured supported TTS protocol."""
     config = SpeechConfig.load()
     if config.tts_model == QWEN_AUDIO_FLASH_MODEL:
-        return _wav_from_pcm(_synthesize_flash_pcm(config, text, on_pcm=on_pcm, cancelled=cancelled))
+        return _wav_from_pcm(_synthesize_flash_pcm(config, text))
     from dashscope.audio.qwen_tts_realtime import (
         AudioFormat,
         QwenTtsRealtime,
@@ -319,10 +265,7 @@ def synthesize(text, *, on_pcm=None, cancelled=None):
                     self.done.set()
 
         def on_event(self, event):
-            """Decode and deliver bounded PCM; only session.finished confirms completion.
-
-            Consumer failures release the waiter through fail, preserving the first
-            error. No provider message or PCM is logged.
+            """Decode bounded PCM deltas and accept only the final session completion boundary.
             """
             with self.lock:
                 if self.done.is_set():
@@ -350,7 +293,6 @@ def synthesize(text, *, on_pcm=None, cancelled=None):
                         self.fail(SpeechError("invalid_speech_audio", "Oversized synthesis audio."))
                         return
                     self.pcm.extend(chunk)
-                    _forward_pcm(self, on_pcm, chunk)
                 elif kind == "response.done":
                     response = event.get("response") or {}
                     if not isinstance(response, dict):
@@ -379,8 +321,6 @@ def synthesize(text, *, on_pcm=None, cancelled=None):
             callback=collector,
         )
         synthesizer.connect()
-        if cancelled is not None and cancelled.is_set():
-            raise SpeechError("speech_cancelled", "Speech playback was cancelled.", status=499)
         if collector.error:
             raise collector.error
         synthesizer.update_session(
@@ -391,7 +331,8 @@ def synthesize(text, *, on_pcm=None, cancelled=None):
         )
         synthesizer.append_text(text)
         synthesizer.finish()
-        _wait_synthesis(collector, deadline, cancelled)
+        if not collector.done.wait(max(0, deadline - time.monotonic())):
+            raise SpeechError("speech_timeout", "Speech synthesis timed out; retry or use text.")
         if collector.error:
             raise collector.error
         pcm = bytes(collector.pcm)
@@ -413,16 +354,12 @@ def synthesize(text, *, on_pcm=None, cancelled=None):
     return _wav_from_pcm(pcm)
 
 
-def _synthesize_flash_pcm(config, text, *, on_pcm=None, cancelled=None):
+def _synthesize_flash_pcm(config, text):
     """Collect inference-protocol PCM without an asynchronous SDK completion worker.
 
-    Inputs: Validated config/text, optional PCM consumer and cancellation event.
-    Outputs: Complete PCM; the optional consumer receives bounded fragments early.
     The collector bounds memory while synchronous completion uses the remaining
-    total deadline. Only explicit provider completion confirms success. A consumer
-    must stop partial playback on failure; raw provider errors never escape.
-    Constraints: The inference SDK's blocking streaming_complete call retains its
-    existing deadline; cancellation is checked on each fragment and after that call.
+    total deadline. Only explicit provider completion permits audio playback;
+    partial audio and raw provider error messages never escape this adapter.
     """
     from dashscope.audio.tts_v2 import AudioFormat, ResultCallback, SpeechSynthesizer
 
@@ -445,12 +382,9 @@ def _synthesize_flash_pcm(config, text, *, on_pcm=None, cancelled=None):
                     self.done.set()
 
         def on_data(self, data):
-            """Append and deliver bounded PCM under the lock; stop on cancellation or failure."""
+            """Append bounded PCM bytes under the lock; reject invalid data before completion."""
             with self.lock:
                 if self.error is not None or self.finished:
-                    return
-                if cancelled is not None and cancelled.is_set():
-                    self.fail(SpeechError("speech_cancelled", "Speech playback was cancelled.", status=499))
                     return
                 if not isinstance(data, (bytes, bytearray)):
                     self.fail(SpeechError("invalid_speech_audio", "Invalid synthesis PCM."))
@@ -458,7 +392,6 @@ def _synthesize_flash_pcm(config, text, *, on_pcm=None, cancelled=None):
                     self.fail(SpeechError("invalid_speech_audio", "Oversized synthesis audio."))
                 else:
                     self.pcm.extend(data)
-                    _forward_pcm(self, on_pcm, data)
 
         def on_complete(self):
             """Mark successful completion and release the waiter only if no error was stored."""
@@ -503,7 +436,9 @@ def _synthesize_flash_pcm(config, text, *, on_pcm=None, cancelled=None):
         # The SDK releases its own completion event before dispatching
         # on_complete. Wait for our verified terminal callback within the same
         # deadline so a scheduling race cannot reject successfully received audio.
-        _wait_synthesis(collector, deadline, cancelled)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0 or not collector.done.wait(remaining):
+            raise SpeechError("speech_timeout", "Speech synthesis timed out; retry or use text.")
         if collector.error:
             raise collector.error
         if time.monotonic() > deadline:

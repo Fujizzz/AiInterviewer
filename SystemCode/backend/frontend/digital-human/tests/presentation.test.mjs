@@ -470,7 +470,7 @@ test("real voice preserves TTS ordering, replay, thinking and terminal Agent idl
   let answers = 0;
   const voice = new InterviewVoice(/** Detect expression work accidentally submitting an answer. */ () => { ++answers; });
   voice.presentation = harness.controller;
-  voice.player = { ready: true, send: harness.send.bind(harness), /** Close the offline player without browser resources. */ close() {} };
+  voice.player = { send: harness.send.bind(harness), /** Close the offline player without browser resources. */ close() {} };
   let ttsCalls = 0;
   /** Supply a fresh offline identity for each explicit TTS replay. */
   globalThis.fetch = async () => {

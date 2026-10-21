@@ -9,36 +9,30 @@
  * - page: Create minimal DOM and event listener stubs.
  * - page.globalThis.document.getElementById: Create and cache control state on demand.
  * - page.globalThis.window.addEventListener: Register offline page event subscriptions.
- * - page.globalThis.window.dispatchEvent: Dispatch the page's normal controls event to the registered voice coordinator.
- * - readyRenderer: Select the retained WAV protocol with an explicitly ready offline renderer.
- * - readyRenderer.object1.send: Accept control messages without transport or playback.
- * - readyRenderer.object1.close: Accept renderer cleanup without resources.
- * - OfflineQuestionAudio: Simulate question audio without starting a real browser media pipeline.
- * - OfflineQuestionAudio.constructor: Retain an offline URL and a verifiable stopped flag.
- * - OfflineQuestionAudio.play: Resolve startup while leaving completion under the test's control.
- * - OfflineQuestionAudio.pause: Mark this simulated playback stopped.
- * - VoicePlaybackHarness: Drive full initial/replay question lifecycles using deterministic timers and offline media boundaries.
- * - VoicePlaybackHarness.constructor: Save existing globals, then replace only the clock, playback transport and microphone startup.
- * - VoicePlaybackHarness.constructor.globalThis.performance.now: Return deterministic monotonic time.
- * - VoicePlaybackHarness.constructor.SpeechCapture.prototype.start: Count simulated startup without opening a microphone or recognizer.
- * - VoicePlaybackHarness.constructor.callback1: Detect accidental answer submission during playback.
- * - VoicePlaybackHarness.constructor.this.voice.player.send: Record controls and simulate UE channel availability.
- * - VoicePlaybackHarness.constructor.this.voice.player.close: Close the offline transport without resources.
- * - VoicePlaybackHarness.addTimer: Schedule a deterministic timeout or interval callback.
- * - VoicePlaybackHarness.addInterval: Schedule a countdown callback without a real timer.
- * - VoicePlaybackHarness.clearTimer: Cancel one deterministic timer.
- * - VoicePlaybackHarness.advance: Move time forward, running each due callback once to expose deadline transitions.
- * - VoicePlaybackHarness.fetch: Capture TTS requests while allowing deliberately late responses despite cancellation.
- * - VoicePlaybackHarness.fetch.callback1: Retain response and rejection controls without network access.
- * - VoicePlaybackHarness.completeTts: Resolve one TTS boundary with fixed metadata or a fixed public error.
- * - VoicePlaybackHarness.completeTts.object3.json: Return only the fixed offline response body.
- * - VoicePlaybackHarness.flush: Drain Promise callbacks without delaying wall-clock time.
- * - VoicePlaybackHarness.close: Close the tested voice lifecycle before restoring real globals and capture startup.
- * - pendingAvatar: Remove readiness after renderer selection to exercise its existing WAV recovery boundary.
- * - pendingAvatar.harness.voice.player.send: Observe delivered renderer commands without changing the harness channel result.
- * - pendingAvatar.globalThis.Audio: Track fallback media construction while retaining the offline audio lifecycle.
- * - pendingAvatar.globalThis.Audio.constructor: Record this browser fallback instance and its inherited URL.
- * - pendingAvatar.observation.ready: Announce readiness only for the currently attached renderer.
+ * - page.globalThis.window.dispatchEvent: Deliver the actual page controls event path without a browser.
+ * - OfflineQuestionAudio: Simulate browser question playback without device or network access.
+ * - OfflineQuestionAudio.constructor: Retain an offline audio URL.
+ * - OfflineQuestionAudio.play: Resolve playback startup without playing sound.
+ * - OfflineQuestionAudio.pause: Mark offline audio stopped.
+ * - VoicePlaybackHarness: Drive question playback and automatic preparation with deterministic clocks.
+ * - VoicePlaybackHarness.constructor: Replace timer, TTS and audio boundaries, retaining originals for cleanup.
+ * - VoicePlaybackHarness.constructor.globalThis.performance.now: Return the deterministic monotonic clock.
+ * - VoicePlaybackHarness.constructor.callback1: Count any unexpected automatic answer submission.
+ * - VoicePlaybackHarness.constructor.this.voice.player.send: Record UE commands and select the offline playback path.
+ * - VoicePlaybackHarness.constructor.this.voice.player.close: Close the offline player without resources.
+ * - VoicePlaybackHarness.constructor.SpeechCapture.prototype.start: Open a simulated recording without provider or device access.
+ * - VoicePlaybackHarness.addTimer: Schedule one timeout or repeated countdown callback.
+ * - VoicePlaybackHarness.addInterval: Schedule a repeated countdown callback.
+ * - VoicePlaybackHarness.clearTimer: Cancel one deterministic callback.
+ * - VoicePlaybackHarness.advance: Move the clock and run due callbacks once.
+ * - VoicePlaybackHarness.fetch: Capture a manually completed offline TTS request.
+ * - VoicePlaybackHarness.fetch.callback1: Retain TTS completion and rejection boundaries.
+ * - VoicePlaybackHarness.completeTts: Complete one request with fixed audio or a public quota failure.
+ * - VoicePlaybackHarness.completeTts.object3.json: Return a fixed offline TTS body.
+ * - VoicePlaybackHarness.flush: Settle asynchronous playback startup without wall-clock waits.
+ * - VoicePlaybackHarness.close: Restore all global and microphone boundaries after a regression test.
+ * - pendingAvatar: Simulate an initial stream awaiting controller readiness and observe accepted UE messages and browser audio creation.
+ * - pendingAvatar.ready: Mark the offline controller available before delivering its actual readiness event.
  * - callback1: Verify chunked capture results match full segment resampling results.
  * - callback1.callback1: Generate fixed-sampling-rate sinusoidal test input.
  * - callback2: Verify worklet sends little-endian PCM tail first, then confirms flush, and does not replay input.
@@ -95,34 +89,17 @@
  * - callback10.SpeechCapture.prototype.end: Return final words distinct from the preceding partial subtitles.
  * - callback11: Verify a denied automatic microphone attempt is explicit and is not silently retried.
  * - callback11.SpeechCapture.prototype.start: Reject device startup at the same boundary as browser permission refusal.
- * - callback12: Verify slow synthesis and UE readiness cannot consume or abort the user's preparation time.
- * - callback13: A renderer ready at selection can recover during synthesis without another WAV request.
- * - callback13.callback1: Select only actual speech commands.
- * - callback14: A renderer replaced after selection binds its existing WAV identity to the new presentation.
- * - callback14.voice.presentation.bindUtterance: Record identity binding after presentation configuration finishes.
- * - callback14.voice.presentation.onAvatarEvent: Accept lifecycle events without renderer resources.
- * - callback14.voice.presentation.setState: Accept presentation state without animation.
- * - callback14.voice.presentation.endListeningCapture: Complete a simulated listening observation.
- * - callback14.voice.presentation.clear: Clear simulated presentation state.
- * - callback14.voice.presentation.close: Release the resource-free presentation double.
- * - callback14.callback1: Select speech commands for identity assertions.
- * - callback15: Readiness lost after WAV selection reaches one bounded fallback without duplicate late playback.
- * - callback15.callback1: Detect duplicate renderer speech after fallback.
- * - callback16: Disconnecting after WAV selection wakes its pending request without duplicate fallback resources.
- * - callback16.callback1: Detect speech revived by late readiness.
- * - callback17: Reset/end invalidates an already selected renderer request before late readiness can revive playback.
- * - callback17.callback1: Verify each termination path fences late callbacks independently.
- * - callback17.callback1.callback1: Detect stale renderer speech after termination.
- * - callback18: Verify explicit replay preserves preparation already spent and stale events cannot grant another ten seconds.
- * - callback19: Verify failure and explicit skip paths grant preparation while cancelled or obsolete TTS cannot revive playback.
- * - callback20: Verify fallback audible completion starts preparation, and retired media callbacks cannot touch a new question.
- * - callback21: Verify preparation never replaces independent TTS, UE startup or bounded browser playback deadlines.
- * - callback22: Verify an early-end dialog pauses preparation rather than losing the clock or granting a new full period.
- * - callback23: Verify browser autoplay refusal is a bounded voice fallback, never a blocked microphone preparation.
- * - callback23.OfflineQuestionAudio.prototype.play: Reject only the offline browser playback startup.
- * - callback24: Verify the page's direct choosing-dialog suspension, rather than only the later save/finalization path.
- * - callback25: Verify a long allowed WAV receives a bounded CPU preparation window rather than a premature legacy fallback.
- * - callback26: Verify provider-independent duration metadata uses exact bounds and cannot weaken finite playback protection.
+ * - callback12: Verify slow TTS, UE preparation and audible playback precede the full preparation clock.
+ * - callback13: Verify explicit replay pauses and resumes remaining preparation without resetting it.
+ * - callback14: Verify initial failure, explicit interruption and disabled voice grant preparation once.
+ * - callback15: Verify browser fallback completion and audio failure cannot reset preparation with stale events.
+ * - callback16: Verify bounded UE and browser fallback deadlines remain separate from preparation.
+ * - callback17: Verify dismissing early end resumes only the remaining preparation time.
+ * - callback18: Verify browser autoplay refusal releases initial playback into a full preparation period.
+ * - callback18.OfflineQuestionAudio.prototype.play: Reject offline playback at the browser autoplay boundary.
+ * - callback19: Verify direct end-dialog suspension and controls events preserve remaining preparation, including a question arriving while suspended.
+ * - callback20: Verify complete-WAV CPU preparation can exceed 18 seconds while retaining a finite upper deadline and deferred preparation.
+ * - callback21: Verify missing and malformed duration metadata retain legacy readiness bounds.
  * Variable Index:
  * None
  *
@@ -151,19 +128,6 @@ function page() {
   /** Dispatch the page's normal controls event to the registered voice coordinator. */
   dispatchEvent(event) { listeners.get(event.type)?.(event); return true; } };
   return elements;
-}
-
-/** Functionality: Select the retained WAV protocol with an explicitly ready offline renderer.
- * Inputs: None. Outputs: Ready player with inert control and cleanup methods.
- * Logic: Keep renderer-protocol request/error tests separate from real browser PCM tests.
- * Constraints: No transport, media or readiness events are generated.
- */
-function readyRenderer() {
-  return {
-    ready: true,
-    /** Accept control messages without transport or playback. */ send() { return true; },
-    /** Accept renderer cleanup without resources. */ close() {},
-  };
 }
 
 /** Simulate question audio without starting a real browser media pipeline. */
@@ -200,7 +164,6 @@ class VoicePlaybackHarness {
     this.voice = new InterviewVoice(/** Detect accidental answer submission during playback. */ () => { this.answers++; });
     this.voice.eligible = true;
     this.voice.player = {
-      ready: true, // Renderer protocol tests explicitly start with an established channel.
       /** Record controls and simulate UE channel availability. */ send: (message) => { this.commands.push(message); return this.ueAvailable; },
       /** Close the offline transport without resources. */ close() {},
     };
@@ -249,28 +212,21 @@ class VoicePlaybackHarness {
   }
 }
 
-/** Remove controller readiness during an already selected WAV request.
- * Inputs: Offline playback harness whose speech request has started. Outputs: Command/media observations.
- * Logic: Mark its channel unready and expose an explicit ready event. Constraints: No browser or renderer.
- */
+/** Keep initial UE availability separate from TTS completion without opening a browser or renderer. */
 function pendingAvatar(harness) {
   harness.ueAvailable = false;
   harness.voice.player.player = {};
   harness.voice.player.ready = false;
   const observation = { accepted: [], audio: [] };
   const send = harness.voice.player.send;
-  /** Observe delivered renderer commands without changing the harness channel result. */
   harness.voice.player.send = (message) => {
     const delivered = send(message);
     if (delivered) observation.accepted.push(message);
     return delivered;
   };
-  /** Track fallback media construction while retaining the offline audio lifecycle. */
   globalThis.Audio = class extends OfflineQuestionAudio {
-    /** Record this browser fallback instance and its inherited URL. */
     constructor(url) { super(url); observation.audio.push(this); }
   };
-  /** Announce readiness only for the currently attached renderer. */
   observation.ready = () => {
     harness.ueAvailable = true;
     if (harness.voice.player) harness.voice.player.ready = true;
@@ -342,7 +298,6 @@ test("late TTS result cannot start playback after the next question is displayed
   const voice = new InterviewVoice();
   voice.eligible = true;
   voice.question = { text: "Old question" };
-  voice.player = readyRenderer(); // Exercise cancellation of the retained renderer WAV request.
   let resolve;
   /**
  *  Provide a manually endable TTS request.
@@ -378,7 +333,7 @@ test("old UE events are ignored and UE audio is never also played in the browser
   voice.eligible = true;
   voice.question = { text: "Current question" };
   const sent = [];
-  voice.player = { ready: true, /**
+  voice.player = { /**
  *  Record UE control messages and simulate successful send.
  */ send: (message) => { sent.push(message); return true; }, /**
  *  Provide a player close stub requiring no resource cleanup.
@@ -418,7 +373,6 @@ test("TTS failure leaves voice recording available", async () => {
   const voice = new InterviewVoice();
   voice.eligible = true;
   voice.question = { text: "Question" };
-  voice.player = readyRenderer(); // Keep this quota regression on the renderer WAV endpoint.
   /**
  *  Provide TTS quota insufficient response.
  */
@@ -486,7 +440,6 @@ test("TTS includes the page CSRF token for authenticated sessions", async () => 
   const voice = new InterviewVoice();
   voice.eligible = true;
   voice.question = { text: "Describe one contribution." };
-  voice.player = readyRenderer(); // The streaming endpoint has separate authentication coverage.
   let headers;
   /**
  *  Save client request headers; fix failure to prevent browser audio creation during testing.
@@ -649,19 +602,19 @@ test("initial preparation starts after audible completion despite slow TTS and U
   } finally { harness.close(); }
 });
 
-/** A renderer ready at selection can recover during synthesis without duplicating its chosen WAV request. */
-test("renderer selected while ready can recover during synthesis without another TTS request", async () => {
+/** A fast first TTS result waits for the initial stream, then plays its existing WAV exactly once in UE. */
+test("first question waits for avatar readiness without browser audio or another TTS request", async () => {
   const harness = new VoicePlaybackHarness(); const voice = harness.voice;
+  const observation = pendingAvatar(harness);
   try {
     voice.setQuestion({ question_id: "q1", text: "Explain one contribution." });
-    const observation = pendingAvatar(harness);
     harness.completeTts(); await harness.flush();
     assert.equal(voice.audio, null); assert.equal(observation.audio.length, 0);
     assert.equal(voice.deadline, null); assert.equal(harness.starts, 0);
     harness.advance(3000); await harness.flush();
     assert.equal(observation.audio.length, 0);
     observation.ready(); await harness.flush();
-    const spoken = observation.accepted.filter(/** Select only actual speech commands. */ (message) => message.type === "speak");
+    const spoken = observation.accepted.filter((message) => message.type === "speak");
     assert.deepEqual(spoken, [{ type: "speak", utterance_id: "audio-0", audio_url: "/offline-0.wav" }]);
     assert.equal(observation.audio.length, 0); assert.equal(voice.phase, "avatar_preparing");
     assert.equal(harness.requests.length, 1); assert.equal(voice.deadline, null);
@@ -672,44 +625,39 @@ test("renderer selected while ready can recover during synthesis without another
   } finally { harness.close(); }
 });
 
-/** A renderer chosen while ready may be replaced during synthesis; its new presentation receives the same WAV identity. */
-test("selected renderer replacement during synthesis binds the new presentation without another request", async () => {
+/** Config/module loading may outlast the first TTS request; a later presentation receives its existing utterance identity. */
+test("first question survives pending avatar configuration and binds the newly created presentation", async () => {
   const harness = new VoicePlaybackHarness(); const voice = harness.voice;
+  const observation = pendingAvatar(harness);
+  const pendingPlayer = voice.player;
+  voice.player = null;
+  voice.avatarConnecting = true;
   const boundUtterances = [];
   try {
     voice.setQuestion({ question_id: "q1", text: "Explain one contribution." });
-    const observation = pendingAvatar(harness);
-    const pendingPlayer = voice.player;
-    voice.player = null;
-    voice.avatarConnecting = true;
     harness.completeTts(); await harness.flush();
     assert.equal(observation.audio.length, 0); assert.equal(voice.deadline, null);
     voice.player = pendingPlayer;
     voice.avatarConnecting = false;
     voice.presentation = {
-      /** Record identity binding after presentation configuration finishes. */
       bindUtterance(value) { boundUtterances.push(value); },
-      /** Accept lifecycle events without renderer resources. */ onAvatarEvent() {},
-      /** Accept presentation state without animation. */ setState() {},
-      /** Complete a simulated listening observation. */ endListeningCapture() {},
-      /** Clear simulated presentation state. */ clear() {},
-      /** Release the resource-free presentation double. */ close() {},
+      onAvatarEvent() {}, setState() {}, endListeningCapture() {}, clear() {}, close() {},
     };
     observation.ready(); await harness.flush();
     assert.deepEqual(boundUtterances, ["audio-0"]);
-    assert.deepEqual(observation.accepted.filter(/** Select speech commands for identity assertions. */ (message) => message.type === "speak"),
+    assert.deepEqual(observation.accepted.filter((message) => message.type === "speak"),
       [{ type: "speak", utterance_id: "audio-0", audio_url: "/offline-0.wav" }]);
     assert.equal(observation.audio.length, 0); assert.equal(harness.requests.length, 1);
     assert.equal(voice.phase, "avatar_preparing"); assert.equal(harness.starts, 0); assert.equal(harness.answers, 0);
   } finally { harness.close(); }
 });
 
-/** A renderer lost after WAV selection retains its existing bounded fallback without duplicate late playback. */
-test("readiness lost during synthesis times out to one fallback from the selected WAV", async () => {
+/** A missing initial controller reaches one bounded fallback; late readiness never duplicates the existing audio. */
+test("initial avatar readiness timeout plays one fallback from the same TTS result", async () => {
   const harness = new VoicePlaybackHarness(); const voice = harness.voice;
+  const observation = pendingAvatar(harness);
   try {
     voice.setQuestion({ question_id: "q1", text: "Explain one contribution." });
-    const observation = pendingAvatar(harness);
     harness.completeTts(); await harness.flush();
     harness.advance(7999); await harness.flush();
     assert.equal(observation.audio.length, 0); assert.equal(voice.deadline, null);
@@ -721,19 +669,19 @@ test("readiness lost during synthesis times out to one fallback from the selecte
     assert.equal(observation.audio.length, 1, "A late connection failure must not restart browser fallback audio.");
     observation.ready(); await harness.flush();
     assert.equal(observation.audio.length, 1);
-    assert.equal(observation.accepted.filter(/** Detect duplicate renderer speech after fallback. */ (message) => message.type === "speak").length, 0);
+    assert.equal(observation.accepted.filter((message) => message.type === "speak").length, 0);
     assert.equal(harness.requests.length, 1); assert.equal(harness.starts, 0); assert.equal(harness.answers, 0);
     voice.audio.onended();
     assert.equal(voice.deadline, harness.now + 10000);
   } finally { harness.close(); }
 });
 
-/** Disconnecting after renderer selection wakes its pending WAV once, without duplicate fallback resources. */
-test("renderer disconnect after WAV selection creates only one fallback", async () => {
+/** Disconnecting during initial readiness must wake speech once, without the event and waiter both creating audio. */
+test("avatar disconnect while first question waits creates only one fallback", async () => {
   const harness = new VoicePlaybackHarness(); const voice = harness.voice;
+  const observation = pendingAvatar(harness);
   try {
     voice.setQuestion({ question_id: "q1", text: "Explain one contribution." });
-    const observation = pendingAvatar(harness);
     harness.completeTts(); await harness.flush();
     voice.avatarEvent({ type: "avatar_disconnected" }); await harness.flush();
     assert.equal(observation.audio.length, 1); assert.equal(voice.audio, observation.audio[0]);
@@ -741,19 +689,19 @@ test("renderer disconnect after WAV selection creates only one fallback", async 
     harness.advance(8000); await harness.flush();
     observation.ready(); await harness.flush();
     assert.equal(observation.audio.length, 1);
-    assert.equal(observation.accepted.filter(/** Detect speech revived by late readiness. */ (message) => message.type === "speak").length, 0);
+    assert.equal(observation.accepted.filter((message) => message.type === "speak").length, 0);
     assert.equal(harness.requests.length, 1); assert.equal(harness.starts, 0); assert.equal(harness.answers, 0);
   } finally { harness.close(); }
 });
 
-/** Reset/end invalidates an already selected renderer request before late readiness can revive playback. */
-test("reset and interview end cancel recovery of an already selected renderer", async (t) => {
+/** Reset/end invalidates the pending first-question playback before any late readiness or deadline can revive it. */
+test("reset and interview end cancel initial avatar waits without playback or answers", async (t) => {
   for (const ending of ["reset", "end", "page-close"]) {
-    await t.test(ending, /** Verify each termination path fences late callbacks independently. */ async () => {
+    await t.test(ending, async () => {
       const harness = new VoicePlaybackHarness(); const voice = harness.voice;
+      const observation = pendingAvatar(harness);
       try {
         voice.setQuestion({ question_id: "q1", text: "Explain one contribution." });
-        const observation = pendingAvatar(harness);
         harness.completeTts(); await harness.flush();
         if (ending === "page-close") voice.close();
         else {
@@ -764,7 +712,7 @@ test("reset and interview end cancel recovery of an already selected renderer", 
         observation.ready(); await harness.flush();
         harness.advance(20000); await harness.flush();
         assert.equal(observation.audio.length, 0); assert.equal(voice.audio, null);
-        assert.equal(observation.accepted.filter(/** Detect stale renderer speech after termination. */ (message) => message.type === "speak").length, 0);
+        assert.equal(observation.accepted.filter((message) => message.type === "speak").length, 0);
         assert.equal(voice.question, null); assert.equal(voice.capture, null); assert.equal(voice.deadline, null);
         assert.equal(harness.requests.length, 1); assert.equal(harness.starts, 0); assert.equal(harness.answers, 0);
       } finally { harness.close(); }

@@ -1,8 +1,8 @@
 /**
  * @module agent-client-test
  * Responsibilities: Validate real agent.js using deterministic clock, DOM, and WebSocket stubs, with no network access.
- * Implementation: Build element collection from actual HTML and shared navigation; execute client scripts and their speech/report dependencies in vm; observe timing, cache, and final state via events.
- * Related Modules: frontend/agent.html, agent.js, speech-playback.js and evaluation-poll.js; run with node --test, cannot prove actual vendor performance.
+ * Implementation: Build element collection from actual HTML and shared navigation; execute client scripts in vm; observe timing, cache, and final state via events.
+ * Related Modules: frontend/agent.html and agent.js; run with node --test, cannot prove actual vendor performance.
  * Declaration Index:
  * - PageEvent: Provides CustomEvent data fields required by real client; does not simulate native event permissions.
  * - PageEvent.constructor: Stores event name and detail for dispatch by page state coordinator.
@@ -80,8 +80,8 @@
  * - startCapture.page.captureType.prototype.start: Offline authorization and handshake complete without creating microphone track.
  * - startCapture.page.captureType.prototype.end: Offline end only sets collection flag; final text must be delivered separately by test, do not fabricate synchronous success.
  * - speechAnswerLifecycle: Validate two-phase boundary between explicit end and final text, plain text captions, duplicate prevention, and next-question cleanup.
- * - actualSpeechCaptions: Display mixed-script drafts/finals verbatim while preserving
- *   submission, timing, plain-text safety and stale-callback guards.
+ * - englishSpeechCaptions: Replace transient Han captions with an English notice, recover on English
+ *   updates and flag final Han text while preserving submission, timing and stale-callback guards.
  * - speechAnswerBoundaries: Verify full final capture-limit text auto-submits, empty final speech records Skip, and recognition failures cannot submit late partial/final text.
  * - blockedResumeSelection: Prohibit start when no input available; failure does not select alternative version; these are simulated permission responses, not replacing real service permissions.
  * - interviewProgressLifecycle: Real page script with deterministic clock: progress will not automatically end interview; disconnection freezes, existing exceptions deduplicated and cleared without removing backend.
@@ -137,14 +137,12 @@
  * - syntheticPCMSemanticEnd.callback1: Sum original and flushed tail PCM bytes.
  * - syntheticPCMEarlyEnd: Verify saving during real PCM capture preserves final ASR text, while discard sends no answer or report.
  * Variable Index:
- * - POLL_SOURCE: Real evaluation polling module loaded into the isolated client VM.
  * - REPORT_SOURCE: Real report renderer loaded into the isolated client VM.
  * - SCRIPT: Real client source code to be validated.
  * - HTML: Actual interview and shared navigation templates, used to verify client element references.
  * - VOICE_SCRIPT: Real voice coordinator source code, executed in isolated VM.
  * - PROGRESS_SCRIPT: Real budget/topic presentation source code, shares controllable clock, does not access backend.
  * - CAPTURE_SCRIPT: Actual recording manager, exercised with synthetic device/provider boundaries.
- * - PLAYBACK_SCRIPT: Actual streaming parser and PCM player, loaded so the voice coordinator's import contract matches the browser.
  * - RESAMPLER_SCRIPT: Actual float-to-16kHz PCM16 resampler used by synthetic audio tests.
  * - WORKLET_SCRIPT: Actual worklet and flush protocol executed with synthetic audio frames.
  * Key State Notes:
@@ -163,7 +161,6 @@ const HTML = readFileSync(new URL("../frontend/agent.html", import.meta.url), "u
 const VOICE_SCRIPT = readFileSync(new URL("../frontend/interview-voice.js", import.meta.url), "utf8");
 const PROGRESS_SCRIPT = readFileSync(new URL("../frontend/interview-progress.js", import.meta.url), "utf8");
 const CAPTURE_SCRIPT = readFileSync(new URL("../frontend/speech-capture.js", import.meta.url), "utf8");
-const PLAYBACK_SCRIPT = readFileSync(new URL("../frontend/speech-playback.js", import.meta.url), "utf8");
 const RESAMPLER_SCRIPT = readFileSync(new URL("../frontend/pcm-resampler.js", import.meta.url), "utf8");
 const WORKLET_SCRIPT = readFileSync(new URL("../frontend/speech-worklet.js", import.meta.url), "utf8");
 
@@ -347,9 +344,7 @@ async function makePage(options = {}) {
   }
   const clientScript = POLL_SOURCE.replaceAll("export function", "function") + REPORT_SOURCE.replaceAll("export function", "function") + PROGRESS_SCRIPT.replaceAll("export function", "function").replace("export class InterviewProgress", "class InterviewProgress")
     + CAPTURE_SCRIPT.replace("export class SpeechCapture", "class SpeechCapture")
-    + PLAYBACK_SCRIPT.replace("export async function readSpeechStream", "async function readSpeechStream").replace("export class PcmStreamPlayer", "class PcmStreamPlayer")
     + VOICE_SCRIPT.replace('import { SpeechCapture } from "./speech-capture.js";', "").replace("export class InterviewVoice", "class InterviewVoice")
-      .replace('import { PcmStreamPlayer, readSpeechStream } from "./speech-playback.js";', "")
       .replace('import("/stream-demo/pixel-player.js")', "loadAvatarModule()")
     + SCRIPT.replace('import { pollEvaluationReport } from "./evaluation-poll.js";', "").replace('import { renderEvaluationReport } from "./evaluation-report.js";', "").replace('import { InterviewVoice } from "./interview-voice.js";', "").replace('import { InterviewProgress, reviewScore } from "./interview-progress.js";', "");
   const context = vm.createContext({
@@ -810,25 +805,25 @@ async function speechAnswerLifecycle() {
 test("finish answer waits for final speech and submits once while subtitles remain visible", speechAnswerLifecycle);
 
 /**
- * Exercise mixed-script revisions through the real caption and submission callbacks.
+ * Exercise Chinese-to-English revisions through the real caption and submission callbacks.
  * Inputs: synthetic provider drafts/finals; hardware and transport remain offline stubs.
- * Outputs: assertions on verbatim captions, raw final submission and inactivity/identity guards.
- * Logic: Deliver revised drafts and a final result, then a stale callback; verify status text
- * never replaces recognized words. Constraints: This tests display, not ASR accuracy or translation.
+ * Outputs: assertions on English notices, raw final submission and inactivity/identity guards.
+ * Constraints: this tests display policy, not ASR accuracy. Han is not used as a language classifier;
+ * punctuation, accents, technical symbols and ordinary English remain intact.
  */
-async function actualSpeechCaptions() {
+async function englishSpeechCaptions() {
   assert.match(HTML, /id="answer-subtitle"[^>]*lang="en"[^>]*translate="no"/);
   const page = await answeringPage();
   const capture = await startCapture(page);
   const originalDeadline = page.voice.deadline;
   page.tick(1000);
-  for (const draft of ["我正在介绍项目", "I used Python 处理数据", "\u{20000}", "<b>actual words</b>"]) {
+  for (const draft of ["我正在介绍项目", "I used Python 处理数据", "\u{20000}"]) {
     capture.onPartial(draft);
-    assert.equal(page.el("answer-subtitle").textContent, draft);
+    assert.equal(page.el("answer-subtitle").textContent, "Transcribing English speech…");
     assert.equal(page.el("answer-subtitles").hidden, false);
     assert.equal(page.ws.sent.length, 1);
   }
-  assert.ok(page.voice.deadline > originalDeadline, "actual drafts still count as text activity");
+  assert.ok(page.voice.deadline > originalDeadline, "hidden drafts still count as text activity");
   const corrected = "I used Python, C++ and SQL for résumé data (95% accuracy).";
   capture.onPartial(corrected);
   assert.equal(page.el("answer-subtitle").textContent, corrected);
@@ -842,13 +837,13 @@ async function actualSpeechCaptions() {
   const mismatchCapture = await startCapture(finalMismatch);
   const rawFinal = "I used Python 处理数据";
   mismatchCapture.onFinal(rawFinal, 10);
-  assert.equal(finalMismatch.el("answer-subtitle").textContent, rawFinal);
-  assert.equal(finalMismatch.ws.sent.at(-1).answer_text, rawFinal, "caption rendering cannot rewrite the answer");
+  assert.equal(finalMismatch.el("answer-subtitle").textContent, "Transcription contains non-English text.");
+  assert.equal(finalMismatch.ws.sent.at(-1).answer_text, rawFinal, "caption notice cannot rewrite the answer");
   assert.equal(finalMismatch.ws.sent.length, 2);
   finalMismatch.voice.subtitle("");
   assert.equal(finalMismatch.el("answer-subtitles").hidden, true);
 }
-test("captions display actual mixed-script text without status placeholders or changed answers", actualSpeechCaptions);
+test("English captions suppress Han drafts without altering final answers or timing", englishSpeechCaptions);
 
 /**
  * Verify full final capture-limit text auto-submits, empty final speech records Skip, and recognition failures cannot submit late partial/final text.
