@@ -8,6 +8,7 @@
  * - PageEvent.constructor: Stores event name and detail for dispatch by page state coordinator.
  * - Element: Minimal DOM stub maintaining only test-required text, disabled state, and events; does not simulate real browser layout.
  * - Element.constructor: Input: None; all fields initially empty, hidden set to true to simulate result area not yet appeared.
+ * - Element.setAttribute: Record SVG/HTML attribute writes for offline report rendering.
  * - Element.addEventListener: Input: Event name and handler; save reference, return nothing.
  * - Element.append: Input: Node list; save version options, no layout or HTML parsing side effects.
  * - Element.replaceChildren: Clear previous options, preserve DOM object identity.
@@ -53,6 +54,8 @@
  * - resumePreparationFailures.networkFailure: Throw an explicit network failure without mutating the fixture.
  * - resumeReadinessLanguage: Verify localization redraw preserves version identity and status labels without a request.
  * - resumeReadinessLanguage.translate: Substitute Chinese readiness text without changing metadata.
+ * - structuredResumeWithoutInterviewContent: Keep valid empty profiles editable without repeated extraction or interview start.
+ * - structuredResumeWithoutInterviewContent.prepare: Return a successful structured result lacking projects/skills.
  * - observeAvatarLifecycle.page.voice.connectAvatar: Create observable in-memory renderer resources.
  * - observeAvatarLifecycle.page.voice.connectAvatar.this.player.send: Record a renderer message locally.
  * - observeAvatarLifecycle.page.voice.connectAvatar.this.player.close: Mark the stub player closed and count cleanup.
@@ -179,6 +182,8 @@ class PageEvent {
  * Minimal DOM stub maintaining only test-required text, disabled state, and events; does not simulate real browser layout.
  */
 class Element {
+  /** Accept an attribute name/value and record its string representation; no real DOM or rendering side effects. */
+  setAttribute(name, value) { (this.attributes ??= {})[name] = String(value); }
   /**
  * Input: None; all fields initially empty, hidden set to true to simulate result area not yet appeared.
  */
@@ -349,7 +354,7 @@ async function makePage(options = {}) {
       .replace('import("/stream-demo/pixel-player.js")', "loadAvatarModule()")
     + SCRIPT.replace('import { pollEvaluationReport } from "./evaluation-poll.js";', "").replace('import { renderEvaluationReport } from "./evaluation-report.js";', "").replace('import { InterviewVoice } from "./interview-voice.js";', "").replace('import { InterviewProgress, reviewScore } from "./interview-progress.js";', "");
   const context = vm.createContext({
-    document: { getElementById: getElement, createElement },
+    document: { getElementById: getElement, createElement, createElementNS: createElement },
     window: { addEventListener: addPageListener, dispatchEvent: dispatchPageEvent },
     performance: { now }, crypto: { randomUUID: uuid },
     location: { protocol: "http:", host: "localhost", search: options.search || "" },
@@ -579,6 +584,36 @@ async function resumePreparationFailures() {
   }
 }
 test("preparation failures and incomplete PDFs cannot bypass readiness or trigger retries", resumePreparationFailures);
+
+/**
+ * Functionality: Distinguish successful extraction without interview content from a preparation failure.
+ * Inputs: Ready and pending canonical metadata with no projects/skills. Outputs: Edit guidance and zero duplicate POSTs/sockets.
+ * Logic: Exercise both list loading and an explicit successful preparation, then attempt duplicate clicks/start.
+ * Constraints: Uses the real client with offline HTTP/DOM fixtures; does not establish live extraction quality.
+ */
+async function structuredResumeWithoutInterviewContent() {
+  const connections = Socket.instances.length;
+  for (const initiallyReady of [true, false]) {
+    const version = { id: "empty-profile", status: "ready", can_interview: false, has_structured_resume: initiallyReady, interview_profile_status: initiallyReady ? "ready" : "pending", is_current: true };
+    /** Return successful canonical metadata without interview eligibility; no external model runs. */
+    async function prepare() {
+      Object.assign(version, { has_structured_resume: true, interview_profile_status: "ready" });
+      return { status: 200, data: { ...version } };
+    }
+    const page = await makePage({ versions: [version], prepare });
+    if (!initiallyReady) await page.el("prepare-selected-resume").fire("click");
+    assert.match(page.el("resume-select").children[1].textContent, /Add projects or skills/);
+    assert.match(page.el("resume-selection-status").textContent, /extraction is complete.*save a new edition/);
+    assert.equal(page.el("prepare-selected-resume").hidden, true);
+    assert.equal(page.el("prepare-selected-resume").disabled, true);
+    assert.equal(page.el("start-agent").disabled, true);
+    await page.el("prepare-selected-resume").fire("click");
+    assert.equal(page.writes.length, initiallyReady ? 0 : 1);
+    startPrepared(page);
+    assert.equal(Socket.instances.length, connections);
+  }
+}
+test("structured resumes without interview content require editing instead of repeated extraction", structuredResumeWithoutInterviewContent);
 
 /**
  * Functionality: Preserve selected legacy metadata while redrawing translated labels.

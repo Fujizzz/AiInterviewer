@@ -1,19 +1,20 @@
-"""职责：预检数字人播放器归档，发布后验证播放器、HTTP、数据库/队列及既有模型/MCP。
-
-实现：检查数据库、公开登录页和无用户数据 Celery 探针；用临时账号/简历/会话调用
-运行中的 ASGI、推荐模型和单次 LLM 精排，并校验本地结束模型与真实 MCP 握手。
-finally 清理探针记录；失败非零退出，不重试。
-关联：workflow 以无模型 CLI 校验 bundle/归档；deploy-release.py 切换后执行完整验收。
-目录：
-- verify_frontend_bundle：不初始化 Django，校验非空 ESM 与现有导出。
-- verify_avatar_player：通过临时认证会话核对播放器 HTTP 内容，finally 清理账号/会话。
-- verify_release_bundle：发布前校验安全归档成员及单个播放器与同 run artifact 一致。
-- verify_recommendations：
-  用临时保存槽位和真实 Session/CSRF 验证 100 岗粗排/20 岗候选/5 岗精排及双语理由，再清理。
-- verify_answer_completion：校验显式本地模型、真实认证 WebSocket 的 MCP 握手和工具注册。
-- main：读取生产环境，验证基础组件、推荐和结束分支，打印固定成功信息。
-关键变量：
-（无模块级变量。）
+"""Responsibilities: Verify release archives and the deployed application through bounded probes.
+Implementation: Validate player assets, then use temporary accounts and sessions for HTTP checks;
+exercise database, Celery, recommendation ranking, local completion model and MCP registration.
+Related Modules: deploy-release.py invokes acceptance; recommendation and shared.resume_contract
+provide the synthetic canonical resume consumed by the ranking probe.
+Declaration Index:
+- verify_frontend_bundle: Validate the selected local nonempty ESM artifact without execution.
+- verify_avatar_player: Compare authenticated HTTP player bytes and clean temporary identity.
+- verify_release_bundle: Check safe archive members and the exact verified player artifact.
+- verify_recommendations: Verify ranking for synthetic confirmed facts and clean probe records.
+- verify_answer_completion: Load the configured completion model and verify the real MCP handshake.
+- main: Run explicit CLI/predeployment checks or bounded live application acceptance.
+Variable Index:
+None
+Constraints:
+No retries or configuration changes. Live probes use provider quota; synthetic facts do not assess
+resume extraction quality. Private tokens and response bodies are never printed.
 """
 
 import hashlib
@@ -129,8 +130,10 @@ def verify_release_bundle(archive, bundle=None):
                 or "\\" in member.name
                 or member.size < 0
                 or not (member.isfile() or member.isdir())
-                or any(part in {".git", ".venv", "node_modules", ".infrastructure"}
-                       for part in path.parts)
+                or any(
+                    part in {".git", ".venv", "node_modules", ".infrastructure"}
+                    for part in path.parts
+                )
                 or path.parts[0] == "DigitalHuman"
                 or (path.name.startswith(".env") and path.name != ".env.example")
                 or path.name == "server_info.txt"
@@ -149,7 +152,8 @@ def verify_release_bundle(archive, bundle=None):
 def verify_recommendations(base_url="http://127.0.0.1:8765"):
     """输入已初始化 Django 和运行中服务的 base_url；成功返回 None，错误传播以阻断验收。
 
-    创建随机用户名、不可登录密码、含 Python 技能的 ready 简历和标准数据库会话。
+    创建随机用户名、不可登录密码、含 Python 技能的合成原件及已确认统一结构编辑稿和数据库会话。
+    合成结构直接构建并经过真实读取校验；此探针隔离排序验收，不测试简历模型提取。
     通过回环代理头及会话请求简历页取得 CSRF，再调用真实推荐路由，
     核对 100 岗粗排、20 岗候选、5 个合法 ID、双语理由
     和体验/实验标记；不覆盖应用配置、评分、用户资料或模型。所有探针记录在 finally 删除，
@@ -165,18 +169,38 @@ def verify_recommendations(base_url="http://127.0.0.1:8765"):
     )
     from django.contrib.sessions.backends.db import SessionStore
     from django.db import transaction
-    from interviews.resume_models import ResumeVersion
+    from interviews.resume_models import INTERVIEW_PROFILE_VERSION, ResumeVersion
+    from interviews.resume_profile import StoredResumeDocument, text_hash
+
+    from shared.resume_contract import ResumeExtraction, ResumeFacts
 
     user = get_user_model().objects.create_user(username=f"deployment-probe-{uuid4().hex}")
     version = None
+    original = None
     session = SessionStore()
     try:
+        original = ResumeVersion.objects.create(
+            owner=user, label="Deployment probe original", status="ready", text="Skills\nPython"
+        )
+        # Explicit synthetic facts isolate ranking acceptance from resume model quality.
+        document = ResumeExtraction(
+            section_lines={"skills": [1, 2]}, heading_lines=[1], skills=["Python"]
+        )
         version = ResumeVersion.objects.create(
             owner=user,
             label="Deployment probe",
+            source_version=original,
+            edited_from=original,
             status="ready",
-            text="Synthetic deployment probe",
+            text=original.text,
+            units={"skills": "Python"},
             recommendation_slots={"skills": ["Python"]},
+            interview_profile_status="ready",
+            interview_profile_hash=text_hash(original.text),
+            interview_profile_version=INTERVIEW_PROFILE_VERSION,
+            interview_profile=StoredResumeDocument(
+                document=document, confirmed_fields=list(ResumeFacts.model_fields)
+            ).model_dump(mode="json"),
         )
         session[SESSION_KEY] = str(user.pk)
         session[BACKEND_SESSION_KEY] = "django.contrib.auth.backends.ModelBackend"
@@ -246,6 +270,8 @@ def verify_recommendations(base_url="http://127.0.0.1:8765"):
             with transaction.atomic():
                 if version is not None:
                     version.delete()
+                if original is not None:
+                    original.delete()
                 user.delete()
         finally:
             if session.session_key:
@@ -283,17 +309,28 @@ def verify_answer_completion():
         session[HASH_SESSION_KEY] = user.get_session_auth_hash()
         session.save()
         with connect(
-            "wss://47.239.50.129/ws/agent/", origin="https://47.239.50.129",
+            "wss://47.239.50.129/ws/agent/",
+            origin="https://47.239.50.129",
             additional_headers={"Cookie": f"sessionid={session.session_key}"},
-            open_timeout=10, close_timeout=5,
+            open_timeout=10,
+            close_timeout=5,
         ) as socket:
             ready = json.loads(socket.recv(timeout=10))
             assert "answer_completion_mcp" in ready["capabilities"]
-            socket.send(json.dumps({
-                "jsonrpc": "2.0", "id": 1, "method": "initialize",
-                "params": {"protocolVersion": "2025-06-18", "capabilities": {},
-                           "clientInfo": {"name": "deployment-probe", "version": "1"}},
-            }))
+            socket.send(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "initialize",
+                        "params": {
+                            "protocolVersion": "2025-06-18",
+                            "capabilities": {},
+                            "clientInfo": {"name": "deployment-probe", "version": "1"},
+                        },
+                    }
+                )
+            )
             initialized = json.loads(socket.recv(timeout=10))
             assert initialized["id"] == 1 and "result" in initialized
             socket.send(json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}))

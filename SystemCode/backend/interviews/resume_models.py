@@ -6,7 +6,9 @@ snapshots.
 Declaration Index:
 - ResumeVersion: Stores input, parsing results, current selection, and failure codes.
 - ResumeVersion.Meta: Sorts by creation time and limits each user to at most one current version.
-- ResumeVersion.can_interview: Expose profile readiness independently of question preparation.
+- ResumeVersion.has_structured_resume: Expose versioned canonical-document readiness.
+- ResumeVersion.can_interview: Expose canonical interviewable facts independently of question
+  preparation.
 - PreparedResumeQuestion: Store private version-bound reviewed questions and their references.
 - PreparedResumeQuestion.Meta: Enforce one row per scope and valid kind/status values.
 Variable Index:
@@ -25,8 +27,9 @@ source_version references the root original version; edited_from references the 
 use PROTECT so referenced versions cannot be deleted.
 units stores user-authored section text; recommendation_slots stores confirmed recommendation
 fields; originals initialize these JSON fields as empty dictionaries.
-interview_profile stores the canonical CandidateProfile and candidate name for this immutable
-version; its separate status/error, text hash and parser version control interview readiness.
+interview_profile stores the sole canonical ResumeExtraction document and confirmation provenance;
+its separate status/error, source hash and parser version control all downstream structured reads.
+units/recommendation_slots preserve authored inputs, not independent downstream extraction results.
 """
 
 import uuid
@@ -35,7 +38,7 @@ from django.conf import settings
 from django.db import models
 from django.db.models import Q
 
-INTERVIEW_PROFILE_VERSION = "2.0:resume-profile-v1"
+INTERVIEW_PROFILE_VERSION = "4.0:source-complete-resume-v2"
 
 
 class ResumeVersion(models.Model):
@@ -80,12 +83,27 @@ class ResumeVersion(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     @property
-    def can_interview(self):
-        """Cheap availability metadata; consumers validate the payload and text hash before use."""
+    def has_structured_resume(self):
+        """Expose cache lifecycle/schema readiness; consumers validate payload and source hash."""
         return (
             self.status == "ready"
             and self.interview_profile_status == "ready"
             and self.interview_profile_version == INTERVIEW_PROFILE_VERSION
+        )
+
+    @property
+    def can_interview(self):
+        """Expose interviewable canonical facts without parsing or a model call.
+        Inputs: Canonical readiness and stored document JSON. Outputs: Boolean.
+        Logic: Require known global skills or grounded experiences in the versioned document.
+        Constraints: Full schema/hash validation remains mandatory at the consumer boundary.
+        """
+        stored = self.interview_profile
+        document = stored.get("document") if isinstance(stored, dict) else None
+        if not isinstance(document, dict):
+            return False
+        return self.has_structured_resume and bool(
+            document.get("skills") or document.get("projects")
         )
 
     class Meta:
@@ -136,6 +154,7 @@ class PreparedResumeQuestion(models.Model):
 
     class Meta:
         """Keep reviewed content unique within a resume's project/topic and question kind."""
+
         constraints = [
             models.UniqueConstraint(
                 fields=["resume_version", "project_id", "topic_key", "kind"],

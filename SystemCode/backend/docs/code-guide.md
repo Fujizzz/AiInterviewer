@@ -26,7 +26,7 @@ The backend provides practice APIs, transport diagnostics and the MVP Agent inte
 | 18 | `frontend/interview-voice.js`, `speech-capture.js`, `interviews/speech/` | Speech state, microphone capture, transcription and completion receipts |
 | 19 | `frontend/digital-human/` | Pixel Streaming SDK wrapper, player build and speech client tests |
 | 20 | `interviews/answer_mcp.py` | Authenticated completion receipts and submission through the existing assessment flow |
-| 21 | `interviews/resume_editor.py`, `resume_slots.py`, `api/resume_versions.py` | Resume units, confirmed recommendation fields, versions and editions |
+| 21 | `shared/resume_contract.py`, `app/parsing/resume.py`, `interviews/resume_profile.py`, `interviews/resume_editor.py`, `api/resume_versions.py` | Canonical resume facts shared by editor, recommendations and interview projections |
 | 22 | `frontend/i18n.js` | English defaults and explicit Chinese/system-language selection |
 
 Frontend source for backend-served pages remains under `backend/frontend/`. Player maintenance and build commands are in [the frontend guide](../frontend/README.md).

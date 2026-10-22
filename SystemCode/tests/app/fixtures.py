@@ -1,4 +1,14 @@
-"""Schema-validated provider fixture for the integrated MVP tests."""
+"""Responsibilities: Schema-validated provider fixture for the integrated MVP tests.
+Implementation: Execute typed provider or application paths with explicit validation boundaries.
+Related Modules: shared.resume_contract and app.parsing.resume define canonical resume data.
+Declaration Index:
+- FixtureLLM: Supply deterministic validated responses to integrated offline tests.
+- FixtureLLM.__init__: Initialize this test provider. Inputs: New instance. Outputs: Empty calls
+  list.
+- FixtureLLM.__call__: Return scripted data through the actual requested schema.
+Variable Index:
+None
+"""
 
 from agents.question.react import QuestionAgentDecision
 from app.adapters.assessment import AnswerAssessment, AnswerDecision
@@ -9,15 +19,31 @@ from app.parsing.resume import ResumeExtraction
 from app.reporting.final_report import ReportNarrative
 from tests.agent.mocks.dialogue_output import plan_for, selection_for
 from tests.app.decision_fixtures import compact_output, legacy_data
+from tests.app.resume_fixture import resume_output
 from tests.evaluation.port_helpers import SCHEMAS, evaluation_output
 
 
 class FixtureLLM:
+    """Functionality: Supply deterministic validated responses to integrated offline tests.
+    Logic: Route by schema and request state, recording model calls used by assertions.
+    Constraints: No vendor I/O; scripted facts do not establish real extraction quality.
+    """
+
     def __init__(self) -> None:
+        """Functionality: Initialize this test provider. Inputs: New instance. Outputs: Empty
+        calls list.
+        Logic: Allocate independent call history. Constraints: No external state or network.
+        """
         self.calls = []
 
     def __call__(self, prompt, data, schema):
         # Scripted semantic pass; this fixture does not evaluate question quality.
+        """Functionality: Return scripted data through the actual requested schema.
+        Inputs: prompt, data and schema. Outputs: Validated fixture response.
+        Logic: Route by schema; the fixed two-project resume uses physical lines 3-4 and 5-6,
+        while canonical fixture helpers supply section assignment and evidence.
+        Constraints: Unsupported schemas fail explicitly; no live model is contacted.
+        """
         if schema is CompactAnswerDecision:
             return compact_output(self(prompt, legacy_data(data), AnswerDecision).model_dump())
         if schema.__name__ in {"QuestionQualityReview", "CompactQualityReview"}:
@@ -34,6 +60,7 @@ class FixtureLLM:
                 "projects": [
                     {
                         "name": topics[0],
+                        "source_lines": [3, 4],
                         "domain": "recommendation systems",
                         "description": "Built an item-based book recommender.",
                         "technologies": ["Python", "pandas", "scikit-learn"],
@@ -45,6 +72,7 @@ class FixtureLLM:
                     },
                     {
                         "name": topics[1],
+                        "source_lines": [5, 6],
                         "domain": "data engineering",
                         "description": "Built a streaming log-analysis pipeline.",
                         "technologies": ["Python", "SQL", "pytest"],
@@ -60,7 +88,8 @@ class FixtureLLM:
             selection = selection_for(data) if "dialogue_state" in data else None
             plan = (
                 plan_for(data, selection)
-                if selection else data.get("locked_intent", data.get("question_plan"))
+                if selection
+                else data.get("locked_intent", data.get("question_plan"))
             )
             topic = str(plan["topic"]).rstrip(".,;:")
             output = {
@@ -107,4 +136,8 @@ class FixtureLLM:
             }
         elif schema is AnswerAssessment:
             output = {key: output[key] for key in ("dimensions", "evidence_strength")}
-        return schema.model_validate(output)
+        return (
+            resume_output(data, **output)
+            if schema is ResumeExtraction
+            else schema.model_validate(output)
+        )

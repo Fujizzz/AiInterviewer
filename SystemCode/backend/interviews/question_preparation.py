@@ -1,5 +1,5 @@
 """Responsibilities: Prepare version-bound questions and expose owned snapshots to interviews.
-Implementation: Dispatch after commit, claim a renewable run, reuse reviewed rows and fence writes.
+Implementation: Bind renewable runs to canonical revisions, reuse reviewed rows and fence writes.
 Related Modules: resume_profile schedules work; agents.question.prepared writes and admits content;
 agent_session reads snapshots, and tasks provides optional Celery dispatch.
 
@@ -12,7 +12,7 @@ Declaration Index:
 - _prepare: Generate missing opening and knowledge questions with no interview side effects.
 - _prepare.existing: Validate an existing reviewed row before reusing it.
 - _prepare.store: Fence one row write and renew its worker lease in a short transaction.
-- load_bound_questions: Load current reviewed rows through an owned interview/version binding.
+- load_bound_questions: Load reviewed rows through an owned binding and verify the start snapshot.
 
 Variable Index:
 - logger: Emit identifiers and exception categories without resume text or credentials.
@@ -113,7 +113,15 @@ def preparation_context(profile):
 
 
 def prepare_questions(version_id, owner_id, *, llm=None, rag=None, include_knowledge=True):
-    """Resume successful rows on retry. Atomic lease/run fencing prevents stale writers."""
+    """Prepare an owned canonical profile, reusing reviewed rows with the same fingerprint.
+
+    Inputs: Version/owner IDs, optional caller-owned provider/RAG and knowledge inclusion flag.
+    Outputs: Refreshed version with aggregate preparation status. Logic: Atomically claim both
+    the observed canonical revision and question lease before calling providers; writes require
+    the same run ID. Constraints: Canonical changes invalidate the claim even when text hashes
+    and schema versions are unchanged. A lost claim returns current state without model calls;
+    provider failures are logged and recorded, and only internally created providers are closed.
+    """
     version = ResumeVersion.objects.get(pk=version_id, owner_id=owner_id)
     profile, _ = read_profile(version, candidate_id=f"resume-{version_id}")
     revision = review_version()
@@ -129,6 +137,11 @@ def prepare_questions(version_id, owner_id, *, llm=None, rag=None, include_knowl
     claimed = ResumeVersion.objects.filter(
         pk=version_id,
         owner_id=owner_id,
+        status=version.status,
+        interview_profile_status=version.interview_profile_status,
+        interview_profile_hash=version.interview_profile_hash,
+        interview_profile_version=version.interview_profile_version,
+        updated_at=version.updated_at,
         question_preparation_run_id=version.question_preparation_run_id,
         question_preparation_status=version.question_preparation_status,
     ).update(
@@ -138,6 +151,7 @@ def prepare_questions(version_id, owner_id, *, llm=None, rag=None, include_knowl
         question_preparation_error="",
     )
     if not claimed:
+        logger.info("Question preparation claim superseded version=%s", version_id)
         return ResumeVersion.objects.get(pk=version_id, owner_id=owner_id)
     provider = llm
     try:
@@ -281,8 +295,16 @@ async def _prepare(version_id, run_id, profile, fingerprint, provider, rag, incl
 
 
 @sync_to_async
-def load_bound_questions(interview_id):
-    """Read only owned, current, fully reviewed rows. Malformed rows use the normal writer."""
+def load_bound_questions(interview_id, *, expected_profile=None):
+    """Read owned, current, reviewed rows and optionally assert the interview-start profile.
+
+    Inputs: Interview ID and optional CandidateProfile already selected by the starting session.
+    Outputs: Validated prepared questions; unbound interviews return an empty list.
+    Logic: Validate owner/text binding, project the canonical profile and compare fingerprints
+    before querying reviewed rows. Constraints: A concurrent canonical change raises ValueError
+    rather than mixing questions from one profile with another; no model calls or writes occur.
+    Malformed/stale rows remain excluded under the existing question-cache admission policy.
+    """
     from .agent_models import AgentInterview
 
     interview = (
@@ -295,6 +317,11 @@ def load_bound_questions(interview_id):
         raise ValueError("Resume version binding changed")
     profile, _ = read_profile(version, candidate_id=f"candidate-{interview_id}")
     fingerprint = profile_fingerprint(profile)
+    if expected_profile is not None and profile_fingerprint(expected_profile) != fingerprint:
+        logger.warning(
+            "Interview start profile changed interview=%s version=%s", interview_id, version.pk
+        )
+        raise ValueError("Resume profile changed during interview preparation")
     allowed = {
         t.topic_key: p.project_id for p in profile.projects for t in TopicSelector().candidates(p)
     }

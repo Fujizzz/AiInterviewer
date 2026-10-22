@@ -1,4 +1,26 @@
-"""Verify the remote MVP shell delegates to the canonical local Agent core."""
+"""Responsibilities: Verify the remote MVP shell delegates to the canonical local Agent core.
+Implementation: Execute typed provider or application paths with explicit validation boundaries.
+Related Modules: shared.resume_contract and app.parsing.resume define canonical resume data.
+Declaration Index:
+- InterviewTests: Group isolated contract and lifecycle regression cases.
+- InterviewTests.test_integrated_flow_uses_local_contracts_and_finishes: Verify integrated flow
+  uses local contracts and finishes.
+- InterviewTests.test_question_safety_limit_does_not_determine_time_budget: Verify question
+  safety limit does not determine time budget.
+- InterviewTests.test_application_reuse_keeps_interviews_isolated: Verify application reuse
+  keeps interviews isolated.
+- InterviewTests.test_cli_reprompts_empty_answer_and_prints_json: Verify cli reprompts empty
+  answer and prints json.
+- InterviewTests.test_invalid_inputs_fail_before_provider_call: Verify invalid inputs fail
+  before provider call.
+- InterviewTests.test_empty_extraction_has_clear_error: Verify empty extraction has clear error.
+- InterviewTests.test_empty_extraction_has_clear_error.empty_extraction: Model a valid canonical
+  document with no interviewable facts.
+- InterviewTests.test_wrapper_structured_output_and_refusal: Verify wrapper structured output
+  and refusal.
+Variable Index:
+- RESUME: Synthetic original text used only by offline integration tests.
+"""
 
 import unittest
 from pathlib import Path
@@ -11,6 +33,7 @@ from app.cli import run_interview
 from app.parsing.resume import ResumeExtraction
 from app.providers.llm import LLMError, OpenAILLM
 from tests.app.fixtures import FixtureLLM
+from tests.app.resume_fixture import resume_output
 
 RESUME = """
 Alex Chen
@@ -22,7 +45,18 @@ and tested the parser with pytest.
 
 
 class InterviewTests(unittest.TestCase):
+    """Functionality: Group isolated contract and lifecycle regression cases.
+    Logic: Test setup supplies local state and explicit external-service substitutes.
+    Constraints: Test assertions do not establish live provider availability.
+    """
+
     def test_integrated_flow_uses_local_contracts_and_finishes(self):
+        """Functionality: Verify integrated flow uses local contracts and finishes.
+        Inputs: Isolated test fixtures and explicit provider substitutes. Outputs: Assertions or
+        test failure.
+        Logic: Exercise the real contract under the stated boundary conditions.
+        Constraints: This test does not measure live model quality or modify production records.
+        """
         llm = FixtureLLM()
         result = run_interview(
             build_application(llm),
@@ -58,6 +92,12 @@ class InterviewTests(unittest.TestCase):
         self.assertEqual(latest["question"]["question_id"], latest["answer"]["question_id"])
 
     def test_question_safety_limit_does_not_determine_time_budget(self):
+        """Functionality: Verify question safety limit does not determine time budget.
+        Inputs: Isolated test fixtures and explicit provider substitutes. Outputs: Assertions or
+        test failure.
+        Logic: Exercise the real contract under the stated boundary conditions.
+        Constraints: This test does not measure live model quality or modify production records.
+        """
         for limit in (1, 3):
             with self.subTest(limit=limit):
                 result = run_interview(
@@ -76,6 +116,12 @@ class InterviewTests(unittest.TestCase):
                 self.assertTrue(result["interview_finished"])
 
     def test_application_reuse_keeps_interviews_isolated(self):
+        """Functionality: Verify application reuse keeps interviews isolated.
+        Inputs: Isolated test fixtures and explicit provider substitutes. Outputs: Assertions or
+        test failure.
+        Logic: Exercise the real contract under the stated boundary conditions.
+        Constraints: This test does not measure live model quality or modify production records.
+        """
         application = build_application(FixtureLLM())
         first = run_interview(
             application,
@@ -98,6 +144,12 @@ class InterviewTests(unittest.TestCase):
         )
 
     def test_cli_reprompts_empty_answer_and_prints_json(self):
+        """Functionality: Verify cli reprompts empty answer and prints json.
+        Inputs: Isolated test fixtures and explicit provider substitutes. Outputs: Assertions or
+        test failure.
+        Logic: Exercise the real contract under the stated boundary conditions.
+        Constraints: This test does not measure live model quality or modify production records.
+        """
         answers = iter(
             ["   ", "I work on Python projects.", "I built and validated the implementation."]
         )
@@ -114,6 +166,12 @@ class InterviewTests(unittest.TestCase):
         self.assertIn('"overall_score": 3.0', lines[-1])
 
     def test_invalid_inputs_fail_before_provider_call(self):
+        """Functionality: Verify invalid inputs fail before provider call.
+        Inputs: Isolated test fixtures and explicit provider substitutes. Outputs: Assertions or
+        test failure.
+        Logic: Exercise the real contract under the stated boundary conditions.
+        Constraints: This test does not measure live model quality or modify production records.
+        """
         for resume, limit, follow_up in [(" ", 1, 2), (RESUME, 0, 2), (RESUME, 1, -1)]:
             llm = FixtureLLM()
             with self.subTest(resume=resume, limit=limit, follow_up=follow_up):
@@ -129,9 +187,21 @@ class InterviewTests(unittest.TestCase):
                 self.assertEqual(llm.calls, [])
 
     def test_empty_extraction_has_clear_error(self):
+        """Functionality: Verify empty extraction has clear error.
+        Inputs: Isolated test fixtures and explicit provider substitutes. Outputs: Assertions or
+        test failure.
+        Logic: Exercise the real contract under the stated boundary conditions.
+        Constraints: This test does not measure live model quality or modify production records.
+        """
+
         def empty_extraction(prompt, data, schema):
+            """Functionality: Model a valid canonical document with no interviewable facts.
+            Inputs: prompt, source data and schema. Outputs: Empty semantic fixture.
+            Logic: Supply source coverage while leaving skills and projects unknown or empty.
+            Constraints: Any downstream model call fails the test.
+            """
             if schema is ResumeExtraction:
-                return ResumeExtraction(candidate_name=None, skills=[], projects=[])
+                return resume_output(data, candidate_name=None, skills=None, projects=[])
             raise AssertionError("Provider should stop after resume extraction")
 
         with self.assertRaisesRegex(ValueError, "No interviewable"):
@@ -154,6 +224,12 @@ class InterviewTests(unittest.TestCase):
     )
     @patch("app.providers.llm.OpenAI")
     def test_wrapper_structured_output_and_refusal(self, client, dotenv):
+        """Functionality: Verify wrapper structured output and refusal.
+        Inputs: Isolated test fixtures and explicit provider substitutes. Outputs: Assertions or
+        test failure.
+        Logic: Exercise the real contract under the stated boundary conditions.
+        Constraints: This test does not measure live model quality or modify production records.
+        """
         client.return_value.responses.parse.return_value = Mock(
             output_parsed=GeneratedText(text="What did you build and why?")
         )

@@ -65,6 +65,11 @@
  * - recommendationGuidance: Displays appropriate next action when no resume, pending parse, or missing recommendation field.
  * - recommendationUnsaved: Canceling version switch preserves input/selection, shows nearby save button.
  * - recommendationUnsaved.rejectSwitch: Simulates user rejecting discarding unsaved content.
+ * - unpreparedStructure: Verify stale structure displays only original text and sends no editor/model request.
+ * - prepareLegacy: Verify preparation happens only after the explicit action.
+ * - failedCanonical: Keep saved PDF text visible after canonical extraction failure.
+ * - isPreparationButton: Identify synthetic preparation action buttons.
+ * - isPreparationRequest: Match recorded preparation requests.
  * Variable Index:
  * - SCRIPT: Actual client source code.
  * - HTML: Actual template, used to validate element contract.
@@ -161,7 +166,7 @@ function stream(events) {
  *  Input ID/status, output test-only metadata and body; does not use real candidate data.
  */
 function record(id, status = "ready") {
-  return { id, status, can_interview: status === "ready", interview_profile_status: status === "ready" ? "ready" : "pending", label: "<script>label</script>", original_name: status === "uploaded" ? "sample.pdf" : "", extraction_mode: "", error_code: "", is_current: false, created_at: "2026-10-01T00:00:00Z", text: "中文 <img src=x> 简历" };
+  return { id, status, has_structured_resume: status === "ready", can_interview: status === "ready", interview_profile_status: status === "ready" ? "ready" : "pending", label: "<script>label</script>", original_name: status === "uploaded" ? "sample.pdf" : "", extraction_mode: "", error_code: "", is_current: false, created_at: "2026-10-01T00:00:00Z", text: "中文 <img src=x> 简历" };
 }
 /**
  *  Input initial record, stream events, and optional page size, output real script VM and request; pagination is only for explicit interface stub.
@@ -229,12 +234,14 @@ async function makePage(initial = [], events = [{ type: "result", text: "中文�
     if (path.endsWith("parse/")) {
       item.status = events.at(-1)?.type === "result" ? "ready" : "failed";
       item.can_interview = item.status === "ready" && events.at(-1).can_interview !== false;
+      item.has_structured_resume = item.can_interview;
       item.interview_profile_status = events.at(-1).interview_profile_status || (item.can_interview ? "ready" : "pending");
       if (item.status === "ready") item.text = events.at(-1).text;
       return stream(events);
     }
     if (path.endsWith("prepare-interview/")) {
       item.can_interview = true;
+      item.has_structured_resume = true;
       item.interview_profile_status = "ready";
       return json(item);
     }
@@ -794,21 +801,23 @@ async function workspaceDraft() {
 }
 test("workspace navigation preserves unsaved draft and reveals recommendation fields", workspaceDraft);
 
-test("legacy text-ready version prepares interview details only on explicit action", async () => {
+/** Verify explicit preparation uses the actual client with an offline metadata response. */
+async function prepareLegacy() {
   const item = record("legacy");
-  item.can_interview = false; item.interview_profile_status = "pending";
+  item.can_interview = false; item.has_structured_resume = false; item.interview_profile_status = "pending";
   const page = await makePage([item]);
   const before = page.elements.get("versions-list").querySelectorAll("button");
-  assert.ok(before.some(button => button.dataset.action === "prepare-interview"));
-  assert.equal(page.requests.filter(request => request.url.endsWith("prepare-interview/")).length, 0);
+  assert.ok(before.some(isPreparationButton));
+  assert.equal(page.requests.filter(isPreparationRequest).length, 0);
   await page.run("rmAction({target:{closest(){return {dataset:{action:'prepare-interview',id:'legacy'}}}}})");
   assert.equal(item.can_interview, true);
   assert.match(page.elements.get("operation-status").textContent, /^rm_profile_ready/);
-  assert.equal(page.requests.filter(request => request.url.endsWith("prepare-interview/")).length, 1);
-  assert.equal(page.elements.get("versions-list").querySelectorAll("button").some(button => button.dataset.action === "prepare-interview"), false);
-});
+  assert.equal(page.requests.filter(isPreparationRequest).length, 1);
+  assert.equal(page.elements.get("versions-list").querySelectorAll("button").some(isPreparationButton), false);
+}
 
-test("PDF semantic preparation failure retains extracted text and offers retry", async () => {
+/** Verify a failed canonical extraction retains the saved source text and explicit retry action. */
+async function failedCanonical() {
   const item = record("pdf", "uploaded");
   const page = await makePage([item], [
     { type: "progress", stage: "interview_profile" },
@@ -819,5 +828,35 @@ test("PDF semantic preparation failure retains extracted text and offers retry",
   assert.equal(item.can_interview, false);
   assert.equal(page.elements.get("preview-text").value, "Saved extracted resume");
   assert.match(page.elements.get("operation-status").textContent, /^rm_profile_failed/);
-  assert.ok(page.elements.get("versions-list").querySelectorAll("button").some(button => button.dataset.action === "prepare-interview"));
-});
+  assert.ok(page.elements.get("versions-list").querySelectorAll("button").some(isPreparationButton));
+}
+
+/** Read a synthetic button action; does not dispatch requests. */
+function isPreparationButton(button) { return button.dataset.action === "prepare-interview"; }
+/** Match recorded preparation requests for exact call-count assertions. */
+function isPreparationRequest(request) { return request.url.endsWith("prepare-interview/"); }
+test("legacy text-ready version prepares interview details only on explicit action", prepareLegacy);
+test("PDF semantic preparation failure retains extracted text and offers retry", failedCanonical);
+
+/**
+ * Functionality: Keep stale/failed structured data out of the editable form.
+ * Inputs: Synthetic ready-text version with explicit failed structure metadata.
+ * Outputs: Original text remains visible, editor stays disabled, no implicit preparation occurs.
+ * Logic: Exercise the actual preview function with recorded REST calls.
+ * Constraints: DOM/HTTP are explicit local substitutes, not a browser or provider quality test.
+ */
+async function unpreparedStructure() {
+  const item = record("stale");
+  item.has_structured_resume = false;
+  item.can_interview = false;
+  item.interview_profile_status = "failed";
+  const page = await makePage([item]);
+  await page.run("rmPreview('stale')");
+  assert.equal(page.elements.get("preview-text").value, item.text);
+  assert.equal(page.run("rmEditorBase"), null);
+  for (const request of page.requests) {
+    assert.equal(request.url.endsWith("editor/"), false);
+    assert.notEqual(request.method, "POST");
+  }
+}
+test("unprepared canonical structure preserves original text without fallback", unpreparedStructure);

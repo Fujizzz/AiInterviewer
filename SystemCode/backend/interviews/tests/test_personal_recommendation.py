@@ -48,7 +48,10 @@ from rest_framework.test import APIClient, APITestCase
 from interviews.recommendation.rerank import RerankOutput, RerankUnavailable
 from interviews.recommendation.runtime import ModelUnavailable, rank_pairs
 from interviews.recommendation.schemas import CandidateInput, JobInput
+from interviews.resume_editor import render_units
 from interviews.resume_models import ResumeVersion
+from interviews.resume_profile import prepare_profile
+from shared.resume_contract import UNIT_LABELS, ResumeFacts
 
 from .agent_fixtures import FixtureLLM
 
@@ -67,12 +70,22 @@ class PersonalRecommendationTests(APITestCase):
             username="job-owner", password="test-pass"
         )
         self.other = get_user_model().objects.create_user(username="job-other")
+        original = ResumeVersion.objects.create(
+            owner=self.owner, status="ready", text="Synthetic resume"
+        )
+        units = dict.fromkeys(UNIT_LABELS, "")
+        units["skills"] = "Python"
         self.version = ResumeVersion.objects.create(
             owner=self.owner,
             status="ready",
-            text="Synthetic resume",
+            source_version=original,
+            edited_from=original,
+            text=render_units(units),
+            units=units,
             recommendation_slots={"skills": ["Python"], "months_experience": 6},
         )
+        prepare_profile(self.version.pk, self.owner.pk, llm=FixtureLLM())
+        self.version.refresh_from_db()
         self.url = f"/api/resume-versions/{self.version.pk}/recommendations/"
         self.directory = tempfile.TemporaryDirectory()
         self.catalog_path = Path(self.directory.name) / "jobs.json"
@@ -213,8 +226,8 @@ class PersonalRecommendationTests(APITestCase):
         self.version.save()
         self.assertEqual(self.client.post(self.url).status_code, 409)
         self.version.status = "ready"
-        self.version.text = "Skills: Python"
         self.version.recommendation_slots = {}
+        self.version.interview_profile["document"].update(ResumeFacts().model_dump())
         self.version.save()
         self.assertEqual(self.client.post(self.url).data["code"], "recommendation_profile_empty")
 
@@ -248,14 +261,16 @@ class PersonalRecommendationTests(APITestCase):
         self.assertEqual(response.data, {"code": "recommendation_model_unavailable"})
 
     def test_invalid_saved_values_are_diagnostic(self):
-        """Real save with corrupted type returns 503; limited numeric values exceeding original
+        """A corrupted canonical cache type returns 503; limited numeric values exceeding original
         float32 feature range return 422, no score replacement.
         """
         for slots, expected in [
             ({"skills": "bad"}, "recommendation_profile_invalid"),
             ({"months_experience": 1e308}, "recommendation_features_invalid"),
         ]:
-            self.version.recommendation_slots = slots
+            self.version.interview_profile["document"].update(
+                {**ResumeFacts().model_dump(), **slots}
+            )
             self.version.save()
             self.assertEqual(self.client.post(self.url).data["code"], expected)
 

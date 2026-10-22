@@ -27,6 +27,11 @@ Declaration Index:
 - VersionSocketTests.test_prepare_start_binds_same_version: Validates authorized version passing
   through secure gateway and fixed
   data/history.
+- ResumeVersionTests.test_resume_commands_preserve_text_and_reject_blank_input: Verify resume
+  commands preserve text and reject blank input.
+- VersionSocketTests.test_saved_resume_whitespace_survives_prepare_and_direct_start: Verify saved
+  resume whitespace survives prepare and direct start.
+- VersionSocketTests._check_version_start: Verify prepare/start preserve an owned resume snapshot.
 Variable Index:
 None
 """
@@ -147,7 +152,7 @@ class ResumeVersionTests(APITestCase):
         self.assertEqual(version.extraction_mode, "traditional")
         self.assertEqual(version.text, "Built Python APIs")
         self.assertTrue(version.can_interview)
-        self.assertTrue(version.interview_profile["candidate_profile"]["projects"])
+        self.assertTrue(version.interview_profile["document"]["projects"])
         self.assertEqual(self.client.post(url + "parse/").status_code, 409)
         advanced = ResumeVersion.objects.create(owner=self.owner, original_pdf=data)
         with (
@@ -226,6 +231,12 @@ class ResumeVersionTests(APITestCase):
         )
 
     def test_resume_commands_preserve_text_and_reject_blank_input(self):
+        """Functionality: Verify resume commands preserve text and reject blank input.
+        Inputs: Isolated test fixtures and explicit provider substitutes. Outputs: Assertions or
+        test failure.
+        Logic: Exercise the real contract under the stated boundary conditions.
+        Constraints: This test does not measure live model quality or modify production records.
+        """
         text = " \t\r\n\u3000" + RESUME + "\n \t"
         for kind in ("prepare", "start"):
             with self.subTest(kind=kind):
@@ -284,6 +295,12 @@ class VersionSocketTests(SafetyTestMixin, TransactionTestCase):
         await self._check_version_start(RESUME, prepare=True)
 
     async def test_saved_resume_whitespace_survives_prepare_and_direct_start(self):
+        """Functionality: Verify saved resume whitespace survives prepare and direct start.
+        Inputs: Isolated test fixtures and explicit provider substitutes. Outputs: Assertions or
+        test failure.
+        Logic: Exercise the real contract under the stated boundary conditions.
+        Constraints: This test does not measure live model quality or modify production records.
+        """
         for prepare in (True, False):
             with self.subTest(prepare=prepare):
                 await self._check_version_start(
@@ -291,6 +308,13 @@ class VersionSocketTests(SafetyTestMixin, TransactionTestCase):
                 )
 
     async def _check_version_start(self, text, *, prepare):
+        """Functionality: Verify prepare/start preserve an owned resume snapshot.
+        Inputs: text and prepare flag plus the test database. Outputs: WebSocket contract
+        assertions.
+        Logic: Prepare a canonical fixture, bind the owner, and reject any reparse during Agent
+        startup.
+        Constraints: Provider calls are mocked; original whitespace must survive exactly.
+        """
         from asgiref.sync import sync_to_async
 
         owner = await sync_to_async(get_user_model().objects.create_user)(

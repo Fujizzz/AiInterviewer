@@ -184,6 +184,8 @@ const RM_RECOMMENDATION_ERRORS = {
   recommendation_llm_not_configured: "rj_llm_config", recommendation_llm_unavailable: "rj_llm_error",
   recommendation_llm_invalid_output: "rj_llm_output",
   resume_not_ready: "rm_unready",
+  resume_structure_unavailable: "rm_profile_pending",
+  resume_confirmation_required: "rj_confirmation_required",
 };
 
 /**
@@ -318,7 +320,7 @@ function rmRender() {
     state.className = "badge";
     state.textContent = rmText("rm_status_" + version.status);
     card.append(title, state);
-    if (version.status === "ready" && !version.can_interview) {
+    if (version.status === "ready" && !version.has_structured_resume) {
       const profileState = document.createElement("span");
       profileState.className = "badge";
       profileState.textContent = rmText(version.interview_profile_status === "processing" ? "rm_profile_processing" : "rm_profile_pending");
@@ -366,7 +368,7 @@ function rmRender() {
       if (version.question_preparation_status && !["ready", "processing"].includes(version.question_preparation_status)) {
         secondary.append(rmButton("prepare-interview", version.id, "rm_prepare_questions"));
       }
-    } else if (version.status === "ready") {
+    } else if (version.status === "ready" && !version.has_structured_resume) {
       secondary.append(rmButton("prepare-interview", version.id, "rm_prepare_interview"));
     }
     if (version.original_name) {
@@ -407,7 +409,7 @@ async function rmLoad(page = rmPage) {
   rmRender();
 }
 /**
- *  Input the personal version ID and internal confirmed flag, return details; confirm unsaved content before switching, ready before reading the unit contract, fail without impersonating old results.
+ *  Input the personal version ID and internal confirmed flag, return details; confirm unsaved content before switching, read the unit contract only when structure is ready; unprepared versions retain a read-only original and explicit preparation action.
  */
 async function rmPreview(id, discardConfirmed = false) {
   if (!discardConfirmed && !rmConfirmDiscard()) return null;
@@ -423,7 +425,10 @@ async function rmPreview(id, discardConfirmed = false) {
     rmEl("uploaded-file-name").textContent = version.original_name + " · " + rmText("rm_status_" + version.status);
   }
   rmEl("preview-meta").textContent = (version.label || version.original_name || rmText("rm_unnamed")) + " · " + rmText("rm_status_" + version.status);
-  if (version.status === "ready") {
+  if (version.status === "ready" && !version.has_structured_resume) {
+    rmEl("preview-text").value = version.text || "";
+    rmEl("preview-notes").textContent = rmText(version.interview_profile_status === "processing" ? "rm_profile_processing" : "rm_profile_pending");
+  } else if (version.status === "ready") {
     const editor = await (await rmRequest(encodeURIComponent(id) + "/editor/")).json();
     rmFillEditor(editor);
   } else rmEl("preview-notes").textContent = rmText("rm_unready");
@@ -444,7 +449,7 @@ function rmClearEditor() {
   rmControls();
 }
 /**
- *  Input the authorized edit response; prioritize confirmed values, insert suggestions with valid basis into the draft to be saved and display evidence, do not re-extract the edited draft.
+ *  Input the authorized edit response; read canonical confirmed values or canonical model suggestions with source evidence into the draft to be saved and display evidence, do not re-extract the edited draft.
  * Disable setting current when automatic suggestion is unsaved and protect against leaving; keep blank for unknown, do not overwrite confirmed 0/false/[] values.
  */
 function rmFillEditor(editor) {
@@ -559,7 +564,7 @@ async function rmSaveEdition(event) {
     const version = await (await rmRequest(encodeURIComponent(base) + "/editions/", { method: "POST", headers: { "Content-Type": "application/json" }, body })).json();
     rmEditorDirty = false;
     await rmLoad(1); await rmPreview(version.id, true);
-    rmStatus(rmText(version.can_interview ? "re_saved" : "rm_profile_failed"), !version.can_interview);
+    rmStatus(rmText(version.has_structured_resume ? "re_saved" : "rm_profile_failed"), !version.has_structured_resume);
     if (returnToRecommendations) rmScroll("job-recommendations");
   }
   await rmRun(save);
@@ -773,7 +778,7 @@ async function rmUpload(event) {
     rmEl("version-label").value = ""; rmEl("resume-file").value = ""; rmEl("resume-text").value = "";
     await rmLoad(1); await rmPreview(version.id, true);
     if (version.status === "ready") rmReveal("resume-editor", true);
-    const profileFailed = version.status === "ready" && !version.can_interview;
+    const profileFailed = version.status === "ready" && !version.has_structured_resume;
     rmStatus(rmText(profileFailed ? "rm_profile_failed" : "rm_saved"), profileFailed);
   }
   await rmRun(save);
@@ -896,7 +901,7 @@ async function rmParse(id) {
   if (failure) throw failure;
   rmEl("preview-notes").textContent = notes.join("\n");
   rmReveal("resume-editor", true);
-  rmStatus(rmText(persisted.can_interview ? "rm_parsed" : "rm_profile_failed"), !persisted.can_interview);
+  rmStatus(rmText(persisted.has_structured_resume ? "rm_parsed" : "rm_profile_failed"), !persisted.has_structured_resume);
 }
 /**
  *  Handle list click events with preview display in the edit area, operating only on loaded IDs; deletion requires explicit confirmation, and reference conflicts are maintained by the backend with HTTP 409.

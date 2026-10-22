@@ -2,7 +2,7 @@
 Implementation: Preserve null or omitted JSON fields as unknown; do not infer values absent from the
 supplied resume data.
 Related Modules: recommendation.api validates requests with these schemas; features consumes the
-validated values.
+validated values; shared.resume_contract owns the eleven candidate field definitions.
 
 Declaration Index:
 - Profile: strict validation base class for all input objects.
@@ -16,12 +16,6 @@ Declaration Index:
 
 Variable Index:
 - MAX_ITEMS: maximum 100 objects per sort, HTTP resource limit, not model threshold.
-- Text: original string with non-whitespace content, preserving case and spaces.
-- Number: strict finite non-negative numeric value; rejects boolean or numeric strings.
-- Count: strict finite non-negative integer.
-- Names: list of up to 256 original strings; empty list means explicitly empty.
-- AcademicLevel: 11 original academic stage codes from experiment, not mapped to product seniority.
-- WorkMode: original work mode category; No Preference still matched exactly by category.
 
 Key State Notes:
 Profile.model_config rejects extra fields, type coercion, and non-finite numbers; all optional data
@@ -30,19 +24,13 @@ majors merge original undergraduate/second/master known majors; empty list and u
 separate.
 """
 
-from typing import Annotated, Literal
+from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from shared.resume_contract import AcademicLevel, Count, Names, Number, ResumeFacts, Text, WorkMode
+
 MAX_ITEMS = 100
-Text = Annotated[str, Field(min_length=1, max_length=512, pattern=r"\S")]
-Number = Annotated[float, Field(ge=0)]
-Count = Annotated[int, Field(ge=0)]
-Names = Annotated[list[Text], Field(max_length=256)]
-AcademicLevel = Literal[
-    "UG1", "UG2", "UG3", "UG4", "MS1", "MS2", "PhD1", "PhD2", "PhD3", "PhD4", "PhD5"
-]
-WorkMode = Literal["In Person", "Online", "No Preference", "Hybrid"]
 
 
 class Profile(BaseModel):
@@ -56,27 +44,13 @@ class Profile(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
 
 
-class CandidateInput(Profile):
-    """Function: describes a candidate; inputs ID and optional data, outputs validated object.
-
-    Logic: omitted data preserved as None; explicit 0/false/empty list preserved; constraint:
-    month/hour/GPA units confirmed by caller,
-    no inference of education, experience, or work preference from skills or projects, no automatic
-    GPA filling or scaling.
+class CandidateInput(ResumeFacts):
+    """Functionality: Validate recommendation input using the canonical resume field types.
+    Logic: Inherit the eleven facts unchanged and require candidate_id for request isolation.
+    Constraints: No conversion, inference or I/O; null, zero, false and empty lists retain meaning.
     """
 
     candidate_id: Text
-    skills: Names | None = None
-    interests: Names | None = None
-    majors: Names | None = None
-    in_person_commitment: WorkMode | None = None
-    gpa: Number | None = None
-    months_experience: Number | None = None
-    academic_level: AcademicLevel | None = None
-    hours_per_week: Number | None = None
-    length_of_commitment: Number | None = None
-    num_publications: Count | None = None
-    commit_to_summer: bool | None = None
 
 
 class JobInput(Profile):

@@ -289,7 +289,7 @@ PDF 上传改为单一按钮打开文件选择器，选择后保存一次原件�
 建议只填入待保存草稿，不能直接把草稿设为 current；编辑稿保存后才作为确认推荐输入，
 再打开已保存编辑稿不重新提取，保留人工清空、0/false/[] 和历史原件。
 
-- 后端 `test_resume_slots`、`test_resume_editor`、`test_resume_versions`、`test_resume_page` 共 21 项通过；
+- 当时的后端规则字段测试（现已由 `test_unified_resume` 替代）、`test_resume_editor`、`test_resume_versions`、`test_resume_page` 共 21 项通过；
   严格 schema、真实隔离数据库/API、权限及生命周期回归，无真实模型排序或供应商调用。
 - 真实客户端与显式 REST/DOM 替身共 15 项通过，覆盖建议回填、保存前保护、确认值优先与清空后重载。
 - 使用上次实际 PDF 提取的已保存文本只读验证规则：技能、求职方向和 GPA 三项可识别，14 个技能条目，

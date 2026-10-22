@@ -23,10 +23,17 @@ preparation service remains usable by isolated tests. Workers have a renewable 1
 lease. Each result checks the run ID in a short transaction. Interrupted work can be reclaimed by
 an explicit retry after expiry. Preparation makes real model calls outside the interview clock.
 
+The lease claim also compares the observed canonical status, schema/source hash and `updated_at`.
+Rebuilding the canonical document resets the question lease. A worker that read the old document
+cannot claim the new pending state, even when source text and schema version are unchanged.
+At interview start, cached questions must match the exact CandidateProfile selected by the session;
+a concurrent profile change aborts that start explicitly instead of mixing two revisions.
+
 Authenticated, owner-scoped interfaces:
 
 - GET /api/resume-versions/{id}/prepared-questions/: read progress, questions, references and
-  failure statuses without model calls.
+  failure statuses for the current profile and accepted review revisions without model calls.
+  Rows from earlier profiles remain stored but are excluded; invalid canonical data returns 409.
 - POST /api/resume-versions/{id}/prepare-interview/: reuse/repair the profile and schedule question
   preparation again.
 - Resume metadata includes question_preparation_status and question_preparation_error.
@@ -37,6 +44,15 @@ An interview snapshots the ready questions available at its start. Text can be r
 interviews, but question/thread IDs are newly allocated. Questions completed after interview
 startup become available to the next interview. Before recording a demonstration, use the API
 to confirm readiness or inspect the available rows of a partial preparation.
+
+After start, the persisted interview context, accepted answers and evaluation jobs remain the
+source for planning, scoring and reports. Selecting a newer resume edition or rebuilding the old
+canonical cache does not change that interview's candidate profile or history. The interview page
+distinguishes structured resumes without projects/skills from extraction failures and directs the
+owner to save a new edition with sufficient content; it does not repeatedly request extraction.
+
+`backend/interviews/tests/test_resume_downstream.py` verifies these revision boundaries and a full
+bound interview with delayed evaluation and history reads using isolated offline providers.
 
 For a new topic, the Agent first checks version, prior use, asked text, difficulty and objective
 coverage. When dialogue exists or the live objective differs, one compact PreparedUseDecision

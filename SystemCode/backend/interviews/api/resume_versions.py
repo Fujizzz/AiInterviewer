@@ -1,9 +1,9 @@
 """Responsibilities: provide login user's resume original/edit version, units and recommendation
-slots, private download and explicit parsing.
+slots from one canonical document, private download and explicit parsing.
 Implementation: all resources filtered by owner; parsing reuses existing rules + visual pipeline and
 explicit queue configuration.
-Related Modules: resume_editor validates units and confirms slots, resume_slots extracts original
-pending fields;
+Related Modules: resume_editor validates authored changes; resume_profile supplies the canonical
+structured document;
 resume_models stores private files; recommendation.catalog/runtime/rerank provides job sources,
 coarse ranking and API fine-ranking;
 resume_api/pdf_queue handles original parsing, does not modify experimental parameters.
@@ -26,8 +26,8 @@ Declaration Index:
 - ResumeVersionViewSet.finalize_response: Set no-cache for private responses.
 - ResumeVersionViewSet.create: Create immutable input version.
 - ResumeVersionViewSet.retrieve: Return personal version content and interview availability.
-- ResumeVersionViewSet.prepared_questions: Read owned question preparation status and content.
-- ResumeSummary.get_question_preparation_status: Report outdated reviewed content as pending.
+- ResumeVersionViewSet.prepared_questions: Read owned preparation rows for the current profile.
+- ResumeSummary.get_question_preparation_status: Report outdated structure/reviews as pending.
 - ResumeVersionViewSet.prepare_interview: Prepare a profile and schedule missing reviewed questions.
 - ResumeVersionViewSet.current: Switch current version within transaction.
 - ResumeVersionViewSet.download: Return personal original PDF.
@@ -69,6 +69,9 @@ from rest_framework.parsers import JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from agents.question.prepared import accepted_review_versions, profile_fingerprint
+from app.parsing.resume import document_suggestions, document_units
+
 from ..recommendation.catalog import CatalogUnavailable, load_catalog
 from ..recommendation.rerank import RerankUnavailable, rerank_jobs
 from ..recommendation.runtime import ModelUnavailable, rank_pairs
@@ -79,12 +82,10 @@ from ..resume_editor import (
     ResumeEditionInput,
     candidate_payload,
     render_units,
-    split_units,
 )
 from ..resume_models import ResumeVersion
 from ..resume_pdf import MAX_BYTES
-from ..resume_profile import prepare_profile, read_profile
-from ..resume_slots import collect_slots
+from ..resume_profile import prepare_profile, read_document, read_profile
 
 logger = logging.getLogger(__name__)
 
@@ -98,11 +99,16 @@ class ResumeSummary(serializers.ModelSerializer):
     question_preparation_status = serializers.SerializerMethodField()
 
     def get_question_preparation_status(self, obj):
-        """Show pending when the cached questions were reviewed with obsolete prompts."""
+        """Read metadata only; show pending if canonical structure or review version is obsolete.
+        No profile projection or model call is performed when serializing a list of versions.
+        """
         from agents.question.prepared import review_version
 
         if obj.question_preparation_status in {"ready", "partial"}:
-            if obj.question_preparation_version != review_version():
+            if (
+                not obj.has_structured_resume
+                or obj.question_preparation_version != review_version()
+            ):
                 return "pending"
         return obj.question_preparation_status
 
@@ -124,6 +130,7 @@ class ResumeSummary(serializers.ModelSerializer):
             "question_preparation_status",
             "question_preparation_error",
             "can_interview",
+            "has_structured_resume",
             "is_current",
             "source_version",
             "edited_from",
@@ -222,8 +229,24 @@ class ResumeVersionViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
 
     @action(detail=True, methods=["get"], url_path="prepared-questions")
     def prepared_questions(self, request, pk=None):
-        """Owned preparation progress and reviewed content, without interview state."""
+        """Read owned preparation progress for the current canonical profile only.
+        Inputs: Authenticated request and version ID. Outputs: Progress plus matching rows;
+        valid versions without interview content return no rows. Invalid canonical data returns
+        explicit 409. Logic: Reuse the interview projection/fingerprint and accepted review
+        revisions. Constraints: No model calls or writes; stale rows stay stored but are excluded.
+        """
         version = self.get_object()
+        rows = version.prepared_questions.none()
+        if version.can_interview:
+            try:
+                profile, _ = read_profile(version, candidate_id=f"resume-{version.pk}")
+            except ValueError:
+                logger.warning("Prepared questions unavailable canonical version=%s", version.pk)
+                return Response({"code": "resume_structure_unavailable"}, status=409)
+            rows = version.prepared_questions.filter(
+                profile_hash=profile_fingerprint(profile),
+                review_version__in=accepted_review_versions(),
+            )
         return Response(
             {
                 "status": ResumeSummary(version).data["question_preparation_status"],
@@ -238,9 +261,7 @@ class ResumeVersionViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
                         "error": row.error_code,
                         "content": row.content,
                     }
-                    for row in version.prepared_questions.order_by(
-                        "project_id", "topic_key", "kind"
-                    )
+                    for row in rows.order_by("project_id", "topic_key", "kind")
                 ],
             }
         )
@@ -326,17 +347,17 @@ class ResumeVersionViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         version = prepare_profile(version.pk, request.user.pk)
         status = (
             200
-            if version.can_interview
+            if version.has_structured_resume
             else (409 if version.interview_profile_status == "processing" else 503)
         )
         return Response(ResumeSummary(version).data, status=status)
 
     @action(detail=True, methods=["get"])
     def editor(self, request, pk=None):
-        """Input personal ready version ID, return units, confirmed slots, and full-field extraction
-        suggestions from original pending values, no database write or model call.
-        Original only based on explicit text extraction for pending values; edited drafts do not
-        re-extract, preserve user-cleared fields and historical snapshots.
+        """Input an owned text-ready version; project its canonical document into editor fields.
+        Return 409 if structure is unavailable; never independently classify or extract fields.
+        Originals expose canonical suggestions; editions preserve authored text and confirmed facts.
+        Read-only: no model calls, automatic migration or database writes.
         """
         version = self.get_object()
         if version.status != "ready":
@@ -346,8 +367,23 @@ class ResumeVersionViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
             if version.source_version_id
             else version
         )
-        units = version.units or split_units(version.text)
-        suggestions = collect_slots(units) if not version.source_version_id else None
+        try:
+            document = read_document(version)
+        except ValueError:
+            return Response(
+                {
+                    "code": "resume_structure_unavailable",
+                    "interview_profile_status": version.interview_profile_status,
+                    "interview_profile_error": version.interview_profile_error,
+                },
+                status=409,
+            )
+        units = (
+            version.units if version.source_version_id else document_units(document, version.text)
+        )
+        suggestions = (
+            document_suggestions(document, version.text) if not version.source_version_id else None
+        )
         logger.info(
             "Resume editor loaded version=%s suggestions=%s", version.pk, suggestions is not None
         )
@@ -358,7 +394,9 @@ class ResumeVersionViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
                 "source_version": str(version.source_version_id or version.pk),
                 "units": units,
                 "unit_labels": UNIT_LABELS,
-                "slots": candidate_payload(version),
+                "slots": candidate_payload(version)
+                if version.source_version_id
+                else CandidateInput(candidate_id=str(version.pk)).model_dump(),
                 "slot_units": SLOT_UNITS,
                 "slot_suggestions": suggestions,
                 "original_text": original.text,
@@ -409,14 +447,25 @@ class ResumeVersionViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         version = self.get_object()
         if version.status != "ready":
             raise ValidationError("Resume is not ready.")
-        return Response({"candidate": candidate_payload(version), "slot_units": SLOT_UNITS})
+        try:
+            candidate = candidate_payload(version)
+        except ValueError:
+            return Response({"code": "resume_structure_unavailable"}, status=409)
+        return Response(
+            {
+                "candidate": candidate,
+                "slot_units": SLOT_UNITS,
+                "confirmed": bool(version.source_version_id),
+            }
+        )
 
     @action(detail=True, methods=["post"])
     def recommendations(self, request, pk=None):
         """Input the user's ready version ID and an empty request body; return the top 5 positions
         after coarse ranking by model (20 items) followed by LLM fine ranking, along with
-        reasoning. Only read saved slots; do not use automatic suggestions or frontend unsaved
-        values; unknown remains unknown. Login and CSRF are inherited from the ViewSet; only fine
+        reasoning. Only read user-confirmed facts from the canonical document; do not accept unsaved
+        frontend values; unknown remains unknown. Login and CSRF are inherited from the ViewSet;
+        only fine
         ranking invokes the existing model API, with no persistence. Record version ID, count,
         and failure type. API/configuration failures return 503, invalid fine ranking returns
         502, no filling or fallback to coarse ranking; small directories reflect actual counts.
@@ -426,10 +475,12 @@ class ResumeVersionViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
             raise ValidationError("Only saved resume features are accepted.")
         if version.status != "ready":
             return Response({"code": "resume_not_ready"}, status=409)
+        if not version.source_version_id:
+            return Response({"code": "resume_confirmation_required"}, status=422)
         try:
             candidate = CandidateInput.model_validate(candidate_payload(version))
-        except ProfileValidationError:
-            logger.error("Resume recommendation invalid saved profile version=%s", version.pk)
+        except (ProfileValidationError, ValueError):
+            logger.error("Resume recommendation invalid canonical profile version=%s", version.pk)
             return Response({"code": "recommendation_profile_invalid"}, status=503)
         if all(
             value is None for key, value in candidate.model_dump().items() if key != "candidate_id"

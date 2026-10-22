@@ -1,7 +1,15 @@
-"""Offline scenario through the production CLI application, policy and ReAct loop.
-
-Run: python -m docs.examples.demo_dialogue_react
-Only the model outputs and candidate answers are scripted. No network or API key.
+"""Responsibilities: Offline scenario through the production CLI application, policy and ReAct
+loop. Run: python -m docs.examples.demo_dialogue_react Only the model outputs and candidate
+answers are scripted. No network or API key.
+Implementation: Execute typed provider or application paths with explicit validation boundaries.
+Related Modules: shared.resume_contract and app.parsing.resume define canonical resume data.
+Declaration Index:
+- ScriptedModel: Scripts model choices; production validates and executes them.
+- ScriptedModel.__call__: Drive the offline demonstration with typed scripted decisions.
+- main: Run and record the complete offline dialogue example.
+Variable Index:
+- ANSWERS: Scripted candidate responses for the offline demonstration.
+- QUESTIONS: Fixed question wording for reproducible offline decisions.
 """
 
 from pathlib import Path
@@ -14,6 +22,7 @@ from app.cli import run_interview
 from app.parsing.resume import ResumeExtraction
 from app.reporting.final_report import ReportNarrative
 from app.tracing import FileTrace
+from tests.app.resume_fixture import resume_output
 
 ANSWERS = [
     "Transformer temporal modeling",
@@ -36,10 +45,16 @@ class ScriptedModel:
 
     def __call__(self, prompt, data, schema):
         # Scripted semantic pass; this fixture does not evaluate question quality.
+        """Functionality: Drive the offline demonstration with typed scripted decisions.
+        Inputs: prompt, data and schema. Outputs: Validated scenario-specific response.
+        Logic: Dispatch by schema, retaining canonical source references for resume extraction.
+        Constraints: No network; unsupported schema requests raise AssertionError.
+        """
         if schema.__name__ == "QuestionQualityReview":
             return schema(issues=[])
         if schema is ResumeExtraction:
-            return schema(
+            return resume_output(
+                data,
                 candidate_name="离线示例候选人",
                 skills=["Python", "Transformer"],
                 projects=[
@@ -159,6 +174,11 @@ class ScriptedModel:
 
 
 def main():
+    """Functionality: Run and record the complete offline dialogue example.
+    Inputs: Fixed ANSWERS and QUESTIONS plus the repository output directory. Outputs: Trace files
+    and terminal summary. Logic: Execute the real CLI/Agent loop and assert its decision sequence.
+    Constraints: Providers and candidate responses are scripted; no live extraction is measured.
+    """
     root = Path(__file__).resolve().parents[2]
     answers = iter(ANSWERS)
     with FileTrace(root / "output") as trace:

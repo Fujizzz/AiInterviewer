@@ -1,4 +1,25 @@
-"""Verify Qwen JSON validation and text/PDF resume loading without API calls."""
+"""Responsibilities: Verify Qwen JSON validation and text/PDF resume loading without API calls.
+Implementation: Execute typed provider or application paths with explicit validation boundaries.
+Related Modules: shared.resume_contract and app.parsing.resume define canonical resume data.
+Declaration Index:
+- response: Build a minimal fake Chat Completions response with content and a finish reason.
+- QwenTests: Group isolated contract and lifecycle regression cases.
+- QwenTests.test_resume_invalid_output_fails_once_with_scoped_timeout: Mock SDK responses to
+  verify canonical extraction has one attempt and its own deadline.
+- QwenTests.test_json_validation_and_retry: Check Qwen configuration and recovery from one
+  schema-invalid JSON response.
+- QwenTests.test_invalid_json_is_bounded: Ensure invalid Qwen JSON stops after two attempts.
+- QwenTests.test_truncated_output_is_rejected: Verify incomplete Qwen output is rejected before
+  schema parsing.
+- ResumeTests: Group isolated contract and lifecycle regression cases.
+- ResumeTests.test_utf8_text: Verify Chinese UTF-8 text with a byte-order mark is read
+  correctly.
+- ResumeTests.test_blank_pdf_rejected: Create a blank PDF and confirm the loader rejects missing
+  text.
+- ResumeTests.test_pdf_pages_extracted_in_order: Verify extracted text preserves PDF page order.
+Variable Index:
+None
+"""
 
 import asyncio
 import json
@@ -40,35 +61,23 @@ def response(content, reason="stop"):
 )
 @patch("app.providers.llm.OpenAI")
 class QwenTests(unittest.TestCase):
-    def test_resume_array_repair_and_scoped_timeout(self, client, dotenv):
+    """Functionality: Group isolated contract and lifecycle regression cases.
+    Logic: Test setup supplies local state and explicit external-service substitutes.
+    Constraints: Test assertions do not establish live provider availability.
+    """
+
+    def test_resume_invalid_output_fails_once_with_scoped_timeout(self, client, dotenv):
+        """Mock SDK responses to verify canonical extraction has one attempt and its own deadline.
+        Invalid JSON must surface as LLMError; ordinary generation retains its existing timeout.
+        """
         create = client.return_value.chat.completions.create
-        invalid = json.dumps(
-            {"projects": [{"name": "API", "technologies": "Python", "claims": None, "metrics": ""}]}
-        )
-        valid = json.dumps(
-            {
-                "projects": [
-                    {
-                        "name": "API",
-                        "technologies": ["Python"],
-                        "claims": ["Built an API"],
-                        "metrics": [],
-                    }
-                ]
-            }
-        )
-        create.side_effect = [response(invalid), response(valid), response('{"text":"OK"}')]
+        create.side_effect = [response('{"projects": "invalid"}'), response('{"text":"OK"}')]
         model = OpenAILLM()
-        profile, _ = asyncio.run(parse_resume_profile("Built an API using Python", llm=model))
-        self.assertEqual(profile.projects[0].technologies, ["Python"])
-        self.assertEqual(profile.projects[0].metrics, [])
-        first, second = create.call_args_list
-        self.assertGreater(first.kwargs["timeout"], 30)
-        self.assertLessEqual(first.kwargs["timeout"], 90)
-        self.assertLessEqual(second.kwargs["timeout"], first.kwargs["timeout"])
-        messages = second.kwargs["messages"]
-        self.assertIn("list_type means", messages[0]["content"])
-        self.assertEqual(messages[-2], {"role": "assistant", "content": invalid})
+        with self.assertRaisesRegex(LLMError, "invalid structured JSON"):
+            asyncio.run(parse_resume_profile("Built an API using Python", llm=model))
+        self.assertEqual(create.call_count, 1)
+        self.assertGreater(create.call_args.kwargs["timeout"], 30)
+        self.assertLessEqual(create.call_args.kwargs["timeout"], 90)
         model("Reply", {}, GeneratedText)
         self.assertEqual(create.call_args.kwargs["timeout"], 30)
 
@@ -105,6 +114,11 @@ class QwenTests(unittest.TestCase):
 
 
 class ResumeTests(unittest.TestCase):
+    """Functionality: Group isolated contract and lifecycle regression cases.
+    Logic: Test setup supplies local state and explicit external-service substitutes.
+    Constraints: Test assertions do not establish live provider availability.
+    """
+
     def test_utf8_text(self):
         """Verify Chinese UTF-8 text with a byte-order mark is read correctly."""
         with TemporaryDirectory() as directory:

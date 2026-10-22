@@ -40,6 +40,7 @@ Declaration Index:
 - AgentSession.close:
   Transfers cleanup requests to model instances supporting close, without proactively clearing state
   still referenced by background calls.
+- AgentSession.close_background: Await session-owned planning and evaluation cleanup.
 
 - AgentSession.finish: Evaluate optional current speech and produce a user-ended report without
   another question.
@@ -197,8 +198,9 @@ class AgentSession:
 
         Precondition: Protocol layer ensures this connection has not started; parameter types and
         ranges already validated by Start.
-        Logic: Precisely reuses or parses resume → constructs job → assembles ports → initializes
-        plan → normalizes stage transition.
+        Logic: Reuse or parse the resume, verify prepared questions match that profile, construct
+        the job/ports, then initialize and persist the interview snapshot. A concurrent canonical
+        revision change before question loading raises explicitly; later turns use saved context.
         Budget: Minutes duration converted to real time budget; number of questions only serves as
         safety upper limit, Planner determines goals and allocation.
         RAG: Inject a shared background port without awaiting model or database warmup.
@@ -230,7 +232,9 @@ class AgentSession:
             llm=self.app.agent_llm,
             settings=settings,
             background_replanning=True,
-            prepared_questions=await load_bound_questions(self.interview_id),
+            prepared_questions=await load_bound_questions(
+                self.interview_id, expected_profile=self.profile
+            ),
         )
         async with self._stage("question_generation"):
             initialized = await self.service.initialize_interview(
@@ -538,6 +542,11 @@ class AgentSession:
         }
 
     async def close_background(self):
+        """Release optional session-owned background resources before closing provider clients.
+        Inputs: Initialized service and evaluation adapter, when present. Outputs: None.
+        Logic: Await their close hooks in order. Constraints: Queued evaluation persists outside
+        this session and is not cancelled here; cleanup exceptions propagate to the caller.
+        """
         if getattr(self, "service", None) is not None:
             await self.service.close_background()
         if hasattr(self.app.evaluation, "close"):

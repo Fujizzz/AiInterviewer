@@ -18,6 +18,8 @@ Declaration Index:
 - FixtureLLM.__call__: Return schema-specific deterministic outputs and reject unknown schema
   requests.
 - FixtureLLM.close: Mark fixture cleanup for lifecycle assertions.
+- enter_main_flow: Exercise the real unscored opening before a regression test targets technical
+  questions.
 Variable Index:
 - RESUME: Synthetic resume text used only by offline tests.
 - ANSWER: Synthetic answer text associated with the fixture project.
@@ -42,6 +44,7 @@ from interviews.agent_safety import make_output_receipt
 from shared.contracts.behavior import BehaviorAssessment
 from tests.agent.mocks.dialogue_output import plan_for, selection_for
 from tests.app.decision_fixtures import compact_output, legacy_data
+from tests.app.resume_fixture import resume_output
 from tests.evaluation.port_helpers import SCHEMAS, evaluation_output
 
 RESUME = "Alex built a Python log analysis pipeline, tested malformed records with pytest."
@@ -245,7 +248,11 @@ class FixtureLLM:
             }
         elif schema is AnswerAssessment:
             output = {key: output[key] for key in ("dimensions", "evidence_strength")}
-        return schema.model_validate(output)
+        return (
+            resume_output(data, **output)
+            if schema is ResumeExtraction
+            else schema.model_validate(output)
+        )
 
     def close(self):
         """Functionality: Mark fixture cleanup for connection-lifecycle assertions.

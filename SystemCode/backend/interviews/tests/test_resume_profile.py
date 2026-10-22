@@ -1,4 +1,44 @@
-"""Real database/API and Agent integration; external LLM calls are explicit offline fixtures."""
+"""Responsibilities: Real database/API and Agent integration; external LLM calls are explicit
+offline fixtures.
+Implementation: Execute typed provider or application paths with explicit validation boundaries.
+Related Modules: shared.resume_contract and app.parsing.resume define canonical resume data.
+Declaration Index:
+- ResumeProfileTests: Group isolated contract and lifecycle regression cases.
+- ResumeProfileTests.setUp: Initialize authenticated users and an offline model for each test.
+- ResumeProfileTests.upload: Create a synthetic ready version through the actual authenticated
+  API.
+- ResumeProfileTests.test_upload_persists_canonical_profile_and_retry_reuses_it: Verify upload
+  persists canonical profile and retry reuses it.
+- ResumeProfileTests.test_edition_gets_fresh_profile_without_overwriting_original: Verify
+  edition gets fresh profile without overwriting original.
+- ResumeProfileTests.test_failure_preserves_text_and_retry_recovers: Verify failure preserves
+  text and retry recovers.
+- ResumeProfileTests.test_old_version_backfill_is_explicit_and_owned: Verify old version
+  backfill is explicit and owned.
+- ResumeProfileTests.test_processing_blocks_duplicate_work_and_delete_but_can_recover_crash:
+  Verify processing blocks duplicate work and delete but can recover crash.
+- ResumeProfileTests.test_reentrant_preparation_cannot_claim_same_work: Verify reentrant
+  preparation cannot claim same work.
+- ResumeProfileTests.test_reentrant_preparation_cannot_claim_same_work.during_parse: Attempt
+  reentrant preparation while the original claim is active.
+- ResumeProfileTests.test_stale_or_invalid_cache_requires_explicit_repair: Verify stale or
+  invalid cache requires explicit repair.
+- ResumeProfileTests.test_two_interviews_load_same_database_profile_without_parsing: Verify two
+  interviews load same database profile without parsing.
+- ResumeProfileTests.test_two_interviews_load_same_database_profile_without_parsing.run: Start
+  two isolated interviews from the same prepared database version.
+- ResumeProfileTests.test_bound_bad_cache_never_falls_back_to_raw_parser: Verify bound bad cache
+  never falls back to raw parser.
+- ResumeProfileTests.test_bound_profile_still_rejects_modified_resume_text: Verify bound profile
+  still rejects modified resume text.
+- ResumeProfileTests.test_unready_pdf_cannot_prepare: Verify unready pdf cannot prepare.
+- ResumeProfileTests.test_pdf_profile_failure_preserves_text_and_readiness:
+  Verify pdf profile failure keeps successful extraction and emits readiness.
+- ResumeProfileTests.test_pdf_profile_failure_preserves_text_and_readiness.extracted:
+  Emit a mocked successful PDF result without invoking PDF extraction.
+Variable Index:
+None
+"""
 
 import json
 from datetime import timedelta
@@ -24,7 +64,16 @@ from .agent_fixtures import RESUME, FixtureLLM
 
 
 class ResumeProfileTests(APITestCase):
+    """Functionality: Group isolated contract and lifecycle regression cases.
+    Logic: Test setup supplies local state and explicit external-service substitutes.
+    Constraints: Test assertions do not establish live provider availability.
+    """
+
     def setUp(self):
+        """Functionality: Initialize authenticated users and an offline model for each test.
+        Inputs: Isolated Django test database. Outputs: Test owner/client/provider state.
+        Logic: Patch the provider factory and register cleanup. Constraints: No production records.
+        """
         self.owner = get_user_model().objects.create_user(username="profile-owner")
         self.other = get_user_model().objects.create_user(username="profile-other")
         self.client.force_authenticate(self.owner)
@@ -34,11 +83,22 @@ class ResumeProfileTests(APITestCase):
         self.addCleanup(factory.stop)
 
     def upload(self):
+        """Functionality: Create a synthetic ready version through the actual authenticated API.
+        Inputs: Test client and RESUME fixture. Outputs: Persisted version and HTTP response.
+        Logic: Assert creation then load the isolated database record. Constraints: Provider is
+        mocked.
+        """
         response = self.client.post("/api/resume-versions/", {"text": RESUME}, format="json")
         self.assertEqual(response.status_code, 201)
         return ResumeVersion.objects.get(pk=response.data["id"]), response
 
     def test_upload_persists_canonical_profile_and_retry_reuses_it(self):
+        """Functionality: Verify upload persists canonical profile and retry reuses it.
+        Inputs: Isolated test fixtures and explicit provider substitutes. Outputs: Assertions or
+        test failure.
+        Logic: Exercise the real contract under the stated boundary conditions.
+        Constraints: This test does not measure live model quality or modify production records.
+        """
         version, response = self.upload()
         self.assertTrue(response.data["can_interview"])
         self.assertEqual(response.data["interview_profile_status"], "ready")
@@ -48,8 +108,8 @@ class ResumeProfileTests(APITestCase):
         self.assertEqual(name, "Alex")
         self.assertTrue(profile.projects[0].claims)
         self.assertEqual(
-            version.interview_profile["candidate_profile"]["projects"],
-            profile.model_dump(mode="json")["projects"],
+            version.interview_profile["document"]["skills"],
+            profile.skills,
         )
         calls = len(self.llm.calls)
         retry = self.client.post(f"/api/resume-versions/{version.pk}/prepare-interview/")
@@ -60,6 +120,12 @@ class ResumeProfileTests(APITestCase):
         )
 
     def test_edition_gets_fresh_profile_without_overwriting_original(self):
+        """Functionality: Verify edition gets fresh profile without overwriting original.
+        Inputs: Isolated test fixtures and explicit provider substitutes. Outputs: Assertions or
+        test failure.
+        Logic: Exercise the real contract under the stated boundary conditions.
+        Constraints: This test does not measure live model quality or modify production records.
+        """
         version, _ = self.upload()
         before = self.llm.calls.count(ResumeExtraction)
         response = self.client.post(
@@ -79,8 +145,14 @@ class ResumeProfileTests(APITestCase):
         self.assertEqual(version.text, RESUME)
 
     def test_failure_preserves_text_and_retry_recovers(self):
+        """Functionality: Verify failure preserves text and retry recovers.
+        Inputs: Isolated test fixtures and explicit provider substitutes. Outputs: Assertions or
+        test failure.
+        Logic: Exercise the real contract under the stated boundary conditions.
+        Constraints: This test does not measure live model quality or modify production records.
+        """
         with patch(
-            "interviews.resume_profile.parse_resume_profile", side_effect=RuntimeError("test-only")
+            "interviews.resume_profile.parse_resume_document", side_effect=RuntimeError("test-only")
         ):
             version, response = self.upload()
         self.assertEqual(version.text, RESUME)
@@ -95,6 +167,12 @@ class ResumeProfileTests(APITestCase):
         self.assertTrue(retried.data["can_interview"])
 
     def test_old_version_backfill_is_explicit_and_owned(self):
+        """Functionality: Verify old version backfill is explicit and owned.
+        Inputs: Isolated test fixtures and explicit provider substitutes. Outputs: Assertions or
+        test failure.
+        Logic: Exercise the real contract under the stated boundary conditions.
+        Constraints: This test does not measure live model quality or modify production records.
+        """
         version = ResumeVersion.objects.create(owner=self.owner, text=RESUME, status="ready")
         url = f"/api/resume-versions/{version.pk}/prepare-interview/"
         self.client.force_authenticate(self.other)
@@ -111,6 +189,12 @@ class ResumeProfileTests(APITestCase):
         self.assertEqual(self.client.post(url).status_code, 200)
 
     def test_processing_blocks_duplicate_work_and_delete_but_can_recover_crash(self):
+        """Functionality: Verify processing blocks duplicate work and delete but can recover crash.
+        Inputs: Isolated test fixtures and explicit provider substitutes. Outputs: Assertions or
+        test failure.
+        Logic: Exercise the real contract under the stated boundary conditions.
+        Constraints: This test does not measure live model quality or modify production records.
+        """
         version = ResumeVersion.objects.create(
             owner=self.owner, text=RESUME, status="ready", interview_profile_status="processing"
         )
@@ -124,22 +208,39 @@ class ResumeProfileTests(APITestCase):
         self.assertEqual(self.client.post(url + "prepare-interview/").status_code, 200)
 
     def test_reentrant_preparation_cannot_claim_same_work(self):
+        """Functionality: Verify reentrant preparation cannot claim same work.
+        Inputs: Isolated test fixtures and explicit provider substitutes. Outputs: Assertions or
+        test failure.
+        Logic: Exercise the real contract under the stated boundary conditions.
+        Constraints: This test does not measure live model quality or modify production records.
+        """
         version = ResumeVersion.objects.create(owner=self.owner, text=RESUME, status="ready")
-        from app.parsing.resume import parse_resume_profile as real_parser
+        from app.parsing.resume import parse_resume_document as real_parser
 
         async def during_parse(text, **kwargs):
+            """Functionality: Attempt reentrant preparation while the original claim is active.
+            Inputs: text and parser keyword arguments. Outputs: Original parser response.
+            Logic: Assert the second preparation sees processing, then run the original parser once.
+            Constraints: Explicit offline provider; no second claim or vendor request.
+            """
             from asgiref.sync import sync_to_async
 
             pending = await sync_to_async(prepare_profile)(version.pk, self.owner.pk)
             self.assertEqual(pending.interview_profile_status, "processing")
             return await real_parser(text, **kwargs)
 
-        with patch("interviews.resume_profile.parse_resume_profile", side_effect=during_parse):
+        with patch("interviews.resume_profile.parse_resume_document", side_effect=during_parse):
             result = prepare_profile(version.pk, self.owner.pk)
         self.assertTrue(result.can_interview)
         self.assertEqual(self.factory.call_count, 1)
 
     def test_stale_or_invalid_cache_requires_explicit_repair(self):
+        """Functionality: Verify stale or invalid cache requires explicit repair.
+        Inputs: Isolated test fixtures and explicit provider substitutes. Outputs: Assertions or
+        test failure.
+        Logic: Exercise the real contract under the stated boundary conditions.
+        Constraints: This test does not measure live model quality or modify production records.
+        """
         version, _ = self.upload()
         for changes in [
             {"interview_profile_version": "old"},
@@ -156,9 +257,21 @@ class ResumeProfileTests(APITestCase):
                 self.assertTrue(prepare_profile(version.pk, self.owner.pk).can_interview)
 
     def test_two_interviews_load_same_database_profile_without_parsing(self):
+        """Functionality: Verify two interviews load same database profile without parsing.
+        Inputs: Isolated test fixtures and explicit provider substitutes. Outputs: Assertions or
+        test failure.
+        Logic: Exercise the real contract under the stated boundary conditions.
+        Constraints: This test does not measure live model quality or modify production records.
+        """
         version, _ = self.upload()
 
         async def run():
+            """Functionality: Start two isolated interviews from the same prepared database version.
+            Inputs: Enclosing test owner/version. Outputs: Assertions on loaded profile identity
+            and skills.
+            Logic: Resolve owner binding and reserve each request before starting the real Agent.
+            Constraints: Question providers are fixtures and resume parsing must not occur.
+            """
             profiles = []
             for _ in range(2):
                 session = AgentSession(llm=FixtureLLM())
@@ -188,6 +301,12 @@ class ResumeProfileTests(APITestCase):
         self.assertEqual(AgentInterview.objects.filter(resume_version=version).count(), 2)
 
     def test_bound_bad_cache_never_falls_back_to_raw_parser(self):
+        """Functionality: Verify bound bad cache never falls back to raw parser.
+        Inputs: Isolated test fixtures and explicit provider substitutes. Outputs: Assertions or
+        test failure.
+        Logic: Exercise the real contract under the stated boundary conditions.
+        Constraints: This test does not measure live model quality or modify production records.
+        """
         version, _ = self.upload()
         session = AgentSession(llm=FixtureLLM())
         AgentInterview.objects.create(
@@ -205,17 +324,30 @@ class ResumeProfileTests(APITestCase):
         session.close()
 
     def test_bound_profile_still_rejects_modified_resume_text(self):
+        """Functionality: Verify bound profile still rejects modified resume text.
+        Inputs: Isolated test fixtures and explicit provider substitutes. Outputs: Assertions or
+        test failure.
+        Logic: Exercise the real contract under the stated boundary conditions.
+        Constraints: This test does not measure live model quality or modify production records.
+        """
         version, _ = self.upload()
         interview = AgentInterview.objects.create(
             owner=self.owner, resume_version=version, resume_text_snapshot=version.text
         )
         for changed in (" " + version.text, version.text + " changed"):
-            with self.subTest(changed=changed[-10:]), self.assertRaisesRegex(
-                ValueError, "Resume version binding changed"
+            with (
+                self.subTest(changed=changed[-10:]),
+                self.assertRaisesRegex(ValueError, "Resume version binding changed"),
             ):
                 async_to_sync(load_bound_profile)(str(interview.pk), changed)
 
     def test_unready_pdf_cannot_prepare(self):
+        """Functionality: Verify unready pdf cannot prepare.
+        Inputs: Isolated test fixtures and explicit provider substitutes. Outputs: Assertions or
+        test failure.
+        Logic: Exercise the real contract under the stated boundary conditions.
+        Constraints: This test does not measure live model quality or modify production records.
+        """
         version = ResumeVersion.objects.create(owner=self.owner, original_pdf=b"%PDF-test")
         self.assertEqual(
             self.client.post(f"/api/resume-versions/{version.pk}/prepare-interview/").status_code,
@@ -224,16 +356,29 @@ class ResumeProfileTests(APITestCase):
         self.factory.assert_not_called()
 
     @override_settings(PDF_TASK_EXECUTION="inline")
-    def test_pdf_profile_failure_keeps_successful_extraction_and_emits_readiness(self):
+    def test_pdf_profile_failure_preserves_text_and_readiness(self):
+        """Functionality: Verify pdf profile failure keeps successful extraction and emits
+        readiness.
+        Inputs: Isolated test fixtures and explicit provider substitutes. Outputs: Assertions or
+        test failure.
+        Logic: Exercise the real contract under the stated boundary conditions.
+        Constraints: This test does not measure live model quality or modify production records.
+        """
         version = ResumeVersion.objects.create(owner=self.owner, original_pdf=b"%PDF-test")
 
         async def extracted(data, *, mode="traditional"):
+            """Functionality: Build one deterministic source-derived fixture.
+            Inputs: Source block or mocked PDF arguments as declared. Outputs: Scripted extraction
+            data.
+            Logic: Preserve the test source identity and content. Constraints: No real model or
+            PDF parsing.
+            """
             yield json.dumps({"type": "result", "text": RESUME, "pages": []}).encode()
 
         with (
             patch("interviews.resume_api.resume_events", extracted),
             patch(
-                "interviews.resume_profile.parse_resume_profile", side_effect=RuntimeError("test")
+                "interviews.resume_profile.parse_resume_document", side_effect=RuntimeError("test")
             ),
         ):
             response = self.client.post(f"/api/resume-versions/{version.pk}/parse/")

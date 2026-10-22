@@ -1,4 +1,22 @@
-"""Provide validated structured model calls for OpenAI, Qwen and DeepSeek."""
+"""Responsibilities: Provide validated structured model calls for OpenAI, Qwen and DeepSeek.
+Implementation: Execute typed provider or application paths with explicit validation boundaries.
+Related Modules: shared.resume_contract and app.parsing.resume define canonical resume data.
+Declaration Index:
+- OutputModel: Share strict extra-field rejection for structured provider output.
+- StructuredLLM: Define the synchronous typed model boundary used by adapters.
+- StructuredLLM.__call__: Return schema-validated model output for the supplied prompt and data.
+- LLMError: Report provider failures without embedding private request data.
+- LLMError.__init__: Initialize a safe provider exception.
+- OpenAILLM: Validate typed outputs from the configured remote model provider.
+- OpenAILLM.__init__: Load provider credentials and options, then initialize the shared SDK
+  client.
+- OpenAILLM.__call__: Return schema-validated model output for the supplied prompt and data.
+- OpenAILLM._remaining_timeout: Bound the next request by the active model operation deadline.
+- OpenAILLM._qwen: Request and validate JSON; canonical resume/managed calls fail without
+  structure retries.
+Variable Index:
+- T: Pydantic model type bound for typed provider calls.
+"""
 
 import json
 import os
@@ -17,23 +35,50 @@ T = TypeVar("T", bound=BaseModel)
 
 
 class OutputModel(BaseModel):
+    """Functionality: Share strict extra-field rejection for structured provider output.
+    Logic: model_config forbids unknown keys and strips string whitespace.
+    Constraints: Subclasses declare their own output fields; no network or persistence.
+    """
+
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
 
 class StructuredLLM(Protocol):
+    """Functionality: Define the synchronous typed model boundary used by adapters.
+    Logic: Implementations accept a prompt, input dictionary and Pydantic schema.
+    Constraints: Implementations validate their result or raise; this protocol performs no I/O.
+    """
+
     def __call__(self, prompt: str, data: dict, schema: type[T]) -> T:
         """Return schema-validated model output for the supplied prompt and data."""
         ...
 
 
 class LLMError(RuntimeError):
+    """Functionality: Report provider failures without embedding private request data.
+    Logic: code identifies a safe failure category; validation_issues stores sanitized schema paths.
+    Constraints: Does not log or retry the failed request.
+    """
+
     def __init__(self, message: str, *, code: str = "model_error", issues=()):
+        """Functionality: Initialize a safe provider exception.
+        Inputs: message, optional code and sanitized issues iterable. Outputs: Exception state.
+        Logic: Store the message through RuntimeError and copy diagnostic paths.
+        Constraints: Callers must exclude source text and secrets from diagnostics.
+        """
         super().__init__(message)
         self.code = code
         self.validation_issues = list(issues)
 
 
 class OpenAILLM:
+    """Functionality: Validate typed outputs from the configured remote model provider.
+    Logic: Provider, model, temperature and timeout state are initialized once; schema calls use
+    Responses or Chat Completions according to provider.
+    Constraints: SDK retries are disabled. Canonical resume extraction has one request; existing
+    generation contracts retain their explicit bounded JSON repair. Client ownership stays external.
+    """
+
     def __init__(self):
         """Load provider credentials and options, then initialize the shared SDK client."""
         load_dotenv(Path(__file__).resolve().parents[2] / ".env")
@@ -111,6 +156,11 @@ class OpenAILLM:
         return response.output_parsed
 
     def _remaining_timeout(self):
+        """Functionality: Bound the next request by the active model operation deadline.
+        Inputs: Instance request/resume timeouts and current_model_call context. Outputs: Seconds.
+        Logic: Use the resume deadline only for resume_extraction; otherwise use generation timeout.
+        Constraints: Abandoned or elapsed calls raise LLMError before network I/O.
+        """
         call = current_model_call.get()
         if call is None:
             return self.request_timeout
@@ -123,7 +173,9 @@ class OpenAILLM:
         return min(request_timeout, remaining)
 
     def _qwen(self, prompt: str, data: dict, schema: type[T]) -> T:
-        """Request JSON output, validate it, and retry invalid structure once."""
+        """Request and validate JSON; canonical resume/managed calls fail without structure retries.
+        Other existing generation contracts retain their single explicit structure-repair attempt.
+        """
         from evaluation.recovery import managed_evaluation_call
 
         messages = [
@@ -154,7 +206,7 @@ class OpenAILLM:
                 "question_issue_check",
                 "prepared_question_use",
             }
-            or schema.__name__ == "CompactAnswerDecision"
+            or schema.__name__ in {"CompactAnswerDecision", "ResumeExtraction"}
             or managed_evaluation_call.get()
             else 2
         )

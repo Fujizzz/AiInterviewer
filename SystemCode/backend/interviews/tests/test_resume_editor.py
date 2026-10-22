@@ -16,12 +16,7 @@ Declaration Index:
   creating versions.
 - ResumeEditorTests.test_owner_and_ready_boundaries: Enforce owner authorization and ready-state
   prerequisites.
-- ResumeEditorTests.test_heading_grouping_retains_content: Preserve content while grouping
-  recognized and unknown headings.
-- ResumeEditorTests.test_english_labels_round_trip_through_section_parser: Verify every English
-  display label maps back
-  to its section
-  identifier.
+- ResumeEditorTests.test_authored_sections_round_trip: Preserve authored text through source IDs.
 - ResumeEditorTests.test_extracted_fields_are_not_confirmed_until_saved: Keep suggestions
   unconfirmed until an
   explicit edition save.
@@ -38,9 +33,12 @@ from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from rest_framework.test import APITestCase
 
+from app.parsing.resume import authored_sections, document_units
 from interviews.recommendation.schemas import JobsRequest
-from interviews.resume_editor import UNIT_LABELS, render_units, split_units
+from interviews.resume_editor import UNIT_LABELS, render_units
 from interviews.resume_models import ResumeVersion
+from interviews.resume_profile import prepare_profile
+from tests.app.resume_fixture import resume_output
 
 from .agent_fixtures import FixtureLLM
 
@@ -72,6 +70,7 @@ class ResumeEditorTests(APITestCase):
             original_pdf=b"%PDF-test-only",
             text="教育经历\n计算机专业\n项目经历\nPython API\n",
         )
+        self.original = prepare_profile(self.original.pk, self.owner.pk, llm=FixtureLLM())
         self.url = f"/api/resume-versions/{self.original.pk}/"
         self.client.force_authenticate(self.owner)
 
@@ -232,36 +231,22 @@ class ResumeEditorTests(APITestCase):
             self.client.post(self.url + "editions/", body, format="json").status_code, 400
         )
 
-    def test_heading_grouping_retains_content(self):
-        """Functionality: Verify standalone heading grouping preserves source content.
-        Inputs: Text containing an unknown heading-like line, a recognized education heading, and an
-        English projects heading.
-        Outputs: Section text retaining whitespace and HTML-like characters, with unknown text under
-        other.
-        Logic: Call split_units and compare exact section strings.
-        Constraints: Only standalone recognized headings change the active section; unknown content
-        is not discarded.
-        """
-        units = split_units("姓名 <img>\n1. 教育经历：\n  计算机专业\nProjects\nAPI\n")
-        self.assertEqual(units["other"], "姓名 <img>\n")
-        self.assertEqual(units["education"], "  计算机专业\n")
-        self.assertEqual(units["projects"], "API\n")
-        self.assertEqual(units["skills"], "")
-
-    def test_english_labels_round_trip_through_section_parser(self):
-        """Functionality: Verify each English display label is recognized by the section parser.
-        Inputs: Every section identifier with a unique nonempty synthetic body, tested one at a
-        time.
-        Outputs: The original section mapping after render_units followed by split_units.
-        Logic: Render each single-section payload and parse the generated heading back to its stable
-        identifier.
-        Constraints: Single-section cases isolate heading compatibility from separator whitespace
-        between multiple sections.
+    def test_authored_sections_round_trip(self):
+        """Functionality: Preserve authored section content through canonical source coordinates.
+        Inputs: Each of the nine section IDs with a synthetic body including punctuation.
+        Outputs: Exact original section mapping after rendering and materialization.
+        Logic: Use authoritative character intervals, not a heading classifier or model.
+        Constraints: No extraction or persistence; this tests the editor-to-document boundary.
         """
         for key in UNIT_LABELS:
             with self.subTest(unit=key):
-                units = {name: f"content for {name}" if name == key else "" for name in UNIT_LABELS}
-                self.assertEqual(split_units(render_units(units)), units)
+                units = {name: f"content <{name}>" if name == key else "" for name in UNIT_LABELS}
+                text = render_units(units)
+                assignment, headings = authored_sections(units, text)
+                document = resume_output(
+                    {"resume_text": text}, section_lines=assignment, heading_lines=headings
+                )
+                self.assertEqual(document_units(document, text), units)
 
     def test_extracted_fields_are_not_confirmed_until_saved(self):
         """Functionality: Verify extracted slot suggestions stay unconfirmed until explicitly saved.
@@ -275,6 +260,16 @@ class ResumeEditorTests(APITestCase):
         """
         self.original.text = "关键技能\nPython, Django\n教育经历\nGPA: 3.8 / 4.0\n"
         self.original.save(update_fields=["text"])
+        output = resume_output(
+            {"resume_text": self.original.text},
+            skills=["Python", "Django"],
+            gpa=3.8,
+            section_lines={"skills": [1, 2], "education": [3, 4]},
+            heading_lines=[1, 3],
+            field_evidence={"skills": [2], "gpa": [4]},
+        )
+        with patch("interviews.resume_profile.parse_resume_document", return_value=output):
+            self.original = prepare_profile(self.original.pk, self.owner.pk, llm=FixtureLLM())
         editor = self.client.get(self.url + "editor/").data
         suggestions = editor["slot_suggestions"]
         self.assertEqual(set(suggestions["values"]), set(editor["slot_units"]))
@@ -284,8 +279,12 @@ class ResumeEditorTests(APITestCase):
         self.assertIsNone(editor["slots"]["skills"])
         self.original.refresh_from_db()
         self.assertEqual(self.original.recommendation_slots, {})
-        self.assertIsNone(
-            self.client.get(self.url + "recommendation-profile/").data["candidate"]["skills"]
+        self.assertEqual(
+            self.client.get(self.url + "recommendation-profile/").data["candidate"]["skills"],
+            ["Python", "Django"],
+        )
+        self.assertEqual(
+            self.client.post(self.url + "recommendations/", {}, format="json").status_code, 422
         )
         saved = self.client.post(
             self.url + "editions/",

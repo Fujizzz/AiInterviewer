@@ -81,7 +81,7 @@ def main():
             ResumeVersion,
         )
         from interviews.resume_pdf import extract_pdf
-        from interviews.resume_profile import StoredResumeProfile, text_hash
+        from interviews.resume_profile import StoredResumeDocument, text_hash
 
         from agents.model_calls import safe_error_details, unavailable_provider_reason
         from agents.orchestrator import InterviewAgentService
@@ -90,19 +90,18 @@ def main():
         from app.adapters.llm import ProviderLLMAdapter
         from app.adapters.rag import close_shared_rag, get_shared_rag
         from app.application import DEFAULT_COMPETENCY_IMPORTANCE
+        from app.parsing.resume import document_profile
         from app.providers.llm import OpenAILLM
         from shared.contracts import (
             AnswerAnalysis,
             CandidateAnswer,
-            CandidateClaim,
-            CandidateProfile,
-            CandidateProject,
             EvaluationFeedback,
             InitializeInterviewRequest,
             InterviewStage,
             JobProfile,
         )
         from shared.contracts.prepared import PreparedQuestion
+        from shared.resume_contract import ResumeExtraction
         from tests.agent.mocks import InMemoryRepository
 
         call_command("migrate", verbosity=0, interactive=False)
@@ -116,18 +115,20 @@ def main():
         if match is None:
             raise ValueError("The selected CV does not contain the expected ReAct project claim")
         excerpt = match.group(0)
-        profile = CandidateProfile(
-            candidate_id="prepared-smoke",
+        # This explicitly projected excerpt isolates question preparation, not model extraction.
+        document = ResumeExtraction(
+            section_lines={"projects": [1]},
             projects=[
-                CandidateProject(
-                    project_id="cv-react-projection",
-                    name="IntelliHireAI",
-                    description=excerpt,
-                    technologies=["ReAct"],
-                    claims=[CandidateClaim(claim_id="cv-react-workflow", text=excerpt)],
-                )
+                {
+                    "name": "IntelliHireAI",
+                    "source_lines": [1],
+                    "description": excerpt,
+                    "technologies": ["ReAct"],
+                    "claims": [excerpt],
+                }
             ],
         )
+        profile, _ = document_profile(document, excerpt, candidate_id="prepared-smoke")
         version = ResumeVersion.objects.create(
             owner=owner,
             text=excerpt,
@@ -135,9 +136,7 @@ def main():
             interview_profile_status="ready",
             interview_profile_hash=text_hash(excerpt),
             interview_profile_version=INTERVIEW_PROFILE_VERSION,
-            interview_profile=StoredResumeProfile(candidate_profile=profile).model_dump(
-                mode="json"
-            ),
+            interview_profile=StoredResumeDocument(document=document).model_dump(mode="json"),
         )
         actual = OpenAILLM.__call__
         provider = OpenAILLM()

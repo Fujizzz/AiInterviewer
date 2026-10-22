@@ -1,7 +1,7 @@
 /**
  * @module agent
  * Responsibilities: Run voice interviews with a ready resume selected from the personal center and display actual stages, timing, scores, and reports.
- * Implementation: Show every saved version and explicitly prepare text-ready versions through the existing authenticated API before allowing start; submit final automatic answers using MCP when receipt-backed and ordinary answer/skip otherwise; explicit end evaluates/saves or discards after its acknowledgement.
+ * Implementation: Distinguish canonical readiness from interview eligibility, prepare unstructured text-ready versions explicitly, and direct structured versions without projects/skills to editing; submit final automatic answers using MCP when receipt-backed and ordinary answer/skip otherwise; explicit end evaluates/saves or discards after its acknowledgement.
  * Related Modules: agent.html, i18n.js, /api/resume-versions/, and /ws/agent/; resume maintenance is handled at /resumes/.
  * Declaration Index:
  * - el: Find a required page element by ID.
@@ -24,6 +24,8 @@
  * - stop: Close interview/avatar connections and timers while retaining the displayed score and selected resume.
  * - displayAssessment: Render backend scores and competency states.
  * - onMessage: Complete MCP initialization and route business events and tool results by connection and UUID.
+ * - onMessage.object3.onUpdate: Render a newly verified delayed report and its evaluation state.
+ * - onMessage.object3.onError: Explain that history remains available after report polling fails.
  * - onError: Stop the connection after an error.
  * - onClose: Stop timing after an unexpected disconnect; do not reconnect.
  * - dispatch: Create or reuse the connection, await hello and optional MCP handshake, then send one command.
@@ -54,6 +56,7 @@
  * - pendingCommand: The single command waiting for hello.
  * - terminal: Whether the current connection was ended intentionally.
  * - completedReport: Last completed report retained for language changes.
+ * - cancelReportPolling: Cancellation callback for the current delayed report poll, or null.
  * - interviewActive: Whether an interview has started.
  * - resumesLoading: Resume-list request lock that prevents start before loading completes.
  * - resumePreparationPending: Locks selection/start while one explicit preparation request is outstanding.
@@ -102,6 +105,8 @@ const FALLBACK_TEXT = {
   agent_resumes_choose: "Select a saved resume. Versions marked Needs preparation can be prepared here.",
   agent_resume_prepare: "Prepare selected resume / retry",
   agent_resume_ready: "Ready for interview",
+  agent_resume_missing_content: "Add projects or skills",
+  agent_resume_missing_content_hint: "Resume extraction is complete, but no projects or skills are available for interview questions. Add them in My resumes and save a new edition.",
   agent_resume_needs_preparation: "Needs preparation",
   agent_resume_preparing: "Preparing interview details",
   agent_resume_preparation_failed: "Preparation incomplete",
@@ -180,7 +185,7 @@ let resumeSelectionMessage = null;
 let ending = null;
 
 /**
- * Read request and interview state update disabled; protect version selection during version loading and session, no network side effects.
+ * Read request/interview/canonical readiness and update disabled controls; prepared resumes lacking interview content require editing. Protect selection during requests and sessions; no network side effects.
  */
 function controls() {
   const busy = pendingId !== null || pendingCommand !== null;
@@ -189,8 +194,8 @@ function controls() {
   for (const id of ["open-preparation", "interview-settings"]) el(id).disabled = busy || interviewActive;
   el("start-agent").disabled = locked || version?.status !== "ready" || !version?.can_interview;
   for (const id of ["resume-select", "refresh-resumes"]) el(id).disabled = locked;
-  el("prepare-selected-resume").hidden = !version || version.status !== "ready" || Boolean(version.can_interview);
-  el("prepare-selected-resume").disabled = locked || !version || version.status !== "ready" || Boolean(version.can_interview) || version.interview_profile_status === "processing";
+  el("prepare-selected-resume").hidden = !version || version.status !== "ready" || Boolean(version.can_interview) || Boolean(version.has_structured_resume);
+  el("prepare-selected-resume").disabled = locked || !version || version.status !== "ready" || Boolean(version.can_interview) || Boolean(version.has_structured_resume) || version.interview_profile_status === "processing";
   for (const id of ["job", "duration", "limit", "probes"]) el(id).disabled = interviewActive;
   const answering = interviewActive && questionId !== null && !busy;
   el("cancel-agent").disabled = socket === null || ending !== null;
@@ -211,11 +216,12 @@ function selectedResume() {
 }
 /**
  * Functionality: Describe version availability. Inputs: Resume metadata. Outputs: Localization key.
- * Logic: Text extraction precedes profile preparation; Constraints: Question-cache readiness does not gate interview eligibility.
+ * Logic: Separate extraction failure, structured data without interview content, and preparation; Constraints: Question-cache readiness does not gate interview eligibility.
  */
 function resumeStatusKey(version) {
   if (version.status !== "ready") return `rm_status_${version.status}`;
   if (version.can_interview) return "agent_resume_ready";
+  if (version.has_structured_resume) return "agent_resume_missing_content";
   if (version.interview_profile_status === "processing") return "agent_resume_preparing";
   if (["failed", "interrupted"].includes(version.interview_profile_status)) return "agent_resume_preparation_failed";
   return "agent_resume_needs_preparation";
@@ -229,13 +235,14 @@ function resumeOptionLabel(version) {
 }
 /**
  * Functionality: Explain the next explicit action. Inputs: Selected metadata, or null, and loaded version count.
- * Outputs: Localization key. Logic: Distinguish absent data, extraction, profile preparation and ready state.
+ * Outputs: Localization key. Logic: Distinguish absent data, extraction, profile preparation, missing interview content and ready state.
  * Constraints: Does not initiate model calls or reinterpret incomplete profiles as ready.
  */
 function resumeHintKey(version) {
   if (!version) return availableResumes.length ? "agent_resumes_choose" : "agent_resumes_empty";
   if (version.status !== "ready") return "agent_resume_extract_hint";
   if (version.can_interview) return "agent_resumes_ready";
+  if (version.has_structured_resume) return "agent_resume_missing_content_hint";
   return version.interview_profile_status === "processing" ? "agent_resume_processing_hint" : "agent_resume_prepare_hint";
 }
 /**
@@ -294,12 +301,12 @@ async function loadResumeVersions() {
 /**
  * Functionality: Prepare one explicitly selected text-ready resume using the existing API.
  * Inputs: Loaded metadata, rendered CSRF token and current operation locks. Outputs: Promise<void>; refreshed metadata and localized feedback.
- * Logic: Lock controls, send one owner-scoped POST, then GET the authoritative list even after failure; validate successful response identity/readiness.
+ * Logic: Lock controls, send one owner-scoped POST, then GET the authoritative list even after failure; validate response identity and distinguish completed structure with insufficient interview content.
  * Constraints: No text edit, automatic retry, alternate version, interview/socket creation or timeout change. Logs contain only version ID, HTTP status and exception type.
  */
 async function onPrepareResume() {
   const version = selectedResume();
-  if (resumesLoading || resumePreparationPending || interviewActive || pendingId || pendingCommand || !version || version.status !== "ready" || version.can_interview || version.interview_profile_status === "processing") return;
+  if (resumesLoading || resumePreparationPending || interviewActive || pendingId || pendingCommand || !version || version.status !== "ready" || version.can_interview || version.has_structured_resume || version.interview_profile_status === "processing") return;
   resumePreparationPending = true;
   resumeSelectionMessage = "agent_resume_preparing_request";
   el("resume-selection-status").textContent = uiText(resumeSelectionMessage);
@@ -315,7 +322,7 @@ async function onPrepareResume() {
     if (response.status === 401 || response.status === 403) failureKey = "rm_auth_error";
     else {
       const data = await response.json();
-      if (!response.ok || data.id !== version.id || data.status !== "ready" || !data.can_interview) {
+      if (!response.ok || data.id !== version.id || data.status !== "ready" || (!data.can_interview && !data.has_structured_resume)) {
         failureKey = response.status === 409 && data.interview_profile_status === "processing" ? "agent_resume_processing_hint" : "agent_resume_prepare_failed";
       }
     }
@@ -543,6 +550,7 @@ function onMessage(event) {
         cancelReportPolling?.();
         cancelReportPolling = pollEvaluationReport({
           interviewId: message.result.interview_id,
+          /** Read verified history detail; update the report when supplied and display terminal evaluation state. Does not rescore or change interview inputs. */
           onUpdate(detail) {
             if (detail.final_report) {
               completedReport = detail.final_report;
@@ -551,6 +559,7 @@ function onMessage(event) {
             if (["completed", "completed_with_errors"].includes(detail.evaluation_status)) status(uiText("agent_finished"));
             else if (detail.evaluation_status === "failed") status("评分处理未完成，请稍后在面试历史查看结果。");
           },
+          /** Receive a polling failure with no additional inputs; display history guidance without retrying or replacing the last report. */
           onError() { status("报告仍可在面试历史中查看，请稍后刷新。"); },
         });
       }

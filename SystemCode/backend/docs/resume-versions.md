@@ -8,7 +8,7 @@
 |---|---|---|
 | POST | `/api/resume-versions/` | JSON `{ "label": "秋招", "text": "..." }` 或 multipart `label` + 单个 `file` |
 | GET | `/api/resume-versions/` | 分页查询本人版本元数据，正文与文件不出现在列表 |
-| GET | `/api/resume-versions/{id}/` | 查询元数据、text 和 can_interview |
+| GET | `/api/resume-versions/{id}/` | 查询元数据、text、has_structured_resume 和 can_interview |
 | POST | `/api/resume-versions/{id}/parse/` | uploaded PDF 显式解析；可选 JSON mode=traditional/advanced，默认 traditional，返回 NDJSON |
 | POST | `/api/resume-versions/{id}/prepare-interview/` | 空请求体，为旧版本补齐面试结构或重试失败解析；已就绪时直接复用 |
 | POST | `/api/resume-versions/{id}/current/` | 将 ready 版本设为唯一当前版本 |
@@ -19,9 +19,9 @@
 
 PDF 初始状态为 uploaded；显式解析进入 parsing，成功保存文本后为 ready，收到 error 为 failed，文本提取期间取消为 interrupted。文本版本直接 ready。`status=ready` 只表示文本可用；能否面试以列表及详情的 `can_interview` 为准。
 
-文字上传、PDF 提取完成、保存编辑版后，后端立即调用原有 `parse_resume_profile`，将与 Agent 相同的 `CandidateProfile`（项目、技能、claims、metrics、source_refs、source_coverage）和姓名保存到该版本的 `interview_profile`。解析等待移到上传/保存阶段；同版本后续面试直接读取数据库，无需再次调用简历解析模型。PDF 流先发送 `stage=interview_profile` 进度，完成后再发送最终 result。
+文字上传、PDF 提取完成、保存编辑版后，后端立即调用`parse_resume_document`，将唯一的 `ResumeExtraction`（11 个共享事实、姓名、9 个单元的原文行号、固定证据对象和项目事实）保存到该版本的 `interview_profile.document`。解析等待移到上传/保存阶段；同版本后续面试直接读取数据库，无需再次调用简历解析模型。PDF 流先发送 `stage=interview_profile` 进度，完成后再发送最终 result。
 
-`interview_profile_status` 独立记录 pending/processing/ready/failed/interrupted，失败码为 `interview_profile_error`。语义解析失败不会丢失已保存文本；上传/编辑仍返回 201，PDF result 仍表示文本成功，前端根据 `can_interview=false` 提示重试。旧版本默认 pending，通过版本菜单“准备面试资料 / 重试”补处理，不在面试启动时解析。重试成功返回 200，正在处理返回 409，模型失败返回 503；进程异常退出留下的 processing 超过 10 分钟可显式重试。升级解析契约时递增 `INTERVIEW_PROFILE_VERSION` 并显式重建旧缓存。
+`interview_profile_status` 独立记录 pending/processing/ready/failed/interrupted，失败码为 `interview_profile_error`。语义解析失败不会丢失已保存文本；上传/编辑仍返回 201，PDF result 仍表示文本成功，前端根据 `has_structured_resume=false` 提示重试。旧版本默认 pending，通过版本菜单“准备简历资料 / 重试”补处理，不在面试启动时解析。重试成功返回 200，正在处理返回 409，模型失败返回 503；进程异常退出留下的 processing 超过 10 分钟可显式重试。升级解析契约时递增 `INTERVIEW_PROFILE_VERSION` 并显式重建旧缓存。
 
 并发准备使用数据库条件更新认领任务，不在模型请求期间持有事务锁。缓存包含正文 SHA-256 和解析版本，面试前校验二者及结构合法性；每场面试重新绑定 candidate_id，项目与证据标识保留。列表不返回完整解析结构或加载 PDF 内容。
 
@@ -43,7 +43,7 @@ PDF 初始状态为 uploaded；显式解析进入 parsing，成功保存文本�
 }
 ```
 
-其他参数和默认值保持不变。后端在收费调用前校验登录归属、文本状态和已保存的面试结构，将文本交给现有安全网关，Agent 直接读取版本结构。版本或结构不可用返回 `resume_unavailable`，不启动临时解析。prepare/start 的请求预留事务再次核对版本，保存引用和实际输入快照；初始化后的 context 保存本场使用的候选人资料。后续上传或 current 切换不影响面试。旧文本输入和 CLI 保留原解析流程，不自动创建版本。
+其他参数和默认值保持不变。后端在收费调用前校验登录归属、文本状态和已保存的面试结构，将文本交给现有安全网关，Agent 直接读取版本结构。版本或结构不可用返回 `resume_unavailable`，不启动临时解析。prepare/start 的请求预留事务再次核对版本，保存引用和实际输入快照；初始化后的 context 保存本场使用的候选人资料。后续上传或 current 切换不影响面试。旧文本输入和 CLI 也通过同一个结构化解析器，不自动创建版本。
 
 ## 历史与处理状态
 
@@ -87,7 +87,7 @@ PDF 通过一个“上传简历”入口选择文件，选中后一次保存原�
 URL 指定版本不存在时要求重新选择；存在但未准备时保留选择并提示准备或前往个人中心提取，不静默选择其他版本。
 刷新列表保留原选择；版本不可用时明确要求重选。个人中心的“使用此版本面试”链接传递 UUID，
 面试 start 发送 resume_version_id，不发送客户端正文；岗位/预算与评分保持不变，简历语义解析提前到上传/保存时。
-密码修改与岗位列表 UI 不在个人中心此次改动范围；推荐槽位先提供规则提取建议，用户保存后才作为确认值。
+密码修改与岗位列表 UI 不在个人中心此次改动范围；推荐字段展示同一份模型输出建议，用户保存后才作为确认值。
 
 `interviews.tests.test_resume_page` 使用真实 Django 会话/模板验证页面保护及转义。
 `interviews.tests.test_profile` 验证本人资料持久化、字段限制和真实 CSRF。
@@ -111,28 +111,58 @@ URL 指定版本不存在时要求重新选择；存在但未准备时保留选�
 
 固定单元为 basic（简介/联系）、education（教育）、experience（实习/工作）、projects（项目）、
 skills（技能）、awards（荣誉/证书）、publications（论文/研究）、preferences（意向）、other（其他）。
-原件初次打开仅按独立中英文标题分组，标题由单元标签表示；非标题行字符保留，未识别文本放在 other。
-这不是语义抽取，用户应核对并移动文本。保存时补齐缺失单元为空字符串、按固定顺序组合非空单元；
-正文含标题总计不超过 200000 字符，单元内用户文本不改写，空正文拒绝。
+模型使用编号原文行分配单元；后端直接拼接这些原始行，不让模型重写页面正文。
+每个非空行必须且只能分配一次，行号必须有序且在原文范围内；独立标题由 `heading_lines` 标记。
+分区失败不会调用旧的标题规则或把全部文本静默塞进某个字段，原文仍可下载与查看。
+编辑稿的分区以用户保存的 units 为准，渲染后核验完整文本，模型不能改变用户的分区选择。
+保存补齐缺失单元为空字符串，按固定顺序组合非空单元；总正文上限仍为 200000 字符。
 
-推荐槽位与原实验 CandidateInput 一致：技能/兴趣/专业关键词，GPA、在读学业阶段、累计经验月数、
-论文数量、工作方式、每周小时、可投入月数及暑期意愿。未填为 null，不填补 0/false；已保存的明确 [] 保留。
-原件 `editor` 响应提供 `slot_suggestions`，包含全部 11 字段的 `values`、原文 `evidence`、
-问题码 `issues` 和未知字段名 `missing`。依据明确标签及技能单元列表规则提取，无收费模型请求；
-数值沿用原 GPA/月/小时单位，不按日期推算年级或经验，不从学校/项目猜测偏好。
-不支持的格式、矛盾标量或契约超限值保持未知并保留证据，供用户补充；不静默选值或改换提取实现。
-前端填入有依据的建议并展开对应字段，提示核对保存，未保存时不能设为当前且保护离开。
-原件 GET 不写库也不直接确认；保存为编辑稿后 recommendation-profile 才读取确认槽位。
-编辑稿 `slot_suggestions` 为 null，不重新提取覆盖用户修改、清空和历史快照；原件与原文仍保留。
-前端关键词分隔符只分隔条目与去除条目外空白，保留大小写；应与岗位数据关键词一致，不改变模型预处理。
-GPA 沿用原成绩制，学业阶段不是岗位资历，不能从项目文本猜测经验数值。
-姓名/邮箱与项目全文不作为当前模型评分特征；九个单元全文持久化，可供面试和后续经明确设计的文本推荐使用。
+### 统一结构契约（2026-10-23）
 
-示例：保存 `{ "units": { "projects": "API 项目", "skills": "Python" }, "slots": { "skills": ["Python"], "months_experience": 0 } }`。
-保存返回新 id；获取该 id 的 recommendation-profile 后将 candidate 与岗位池组合，调用现有
-`POST /api/recommendations/jobs/`。此接口不自动加载岗位池、不执行排序或调用模型。
-仅本人可访问这四个动作，非 ready 返回 400，来源/基线仍被编辑稿引用时删除返回 409。
-测试见 `interviews.tests.test_resume_editor`；数据库/API 真实执行，推荐复用验证为严格 schema，非模型效果评估。
+`shared/resume_contract.py` 是唯一字段定义。`ResumeFacts` 被模型输出 `ResumeExtraction`
+和推荐 `CandidateInput` 共同继承，名称、类型、默认值和数值单位一致：
+
+| 字段 | 类型 / 单位 |
+|---|---|
+| skills、interests、majors | 字符串数组或 null；保留大小写，[] 与未知不同 |
+| gpa | 非负有限数值或 null，原成绩制 |
+| months_experience、length_of_commitment | 非负有限数值或 null，月 |
+| hours_per_week | 非负有限数值或 null，小时/周 |
+| num_publications | 非负整数或 null |
+| academic_level | UG1–UG4、MS1–MS2、PhD1–PhD5 或 null |
+| in_person_commitment | In Person、Online、Hybrid、No Preference 或 null |
+| commit_to_summer | 布尔或 null |
+
+额外键、数字字符串、错误布尔值、NaN/Infinity 均拒绝。`field_evidence` 也固定为这 11 个键；
+每个已知模型事实（包括 0、false、[]）必须引用非空原文行，不接受任意证据键。
+`section_lines` 是 9 个固定单元到物理行号数组的映射；`projects` 保存姓名以外的经历事实、
+技术、claims、metrics 和完整原文行号。转换层由行号与原文计算稳定项目 ID，
+经历必须用 source_lines 绑定完整原文行号；未覆盖的经历或职责使本次结构化提取明确失败，不发布部分成功，也不自动请求第二次模型修补。
+这些约束检查结构、出处范围和原文覆盖，不能证明所有语义事实正确，用户仍需核对。
+
+一次语义提取后保存 `{document, confirmed_fields}`，缓存版本为 `4.0:source-complete-resume-v2`：
+页面由 document 的源行位置渲染正文和字段建议；推荐直接投影同一 document 的 11 个字段；
+面试把同一份 skills/projects 投影为 CandidateProfile，不单独抽取、不重新调用简历模型。
+所有读取均核验源文 SHA-256 和版本；缓存失效或失败时返回显式错误，编辑页保留只读原文。
+`has_structured_resume` 表示当前契约已准备；`can_interview` 还要求存在技能或经历。
+没有面试话题的有效结构仍可用于编辑。字段证据行号始终是完整源文的物理行号。
+
+原件 `editor` 返回 `slot_suggestions.values/evidence/issues/missing`，值直接来自统一记录。
+GET 不写库、不调用模型、不自动确认。`recommendation-profile` 返回相同事实并标记 confirmed；
+岗位推荐要求用户保存编辑稿，原件返回 422 `resume_confirmation_required`。
+保存编辑稿时，11 个确认字段完整覆盖同一结构中的对应值，包括 null、0、false 和 []；
+没有填写的字段保持 null，模型不得填回。原有 units/recommendation_slots 仅保存不可变的用户输入，
+读取页面推荐字段、排序和面试均使用统一 document。编辑稿不显示新模型建议覆盖用户输入。
+原始 PDF、原始文本和旧编辑稿不改写；新保存仍产生独立 UUID。
+
+已有版本通过显式 prepare-interview 生成新结构；上线迁移可预先计算已就绪版本的新缓存，
+备份旧缓存并以源文、用户输入和更新时间条件核对后发布。未准备的历史版本继续显示待准备。
+失败返回 503；读取过期结构返回 409 `resume_structure_unavailable`。不增加模型备用或隐式重试。
+该结构调整不改变推荐实验的特征、缺失值处理、模型权重、排序指标或面试评分规则。
+
+测试见 `test_unified_resume`、`test_resume_editor`、`test_resume_profile` 和 `test_resume_versions`。
+覆盖跨消费者值一致、字段 schema 一致、原文完整分配、证据和类型拒绝、手动清空、历史版本、
+归属权限、失败保留原文以及重复读取不调用模型。离线替身测试不能替代真实模型质量验证。
 
 ## 面试进度与复盘（2026-10-03）
 
@@ -163,3 +193,13 @@ question 响应新增 `plan_history`、`topic_progress`、`decision_logs`，与�
 查询面试列表。`/interview-review/` 及其 `/stream-demo/interview-review.html` 别名均要求登录，
 包括关闭全局登录门禁的本地模式；详情继续调用原本人历史 API，数据与访问权限不变。
 面试异常和报告中的复盘链接直接指向此页面。
+
+### 经历完整性与原有面试契约
+
+experience_context_lines 单独保存“没有工作经历”等分区说明，以及用户放在经历/项目分区中的技能、奖项和嵌套标题等非经历内容，不伪造工作条目；这些说明通过既有 description 字段传给每个面试项目。其行号同样检查范围、顺序、唯一性及与项目的互斥归属。
+
+每项 projects 的 source_lines 必须覆盖该经历的名称、单位、岗位、日期、职责、成果和换行续文。校验同时检查 experience/projects 分区的非标题行及独立识别的经历区块（由项目或分区说明完整覆盖）；重复、乱序、越界、交叉归属或漏行均失败。仅完全相同的行集合可合并重复条目，合并时保留双方事实。
+
+转换层从原文行计算稳定 source_refs，并把完整原文追加到既有 CandidateProject.description，避免模型摘要压缩造成细节丢失。标题改写不再用于过滤项目；同名但不同原文的经历保持独立。Agent 与评估的字段、类型、主题选择和评分算法均不变。原文保留不代表事实已核实，也不能证明模型分区或分组永远正确。
+
+旧缓存必须显式重新准备后才能使用新版本；上线维护可事先验证并原子更新派生缓存。旧题库按既有 profile fingerprint 隔离，已开始面试继续使用既有快照。原始 PDF、正文、编辑稿和确认字段不修改。回归测试包含整段与单行漏项、同名经历、标题改写、重复事实合并、非法引用及缓存读取拒绝。
