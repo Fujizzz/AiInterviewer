@@ -99,6 +99,118 @@ function historyParagraph(parent, text, className = "") { const p = historyEleme
  * Given parent container and title, appends semantic section/h3 and returns new container, does not use template string HTML.
  */
 function historySection(parent, title) { const section = historyElement("section"); section.append(historyElement("h3", title)); parent.append(section); return section; }
+
+function historyLocal(zh, en) { return window.AppI18n?.language() === "en" ? en : zh; }
+function historyChip(text, kind = "neutral") {
+  const chip = historyElement("span", text); chip.className = `ht-chip ht-${kind}`; return chip;
+}
+/** A visual scale preserves the metric's unit and leaves unknown values unfilled. */
+function historyMetric(title, value, maximum) {
+  const item = historyElement("div"); item.className = "ht-metric";
+  const known = Number.isFinite(value) && value >= 0 && value <= maximum;
+  const heading = historyElement("div"); heading.className = "ht-metric-heading";
+  heading.append(historyElement("span", title), historyElement("strong", known ? `${value.toFixed(2)} / ${maximum}` : "—"));
+  item.append(heading);
+  if (known) {
+    const meter = historyElement("meter"); meter.setAttribute("min", "0"); meter.setAttribute("max", String(maximum));
+    meter.setAttribute("value", String(value)); meter.setAttribute("aria-label", title); item.append(meter);
+  }
+  return item;
+}
+
+function historyDimension(dimension) {
+  const names = {
+    technical_depth: ["技术深度", "Technical depth"], ownership: ["个人贡献", "Ownership"],
+    decision_making: ["决策与权衡", "Decision making"], debugging: ["问题排查", "Debugging"],
+    evaluation: ["评估与验证", "Evaluation"], adaptability: ["适应与复盘", "Adaptability"],
+  };
+  const observations = {
+    supported: ["有证据支持", "Supported"], weak: ["证据有限", "Limited evidence"],
+    contradicted: ["存在矛盾", "Conflicting evidence"], not_observed: ["尚未观察到", "Not observed"],
+  };
+  const card = historyElement("div"); card.className = "ht-dimension";
+  const heading = historyElement("div"); heading.className = "ht-dimension-heading";
+  heading.append(historyElement("h6", names[dimension.competency] ? historyLocal(...names[dimension.competency]) : dimension.competency));
+  const observation = observations[dimension.observation];
+  heading.append(historyChip(observation ? historyLocal(...observation) : historyLocal("未记录", "Not recorded"), dimension.observation === "supported" ? "supported" : "limited"));
+  card.append(heading);
+  const level = Number.isInteger(dimension.rubric_level) && dimension.rubric_level >= 1 && dimension.rubric_level <= 5 ? dimension.rubric_level : null;
+  const scale = historyElement("div"); scale.className = "ht-level";
+  const marks = historyElement("span"); marks.className = "ht-level-marks"; marks.setAttribute("aria-hidden", "true");
+  for (let i = 1; i <= 5; i++) { const mark = historyElement("i"); mark.className = level !== null && i <= level ? "is-filled" : ""; marks.append(mark); }
+  scale.append(marks, historyElement("span", `${historyLocal("观察等级", "Observation level")} ${level ?? "—"} / 5`)); card.append(scale);
+  if (dimension.fact) historyParagraph(card, dimension.fact, "ht-fact");
+  if (dimension.rationale || dimension.quote) {
+    const details = historyElement("details"); details.className = "ht-evidence";
+    details.append(historyElement("summary", historyLocal("查看分析与回答原文", "Why this assessment?")));
+    if (dimension.rationale) {
+      details.append(historyElement("h6", historyLocal("判断依据", "Assessment rationale")));
+      historyParagraph(details, dimension.rationale);
+    }
+    if (dimension.quote) {
+      details.append(historyElement("h6", historyLocal("回答原文", "Your words")), historyElement("blockquote", dimension.quote));
+    }
+    card.append(details);
+  }
+  return card;
+}
+
+function historyTurn(turn) {
+  const q = turn.question;
+  const article = historyElement("article"); article.className = "history-turn";
+  const heading = historyElement("header"); heading.className = "ht-heading";
+  const number = historyElement("span", String(turn.ordinal).padStart(2, "0")); number.className = "ht-number";
+  const title = historyElement("div"); title.append(historyElement("h4", q.topic ?? reviewText("unknown")));
+  const tags = historyElement("div"); tags.className = "ht-tags";
+  tags.append(historyChip(`${reviewText("difficulty")} ${q.difficulty ?? "—"}/5`),
+    historyChip(q.parent_question_id || q.dialogue_action === "probe" ? historyLocal("追问", "Follow-up") : historyLocal("主题问题", "Topic question"), "accent"),
+    historyChip(`${reviewText("depth")} ${q.probe_depth ?? "—"}`));
+  title.append(tags); heading.append(number, title); article.append(heading);
+  const question = historyElement("div"); question.className = "ht-question-block";
+  question.append(historyElement("h5", historyLocal("面试问题", "Interview question")));
+  historyParagraph(question, q.text, "history-question"); article.append(question);
+  const answer = historyElement("details"); answer.className = "ht-answer";
+  const answerHeading = historyElement("summary", reviewText("answer"));
+  answerHeading.append(historyChip(turn.answer?.text ? historyLocal("已回答", "Answered") : historyLocal("尚未回答", "Not answered"), turn.answer?.text ? "supported" : "limited"));
+  answer.append(answerHeading); historyParagraph(answer, turn.answer?.text ?? reviewText("unanswered"));
+  article.append(answer);
+  const evaluation = turn.answer?.evaluation;
+  if (!evaluation) {
+    historyParagraph(article, reviewText(turn.answer?.unscored_reason === "self_introduction" ? "intro_unscored" : "unevaluated"), "history-notice");
+    return article;
+  }
+  const assessed = !["pending", "unavailable"].includes(evaluation.assessment_status);
+  const signals = historyElement("div"); signals.className = "ht-signals";
+  signals.append(historyMetric(reviewText("relevance"), evaluation.answer_relevance, 1));
+  if (assessed) signals.append(historyMetric(reviewText("evidence"), evaluation.evidence_strength, 1));
+  else historyParagraph(signals, reviewText(evaluation.assessment_status === "pending" ? "assessment_pending" : "assessment_unavailable"), "history-notice");
+  article.append(signals);
+  if (evaluation.analysis?.summary) {
+    const summary = historyElement("div"); summary.className = "ht-takeaway";
+    summary.append(historyElement("h5", historyLocal("本题小结", "Answer takeaway")));
+    historyParagraph(summary, evaluation.analysis.summary); article.append(summary);
+  }
+  const dimensions = assessed ? evaluation.dimensions ?? [] : [];
+  if (dimensions.length) {
+    const observations = historyElement("div"); observations.className = "ht-observations";
+    observations.append(historyElement("h5", historyLocal("本题能力观察", "Competency observations")));
+    historyParagraph(observations, historyLocal("以下为本题的观察等级，不等同于最终能力得分。", "These are observations from this answer, not final competency scores."), "history-meta");
+    const grid = historyElement("div"); grid.className = "ht-dimension-grid";
+    for (const dimension of dimensions) grid.append(historyDimension(dimension));
+    observations.append(grid); article.append(observations);
+  }
+  const notes = historyElement("div"); notes.className = "ht-notes";
+  for (const [key, title] of [["missing_information", "missing"], ["contradictions", "contradictions"], ["uncertainties", "uncertainties"]]) {
+    if (!evaluation.analysis?.[key]?.length) continue;
+    const note = historyElement("div"); note.className = `ht-note ht-note-${key}`;
+    note.append(historyElement("h5", reviewText(title)));
+    const list = historyElement("ul");
+    for (const item of evaluation.analysis[key]) list.append(historyElement("li", item));
+    note.append(list); notes.append(note);
+  }
+  if (notes.children.length) article.append(notes);
+  return article;
+}
 /**
  * Given v2 or legacy approved detail, renders report, question difficulty/ follow-up, answer/evaluation, topics, and raw approved diagnosis.
  * Unfinished, no approval output, and ungraded answers are displayed separately; no score recalculated, no unverified context read.
@@ -137,28 +249,15 @@ function renderHistoryDetail(detail) {
     section.append(list);
   }
   const conversation = historySection(body, reviewText("dialogue"));
-  for (const turn of detail.questions ?? []) {
-    const q = turn.question;
-    const article = historyElement("article"); article.className = "history-turn";
-    article.append(historyElement("h4", `#${turn.ordinal} · ${q.topic ?? reviewText("unknown")}`));
-    historyParagraph(article, `${reviewText("difficulty")} ${q.difficulty}/5 · ${reviewText("depth")} ${q.probe_depth} · ${q.dialogue_action} · ${q.question_type}`, "history-meta");
-    historyParagraph(article, q.text, "history-question");
-    article.append(historyElement("h5", reviewText("answer"))); historyParagraph(article, turn.answer?.text ?? reviewText("unanswered"));
-    const evaluation = turn.answer?.evaluation;
-    if (!evaluation) historyParagraph(article, reviewText(turn.answer?.unscored_reason === "self_introduction" ? "intro_unscored" : "unevaluated"), "history-meta");
-    else {
-      const assessment = evaluation.assessment_status === "pending" ? reviewText("assessment_pending")
-        : evaluation.assessment_status === "unavailable" ? reviewText("assessment_unavailable")
-          : `${reviewText("evidence")}: ${evaluation.evidence_strength}`;
-      historyParagraph(article, `${reviewText("relevance")}: ${evaluation.answer_relevance} · ${assessment}`, "history-meta");
-      if (evaluation.analysis?.summary) historyParagraph(article, evaluation.analysis.summary);
-      for (const [key, title] of [["missing_information", "missing"], ["contradictions", "contradictions"], ["uncertainties", "uncertainties"]]) {
-        if (evaluation.analysis?.[key]?.length) historyParagraph(article, `${reviewText(title)}: ${evaluation.analysis[key].join("; ")}`);
-      }
-      for (const dimension of evaluation.dimensions ?? []) historyParagraph(article, `${dimension.competency} · ${reviewText("difficulty")} ${dimension.rubric_level ?? reviewText("unknown")} / 5 · ${dimension.observation} · ${dimension.rationale}\n${dimension.fact}\n“${dimension.quote}”`);
-    }
-    conversation.append(article);
+  const turns = detail.questions ?? [];
+  const totals = historyElement("div"); totals.className = "ht-conversation-stats";
+  for (const [label, value] of [[historyLocal("问题", "Questions"), turns.length],
+    [historyLocal("已回答", "Answered"), turns.filter(turn => turn.answer?.text?.trim()).length],
+    [historyLocal("追问", "Follow-ups"), turns.filter(turn => turn.question.parent_question_id || turn.question.dialogue_action === "probe").length]]) {
+    const item = historyElement("div"); item.append(historyElement("strong", String(value)), historyElement("span", label)); totals.append(item);
   }
+  conversation.append(totals);
+  for (const turn of turns) conversation.append(historyTurn(turn));
   const diagnostics = historyElement("details"); diagnostics.append(historyElement("summary", reviewText("diagnostics")));
   diagnostics.append(historyElement("pre", JSON.stringify({ interview_state: detail.interview_state, interview_plan: detail.interview_plan, plan_history: detail.plan_history, topic_progress: detail.topic_progress, decision_logs: detail.decision_logs, competencies: report?.competencies }, null, 2))); body.append(diagnostics);
 }

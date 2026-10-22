@@ -179,6 +179,7 @@ class PageEvent {
  * Minimal DOM stub maintaining only test-required text, disabled state, and events; does not simulate real browser layout.
  */
 class Element {
+  setAttribute(name, value) { (this.attributes ??= {})[name] = String(value); }
   /**
  * Input: None; all fields initially empty, hidden set to true to simulate result area not yet appeared.
  */
@@ -349,7 +350,7 @@ async function makePage(options = {}) {
       .replace('import("/stream-demo/pixel-player.js")', "loadAvatarModule()")
     + SCRIPT.replace('import { pollEvaluationReport } from "./evaluation-poll.js";', "").replace('import { renderEvaluationReport } from "./evaluation-report.js";', "").replace('import { InterviewVoice } from "./interview-voice.js";', "").replace('import { InterviewProgress, reviewScore } from "./interview-progress.js";', "");
   const context = vm.createContext({
-    document: { getElementById: getElement, createElement },
+    document: { getElementById: getElement, createElement, createElementNS: createElement },
     window: { addEventListener: addPageListener, dispatchEvent: dispatchPageEvent },
     performance: { now }, crypto: { randomUUID: uuid },
     location: { protocol: "http:", host: "localhost", search: options.search || "" },

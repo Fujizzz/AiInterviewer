@@ -4,7 +4,8 @@ import test from "node:test";
 import vm from "node:vm";
 const source = readFileSync(new URL("../frontend/evaluation-report.js", import.meta.url), "utf8");
 class Node {
-  constructor(tag) { this.tag = tag; this.textContent = ""; this.children = []; this.listeners = {}; }
+  constructor(tag) { this.tag = tag; this.textContent = ""; this.children = []; this.listeners = {}; this.attributes = {}; }
+  setAttribute(name, value) { this.attributes[name] = String(value); }
   append(...nodes) { this.children.push(...nodes); }
   replaceChildren(...nodes) { this.children = nodes; }
   addEventListener(event, handler) { this.listeners[event] = handler; }
@@ -14,7 +15,7 @@ const all = node => [node, ...node.children.flatMap(all)];
 const text = node => all(node).map(n => n.textContent).join("\n");
 function render(report, lang = "zh", options = {}) {
   const root = new Node("main");
-  const context = vm.createContext({ document: { createElement: tag => new Node(tag) }, window: { AppI18n: { language: () => lang } }, root, report, options });
+  const context = vm.createContext({ document: { createElement: tag => new Node(tag), createElementNS: (_, tag) => new Node(tag) }, window: { AppI18n: { language: () => lang } }, root, report, options });
   vm.runInContext(source.replace("export function", "function") + ";renderEvaluationReport(root, report, options);", context);
   return { root, context };
 }
@@ -55,4 +56,60 @@ test("early numeric assessment does not claim completed evidence or offer export
   const body = render(fixture(), "zh", { compact: true }).root;
   assert.match(text(body), /3.13/);
   assert.equal(all(body).filter(n => n.tag === "blockquote" || n.tag === "button").length, 0);
+});
+
+test("radar plots only assessed scores and never closes a polygon over missing axes", () => {
+  const partial = render(fixture()).root;
+  assert.equal(all(partial).filter(n => n.attributes.class === "er-radar-area").length, 0);
+  assert.equal(all(partial).filter(n => n.attributes.class === "er-radar-point").length, 1);
+  const full = fixture();
+  for (const key of ["technical_depth", "ownership", "decision_making", "debugging", "evaluation", "adaptability"]) {
+    full.competencies[key] = { score: 4, coverage: .7, status: "published" };
+  }
+  const before = JSON.stringify(full);
+  const nodes = all(render(full, "en").root);
+  assert.equal(nodes.filter(n => n.attributes.class === "er-radar-point").length, 6);
+  assert.equal(nodes.filter(n => n.attributes.class === "er-radar-area").length, 1);
+  const radar = nodes.find(n => n.attributes.class === "er-radar");
+  assert.equal(radar.attributes.role, "img");
+  assert.match(radar.attributes["aria-label"], /Technical depth 4.00/);
+  const firstPoint = nodes.find(n => n.attributes.class === "er-radar-point");
+  assert.ok(Math.abs(Number(firstPoint.attributes.cy) - (174 - 108 * .8)) < .0001);
+  assert.equal(JSON.stringify(full), before);
+});
+
+test("missing and zero coverage remain distinct and invalid scores cannot escape chart bounds", () => {
+  const data = fixture(); data.overall_coverage = null;
+  data.competencies.ownership.score = null;
+  data.competencies.evaluation.score = 999;
+  const nodes = all(render(data).root);
+  assert.equal(nodes.filter(n => n.attributes.class === "er-radar-point").length, 0);
+  assert.equal(nodes.filter(n => n.tag === "circle" && n.attributes.pathLength).length, 0);
+  const meters = nodes.filter(n => n.attributes.class === "er-meter");
+  assert.ok(meters.every(meter => meter.children.length === 1));
+  data.overall_coverage = 0;
+  assert.equal(all(render(data).root).find(n => n.attributes.pathLength)?.attributes["stroke-dasharray"], "0 100");
+});
+
+test("HTML export embeds the local chart stylesheet and opens evidence without another request", async () => {
+  const { root, context } = render(fixture(), "en");
+  const details = [{ open: false }]; let removed = false; let exported;
+  root.children[0].cloneNode = () => ({
+    querySelector: () => ({ remove() { removed = true; } }), querySelectorAll: () => details,
+    outerHTML: '<article class="evaluation-report"><svg class="er-radar"></svg></article>',
+  });
+  context.document.styleSheets = [
+    { href: "http://localhost/stream-demo/evaluation-report.css", cssRules: [{ cssText: ".er-radar { width: 100%; }" }] },
+    { href: "http://localhost/other.css", cssRules: [{ cssText: ".private-unrelated-style {}" }] },
+  ];
+  const create = context.document.createElement;
+  context.document.createElement = tag => { const node = create(tag); node.click = () => {}; return node; };
+  context.Blob = Blob; context.URL = { createObjectURL(blob) { exported = blob; return "blob:report"; } };
+  context.setTimeout = () => {};
+  all(root).find(node => node.tag === "button").listeners.click();
+  const html = await exported.text();
+  assert.match(html, /\.er-radar \{ width: 100%; \}/);
+  assert.match(html, /<svg class="er-radar">/);
+  assert.doesNotMatch(html, /private-unrelated-style/);
+  assert.ok(removed); assert.ok(details.every(detail => detail.open));
 });
