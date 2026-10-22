@@ -112,7 +112,7 @@ function historyTestPage() {
  *  No external parameters; language switching is verified via explicit separate calls, with no real controls.
  */
   function selectors() { return []; }
-  const context = vm.createContext({ document: { getElementById: node, createElement: create, querySelectorAll: selectors }, window: { addEventListener: silent }, fetch, console: { error: silent }, Date, encodeURIComponent });
+  const context = vm.createContext({ document: { getElementById: node, createElement: create, createElementNS: create, querySelectorAll: selectors }, window: { addEventListener: silent }, fetch, console: { error: silent }, Date, encodeURIComponent });
   const script = POLL_SOURCE.replaceAll("export function", "function") + REPORT_SOURCE.replaceAll("export function", "function") + PRESENTATION_SOURCE.replaceAll("export function", "function").replace("export class", "class") + HISTORY_SOURCE.replace('import { pollEvaluationReport } from "./evaluation-poll.js";', "").replace('import { renderEvaluationReport } from "./evaluation-report.js";', "").replace('import { reviewText, reviewTopics } from "./interview-progress.js";', "");
   vm.runInContext(script, context); return { node, requests, context };
 }
@@ -189,4 +189,31 @@ test("history uses the same readable report without an additional request", () =
   const text = historyText(page.node("history-detail-body"));
   assert.match(text, /面试能力评估报告/); assert.match(text, /75.0%/); assert.match(text, /未计入本次结果/);
   assert.equal(page.requests.length, 1);
+});
+
+const historyNodes = node => [node, ...node.children.flatMap(historyNodes)];
+test("structured answer cards preserve quotes and distinguish observation levels from final scores", () => {
+  const page = historyTestPage();
+  const turn = { ordinal: 2, question: { topic: "Caching", text: "How did you verify it?", difficulty: 3, probe_depth: 2, dialogue_action: "probe" },
+    answer: { text: "I checked hits and misses.", evaluation: { answer_relevance: .9, evidence_strength: .6,
+      dimensions: [{ competency: "technical_depth", rubric_level: 3, observation: "supported", fact: "Checked cache keys", rationale: "Concrete validation", quote: "<img onerror=evil>" },
+        { competency: "ownership", rubric_level: null, observation: "weak", fact: "Ownership unclear" }],
+      analysis: { missing_information: ["Concurrent requests"], uncertainties: ["Eviction policy"] } } } };
+  const before = JSON.stringify(turn); page.context.turn = turn;
+  const card = vm.runInContext("historyTurn(turn)", page.context);
+  const nodes = historyNodes(card);
+  const body = historyText(card);
+  for (const expected of ["追问", "0.90 / 1", "0.60 / 1", "观察等级 3 / 5", "观察等级 — / 5", "不等同于最终能力得分", "Concrete validation", "<img onerror=evil>", "Concurrent requests", "Eviction policy"]) assert.ok(body.includes(expected), expected);
+  assert.equal(nodes.filter(n => n.className === "is-filled").length, 3);
+  assert.equal(nodes.find(n => n.className === "ht-answer").open, false);
+  assert.equal(JSON.stringify(turn), before);
+  assert.equal(page.requests.length, 1);
+});
+
+test("pending analysis cannot present stale capability levels as completed observations", () => {
+  const page = historyTestPage();
+  const card = vm.runInContext('historyTurn({ordinal:1,question:{text:"Question"},answer:{text:"Answer",evaluation:{assessment_status:"pending",answer_relevance:0.7,evidence_strength:0,dimensions:[{competency:"ownership",rubric_level:5,observation:"supported"}]}}})', page.context);
+  assert.match(historyText(card), /能力评价尚未完成/);
+  assert.equal(historyNodes(card).filter(n => n.className === "ht-dimension").length, 0);
+  assert.equal(historyNodes(card).filter(n => n.attributes["aria-label"] === "证据强度").length, 0);
 });
