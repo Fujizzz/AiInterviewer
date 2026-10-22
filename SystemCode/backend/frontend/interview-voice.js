@@ -1,7 +1,7 @@
 /**
  * @module interview-voice
  * Responsibilities: Coordinate playback/subtitles, 10-second preparation, automatic capture and five-second inactivity closure; never compute interview evaluation.
- * Implementation: Grant preparation after audible playback or an explicit voice fallback, preserving remaining preparation on replay. Isolate late events by epoch/capture identity; flush complete STT before automatic submission. Captions display actual partial/final recognition text verbatim, with operational notices confined to the separate status region. A separate presentation controller supplies Agent facial dynamics with recorded fallback without delaying speech. Semantic receipts use MCP; inactivity/capture-limit closures use the normal answer boundary. Explicit end suspends submission.
+ * Implementation: Grant preparation after audible playback or an explicit voice fallback, preserving remaining preparation on replay. Isolate late events by epoch/capture identity; flush complete STT before automatic submission. Captions suppress Han text and CJK punctuation only at the display boundary; original final transcripts remain intact and operational notices use the separate status region. A separate presentation controller supplies Agent facial dynamics with recorded fallback without delaying speech. Semantic receipts use MCP; inactivity/capture-limit closures use the normal answer boundary. Explicit end suspends submission.
  * Related Modules: SpeechCapture manages PCM/STT; agent.js provides submission callback and current question's answer eligibility; the pixel-player bundle exports PresentationController for bounded facial plans and loadAvatarConfiguration for approved transport settings.
  *
  * Declaration Index:
@@ -26,7 +26,7 @@
  * - InterviewVoice.takeFinalAnswer.callback1: Save finalization callbacks for this capture.
  * - InterviewVoice.resumeAnswer: Functionality: Resume an interview after dismissing the end dialog.
  * - InterviewVoice.updateControls: No parameters; read answer/playback/capture/finish state to update buttons, no network or submission side effects.
- * - InterviewVoice.subtitle: Render actual recognition text safely and verbatim; empty text hides captions.
+ * - InterviewVoice.subtitle: Suppress Han/CJK text in captions only; preserve English text and hide empty or punctuation-only filtered results.
  * - InterviewVoice.finishAnswer: Inputs: source (default silence); five-second inactivity or backend completion closes capture. Outputs: None.
  * - InterviewVoice.submitTranscript: Inputs: Instance final transcript, eligibility and suspended state. Outputs: None.
  * - InterviewVoice.connectAvatar: Load approved connection settings and connect the official player.
@@ -239,15 +239,21 @@ export class InterviewVoice {
   }
 
   /**
- * Functionality: Display only the actual current recognition text.
+ * Functionality: Hide Chinese recognition fragments in the English interview caption view.
  * Inputs: text, the provider partial text or accepted final transcript string. Outputs: Caption DOM only.
- * Logic: Assign textContent verbatim, hide empty captions and scroll to the latest words.
- * Constraints: No language filtering, translation, status placeholders or HTML interpretation.
- * Does not edit finalTranscript, receipts, silence timing or submission; status/errors use message().
+ * Logic: Replace Han characters and common CJK punctuation with spaces to avoid joining
+ * adjacent English words. Normalize the resulting gaps only when filtering occurred; hide
+ * filtered results without Latin letters or digits. Unaffected text retains its exact spelling
+ * and spacing. Write textContent and scroll to the latest words, clearing stale captions too.
+ * Constraints: This display policy does not translate or correct recognition mistakes. It does
+ * not edit finalTranscript, receipts, silence timing or submission; status/errors use message().
  */ subtitle(text) {
+    const filtered = text.replace(/[\p{Script=Han}\u3000-\u303f，．！？；：（）]+/gu, " ");
+    const caption = filtered === text ? text
+      : (/[\p{Script=Latin}0-9]/u.test(filtered) ? filtered.replace(/\s+/g, " ").trim() : "");
     const node = document.getElementById("answer-subtitle");
-    node.textContent = text;
-    document.getElementById("answer-subtitles").hidden = !text;
+    node.textContent = caption;
+    document.getElementById("answer-subtitles").hidden = !caption;
     node.scrollTop = node.scrollHeight;
   }
 
@@ -607,7 +613,7 @@ export class InterviewVoice {
     this.capture = capture;
     this.presentation?.beginListeningCapture();
     this.message(this.completionEnabled
-      ? (window.AppI18n?.t("voice_auto_starting") ?? "Starting microphone and Chinese/English recognition…")
+      ? (window.AppI18n?.t("voice_auto_starting") ?? "Starting microphone and English speech recognition…")
       : (window.AppI18n?.t("voice_starting") ?? "Opening the microphone and English speech recognition…"));
     this.updateControls();
     try {

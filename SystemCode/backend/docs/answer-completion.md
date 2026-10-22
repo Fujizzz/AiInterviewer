@@ -55,13 +55,22 @@ Audio encoding, recording limits, interview budgets, scoring and provider deadli
 The regression test exercises both ASGI start modes through the real recognition adapter with a
 mocked SDK; it verifies provider arguments and cleanup, not real speech accuracy.
 
-Streaming captions can be revised before the provider finalizes a sentence. The caption view
-renders the actual partial and final text verbatim using `textContent`, including mixed-script
-results. It hides empty text and never replaces recognized words with processing or language
-notices; operational status/errors belong to the separate voice-status region. The caption
-element declares the expected `lang=en` and `translate=no` to opt out of browser translation.
-This changes display only: English recognition hints, silence timing, final-text submission,
-completion receipts, persistence and scoring retain their existing contracts.
+Streaming captions can be revised before the provider finalizes a sentence. English-configured
+provider results can still contain Han characters, as confirmed by the safe STT diagnostics.
+At the user's request, the caption view replaces Han characters and common CJK punctuation
+with spaces for both partial and final results. It normalizes those gaps without joining adjacent
+English words, hides filtered results containing no Latin letters or digits, and leaves unaffected
+English text unchanged. A Chinese-only update clears any previous caption. This is display
+filtering, not translation or correction of misrecognized speech. It does not guarantee that the
+provider itself outputs English only. Rendering still uses `textContent`; processing or language
+notices never replace recognized words, and operational status/errors use the separate voice-status
+region. The caption element retains `lang=en` and `translate=no` to opt out of browser translation.
+Raw partials still count as activity; complete original final text, including hidden fragments,
+continues to submission, persistence and scoring. Even a Chinese-only final remains an answer,
+not an empty response or skip. Recognition hints, completion receipts and Agent/evaluation
+contracts remain unchanged. Offline regressions cover revised mixed/Chinese-only captions,
+supplementary Han, English technical tokens, stale callbacks and original final submission;
+they do not establish live microphone accuracy.
 
 The speech adapter logs the provider request ID at startup and at most one Han-script warning per
 draft/sentence-final stage in a capture. Each warning contains the configured model/English hint,

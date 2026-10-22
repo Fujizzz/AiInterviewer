@@ -83,8 +83,8 @@
  * - startCapture.page.captureType.prototype.start: Offline authorization and handshake complete without creating microphone track.
  * - startCapture.page.captureType.prototype.end: Offline end only sets collection flag; final text must be delivered separately by test, do not fabricate synchronous success.
  * - speechAnswerLifecycle: Validate two-phase boundary between explicit end and final text, plain text captions, duplicate prevention, and next-question cleanup.
- * - actualSpeechCaptions: Display mixed-script drafts/finals verbatim while preserving
- *   submission, timing, plain-text safety and stale-callback guards.
+ * - englishSpeechCaptions: Suppress Chinese in draft/final captions while preserving raw
+ *   answers, timing, plain-text safety and stale-callback guards, including Chinese-only finals.
  * - speechAnswerBoundaries: Verify full final capture-limit text auto-submits, empty final speech records Skip, and recognition failures cannot submit late partial/final text.
  * - blockedResumeSelection: Prohibit start when no input available; failure does not select alternative version; these are simulated permission responses, not replacing real service permissions.
  * - interviewProgressLifecycle: Real page script with deterministic clock: progress will not automatically end interview; disconnection freezes, existing exceptions deduplicated and cleared without removing backend.
@@ -841,27 +841,41 @@ async function speechAnswerLifecycle() {
 test("finish answer waits for final speech and submits once while subtitles remain visible", speechAnswerLifecycle);
 
 /**
- * Functionality: Exercise mixed-script revisions through the real caption and submission callbacks.
+ * Functionality: Exercise Chinese suppression through the real caption and submission callbacks.
  * Inputs: synthetic provider drafts/finals; hardware and transport remain offline stubs.
- * Outputs: assertions on verbatim captions, raw final submission and inactivity/identity guards.
- * Logic: Deliver revised drafts and a final result, then a stale callback; verify status text
- * never replaces recognized words. Constraints: This tests display, not ASR accuracy or translation.
+ * Outputs: assertions on Han-free captions, intact raw finals and inactivity/identity guards.
+ * Logic: Revise mixed, Chinese-only, supplementary/compatibility Han and English drafts; then
+ * finalize English/mixed/Chinese-only answers. Hidden drafts still refresh activity and hidden
+ * finals remain answers. Status text and stale events cannot replace the current caption.
+ * Constraints: This tests display and submission, not ASR accuracy, translation or browser layout.
  */
-async function actualSpeechCaptions() {
+async function englishSpeechCaptions() {
   assert.match(HTML, /id="answer-subtitle"[^>]*lang="en"[^>]*translate="no"/);
   const page = await answeringPage();
   const capture = await startCapture(page);
-  const originalDeadline = page.voice.deadline;
-  page.tick(1000);
-  for (const draft of ["我正在介绍项目", "I used Python 处理数据", "\u{20000}", "<b>actual words</b>"]) {
+  for (const [draft, expected] of [
+    ["I used Python 处理数据", "I used Python"],
+    ["我正在介绍项目。", ""],
+    ["Alex中文名。呃，and, I'm a student at Example University.",
+      "Alex and, I'm a student at Example University."],
+    ["hello中文world", "hello world"],
+    ["\u{20000}\uf900\u3007", ""],
+    ["你好...?!", ""],
+    ["【项目】：Python（95％）", "Python 95％"],
+    ["<b>actual words</b>", "<b>actual words</b>"],
+    ["  C++, C#, Python 3.12, José’s résumé (95%).  ", "  C++, C#, Python 3.12, José’s résumé (95%).  "],
+  ]) {
+    const previousDeadline = page.voice.deadline;
+    page.tick(100);
     capture.onPartial(draft);
-    assert.equal(page.el("answer-subtitle").textContent, draft);
-    assert.equal(page.el("answer-subtitles").hidden, false);
+    assert.equal(page.el("answer-subtitle").textContent, expected);
+    assert.equal(page.el("answer-subtitles").hidden, !expected);
     assert.equal(page.ws.sent.length, 1);
+    assert.ok(page.voice.deadline > previousDeadline, "even hidden drafts count as text activity");
   }
-  assert.ok(page.voice.deadline > originalDeadline, "actual drafts still count as text activity");
   const corrected = "I used Python, C++ and SQL for résumé data (95% accuracy).";
   capture.onPartial(corrected);
+  page.voice.message("Recognizing speech…");
   assert.equal(page.el("answer-subtitle").textContent, corrected);
   capture.onFinal(corrected, 10);
   assert.equal(page.ws.sent.at(-1).answer_text, corrected);
@@ -873,13 +887,22 @@ async function actualSpeechCaptions() {
   const mismatchCapture = await startCapture(finalMismatch);
   const rawFinal = "I used Python 处理数据";
   mismatchCapture.onFinal(rawFinal, 10);
-  assert.equal(finalMismatch.el("answer-subtitle").textContent, rawFinal);
+  assert.equal(finalMismatch.el("answer-subtitle").textContent, "I used Python");
   assert.equal(finalMismatch.ws.sent.at(-1).answer_text, rawFinal, "caption rendering cannot rewrite the answer");
   assert.equal(finalMismatch.ws.sent.length, 2);
   finalMismatch.voice.subtitle("");
   assert.equal(finalMismatch.el("answer-subtitles").hidden, true);
+
+  const chineseOnly = await answeringPage();
+  const chineseCapture = await startCapture(chineseOnly);
+  chineseCapture.onPartial("Earlier English draft");
+  const chineseFinal = "我已经说完了。";
+  chineseCapture.onFinal(chineseFinal, 10);
+  assert.equal(chineseOnly.el("answer-subtitle").textContent, "");
+  assert.equal(chineseOnly.el("answer-subtitles").hidden, true);
+  assert.equal(chineseOnly.ws.sent.at(-1).answer_text, chineseFinal, "hidden final text must not become an empty or skipped answer");
 }
-test("captions display actual mixed-script text without status placeholders or changed answers", actualSpeechCaptions);
+test("captions suppress Chinese without rewriting answers, timing or status", englishSpeechCaptions);
 
 /**
  * Verify full final capture-limit text auto-submits, empty final speech records Skip, and recognition failures cannot submit late partial/final text.
